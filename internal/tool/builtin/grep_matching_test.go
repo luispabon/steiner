@@ -48,7 +48,7 @@ func TestGrepSearch_NormalizesCRLFAndBOM(t *testing.T) {
 				t.Fatalf("write input: %v", err)
 			}
 
-			results, err := grepSearch(context.Background(), grepSearchParams{
+			results, _, err := grepSearch(context.Background(), grepSearchParams{
 				root:        path,
 				displayPath: "input.txt",
 				pattern:     tt.pattern,
@@ -161,7 +161,7 @@ func TestGrepSearch_MultilineAnchorsAndInlineOverrides(t *testing.T) {
 				t.Fatalf("write input: %v", err)
 			}
 
-			results, err := grepSearch(context.Background(), grepSearchParams{
+			results, _, err := grepSearch(context.Background(), grepSearchParams{
 				root:        path,
 				displayPath: "input.txt",
 				pattern:     tt.pattern,
@@ -288,7 +288,7 @@ func TestGrepSearch_SingleLineUsesRealLines(t *testing.T) {
 				t.Fatalf("write input: %v", err)
 			}
 
-			results, err := grepSearch(context.Background(), grepSearchParams{
+			results, _, err := grepSearch(context.Background(), grepSearchParams{
 				root:        path,
 				displayPath: "input.txt",
 				pattern:     tt.pattern,
@@ -352,7 +352,7 @@ func TestGrepSearch_UsesSharedBinaryProbe(t *testing.T) {
 				t.Fatalf("write probe file: %v", err)
 			}
 
-			results, err := grepSearch(context.Background(), grepSearchParams{
+			results, _, err := grepSearch(context.Background(), grepSearchParams{
 				root:        path,
 				displayPath: "probe.txt",
 				pattern:     "needle",

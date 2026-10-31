@@ -41,6 +41,17 @@ type GrepResult struct {
 	Shown      int    `json:"shown"`
 	NextOffset int    `json:"next_offset,omitempty"`
 	Output     string `json:"output"`
+	// FilesSearched counts the readable regular files the search matched
+	// against, so an empty result with zero candidates is distinguishable from
+	// a search that scanned files and found no match.
+	FilesSearched int `json:"files_searched"`
+	// SkippedBinary counts binary files that passed the search filters and were
+	// not matched against. It is zero unless entries were skipped.
+	SkippedBinary int `json:"skipped_binary,omitempty"`
+	// SkippedUnreadable counts files the search could not read.
+	SkippedUnreadable int `json:"skipped_unreadable,omitempty"`
+	// SkippedDirectories counts directories the search could not traverse.
+	SkippedDirectories int `json:"skipped_directories,omitempty"`
 }
 
 // MutationResult is the result from a write or edit tool call.

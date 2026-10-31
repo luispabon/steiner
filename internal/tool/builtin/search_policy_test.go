@@ -48,7 +48,7 @@ func TestGrepSearch_PrunesBlockedDescendants(t *testing.T) {
 	mustWriteTree(t, root, "secrets/nested/deep.txt", "needle\n")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	results, err := grepSearch(context.Background(), grepSearchParams{
+	results, _, err := grepSearch(context.Background(), grepSearchParams{
 		root:        root,
 		displayPath: root,
 		pattern:     "needle",
@@ -69,7 +69,7 @@ func TestGrepSearch_SymlinkRoot(t *testing.T) {
 	mustSymlink(t, filepath.Join(root, "real"), filepath.Join(root, "link"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{})
-	results, err := grepSearch(context.Background(), grepSearchParams{
+	results, _, err := grepSearch(context.Background(), grepSearchParams{
 		root:        filepath.Join(root, "link"),
 		displayPath: "link",
 		pattern:     "needle",
@@ -87,7 +87,7 @@ func TestGrepSearch_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
 	mustSymlink(t, filepath.Join(root, "secrets"), filepath.Join(root, "link"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	_, err := grepSearch(context.Background(), grepSearchParams{
+	_, _, err := grepSearch(context.Background(), grepSearchParams{
 		root:        filepath.Join(root, "link"),
 		displayPath: "link",
 		pattern:     "needle",
@@ -358,7 +358,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	// non-sandbox symlink-root tests above.
 
 	t.Run("grep reads the sandbox copy", func(t *testing.T) {
-		results, err := grepSearch(ctx, grepSearchParams{
+		results, _, err := grepSearch(ctx, grepSearchParams{
 			root:        link,
 			displayPath: "link",
 			pattern:     "needle",
@@ -420,7 +420,7 @@ func TestGrepSearch_FileRootAppliesSandboxTmpRewrite(t *testing.T) {
 	link := filepath.Join(root, "hostlink.txt")
 	mustSymlink(t, target, link)
 
-	results, err := grepSearch(context.Background(), grepSearchParams{
+	results, _, err := grepSearch(context.Background(), grepSearchParams{
 		root:        link,
 		displayPath: "hostlink.txt",
 		pattern:     "needle",

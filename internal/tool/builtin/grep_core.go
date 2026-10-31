@@ -52,6 +52,15 @@ type grepFileResult struct {
 	matches []grepMatch
 }
 
+// grepFileScan is the outcome of scanning one file. binary marks a file that
+// was skipped as binary without being matched, so traversal can count it apart
+// from a readable file whose content simply had no match.
+type grepFileScan struct {
+	file       grepFileResult
+	hasMatches bool
+	binary     bool
+}
+
 type grepContentSelection struct {
 	file       string
 	lineNumber int
@@ -96,6 +105,19 @@ var grepTypeToExt = map[string][]string{
 	"sh":     {".sh", ".bash"},
 }
 
+// grepSearchStats counts what one search traversed, so an empty result can be
+// told apart from a search that had no candidate files. A regular file lands
+// in exactly one bucket: filesSearched when it was read and matched,
+// skippedBinary when it was read and rejected as binary. Excluded, glob or type
+// filtered, and policy-denied entries are intentional filters, so they count
+// in neither bucket.
+type grepSearchStats struct {
+	filesSearched      int
+	skippedBinary      int
+	skippedUnreadable  int
+	skippedDirectories int
+}
+
 // grepSearchParams holds the parameters for grepSearch.
 type grepSearchParams struct {
 	root        string
@@ -109,21 +131,23 @@ type grepSearchParams struct {
 	policy      *tool.PathPolicy
 }
 
-func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, error) {
+func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, grepSearchStats, error) {
+	var stats grepSearchStats
+
 	re, err := compileGrepPattern(p.pattern, p.caseInsens, p.multiline)
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 
 	filterGlob, err := compileGrepFileGlob(p.fileGlob)
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 	exts := grepExtensions(p.fileType)
 
 	rootInfo, err := os.Stat(p.root)
 	if err != nil {
-		return nil, fmt.Errorf("stat root: %w", err)
+		return nil, stats, fmt.Errorf("stat root: %w", err)
 	}
 
 	if !rootInfo.IsDir() {
@@ -132,13 +156,13 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 		// resolved target before searching.
 		resolvedRoot, err := resolveSearchRoot(p.root, p.policy)
 		if err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 		if grepRootExcluded(p.root, p.root, false, p.excluder) {
-			return nil, nil
+			return nil, stats, nil
 		}
 		if resolvedRoot != p.root && grepRootExcluded(resolvedRoot, resolvedRoot, false, p.excluder) {
-			return nil, nil
+			return nil, stats, nil
 		}
 		dp := p.displayPath
 		if p.policy != nil && p.policy.IsSandboxTmpPath(p.root) {
@@ -152,23 +176,24 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 
 	walkRoot, err := resolveSearchRoot(p.root, p.policy)
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 
 	// The root may be a symlink: validate exclusions against both the path the
 	// caller named and the resolved walk root it points at.
 	if grepRootExcluded(walkRoot, p.root, true, p.excluder) {
-		return nil, nil
+		return nil, stats, nil
 	}
 
 	return grepWalkDir(ctx, walkRoot, p.root, re, p.multiline, filterGlob, exts, p.excluder, p.policy)
 }
 
-func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
+func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]grepFileResult, grepSearchStats, error) {
 	var results []grepFileResult
+	var stats grepSearchStats
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if handled, walkErr := walkDirEntryError(path, root, d, err); handled {
+		if handled, walkErr := grepWalkEntryError(&stats, path, root, d, err); handled {
 			return walkErr
 		}
 
@@ -197,27 +222,33 @@ func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regex
 			return nil
 		}
 
-		file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
+		scan, err := grepSearchFile(ctx, path, relPath, re, multiline)
 		if err != nil {
 			if skippedEntryError(err) {
+				stats.skippedUnreadable++
 				return nil
 			}
 			return err
 		}
-		if hasMatches {
-			results = append(results, file)
+		if scan.binary {
+			stats.skippedBinary++
+			return nil
+		}
+		stats.filesSearched++
+		if scan.hasMatches {
+			results = append(results, scan.file)
 		}
 		return nil
 	})
 
 	if walkErr != nil {
 		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
-			return nil, walkErr
+			return nil, stats, walkErr
 		}
-		return nil, fmt.Errorf("walk: %w", walkErr)
+		return nil, stats, fmt.Errorf("walk: %w", walkErr)
 	}
 
-	return results, nil
+	return results, stats, nil
 }
 
 func walkDirEntryError(path, root string, d fs.DirEntry, err error) (bool, error) {
@@ -235,6 +266,21 @@ func walkDirEntryError(path, root string, d fs.DirEntry, err error) (bool, error
 	default:
 		return true, err
 	}
+}
+
+// grepWalkEntryError counts an unreadable entry before deferring to
+// walkDirEntryError for the walk outcome. An unreadable search root stays a
+// search error; a descendant is skipped and counted so the partial result is
+// not reported as complete.
+func grepWalkEntryError(stats *grepSearchStats, path, root string, d fs.DirEntry, err error) (bool, error) {
+	if path != root && skippedEntryError(err) {
+		if d != nil && d.IsDir() {
+			stats.skippedDirectories++
+		} else {
+			stats.skippedUnreadable++
+		}
+	}
+	return walkDirEntryError(path, root, d, err)
 }
 
 func walkEntryError(d fs.DirEntry, err error) bool {
@@ -358,18 +404,24 @@ func normalizedDisplayPath(root, displayPath string) string {
 // named, used for exclusion checks, file filters, and the displayed path;
 // readPath is the path opened on disk, which differs when policy rewrites a
 // symlink root.
-func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder) ([]grepFileResult, error) {
+func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder) ([]grepFileResult, grepSearchStats, error) {
+	var stats grepSearchStats
 	if grepPathExcluded(path, path, path, relPath, filterGlob, exts, excluder) {
-		return nil, nil
+		return nil, stats, nil
 	}
-	file, hasMatches, err := grepSearchFile(ctx, readPath, relPath, re, multiline)
+	scan, err := grepSearchFile(ctx, readPath, relPath, re, multiline)
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
-	if !hasMatches {
-		return nil, nil
+	if scan.binary {
+		stats.skippedBinary = 1
+		return nil, stats, nil
 	}
-	return []grepFileResult{file}, nil
+	stats.filesSearched = 1
+	if !scan.hasMatches {
+		return nil, stats, nil
+	}
+	return []grepFileResult{scan.file}, stats, nil
 }
 
 func grepShouldSkipEntry(walkRoot, lexicalRoot, path, relPath string, d fs.DirEntry, excluder *tool.WorkspaceExcluder, filterGlob glob.Glob, exts []string) (bool, bool) {
@@ -414,34 +466,37 @@ func grepMatchesExtension(path string, exts []string) bool {
 	return false
 }
 
-func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool) (grepFileResult, bool, error) {
+func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool) (grepFileScan, error) {
 	select {
 	case <-ctx.Done():
-		return grepFileResult{}, false, ctx.Err()
+		return grepFileScan{}, ctx.Err()
 	default:
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return grepFileResult{}, false, fmt.Errorf("read %s: %w", relPath, err)
+		return grepFileScan{}, fmt.Errorf("read %s: %w", relPath, err)
 	}
 
 	if isBinary(content) {
-		return grepFileResult{}, false, nil
+		return grepFileScan{binary: true}, nil
 	}
 
 	contentText := normalizeGrepContent(content)
 	lines := grepContentLines(contentText)
 	matches := grepLineMatches(lines, contentText, relPath, re, multiline)
 	if len(matches) == 0 {
-		return grepFileResult{}, false, nil
+		return grepFileScan{}, nil
 	}
 
-	return grepFileResult{
-		file:    relPath,
-		lines:   lines,
-		matches: matches,
-	}, true, nil
+	return grepFileScan{
+		file: grepFileResult{
+			file:    relPath,
+			lines:   lines,
+			matches: matches,
+		},
+		hasMatches: true,
+	}, nil
 }
 
 const grepUTF8BOM = "\xef\xbb\xbf"

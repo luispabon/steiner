@@ -432,7 +432,7 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 		t.Fatalf("write multiline file: %v", err)
 	}
 
-	matches, err := grepSearch(context.Background(), grepSearchParams{
+	matches, stats, err := grepSearch(context.Background(), grepSearchParams{
 		root:        tmpDir,
 		displayPath: "multiline.txt",
 		pattern:     "alpha\\nbeta",
@@ -440,6 +440,9 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("grepSearch returned error: %v", err)
+	}
+	if stats.filesSearched != 1 {
+		t.Fatalf("stats.filesSearched = %d, want 1", stats.filesSearched)
 	}
 	if len(matches) != 1 {
 		t.Fatalf("len(matches) = %d, want 1", len(matches))
@@ -638,7 +641,7 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), grepSearchParams{root: root, displayPath: root, pattern: "needle"})
+		_, _, err := grepSearch(context.Background(), grepSearchParams{root: root, displayPath: root, pattern: "needle"})
 		if !errors.Is(err, fs.ErrPermission) {
 			t.Fatalf("grepSearch error = %v, want permission error", err)
 		}
@@ -662,7 +665,7 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 			t.Skip("filesystem does not deny file reads after chmod 000")
 		}
 
-		results, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
+		results, _, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
 		if err != nil {
 			t.Fatalf("grepSearch: %v", err)
 		}
@@ -692,7 +695,7 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		results, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
+		results, _, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
 		if err != nil {
 			t.Fatalf("grepSearch: %v", err)
 		}
@@ -706,7 +709,7 @@ func TestGrepSearch_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := grepSearch(ctx, grepSearchParams{root: t.TempDir(), displayPath: ".", pattern: "needle"})
+	_, _, err := grepSearch(ctx, grepSearchParams{root: t.TempDir(), displayPath: ".", pattern: "needle"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context canceled", err)
 	}

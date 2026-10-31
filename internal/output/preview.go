@@ -59,6 +59,18 @@ type ToolPreviewGrepFile struct {
 	Matches []ToolPreviewGrepMatch
 }
 
+// ToolPreviewGrepScan reports what a grep search traversed. FilesSearched
+// counts readable files matched against; the skipped counts hold binary,
+// unreadable and untraversable entries, so a preview can mark a partial result
+// or an empty candidate set. A nil scan on a preview marks a result saved
+// before the counters existed.
+type ToolPreviewGrepScan struct {
+	FilesSearched      int
+	SkippedBinary      int
+	SkippedUnreadable  int
+	SkippedDirectories int
+}
+
 // ToolPreview is the normalized preview payload for tool results.
 type ToolPreview struct {
 	Kind      string
@@ -89,6 +101,7 @@ type ToolPreview struct {
 	FetchDescription string
 	Entries          []ToolPreviewListEntry
 	GrepFiles        []ToolPreviewGrepFile
+	GrepScan         *ToolPreviewGrepScan
 	PatchAdded       []string
 	PatchModified    []string
 	PatchDeleted     []string

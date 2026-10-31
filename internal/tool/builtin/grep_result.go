@@ -29,7 +29,7 @@ import (
 // headers, context lines, separators and notices all count toward it.
 const grepRenderedLineBudget = 200
 
-func buildGrepResult(files []grepFileResult, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {
+func buildGrepResult(files []grepFileResult, stats grepSearchStats, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {
 	// files_with_matches and count render one line per logical result.
 	lineLimit := min(headLimit, grepRenderedLineBudget)
 	switch mode {
@@ -37,19 +37,19 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 		rows := grepFilesWithMatches(files)
 		page := paginateGrepRows(rows, offset, lineLimit)
 		output := renderGrepFilesWithMatches(page)
-		return buildGrepResultFromPage(len(rows), len(page), offset, output)
+		return buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
 	case "count":
 		rows := grepCountRows(files)
 		page := paginateGrepRows(rows, offset, lineLimit)
 		output := renderGrepCountRows(page)
-		return buildGrepResultFromPage(len(rows), len(page), offset, output)
+		return buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
 	case "content":
 		fallthrough
 	default:
 		rows := grepContentSelections(files)
 		candidates := paginateGrepRows(rows, offset, headLimit)
 		page, output := fitGrepContentPage(files, candidates, showLines, beforeContext, afterContext)
-		result := buildGrepResultFromPage(len(rows), len(page), offset, output)
+		result := buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
 		// Apply line bounding for content mode only; never truncate
 		// file paths in files_with_matches or path:count rows.
 		if result.Output != "" && len(page) > 0 {
@@ -61,7 +61,7 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 	}
 }
 
-func buildGrepResultFromPage(total, returned, offset int, output string) GrepResult {
+func buildGrepResultFromPage(total, returned, offset int, stats grepSearchStats, output string) GrepResult {
 	hasMore := offset+returned < total
 	truncated := total > 0 && (offset > 0 || hasMore)
 	nextOffset := 0
@@ -73,9 +73,13 @@ func buildGrepResultFromPage(total, returned, offset int, output string) GrepRes
 	}
 
 	result := GrepResult{
-		Shown:      returned,
-		NextOffset: nextOffset,
-		Output:     output,
+		Shown:              returned,
+		NextOffset:         nextOffset,
+		Output:             output,
+		FilesSearched:      stats.filesSearched,
+		SkippedBinary:      stats.skippedBinary,
+		SkippedUnreadable:  stats.skippedUnreadable,
+		SkippedDirectories: stats.skippedDirectories,
 	}
 	if truncated {
 		result.Matches = total
