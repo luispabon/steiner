@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"sort"
 	"strings"
 	"testing"
 )
@@ -117,7 +116,7 @@ func TestGrepSchema(t *testing.T) {
 	}
 }
 
-func TestGrepSchemaEnumsAndBounds(t *testing.T) {
+func TestGrepSchemaDescriptionsAndBounds(t *testing.T) {
 	props := schemaProperties(GrepSchema())
 	if props == nil {
 		t.Fatal("properties is nil")
@@ -127,20 +126,13 @@ func TestGrepSchemaEnumsAndBounds(t *testing.T) {
 	if typeProp == nil {
 		t.Fatal("missing type property")
 	}
-	enum, _ := typeProp["enum"].([]string)
-	want := grepTypeNames()
-	if len(enum) != len(want) {
-		t.Fatalf("type enum = %v, want %v", enum, want)
-	}
-	if !sort.StringsAreSorted(enum) {
-		t.Errorf("type enum = %v, want sorted order", enum)
-	}
-	for i := range want {
-		if enum[i] != want[i] {
-			t.Fatalf("type enum = %v, want %v", enum, want)
-		}
+	if _, ok := typeProp["enum"]; ok {
+		t.Error("type should list valid names in its description, not an enum")
 	}
 	desc, _ := typeProp["description"].(string)
+	if want := strings.Join(grepTypeNames(), ", "); !strings.Contains(desc, want) {
+		t.Errorf("type description = %q, want the sorted accepted names %q", desc, want)
+	}
 	for _, mention := range []string{"case-insensitive", "alias", "rejected"} {
 		if !strings.Contains(desc, mention) {
 			t.Errorf("type description = %q, want it to mention %q", desc, mention)
@@ -163,7 +155,7 @@ func TestGrepSchemaEnumsAndBounds(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"context", "before_context", "after_context", "offset"} {
+	for _, name := range []string{"context", "before_context", "after_context"} {
 		prop, _ := props[name].(map[string]any)
 		if prop == nil {
 			t.Fatalf("missing %s property", name)
@@ -171,6 +163,13 @@ func TestGrepSchemaEnumsAndBounds(t *testing.T) {
 		if got := prop["minimum"]; got != 0 {
 			t.Errorf("%s minimum = %v, want 0", name, got)
 		}
+	}
+	offsetProp, _ := props["offset"].(map[string]any)
+	if offsetProp == nil {
+		t.Fatal("missing offset property")
+	}
+	if _, ok := offsetProp["minimum"]; ok {
+		t.Error("offset should not declare a minimum; negative values clamp to 0")
 	}
 }
 

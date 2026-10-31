@@ -1,5 +1,7 @@
 package builtin
 
+import "strings"
+
 // ReadSchema returns the JSON schema for the read tool.
 func ReadSchema() map[string]any {
 	return map[string]any{
@@ -87,7 +89,7 @@ func GrepSchema() map[string]any {
 			"pattern":          map[string]any{"type": "string", "description": "Regex pattern to search for. A leading UTF-8 BOM is removed and CRLF becomes LF before matching."},
 			"path":             map[string]any{"type": "string", "description": "Directory or file to search in"},
 			"glob":             map[string]any{"type": "string", "description": "File pattern filter over paths relative to the search root, written with forward slashes. An alternative without a slash matches a file's basename at any depth; an alternative with a slash matches that root-relative path only. A leading ./ anchors the pattern, or just that brace alternative, to the search root. Every **/ also matches zero directories. Braces, character classes and escapes use glob syntax; an expansion beyond 256 forms is rejected."},
-			"type":             map[string]any{"type": "string", "enum": grepTypeNames(), "description": "File extension filter. Values are case-insensitive; \"golang\" is an alias for \"go\"; any other value is rejected."},
+			"type":             map[string]any{"type": "string", "description": "File extension filter. Values are case-insensitive and \"golang\" is an alias for \"go\"; any other value is rejected. Valid names: " + strings.Join(grepTypeNames(), ", ") + "."},
 			"output_mode":      map[string]any{"type": "string", "description": "Output mode: content, files_with_matches, or count"},
 			"case_insensitive": map[string]any{"type": "boolean", "description": "Case insensitive search"},
 			"line_numbers":     map[string]any{"type": "boolean", "description": "Include line and column numbers in content output. Column is 1-based and rune-counted (matches lsp_definitions/lsp_references), pointing at where the match starts — not necessarily the target identifier's own position. Search for the identifier itself (e.g. word-boundary the pattern) when you intend to feed the result into an LSP tool. Continuation lines of multiline matches have column 0."},
@@ -96,7 +98,7 @@ func GrepSchema() map[string]any {
 			"context":          map[string]any{"type": "integer", "description": "Symmetric context lines for content output", "minimum": 0},
 			"multiline":        map[string]any{"type": "boolean", "description": "Compile the pattern with (?ms), so ^ and $ match line boundaries and . matches newlines. Inline flags in the pattern, such as (?-m) or (?-s), override this."},
 			"head_limit":       map[string]any{"type": "integer", "description": "Max logical results to return per page", "default": defaultGrepHeadLimit, "maximum": maxGrepHeadLimit},
-			"offset":           map[string]any{"type": "integer", "description": "Logical result offset", "default": 0, "minimum": 0},
+			"offset":           map[string]any{"type": "integer", "description": "Logical result offset", "default": 0},
 		},
 		"required":             []string{"pattern"},
 		"additionalProperties": false,
