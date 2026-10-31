@@ -58,7 +58,7 @@ In-session readers (`Recorder.Window`, `SessionReport`, `SessionReportFor`) read
 
 ## Telemetry
 
-`STEINER_USAGE_TELEMETRY` names a JSONL file for usage records, and `STEINER_USAGE_TELEMETRY_RUN` sets the run ID. Each line carries `seq`, a process-wide counter incremented under the writer mutex, so file order matches `seq` order.
+`STEINER_USAGE_TELEMETRY` names a JSONL file for usage records, and `STEINER_USAGE_TELEMETRY_RUN` sets the run ID. `telemetry.record` (`internal/usagestats/telemetry.go`) writes each usage line synchronously under its writer mutex, without buffering or fsync. A slow filesystem can delay `Recorder.Record` and model turns. Each usage line carries `seq`, a counter incremented under that mutex, so usage lines from the same writer follow `seq` order. WebSocket events use a separate writer (`recordWSTelemetry` in `internal/provider/codex_ws_telemetry.go`) and have no `seq`. Usage bucket persistence is separate and asynchronous.
 
 ## Cache diagnostics
 
