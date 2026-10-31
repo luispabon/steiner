@@ -33,6 +33,10 @@ const (
 // to read or refresh it consistently.
 var errTokenFileUnstable = errors.New("token file changed while resolving")
 
+// errRefreshedTokenInvalid reports a refresh that returned a token which is
+// already expired or carries no access token, so retrying cannot help.
+var errRefreshedTokenInvalid = errors.New("refreshed token is not valid")
+
 // AuthResolver caches OAuth tokens per token-store path for the life of the
 // process and shares one refresh between concurrent callers. A cached token is
 // reused only while the token file keeps the same identity, size, and
@@ -60,6 +64,8 @@ type AuthResolver struct {
 	refreshTimeout time.Duration
 	// newTokenFile overrides the file access used for a store; tests set it.
 	newTokenFile func(*TokenStore) tokenFile
+	// lockAcquire overrides the cross-process token lock; tests set it.
+	lockAcquire func(context.Context, string) (func(), error)
 }
 
 // NewAuthResolver returns an empty AuthResolver.
@@ -201,13 +207,19 @@ func (r *AuthResolver) waitForRefresh(ctx context.Context, entry *authEntry, fil
 
 	select {
 	case <-flight.done:
-		if flight.err != nil {
-			return nil, flight.err
-		}
-		return cloneToken(flight.token), nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		// A refresh that completed as the caller gave up is still a result: report
+		// it instead of the cancellation.
+		select {
+		case <-flight.done:
+		default:
+			return nil, ctx.Err()
+		}
 	}
+	if flight.err != nil {
+		return nil, flight.err
+	}
+	return cloneToken(flight.token), nil
 }
 
 // refresh publishes the result of one detached load and refresh to the entry's
@@ -218,6 +230,8 @@ func (r *AuthResolver) waitForRefresh(ctx context.Context, entry *authEntry, fil
 // token is marked unpersisted, so the next refresh starts from it and retries
 // the save instead of using the older refresh token on disk.
 func (r *AuthResolver) refresh(entry *authEntry, flight *authFlight, file tokenFile, conf *oauth2.Config, httpClient *http.Client) {
+	defer close(flight.done)
+
 	retained, retainedStamp := entry.retained()
 	token, stamp, persisted, err := r.loadOrRefresh(entry.store, file, conf, httpClient, retained, retainedStamp)
 
@@ -232,7 +246,6 @@ func (r *AuthResolver) refresh(entry *authEntry, flight *authFlight, file tokenF
 	entry.mu.Unlock()
 
 	flight.token, flight.err = token, err
-	close(flight.done)
 }
 
 // retained returns the cached token that a previous refresh could not persist,
@@ -262,7 +275,7 @@ func (r *AuthResolver) loadOrRefresh(store *TokenStore, file tokenFile, conf *oa
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout())
 	defer cancel()
 
-	unlock, err := acquireTokenLock(ctx, store.path)
+	unlock, err := r.acquireLock(ctx, store.path)
 	if err != nil {
 		return nil, fileStamp{}, false, err
 	}
@@ -288,12 +301,23 @@ func (r *AuthResolver) loadOrRefresh(store *TokenStore, file tokenFile, conf *oa
 		if err != nil {
 			return nil, fileStamp{}, false, err
 		}
+		if !tokenValid(refreshed, time.Now()) {
+			// Another round cannot help an already-expired answer. The token is kept
+			// like an unsaved one, because its rotated refresh token is the only
+			// credential this process has left.
+			return refreshed, stamp, false, errRefreshedTokenInvalid
+		}
 
-		// The save is skipped when the check below sees a removed file, but a
-		// removal racing the write can still be overwritten: login and other
-		// writers do not take the lock.
+		// The save is skipped when the file is gone, but a removal racing the write
+		// can still be overwritten: login and other writers do not take the lock.
+		// Any other stat failure also skips the save and keeps the refreshed token
+		// in memory, since returning nil would leave the process presenting the
+		// refresh token the endpoint has just invalidated.
 		if _, err := file.stat(); err != nil {
-			return nil, fileStamp{}, false, statError(err)
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil, fileStamp{}, false, ErrNoToken
+			}
+			return refreshed, stamp, false, statError(err)
 		}
 		if err := store.Save(refreshed); err != nil {
 			return refreshed, stamp, false, fmt.Errorf("save refreshed token: %w", err)
@@ -373,6 +397,15 @@ func refreshToken(ctx context.Context, conf *oauth2.Config, httpClient *http.Cli
 		return nil, fmt.Errorf("refresh token: %w", err)
 	}
 	return preserveTokenMetadata(refreshed, token), nil
+}
+
+// acquireLock takes the cross-process token lock, unless a test replaced it to
+// exercise in-process single-flight on its own.
+func (r *AuthResolver) acquireLock(ctx context.Context, path string) (func(), error) {
+	if r.lockAcquire != nil {
+		return r.lockAcquire(ctx, path)
+	}
+	return acquireTokenLock(ctx, path)
 }
 
 // timeout returns the shared refresh deadline.

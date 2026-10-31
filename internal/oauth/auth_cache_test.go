@@ -185,6 +185,7 @@ func TestAuthResolverSingleFlightRefresh(t *testing.T) {
 
 	server, refreshes := refreshServer(t, 100*time.Millisecond)
 	resolver := NewAuthResolver()
+	resolver.lockAcquire = func(context.Context, string) (func(), error) { return func() {}, nil }
 	conf := testTokenConf(server.URL)
 
 	const callers = 8

@@ -49,16 +49,12 @@ func TestCodexWSBurstLoad1008Watch(t *testing.T) {
 	}
 
 	store := oauth.NewTokenStore(tokenPath)
-	token, err := store.Load()
-	if err != nil {
-		t.Fatalf("load OAuth token: %v", err)
-	}
 
 	// Refresh token like the real code (newCodexProvider in cmd/steiner/runtime_build.go).
-	token, err = oauth.NewRefreshableTokenSource(store, &oauth2.Config{
+	token, err := oauth.NewAuthResolver().Resolve(ctx, store, &oauth2.Config{
 		ClientID: oauth.CodexClientID,
 		Endpoint: oauth2.Endpoint{TokenURL: oauth.CodexTokenURL},
-	}, token).Token()
+	}, nil)
 	if err != nil {
 		t.Fatalf("refresh codex token: %v", err)
 	}

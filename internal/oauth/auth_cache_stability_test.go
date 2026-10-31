@@ -306,10 +306,10 @@ func TestAuthResolverKeepsRefreshedTokenWhenSaveFails(t *testing.T) {
 }
 
 // rotatingRefreshServer returns a token endpoint that issues a new refresh token
-// on every request, answers with a short-lived access token ("access-N"), and
-// rejects any refresh token it did not issue. The stored token written by
-// saveTestToken starts the chain with "refresh_token".
-func rotatingRefreshServer(t *testing.T, lifetime time.Duration) (*httptest.Server, *atomic.Int32) {
+// on every request, answers with an access token that expires after one minute
+// ("access-N"), and rejects any refresh token it did not issue. The stored token
+// written by saveTestToken starts the chain with "refresh_token".
+func rotatingRefreshServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var mu sync.Mutex
 	expected := "refresh_token"
@@ -336,7 +336,7 @@ func rotatingRefreshServer(t *testing.T, lifetime time.Duration) (*httptest.Serv
 		expected = fmt.Sprintf("refresh-%d", n)
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"access_token":"access-%d","refresh_token":"refresh-%d","token_type":"Bearer","expires_in":%d}`, n, n, int(lifetime.Seconds()))
+		_, _ = fmt.Fprintf(w, `{"access_token":"access-%d","refresh_token":"refresh-%d","token_type":"Bearer","expires_in":%d}`, n, n, int(time.Minute.Seconds()))
 	}))
 	t.Cleanup(server.Close)
 	return server, count
@@ -347,7 +347,7 @@ func TestAuthResolverShortLivedTokenRefreshesOnce(t *testing.T) {
 	store := NewTokenStore(path)
 	saveRefreshDueTestToken(t, store)
 
-	server, refreshes := rotatingRefreshServer(t, time.Minute)
+	server, refreshes := rotatingRefreshServer(t)
 	resolver := NewAuthResolver()
 	conf := testTokenConf(server.URL)
 
@@ -375,7 +375,7 @@ func TestAuthResolverUsesRetainedTokenAfterFailedSave(t *testing.T) {
 	store := NewTokenStore(path)
 	saveRefreshDueTestToken(t, store)
 
-	server, refreshes := rotatingRefreshServer(t, time.Minute)
+	server, refreshes := rotatingRefreshServer(t)
 	resolver := NewAuthResolver()
 	conf := testTokenConf(server.URL)
 
@@ -424,6 +424,94 @@ func TestAuthResolverUsesRetainedTokenAfterFailedSave(t *testing.T) {
 	}
 }
 
+// refreshPostedFile fails the first stat after a token POST has been served, so
+// a test can inject a stat error at exactly the pre-save check.
+type refreshPostedFile struct {
+	inner    tokenFile
+	posted   *atomic.Bool
+	mu       sync.Mutex
+	injected bool
+}
+
+func (f *refreshPostedFile) stat() (fileStamp, error) {
+	f.mu.Lock()
+	fail := f.posted.Load() && !f.injected
+	if fail {
+		f.injected = true
+	}
+	f.mu.Unlock()
+	if fail {
+		return fileStamp{}, &fs.PathError{Op: "stat", Path: "token.json", Err: fs.ErrPermission}
+	}
+	return f.inner.stat()
+}
+
+func (f *refreshPostedFile) load() (*oauth2.Token, error) { return f.inner.load() }
+
+func TestAuthResolverKeepsRotatedTokenWhenPreSaveStatFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	store := NewTokenStore(path)
+	saveRefreshDueTestToken(t, store)
+
+	server, refreshes := rotatingRefreshServer(t)
+	conf := testTokenConf(server.URL)
+
+	// The flag marks the moment the token endpoint answered, which is the only
+	// stat the injected failure may hit.
+	var posted atomic.Bool
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		posted.Store(true)
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	file := &refreshPostedFile{inner: storeTokenFile{store: store}, posted: &posted}
+	resolver := scriptedResolver(file)
+
+	if _, err := resolver.Resolve(context.Background(), store, conf, client); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("Resolve() error = %v, want the injected pre-save stat error", err)
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Fatalf("refresh requests = %d, want 1", got)
+	}
+
+	// The rotated token is kept in memory, so the next call presents refresh-1
+	// instead of the refresh token the endpoint has just invalidated.
+	token, err := resolver.Resolve(context.Background(), store, conf, nil)
+	if err != nil {
+		t.Fatalf("Resolve() after pre-save stat error error = %v", err)
+	}
+	if got := token.AccessToken; got != "access-2" {
+		t.Errorf("AccessToken = %q, want access-2", got)
+	}
+	if got := refreshes.Load(); got != 2 {
+		t.Errorf("refresh requests = %d, want 2", got)
+	}
+}
+
+func TestAuthResolverRejectsAlreadyExpiredRefresh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	store := NewTokenStore(path)
+	saveRefreshDueTestToken(t, store)
+
+	count := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		count.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"access_token":"expired-token","refresh_token":"refresh_token","expires_in":-3600}`)
+	}))
+	t.Cleanup(server.Close)
+
+	conf := testTokenConf(server.URL)
+	resolver := NewAuthResolver()
+	for call := 1; call <= 2; call++ {
+		if _, err := resolver.Resolve(context.Background(), store, conf, nil); !errors.Is(err, errRefreshedTokenInvalid) {
+			t.Fatalf("Resolve() call %d error = %v, want errRefreshedTokenInvalid", call, err)
+		}
+		if got := count.Load(); got != int32(call) {
+			t.Fatalf("refresh requests after call %d = %d, want %d: an already-expired answer must not be retried", call, got, call)
+		}
+	}
+}
+
 func TestAuthResolverStableReadMissingFileIsNoToken(t *testing.T) {
 	stamp := fileStamp{modTime: time.Unix(100, 0), size: 10, inode: 1, exists: true}
 	var stats atomic.Int32
@@ -461,7 +549,7 @@ func TestAuthResolverTransientStatErrorKeepsRetainedToken(t *testing.T) {
 	store := NewTokenStore(path)
 	saveRefreshDueTestToken(t, store)
 
-	server, refreshes := rotatingRefreshServer(t, time.Minute)
+	server, refreshes := rotatingRefreshServer(t)
 	flaky := &flakyStatFile{inner: storeTokenFile{store: store}}
 	resolver := NewAuthResolver()
 	resolver.newTokenFile = func(*TokenStore) tokenFile { return flaky }

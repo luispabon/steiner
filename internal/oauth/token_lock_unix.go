@@ -31,8 +31,13 @@ func unsupportedFlock(err error) bool {
 // acquireTokenLock takes an advisory exclusive flock on path+".lock", creating
 // the lock file 0600 when needed. Acquisition never blocks in the kernel: it
 // retries a non-blocking flock until it succeeds or ctx is done, so ctx's
-// deadline bounds the wait. The returned release function is never nil on
-// success.
+// deadline bounds the wait. A blocking flock would instead leave the goroutine
+// parked in the kernel past the refresh deadline. The returned release function
+// is never nil on success.
+//
+// A filesystem that reports flock as unsupported proceeds without exclusion, the
+// same fail-open behaviour token_lock_other.go documents for non-Unix
+// platforms.
 func acquireTokenLock(ctx context.Context, path string) (func(), error) {
 	return tokenLock{flock: unix.Flock}.acquire(ctx, path)
 }

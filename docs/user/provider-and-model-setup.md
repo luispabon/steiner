@@ -215,25 +215,28 @@ the browser is opened. `steiner login codex status` reports the stored token's
 expiry as `valid` or `needs refresh`, or tells you to run `steiner login codex`.
 
 Steiner caches the stored token in-process and reuses it until the token file
-changes or disappears. A token that is expired or within five minutes of expiry
-is refreshed before use, and a token file that records no expiry is used as
-stored. Concurrent callers in one process share a single refresh: the caller
-that starts it supplies the HTTP client used for the request, and the refresh
-stops after 30 seconds. On Unix, a refresh also takes an advisory lock on
-`codex_auth.json.lock` (mode `0600`), so a second Steiner process adopts the
-refreshed token instead of refreshing again. Windows, AIX, and other platforms
-without `flock`, and filesystems where `flock` is unavailable, have no
-cross-process exclusion: two processes can refresh at the same time, the last
-write wins, and the refresh token rotated by the other process stops working,
-which can require logging in again. If the refreshed token cannot be written,
-the call that refreshed it reports the write error and the process keeps using
-that token in memory; the write is retried at the next refresh, and if it never
-succeeds a later start requires logging in again. Steiner checks that the token
-file still exists before writing a refreshed token, so a removal that happens
-before that check is respected; a removal racing the write can still be
-overwritten. `steiner login codex` does not take the lock, so a login that
-writes at the same instant as another process's refresh can be replaced by that
-refresh's write.
+changes or disappears, or until the token is expired or within five minutes of
+expiry. The last case is refreshed before use even though the file itself is
+unchanged, and a token file that records no expiry is used as stored. Concurrent
+callers in one process share a single refresh: the caller that starts it supplies
+the HTTP client used for the request, and the refresh stops after 30 seconds. On
+Unix, a refresh also takes an advisory lock on `codex_auth.json.lock` (mode
+`0600`), so a second Steiner process adopts the refreshed token instead of
+refreshing again. Windows, AIX, and other platforms without `flock`, and
+filesystems where `flock` is unavailable, have no cross-process exclusion: two
+processes can refresh at the same time, the last write wins, and the refresh
+token rotated by the other process stops working, which can require logging in
+again. If the refreshed token cannot be written, or the token file cannot be
+inspected before the write, the call that refreshed it reports the error and the
+process keeps using the refreshed token from memory; the write is retried at the
+next refresh. If it never succeeds, other Steiner processes still read the older
+token from disk, fail to refresh it, and report an authentication error until
+you run `steiner login codex` again. Steiner checks that the token file still
+exists before writing a refreshed token, so a removal that happens before that
+check is respected; a removal racing the write can still be overwritten.
+`steiner login codex` does not take the lock, so a login that writes while
+another process's refresh request is in flight (up to 30 seconds) can be
+replaced by that refresh's write.
 
 Configure the provider with `type: codex` and select the model with its raw
 reference:

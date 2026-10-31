@@ -38,8 +38,10 @@ var codexAuthResolver = oauth.NewAuthResolver()
 
 // ResolveCodexAuth loads the stored Codex token, refreshes it when it is expired
 // or within the proactive refresh window, and returns its credentials. A stored
-// token without expiry is used as is. The token is cached in-process and
-// reloaded only when the token file changes or disappears.
+// token without expiry is used as is. The token is cached in-process: a later
+// call reloads the file only when the token file changed or disappeared, and
+// still refreshes a cached token that is expired or inside the five-minute
+// proactive window.
 //
 // ctx cancels only this caller's wait for a refresh: the refresh itself runs
 // detached under a fixed 30-second deadline, so one caller giving up does not
