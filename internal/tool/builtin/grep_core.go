@@ -127,7 +127,17 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 	}
 
 	if !rootInfo.IsDir() {
+		// The root may be a symlinked file that grep reads through the link:
+		// validate exclusions for both the lexical name and, through policy, the
+		// resolved target before searching.
+		resolvedRoot, err := resolveSearchRoot(p.root, p.policy)
+		if err != nil {
+			return nil, err
+		}
 		if grepRootExcluded(p.root, p.root, false, p.excluder) {
+			return nil, nil
+		}
+		if resolvedRoot != p.root && grepRootExcluded(resolvedRoot, resolvedRoot, false, p.excluder) {
 			return nil, nil
 		}
 		dp := p.displayPath

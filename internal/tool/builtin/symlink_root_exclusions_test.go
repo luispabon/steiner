@@ -1,8 +1,13 @@
 package builtin
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // TestSymlinkRootExclusions proves workspace exclusions are validated against
@@ -97,6 +102,63 @@ func TestSearchLexicalPath(t *testing.T) {
 			if got != tt.want {
 				t.Fatalf("searchLexicalPath(%q, %q, %q) = %q, want %q", tt.walkRoot, tt.lexicalRoot, tt.path, got, tt.want)
 			}
+		})
+	}
+}
+
+// TestGrepFileSymlinkRootExclusions proves an explicit file root that is a
+// symlink is validated against both its lexical name and, through PathPolicy,
+// its resolved target.
+func TestGrepFileSymlinkRootExclusions(t *testing.T) {
+	tests := []struct {
+		name          string
+		excludePaths  []string
+		blockedPaths  []string
+		wantRows      []string
+		wantPolicyErr bool
+	}{
+		{
+			name:         "resolved target excluded",
+			excludePaths: []string{"secrets"},
+		},
+		{
+			name:         "lexical link name excluded",
+			excludePaths: []string{"keylink.txt"},
+		},
+		{
+			name:     "allowed symlinked file is searched",
+			wantRows: []string{"keylink.txt"},
+		},
+		{
+			name:          "blocked target fails closed",
+			blockedPaths:  []string{"secrets"},
+			wantPolicyErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mustWriteTree(t, root, "secrets/key.txt", "needle\n")
+			mustSymlink(t, filepath.Join(root, "secrets", "key.txt"), filepath.Join(root, "keylink.txt"))
+
+			policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: tt.blockedPaths})
+			excluder := tool.NewWorkspaceExcluder(root, tt.excludePaths, nil)
+			env := Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder}
+
+			if tt.wantPolicyErr {
+				_, err := NewGrepTool(env).Handler(context.Background(), map[string]any{
+					"path":        "keylink.txt",
+					"pattern":     "needle",
+					"output_mode": "files_with_matches",
+				})
+				var policyErr *tool.PathPolicyError
+				if !errors.As(err, &policyErr) {
+					t.Fatalf("grep error = %v, want PathPolicyError", err)
+				}
+				return
+			}
+
+			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, "keylink.txt"), tt.wantRows)
 		})
 	}
 }
