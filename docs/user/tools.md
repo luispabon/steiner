@@ -79,4 +79,28 @@ A timed-out command returns the output captured so far, with `timed_out: true` a
 - Each `content` page renders at most 200 lines. File headers, context lines, separators, and notices count toward that budget, so a content page can hold fewer results than `head_limit`. `files_with_matches` and `count` pages are capped at 200 rows.
 - `next_offset` is the first logical result not on this page. To continue, pass it as `offset`. It is omitted on the last page.
 - `shown` is the number of results on this page. When the result is paged, `matches` gives the total number of logical results. It is omitted when everything fits on one page.
+- An `offset` past the last logical result returns empty `output` with `shown: 0` and `matches` set to the total. It is not an error.
+- `files_searched` counts the files read. `skipped_binary`, `skipped_unreadable`, and `skipped_directories` count entries left out of the search.
 - If the context for a single match alone exceeds the 200-line budget, the page holds a bounded excerpt around that match, ending with a truncation marker. Pagination still moves forward.
+- A rendered line is capped at 400 runes. A clipped line keeps the text around its match column and marks each clipped end with `<truncated>`.
+
+### Matching
+
+- A leading UTF-8 BOM is removed and CRLF becomes LF before matching, so `^`, `$`, and the rendered lines agree on Windows and Unix line endings. A lone CR is kept.
+- `multiline: true` compiles the pattern with `(?ms)`: `^` and `$` match line boundaries and `.` matches newlines. Inline flags in the pattern override this, so `(?-m)` restores whole-file anchors and `(?-s)` stops `.` from crossing newlines.
+- A file with a NUL byte in its first 8192 bytes is treated as binary and skipped.
+- An invalid regex, an invalid `glob`, or a `glob` that expands past 256 forms fails the call.
+
+### File selection
+
+`glob` filters paths relative to the search root, written with forward slashes:
+
+- An alternative without a slash matches a file's basename at any depth, so `*.go` matches `pkg/deep/x.go`.
+- An alternative with a slash matches that root-relative path only, so `src/*.go` does not match `pkg/src/x.go`.
+- A leading `./` anchors the pattern, or just that brace alternative, to the search root: `./*.go` matches top-level files only.
+- Every `**/` also matches zero directories, so `pkg/**/x.go` matches `pkg/x.go`.
+- Braces, character classes, and escapes use glob syntax. The separate `glob` tool keeps its root-relative `pattern` meaning.
+- `type` filters by extension. Values are case-insensitive, `golang` is an alias for `go`, and any other value is rejected. The accepted values are `c`, `cpp`, `css`, `go`, `golang`, `html`, `java`, `js`, `json`, `kotlin`, `md`, `php`, `py`, `rb`, `rust`, `scala`, `sh`, `sql`, `swift`, `ts`, `xml`, and `yaml`.
+- A negative `context`, `before_context`, or `after_context` is rejected.
+- Entries hidden by `paths.exclude_paths`, `paths.exclude_patterns`, or the built-in directory names are not searched, even when `path` points inside them. See [Configuration](configuration.md#paths-block). Only `paths.blocked_paths` denies access; exclusions are filters.
+- A symlinked directory passed as `path` is resolved and validated against the path policy before the walk. Nested directory symlinks are not followed.
