@@ -79,6 +79,49 @@ func TestBuildGrepPreviewMatchCounts(t *testing.T) {
 	}
 }
 
+func TestBuildGrepPreviewReportsTotalMatches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		result    string
+		wantShown int
+		wantTotal int
+	}{
+		{
+			name:      "page past the last result keeps the search total",
+			result:    `{"matches":12,"shown":0,"output":""}`,
+			wantTotal: 12,
+		},
+		{
+			name:      "legacy page without shown keeps the search total",
+			result:    `{"matches":7,"output":""}`,
+			wantTotal: 7,
+		},
+		{
+			name:   "no matches reports no total",
+			result: `{"shown":0,"output":"No matches found"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := BuildToolPreview("grep", map[string]any{"output_mode": "content"}, tt.result)
+			if got.Matches != tt.wantShown {
+				t.Fatalf("Matches = %d, want %d", got.Matches, tt.wantShown)
+			}
+			if got.TotalMatches != tt.wantTotal {
+				t.Fatalf("TotalMatches = %d, want %d", got.TotalMatches, tt.wantTotal)
+			}
+			if len(got.GrepFiles) != 0 {
+				t.Fatalf("GrepFiles = %d entries, want none", len(got.GrepFiles))
+			}
+		})
+	}
+}
+
 func TestBuildGrepPreviewPassesPagingMetadata(t *testing.T) {
 	t.Parallel()
 

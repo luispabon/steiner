@@ -293,15 +293,65 @@ func grepLineColumns(matches []grepMatch) map[int]int {
 
 // renderGrepLine renders one line. Selected lines always carry their column,
 // so a continuation line of a multiline match renders "N:0: " and stays
-// distinct from context rows ("N: ").
+// distinct from context rows ("N: "). Lines longer than the per-line cap keep
+// their row prefix and render a bounded excerpt around their match column.
 func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, selected, showLines bool) {
+	prefix := ""
 	switch {
 	case !showLines:
-		_, _ = fmt.Fprintf(b, "%s\n", line)
 	case selected:
-		_, _ = fmt.Fprintf(b, "%d:%d: %s\n", lineNumber, column, line)
+		prefix = fmt.Sprintf("%d:%d: ", lineNumber, column)
 	default:
-		_, _ = fmt.Fprintf(b, "%d: %s\n", lineNumber, line)
+		prefix = fmt.Sprintf("%d: ", lineNumber)
+	}
+	text := grepLineExcerpt(line, column, defaultMaxLineRunes-len([]rune(prefix)))
+	_, _ = fmt.Fprintf(b, "%s%s\n", prefix, text)
+}
+
+// grepLineExcerpt bounds text to maxRunes runes. A clipped line keeps the runes
+// around column, so a match far into a long line stays visible, and marks each
+// clipped end with LineTruncationMarker. Those markers count toward maxRunes.
+func grepLineExcerpt(text string, column, maxRunes int) string {
+	runes := []rune(text)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return text
+	}
+	markerRunes := len([]rune(LineTruncationMarker))
+	if maxRunes <= markerRunes {
+		return string(runes[:maxRunes])
+	}
+	if maxRunes <= 2*markerRunes {
+		return string(runes[:maxRunes-markerRunes]) + LineTruncationMarker
+	}
+
+	focus := 0
+	if column > 0 {
+		focus = min(column-1, len(runes)-1)
+	}
+
+	start := 0
+	if focus > maxRunes/2 {
+		start = focus - maxRunes/2
+	}
+	budget := maxRunes
+	if start > 0 {
+		budget -= markerRunes
+	}
+	end := min(len(runes), start+budget)
+	if end < len(runes) {
+		budget -= markerRunes
+		end = start + budget
+	}
+	// Keep the window full when the tail needs no marker.
+	start = max(0, end-budget)
+
+	switch {
+	case start == 0:
+		return string(runes[:end]) + LineTruncationMarker
+	case end == len(runes):
+		return LineTruncationMarker + string(runes[start:])
+	default:
+		return LineTruncationMarker + string(runes[start:end]) + LineTruncationMarker
 	}
 }
 

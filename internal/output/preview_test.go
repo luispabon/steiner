@@ -291,12 +291,13 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 			result: `{"matches":5,"next_offset":1,"output":"## src/main.go\n12: hello\n"}`,
 			want: ToolPreview{
-				Kind:       ToolPreviewKindGrep,
-				Path:       "src",
-				Returned:   1,
-				NextOffset: 1,
-				OutputMode: "content",
-				Output:     "## src/main.go\n12: hello\n",
+				Kind:         ToolPreviewKindGrep,
+				Path:         "src",
+				Returned:     1,
+				TotalMatches: 5,
+				NextOffset:   1,
+				OutputMode:   "content",
+				Output:       "## src/main.go\n12: hello\n",
 				GrepFiles: []ToolPreviewGrepFile{
 					{
 						Path: "src/main.go",
