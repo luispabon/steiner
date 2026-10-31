@@ -44,7 +44,12 @@ func NewGlobTool(env Env) tool.ToolDef {
 				excluder = *env.Excluder
 			}
 
-			allFiles, err := globWalk(absPath, in.Pattern, excluder, env.PathPolicy)
+			walkRoot, err := resolveSearchRoot(absPath, env.PathPolicy)
+			if err != nil {
+				return nil, fmt.Errorf("glob: %w", err)
+			}
+
+			allFiles, err := globWalk(walkRoot, in.Pattern, excluder, env.PathPolicy)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
@@ -57,10 +62,11 @@ func NewGlobTool(env Env) tool.ToolDef {
 // globWalk walks the directory tree rooted at root and returns all files
 // whose relative path matches pattern (using gobwas/glob for full glob
 // semantics including ** and {a,b} alternation). Excluded directories are
-// not traversed. Each matched path is validated through PathPolicy before
-// being included. The returned paths are relative to root, use forward
-// slashes, and are sorted alphabetically. The walk stops early when
-// maxGlobLimit matches are collected.
+// not traversed. Every entry is validated through PathPolicy before it is
+// traversed or matched, so denied directories are pruned and denied or
+// unresolvable entries fail closed. The returned paths are relative to root,
+// use forward slashes, and are sorted alphabetically. The walk stops early
+// when maxGlobLimit matches are collected.
 func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.PathPolicy) ([]string, error) {
 	matchers, err := compileGlobMatchers(pattern)
 	if err != nil {
@@ -93,18 +99,19 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 			return nil
 		}
 
+		if searchPathDenied(policy, path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if d.IsDir() {
 			return nil
 		}
 
 		if !matchesAnyGlob(matchers, filepath.ToSlash(rel)) {
 			return nil
-		}
-
-		if policy != nil {
-			if _, err := policy.ResolveReadPath(path); err != nil {
-				return nil
-			}
 		}
 
 		matches = append(matches, rel)

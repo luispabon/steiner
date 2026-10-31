@@ -134,10 +134,15 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 		return grepSearchPath(ctx, p.root, normalizedDisplayPath(p.root, dp), re, p.multiline, filterGlob, exts, p.excluder)
 	}
 
-	return grepWalkDir(ctx, p.root, re, p.multiline, filterGlob, exts, p.excluder)
+	walkRoot, err := resolveSearchRoot(p.root, p.policy)
+	if err != nil {
+		return nil, err
+	}
+
+	return grepWalkDir(ctx, walkRoot, re, p.multiline, filterGlob, exts, p.excluder, p.policy)
 }
 
-func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
+func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
 	var results []grepFileResult
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -147,6 +152,13 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+
+		if searchPathDenied(policy, path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		relPath, relErr := filepath.Rel(root, path)
@@ -224,6 +236,42 @@ func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder, pol
 		return true
 	}
 	return false
+}
+
+// resolveSearchRoot resolves a directory root that is itself a symlink to its
+// target directory so walkers descend into it. Nested symlinks are not
+// followed: filepath.WalkDir never descends into symlink entries. The resolved
+// target is validated through policy so a symlink cannot redirect a search
+// into a denied location. A root that cannot be inspected is returned
+// unchanged so the calling tool reports its own missing-path error.
+func resolveSearchRoot(root string, policy *tool.PathPolicy) (string, error) {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return root, nil
+	}
+	if info.Mode()&fs.ModeSymlink == 0 {
+		return root, nil
+	}
+	target, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve symlink root: %w", err)
+	}
+	if policy != nil {
+		if _, err := policy.ResolveReadPath(target); err != nil {
+			return "", err
+		}
+	}
+	return target, nil
+}
+
+// searchPathDenied reports whether policy denies path. Resolution errors deny
+// the path so a search fails closed rather than leaking a denied entry.
+func searchPathDenied(policy *tool.PathPolicy, path string) bool {
+	if policy == nil {
+		return false
+	}
+	_, err := policy.ResolveReadPath(path)
+	return err != nil
 }
 
 func compileGrepPattern(pattern string, caseInsens, multiline bool) (*regexp.Regexp, error) {
