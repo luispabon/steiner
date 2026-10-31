@@ -26,7 +26,7 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		sandboxTmpDir = sb.TmpDir()
 	}
 	pp := tool.NewPathPolicyWithSandbox(workDir, cfg.Paths, sandboxTmpDir)
-	excluder := tool.NewPathExcluder(cfg.Paths.ExcludePaths, cfg.Paths.ExcludePatterns)
+	excluder := tool.NewWorkspaceExcluder(workDir, cfg.Paths.ExcludePaths, cfg.Paths.ExcludePatterns)
 	env := builtin.Env{
 		WorkDir:                  workDir,
 		PathPolicy:               &pp,

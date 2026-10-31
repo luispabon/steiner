@@ -109,7 +109,7 @@ func TestGlobWalk_PrunesBlockedDescendants(t *testing.T) {
 	mustWriteTree(t, root, "secrets/nested/deep.go", "package deep\n")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	matches, err := globWalk(root, "**/*.go", tool.NewPathExcluder(nil, nil), &policy)
+	matches, err := globWalk(root, "**/*.go", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
 	if err != nil {
 		t.Fatalf("globWalk: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestGlobTool_SymlinkRoot(t *testing.T) {
 	mustSymlink(t, filepath.Join(root, "real"), filepath.Join(root, "link"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
 	toolDef := NewGlobTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
 
 	resultI, err := toolDef.Handler(context.Background(), map[string]any{
@@ -250,7 +250,7 @@ func TestGlobTool_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
 	mustSymlink(t, filepath.Join(root, "secrets"), filepath.Join(root, "link"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
 	toolDef := NewGlobTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
 
 	_, err := toolDef.Handler(context.Background(), map[string]any{
@@ -371,7 +371,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob reads the sandbox copy", func(t *testing.T) {
-		matches, err := globWalk(want, "**/*.txt", tool.NewPathExcluder(nil, nil), &policy)
+		matches, err := globWalk(want, "**/*.txt", tool.NewWorkspaceExcluder(want, nil, nil), &policy)
 		if err != nil {
 			t.Fatalf("globWalk: %v", err)
 		}
@@ -379,7 +379,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("ls reads the sandbox copy", func(t *testing.T) {
-		result, err := lsRecursive(ctx, want, defaultLSLimit, 0, tool.PathExcluder{}, &policy)
+		result, err := lsRecursive(ctx, want, defaultLSLimit, 0, tool.NewWorkspaceExcluder(want, nil, nil), &policy)
 		if err != nil {
 			t.Fatalf("lsRecursive: %v", err)
 		}
@@ -429,7 +429,7 @@ func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
 	})
 
 	t.Run("glob keeps read semantics for matched special files", func(t *testing.T) {
-		matches, err := globWalk(root, "*", tool.NewPathExcluder(nil, nil), &policy)
+		matches, err := globWalk(root, "*", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
 		if err != nil {
 			t.Fatalf("globWalk: %v", err)
 		}

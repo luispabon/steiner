@@ -105,7 +105,7 @@ type grepSearchParams struct {
 	multiline   bool
 	fileGlob    string
 	fileType    string
-	excluder    *tool.PathExcluder
+	excluder    *tool.WorkspaceExcluder
 	policy      *tool.PathPolicy
 }
 
@@ -126,7 +126,7 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 		return nil, fmt.Errorf("stat root: %w", err)
 	}
 
-	if grepRootExcluded(p.root, p.displayPath, p.excluder, p.policy) {
+	if grepRootExcluded(p.root, rootInfo.IsDir(), p.excluder) {
 		return nil, nil
 	}
 
@@ -146,7 +146,7 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, erro
 	return grepWalkDir(ctx, walkRoot, re, p.multiline, filterGlob, exts, p.excluder, p.policy)
 }
 
-func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
+func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]grepFileResult, error) {
 	var results []grepFileResult
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -171,7 +171,7 @@ func grepWalkDir(ctx context.Context, root string, re *regexp.Regexp, multiline 
 		}
 		relPath = filepath.ToSlash(relPath)
 
-		skipDir, skipFile := grepShouldSkipEntry(path, relPath, d, excluder, filterGlob, exts)
+		skipDir, skipFile := grepShouldSkipEntry(root, path, relPath, d, excluder, filterGlob, exts)
 		if skipDir {
 			return filepath.SkipDir
 		}
@@ -227,19 +227,15 @@ func skippedEntryError(err error) bool {
 	return errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrNotExist)
 }
 
-func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder, policy *tool.PathPolicy) bool {
+// grepRootExcluded reports whether an explicit search root is hidden by
+// configured exclusions. The root is its own walk root, so built-in directory
+// names never hide an explicitly targeted directory; only workspace-anchored
+// configured paths and patterns apply.
+func grepRootExcluded(root string, isDir bool, excluder *tool.WorkspaceExcluder) bool {
 	if excluder == nil {
 		return false
 	}
-	checkPath := displayPath
-	if policy != nil && policy.IsSandboxTmpPath(root) {
-		checkPath = policy.DisplayPath(root)
-	}
-	cleanPath := filepath.ToSlash(filepath.Clean(checkPath))
-	if cleanPath != "." && cleanPath != "" && excluder.ShouldExclude(cleanPath) {
-		return true
-	}
-	return false
+	return excluder.ExcludeEntry(root, root, isDir)
 }
 
 // resolveSearchRoot resolves a directory root that is itself a symlink to its
@@ -342,8 +338,8 @@ func normalizedDisplayPath(root, displayPath string) string {
 	return relPath
 }
 
-func grepSearchPath(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) ([]grepFileResult, error) {
-	if grepPathExcluded(path, relPath, filterGlob, exts, excluder) {
+func grepSearchPath(ctx context.Context, path, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder) ([]grepFileResult, error) {
+	if grepPathExcluded(path, path, relPath, filterGlob, exts, excluder) {
 		return nil, nil
 	}
 	file, hasMatches, err := grepSearchFile(ctx, path, relPath, re, multiline)
@@ -356,8 +352,8 @@ func grepSearchPath(ctx context.Context, path, relPath string, re *regexp.Regexp
 	return []grepFileResult{file}, nil
 }
 
-func grepShouldSkipEntry(path, relPath string, d fs.DirEntry, excluder *tool.PathExcluder, filterGlob glob.Glob, exts []string) (bool, bool) {
-	if excluder != nil && excluder.ShouldExclude(relPath) {
+func grepShouldSkipEntry(walkRoot, path, relPath string, d fs.DirEntry, excluder *tool.WorkspaceExcluder, filterGlob glob.Glob, exts []string) (bool, bool) {
+	if excluder != nil && excluder.ExcludeEntry(walkRoot, path, d.IsDir()) {
 		return d.IsDir(), true
 	}
 	if d.IsDir() {
@@ -366,14 +362,17 @@ func grepShouldSkipEntry(path, relPath string, d fs.DirEntry, excluder *tool.Pat
 	if !d.Type().IsRegular() {
 		return false, true
 	}
-	if grepPathExcluded(path, relPath, filterGlob, exts, excluder) {
+	if grepPathExcluded(walkRoot, path, relPath, filterGlob, exts, excluder) {
 		return false, true
 	}
 	return false, false
 }
 
-func grepPathExcluded(path, relPath string, filterGlob glob.Glob, exts []string, excluder *tool.PathExcluder) bool {
-	if excluder != nil && excluder.ShouldExclude(relPath) {
+// grepPathExcluded reports whether an explicit file path is excluded by
+// workspace exclusions or the grep file filters. walkRoot is the directory the
+// search started from.
+func grepPathExcluded(walkRoot, path, relPath string, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder) bool {
+	if excluder != nil && excluder.ExcludeEntry(walkRoot, path, false) {
 		return true
 	}
 	if filterGlob != nil && !filterGlob.Match(relPath) {

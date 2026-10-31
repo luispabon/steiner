@@ -31,7 +31,7 @@ func TestGlobTool(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 	toolDef := NewGlobTool(env)
 	ctx := context.Background()
@@ -222,7 +222,7 @@ func TestGlobTool_Exclusions(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 	toolDef := NewGlobTool(env)
 	ctx := context.Background()
@@ -309,7 +309,7 @@ func TestGlobWalk_DoublestarPatterns(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 
 	t.Run("**/*.go matches Go files in all subdirectories", func(t *testing.T) {
 		matches, err := globWalk(tmpDir, "**/*.go", excluder, &policy)
@@ -401,7 +401,7 @@ func TestGlobTool_CustomExcludePaths(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder([]string{secretDir}, nil)
+	excluder := tool.NewWorkspaceExcluder(tmpDir, []string{secretDir}, nil)
 	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 	toolDef := NewGlobTool(env)
 	ctx := context.Background()
@@ -445,7 +445,7 @@ func TestGlobTool_CustomExcludePatterns(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, []string{"*.bak"})
+	excluder := tool.NewWorkspaceExcluder(tmpDir, nil, []string{"*.bak"})
 	env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 	toolDef := NewGlobTool(env)
 	ctx := context.Background()
@@ -475,7 +475,7 @@ func TestGlobWalk_NonexistentRootError(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 
 	// Try to glob a nonexistent subdirectory.
 	nonexistent := filepath.Join(tmpDir, "does-not-exist")
@@ -522,7 +522,7 @@ func TestGlobWalk_PermissionDeniedSkipped(t *testing.T) {
 	}
 
 	policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-	excluder := tool.NewPathExcluder(nil, nil)
+	excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 
 	// Globbing should succeed and find the visible file, but skip the blocked directory.
 	matches, err := globWalk(tmpDir, "*", excluder, &policy)

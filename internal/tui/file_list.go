@@ -42,10 +42,11 @@ func (f fileListOverlay) Open(root string) fileListOverlay {
 }
 
 // walkDirEntries walks root and returns relative paths, with directories
-// suffixed by "/". It uses the file picker excluder, which force-includes
-// .steiner but prefix-excludes its heavy subdirectories (tmp, worktrees).
+// suffixed by "/". It uses the file picker excluder, anchored to root: the
+// picker force-includes .steiner but exact-excludes its heavy subdirectories
+// (tmp, worktrees), and built-in directory names apply relative to root.
 func walkDirEntries(root string) ([]string, error) {
-	excluder := tool.NewPathExcluderWithIncludes(tool.FilePickerExcludePaths, nil, tool.FilePickerAlwaysInclude)
+	excluder := tool.NewWorkspaceExcluderWithIncludes(root, tool.FilePickerExcludePaths, nil, tool.FilePickerAlwaysInclude)
 	var entries []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -65,12 +66,12 @@ func walkDirEntries(root string) ([]string, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if excluder.ShouldExclude(rel) {
+			if excluder.ExcludeEntry(root, path, true) {
 				return filepath.SkipDir
 			}
 			entries = append(entries, rel+"/")
 		} else {
-			if excluder.ShouldExclude(rel) {
+			if excluder.ExcludeEntry(root, path, false) {
 				return nil
 			}
 			entries = append(entries, rel)
