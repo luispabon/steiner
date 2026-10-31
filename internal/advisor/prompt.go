@@ -12,6 +12,15 @@ const (
 	advisorSystemPrompt = "You are Steiner's internal advisor. Review the conversation and give concise strategic guidance for the main agent's next response. Do not call tools, do not invent tool results, and do not address the end user directly."
 	advisorUserPrompt   = "Analyze the conversation above and return a short advisory note for the main agent. Focus on risks, missing reasoning, and the most useful next move."
 
+	// inFlightLabel introduces the latest assistant message that issued the
+	// advisor call still being served. That message has no tool result yet, so
+	// it is rendered at the head of the uncached final user message instead of
+	// the transcript. Keeping it out of the transcript makes the cacheable
+	// prefix identical across consecutive advisor calls: once its advisor tool
+	// result exists, the same message flattens differently (it gains a
+	// [tool_call: advisor ...] line) and would invalidate the cached prefix.
+	inFlightLabel = "The agent's latest message, still in progress (it issued this advisor call):\n"
+
 	// maxToolArgStringLen bounds any single string value inside a flattened
 	// tool call's arguments. Longer strings (e.g. mutate's whole-file
 	// content) are truncated with a size-preserving elision marker so the
@@ -158,18 +167,37 @@ func renderAdvisorFiles(files []advisorFile) string {
 }
 
 // buildMessages assembles the advisor request. The conversation snapshot is
-// the cached prefix; caller-supplied files and question form a bounded
-// suffix appended strictly after it so the prefix stays position-stable
-// across calls regardless of what artifacts a caller passes.
+// the cached prefix; the in-flight assistant message text, the
+// caller-supplied files and question (each capped by the maxAdvisor*
+// constants), and the advisor user prompt form a suffix appended strictly
+// after it so the prefix stays position-stable across calls regardless of
+// what artifacts a caller passes.
 func buildMessages(snapshot []provider.Message, question string, files []advisorFile) []provider.Message {
-	messages := make([]provider.Message, 0, len(snapshot)+2)
+	transcript := flattenToolMessages(snapshot)
+
+	// A trailing assistant message is the parent message that is still in
+	// flight while this advisor call runs. Move its text to the final user
+	// message so the cached prefix ends on a message whose rendering never
+	// changes between advisor calls.
+	var inFlight string
+	if n := len(transcript); n > 0 && transcript[n-1].Role == provider.MessageRoleAssistant {
+		inFlight = strings.TrimSpace(transcript[n-1].Content)
+		transcript = transcript[:n-1]
+	}
+
+	messages := make([]provider.Message, 0, len(transcript)+2)
 	messages = append(messages, provider.Message{
 		Role:    provider.MessageRoleSystem,
 		Content: advisorSystemPrompt,
 	})
-	messages = append(messages, provider.CloneMessages(flattenToolMessages(snapshot))...)
+	messages = append(messages, provider.CloneMessages(transcript)...)
 
 	var suffix strings.Builder
+	if inFlight != "" {
+		suffix.WriteString(inFlightLabel)
+		suffix.WriteString(inFlight)
+		suffix.WriteString("\n\n")
+	}
 	suffix.WriteString(renderAdvisorFiles(files))
 	if q := strings.TrimSpace(question); q != "" {
 		suffix.WriteString(elide(q, maxAdvisorQuestionBytes))

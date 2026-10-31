@@ -8,7 +8,7 @@ The `claude_subscription` provider drives the signed-in `claude` CLI as a statef
 
 `ClaudeSubscriptionPool` owns CLI processes. Parent normal calls are pooled by `TransportSession`, falling back to the parent transport session and then `default`. Model and effort are not part of the key. Calls for one key are serialized, and a process is reused until teardown. A process that exits is evicted, and its successor reseeds.
 
-Only parent normal calls persist (`claudeSubPersists`). Advisor calls use the same key with the `|advisor` suffix (`claudeSubAdvisorKeySuffix`). Advisor, sub-agent, and summary calls store no backend state. A parent turn returns an opaque backend state holding the CLI session ID, transport session, sync record counts and digests, final message UUID, and a prompt/tools fingerprint. It holds no message text.
+Only parent normal calls persist (`claudeSubPersists`). Advisor calls key the pool by their advisor transport session plus `|advisor` (`claudeSubAdvisorSessionKey`): `<session>-advisor|advisor` for the parent and `<session>-subagent-advisor|advisor` for sub-agents. Advisor, sub-agent, and summary calls store no backend state. A parent turn returns an opaque backend state holding the CLI session ID, transport session, sync record counts and digests, final message UUID, and a prompt/tools fingerprint. It holds no message text.
 
 A model or effort change reuses the live process: `set_model` for the model and `apply_flag_settings` for `effortLevel`.
 

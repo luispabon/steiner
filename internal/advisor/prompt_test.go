@@ -2,9 +2,11 @@ package advisor
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -510,6 +512,7 @@ func TestBuildMessagesOrdersFilesAndQuestionAfterSnapshot(t *testing.T) {
 	snapshot := []provider.Message{
 		{Role: provider.MessageRoleUser, Content: "fix it"},
 		{Role: provider.MessageRoleAssistant, Content: "on it"},
+		{Role: provider.MessageRoleUser, Content: "carry on"},
 	}
 	files := []advisorFile{
 		{DisplayPath: ".steiner/plans/x/overview.md", Content: "## Overview\ndo the thing"},
@@ -518,7 +521,7 @@ func TestBuildMessagesOrdersFilesAndQuestionAfterSnapshot(t *testing.T) {
 
 	got := buildMessages(snapshot, "is this sound?", files)
 
-	// system prompt, then snapshot (2 msgs), then the single trailing suffix message.
+	// system prompt, then snapshot (3 msgs), then the single trailing suffix message.
 	wantLen := 1 + len(snapshot) + 1
 	if len(got) != wantLen {
 		t.Fatalf("len(messages) = %d, want %d", len(got), wantLen)
@@ -526,8 +529,8 @@ func TestBuildMessagesOrdersFilesAndQuestionAfterSnapshot(t *testing.T) {
 	if got[0].Role != provider.MessageRoleSystem {
 		t.Fatalf("messages[0].Role = %q, want system", got[0].Role)
 	}
-	if got[1].Content != "fix it" || got[2].Content != "on it" {
-		t.Fatalf("snapshot messages not preserved in order: %#v", got[1:3])
+	if got[1].Content != "fix it" || got[2].Content != "on it" || got[3].Content != "carry on" {
+		t.Fatalf("snapshot messages not preserved in order: %#v", got[1:4])
 	}
 
 	last := got[len(got)-1]
@@ -602,6 +605,137 @@ func TestBuildMessagesTruncatesQuestion(t *testing.T) {
 	marker := elide(longQuestion, maxAdvisorQuestionBytes)
 	if !strings.Contains(last.Content, marker) {
 		t.Fatalf("content missing truncated question prefix: %q", last.Content)
+	}
+}
+
+// assertInFlightRenderedInFinalMessage checks that want is rendered under
+// inFlightLabel in the final user message and appears nowhere in the cached
+// transcript before it.
+func assertInFlightRenderedInFinalMessage(t *testing.T, messages []provider.Message, want string) {
+	t.Helper()
+	last := messages[len(messages)-1]
+	if last.Role != provider.MessageRoleUser {
+		t.Fatalf("last message role = %q, want user", last.Role)
+	}
+	if !strings.Contains(last.Content, inFlightLabel+want) {
+		t.Fatalf("last message missing labelled in-flight text: %q", last.Content)
+	}
+	for i, m := range messages[:len(messages)-1] {
+		if strings.Contains(m.Content, want) {
+			t.Fatalf("messages[%d] transcript still holds in-flight text: %q", i, m.Content)
+		}
+	}
+}
+
+func TestBuildMessagesKeepsCachedPrefixStableAcrossCalls(t *testing.T) {
+	// First advisor call: the parent message that issued it is still in flight,
+	// so replay leaves it with bare text and no tool calls.
+	firstConversation := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "fix the failing test"},
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "Let me consult the advisor.",
+			ToolCalls: []agent.ToolCall{{
+				ID:        "advisor-1",
+				Name:      ToolName,
+				Arguments: map[string]any{"question": "is this sound?"},
+			}},
+		},
+	}
+	first := buildMessages(agent.ToReplaySafeProviderMessages(firstConversation), "is this sound?", nil)
+
+	// Second advisor call: the first call's result exists now, so its issuing
+	// message flattens with a [tool_call: advisor ...] line, and the parent has
+	// produced a new in-flight message.
+	secondConversation := append([]agent.Message{}, firstConversation...)
+	secondConversation = append(secondConversation,
+		agent.Message{Role: agent.MessageRoleTool, Name: ToolName, ToolCallID: "advisor-1", Content: "Cover the boundary case first."},
+		agent.Message{Role: agent.MessageRoleUser, Content: "Applying that now."},
+		agent.Message{
+			Role:    agent.MessageRoleAssistant,
+			Content: "Let me get a second opinion on the boundary fix.",
+			ToolCalls: []agent.ToolCall{{
+				ID:        "advisor-2",
+				Name:      ToolName,
+				Arguments: map[string]any{"question": "anything missed?"},
+			}},
+		},
+	)
+	second := buildMessages(agent.ToReplaySafeProviderMessages(secondConversation), "anything missed?", nil)
+
+	firstPrefix := first[:len(first)-1]
+	if len(second) <= len(firstPrefix) {
+		t.Fatalf("len(second) = %d, want more than %d", len(second), len(firstPrefix))
+	}
+	if !reflect.DeepEqual(second[:len(firstPrefix)], firstPrefix) {
+		t.Fatalf("second call does not start with the first call's cached prefix:\nfirst:  %#v\nsecond: %#v", firstPrefix, second[:len(firstPrefix)])
+	}
+
+	// system prompt, one user message, and the final user message: the
+	// in-flight assistant message is not part of the transcript.
+	if len(first) != 3 {
+		t.Fatalf("len(first) = %d, want 3", len(first))
+	}
+	assertInFlightRenderedInFinalMessage(t, first, "Let me consult the advisor.")
+	assertInFlightRenderedInFinalMessage(t, second, "Let me get a second opinion on the boundary fix.")
+}
+
+func TestBuildMessagesDropsInFlightAssistantWithoutText(t *testing.T) {
+	snapshot := []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+		{Role: provider.MessageRoleAssistant, Content: "  \n\t"},
+	}
+
+	got := buildMessages(snapshot, "", nil)
+	want := []provider.Message{
+		{Role: provider.MessageRoleSystem, Content: advisorSystemPrompt},
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+		{Role: provider.MessageRoleUser, Content: advisorUserPrompt},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("messages = %#v, want %#v", got, want)
+	}
+	for i, m := range got {
+		if strings.Contains(m.Content, inFlightLabel) {
+			t.Fatalf("messages[%d] has an in-flight label for an empty message: %q", i, m.Content)
+		}
+	}
+}
+
+func TestBuildMessagesTrailingToolResultPassesThrough(t *testing.T) {
+	snapshot := agent.ToReplaySafeProviderMessages([]agent.Message{
+		{Role: agent.MessageRoleUser, Content: "fix it"},
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "running the tests",
+			ToolCalls: []agent.ToolCall{{
+				ID:        "call-1",
+				Name:      "bash",
+				Arguments: map[string]any{"command": "go test ./..."},
+			}},
+		},
+		{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: "ok"},
+	})
+
+	got := buildMessages(snapshot, "", nil)
+	if len(got) != len(snapshot)+2 {
+		t.Fatalf("len(messages) = %d, want %d", len(got), len(snapshot)+2)
+	}
+	if got[0].Role != provider.MessageRoleSystem {
+		t.Fatalf("messages[0].Role = %q, want system", got[0].Role)
+	}
+	if got[1].Content != "fix it" {
+		t.Fatalf("messages[1].Content = %q, want the user message", got[1].Content)
+	}
+	if got[2].Role != provider.MessageRoleAssistant || !strings.Contains(got[2].Content, "[tool_call: bash") {
+		t.Fatalf("messages[2] = %#v, want the flattened assistant tool call", got[2])
+	}
+	if got[3].Role != provider.MessageRoleUser || !strings.HasPrefix(got[3].Content, "[tool_result: bash]") {
+		t.Fatalf("messages[3] = %#v, want the flattened tool result", got[3])
+	}
+	last := got[len(got)-1]
+	if last.Role != provider.MessageRoleUser || last.Content != advisorUserPrompt {
+		t.Fatalf("last message = %#v, want the advisor user prompt alone", last)
 	}
 }
 
