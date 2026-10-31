@@ -13,32 +13,31 @@ import (
 // either resolves to a regular file the search may read, or it is skipped. The
 // link name stays the path the caller sees; only the read path is resolved.
 //
-// roots holds the canonical directories a target must stay inside: the walk
-// root and, when the policy names one, the workspace root.
+// walkCanonical and workspace are the canonical directories a target must stay
+// inside. workspace is empty when the policy names no root.
 type searchSymlinkScope struct {
-	policy      *tool.PathPolicy
-	excluder    *tool.WorkspaceExcluder
-	walkRoot    string
-	lexicalRoot string
-	roots       []string
+	policy        *tool.PathPolicy
+	excluder      *tool.WorkspaceExcluder
+	walkRoot      string
+	lexicalRoot   string
+	walkCanonical string
+	workspace     string
 }
 
 // newSearchSymlinkScope builds the scope for one walk, canonicalizing the
 // containment roots once instead of per entry.
 func newSearchSymlinkScope(policy *tool.PathPolicy, excluder *tool.WorkspaceExcluder, walkRoot, lexicalRoot string) searchSymlinkScope {
-	roots := []string{canonicalSearchPath(walkRoot)}
+	scope := searchSymlinkScope{
+		policy:        policy,
+		excluder:      excluder,
+		walkRoot:      walkRoot,
+		lexicalRoot:   lexicalRoot,
+		walkCanonical: canonicalSearchPath(walkRoot),
+	}
 	if policy != nil {
-		if root := canonicalSearchPath(policy.Root()); root != "" {
-			roots = append(roots, root)
-		}
+		scope.workspace = canonicalSearchPath(policy.Root())
 	}
-	return searchSymlinkScope{
-		policy:      policy,
-		excluder:    excluder,
-		walkRoot:    walkRoot,
-		lexicalRoot: lexicalRoot,
-		roots:       roots,
-	}
+	return scope
 }
 
 // searchSymlinkEntry reports whether the walk entry is a symlink. WalkDir does
@@ -99,22 +98,40 @@ func (s searchSymlinkScope) target(path string) (string, bool) {
 	if !s.contains(resolved) {
 		return "", false
 	}
-	if excludeSearchEntry(s.excluder, s.policy, s.walkRoot, s.lexicalRoot, resolved, false) {
+	if s.excluded(resolved) {
 		return "", false
 	}
 	return resolved, true
+}
+
+// excluded reports whether exclusions hide the resolved link target. A target
+// inside the walk root is matched against the walk root's own view, so an
+// explicit root below a built-in directory name stays searchable. A target
+// outside the walk root is reachable only through the link, and matching it
+// against the walk root leaves no relative path for built-in directory names
+// such as node_modules or .git to match, so those targets are matched against
+// the workspace root instead.
+func (s searchSymlinkScope) excluded(resolved string) bool {
+	if excludeSearchEntry(s.excluder, s.policy, s.walkRoot, s.lexicalRoot, resolved, false) {
+		return true
+	}
+	if s.workspace == "" || pathWithinCanonicalRoot(s.walkCanonical, resolved) {
+		return false
+	}
+	return excludeSearchEntry(s.excluder, s.policy, s.workspace, s.workspace, resolved, false)
 }
 
 // contains reports whether the canonical target stays inside one of the
 // canonical containment roots. Containment is checked on the resolved target,
 // so a link cannot escape the walk root or workspace through a parent symlink.
 func (s searchSymlinkScope) contains(target string) bool {
-	for _, root := range s.roots {
-		if root != "" && tool.PathWithinRoot(root, target) {
-			return true
-		}
-	}
-	return false
+	return pathWithinCanonicalRoot(s.walkCanonical, target) || pathWithinCanonicalRoot(s.workspace, target)
+}
+
+// pathWithinCanonicalRoot reports whether target is inside root, treating an
+// empty root as no root at all.
+func pathWithinCanonicalRoot(root, target string) bool {
+	return root != "" && tool.PathWithinRoot(root, target)
 }
 
 // canonicalSearchPath resolves every symlink component of path so containment

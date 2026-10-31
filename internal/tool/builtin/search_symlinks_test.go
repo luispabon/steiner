@@ -220,3 +220,34 @@ func TestGrepNestedSymlinkUsesSandboxTmpRewrite(t *testing.T) {
 		assertSameStringSet(t, "glob matches", matches, []string{"tmplink.txt"})
 	})
 }
+
+// TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot covers a link under the
+// search root that points at a workspace file inside a built-in excluded
+// directory. The target has no walk-relative path, so the exclusion has to be
+// evaluated against the workspace root; otherwise node_modules and .git would be
+// bypassed. A search rooted inside such a directory keeps its own view, so links
+// whose targets stay inside that root are still eligible.
+func TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		"src/visible.go",
+		"node_modules/pkg/real.go",
+		"node_modules/other/secret.go",
+		".git/objects/secret.go",
+	} {
+		mustWriteTree(t, root, rel, "needle\n")
+	}
+	mustSymlink(t, "visible.go", filepath.Join(root, "src", "link-visible.go"))
+	mustSymlink(t, "../node_modules/other/secret.go", filepath.Join(root, "src", "link-modules.go"))
+	mustSymlink(t, "../.git/objects/secret.go", filepath.Join(root, "src", "link-git.go"))
+	mustSymlink(t, "real.go", filepath.Join(root, "node_modules", "pkg", "alias.go"))
+	env := workspaceTestEnv(t, root, nil, nil)
+
+	wantUnderSearchRoot := []string{"link-visible.go", "visible.go"}
+	assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src", "needle"), wantUnderSearchRoot)
+	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), wantUnderSearchRoot)
+
+	wantUnderBuiltinDir := []string{"alias.go", "real.go"}
+	assertSameStringSet(t, "grep rows under built-in dir", grepPatternRows(t, env, "node_modules/pkg", "needle"), wantUnderBuiltinDir)
+	assertSameStringSet(t, "glob rows under built-in dir", globPatternRows(t, env, "node_modules/pkg", "**/*.go"), wantUnderBuiltinDir)
+}
