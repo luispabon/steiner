@@ -50,10 +50,10 @@ type cachePayload struct {
 	// measured; fields without omitempty are emitted on every record.
 	Attempts             int  `json:"attempts,omitempty"`
 	CacheAffinityDropped bool `json:"cache_affinity_dropped,omitempty"`
-	// ContextGeneration is the number of compactions applied within the current
-	// run when the call was issued. It is emitted on every record; it restarts
-	// at 0 for each run, and 0 means no compaction has applied to this run
-	// yet.
+	// ContextGeneration is the number of compaction stages applied within the
+	// current run when the call was issued. It is emitted on every record; it
+	// restarts at 0 for each run, and 0 means no compaction has applied to this
+	// run yet.
 	ContextGeneration int `json:"context_generation"`
 	// PrefixPredecessorMessages is the message count of the predecessor request
 	// that shared_prefix_messages was measured against. It is emitted only when

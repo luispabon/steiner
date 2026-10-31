@@ -811,6 +811,15 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 			},
 		},
 		{
+			name: "single attempt",
+			response: provider.ChatResponse{
+				Usage:       &provider.UsageStats{PromptTokens: 10},
+				Diagnostics: &provider.CallDiagnostics{Attempts: 1},
+			},
+			stats:       requestCacheStats{prefixHash: "abcd", messageHashes: []string{"a"}},
+			wantPresent: []string{`"attempts":1`},
+		},
+		{
 			name:     "known empty predecessor",
 			response: provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}},
 			stats:    requestCacheStats{prefixHash: "abcd", predecessorKnown: true, messageHashes: []string{"a"}},
