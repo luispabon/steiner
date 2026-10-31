@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 // ClaudeSubscriptionProvider is the stateful provider facade for a signed-in
@@ -58,7 +59,11 @@ func claudeSubChunksHaveDone(chunks []ChatChunk) bool {
 }
 
 func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
-	var response ChatResponse
+	var (
+		response  ChatResponse
+		content   strings.Builder
+		reasoning strings.Builder
+	)
 	terminal := false
 	for _, chunk := range chunks {
 		if chunk.Error != "" {
@@ -74,13 +79,12 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 			response.Message.Role = MessageRoleAssistant
 		}
 		if chunk.ContentSnapshot {
-			response.Message.Content = chunk.Delta.Content
-		} else {
-			response.Message.Content += chunk.Delta.Content
+			content.Reset()
 		}
-		response.Message.ReasoningContent += chunk.Thinking
-		if chunk.Delta.ReasoningContent != "" && response.Message.ReasoningContent == "" {
-			response.Message.ReasoningContent = chunk.Delta.ReasoningContent
+		content.WriteString(chunk.Delta.Content)
+		reasoning.WriteString(chunk.Thinking)
+		if chunk.Delta.ReasoningContent != "" && reasoning.Len() == 0 {
+			reasoning.WriteString(chunk.Delta.ReasoningContent)
 		}
 		if len(chunk.Delta.ToolCalls) > 0 {
 			response.Message.ToolCalls = append(response.Message.ToolCalls, chunk.Delta.ToolCalls...)
@@ -101,6 +105,8 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 	if !terminal {
 		return ChatResponse{}, errors.New("claude_subscription stream closed without a terminal chunk")
 	}
+	response.Message.Content = content.String()
+	response.Message.ReasoningContent = reasoning.String()
 	return response, nil
 }
 

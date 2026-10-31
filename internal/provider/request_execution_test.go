@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -115,6 +116,103 @@ func TestReadErrorResponse(t *testing.T) {
 			}
 			if err.Error() != tt.want {
 				t.Fatalf("got %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+// TestHTMLToErrorText pins the text extracted from an HTML error page: script,
+// style and every tag are dropped, a title is kept with a marker, entities are
+// decoded once, and runs of whitespace collapse.
+func TestHTMLToErrorText(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "script style and title",
+			body: `<html><head><style>.x{color:red}</style><title data-x="1">502 Bad Gateway</title></head><body><script>alert("x")</script><h1>Upstream down</h1></body></html>`,
+			want: "title: 502 Bad Gateway Upstream down",
+		},
+		{
+			name: "uppercase and multiline blocks",
+			body: "<HTML><HEAD>\n<SCRIPT>\nvar x = 1;\n</SCRIPT>\n<STYLE>\np { color: red }\n</STYLE>\n</HEAD>\n<BODY>busy</BODY></HTML>",
+			want: "busy",
+		},
+		{
+			name: "entities decode once",
+			body: `<p>A&amp;B &lt;tag&gt; &quot;q&quot; &#39;s&#39;&nbsp;end &amp;lt;</p>`,
+			want: `A&B <tag> "q" 's' end &lt;`,
+		},
+		{
+			name: "plain text collapses whitespace",
+			body: "  service   unavailable\n\n",
+			want: "service unavailable",
+		},
+		{
+			name: "empty body",
+			body: "   ",
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := htmlToErrorText(tt.body); got != tt.want {
+				t.Errorf("htmlToErrorText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSummarizeErrorBodyHTML proves HTML error pages are recognised by content
+// type or by shape, then converted, while other bodies pass through.
+func TestSummarizeErrorBodyHTML(t *testing.T) {
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		want        string
+	}{
+		{
+			name:        "html content type",
+			contentType: "text/html; charset=utf-8",
+			body:        `<html><body><h1>502</h1></body></html>`,
+			want:        "502",
+		},
+		{
+			name: "doctype without content type",
+			body: `<!DOCTYPE html><html><body><p>maintenance</p></body></html>`,
+			want: "maintenance",
+		},
+		{
+			name: "body marker without content type",
+			body: `<body>busy</body>`,
+			want: "busy",
+		},
+		{
+			name:        "json passes through",
+			contentType: "application/json",
+			body:        `{"error":"bad"}`,
+			want:        `{"error":"bad"}`,
+		},
+		{
+			name:        "empty body",
+			contentType: "text/html",
+			body:        "   ",
+			want:        "",
+		},
+		{
+			name:        "long body truncates",
+			contentType: "text/plain",
+			body:        strings.Repeat("a", 1200),
+			want:        strings.Repeat("a", 1000) + "...",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := summarizeErrorBody(tt.contentType, tt.body); got != tt.want {
+				t.Errorf("summarizeErrorBody() = %q, want %q", got, tt.want)
 			}
 		})
 	}

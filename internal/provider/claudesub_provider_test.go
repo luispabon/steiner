@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -95,16 +97,132 @@ func TestFoldClaudeSubChunksBackendStateTransitions(t *testing.T) {
 	}
 }
 
-func TestFoldClaudeSubChunksRequiresTerminal(t *testing.T) {
-	if _, err := foldClaudeSubChunks([]ChatChunk{{Delta: Message{Content: "partial"}}}); err == nil {
-		t.Fatal("fold without Done returned nil error")
+// TestFoldClaudeSubChunksSnapshotAndReasoning pins the fold's text sources: a
+// snapshot replaces the accumulated content, Thinking accumulates, and
+// Delta.ReasoningContent fills reasoning only while no thinking has arrived.
+func TestFoldClaudeSubChunksSnapshotAndReasoning(t *testing.T) {
+	tests := []struct {
+		name          string
+		chunks        []ChatChunk
+		wantContent   string
+		wantReasoning string
+	}{
+		{
+			name:        "later snapshot replaces earlier content",
+			chunks:      []ChatChunk{{Delta: Message{Content: "a"}}, {Delta: Message{Content: "ab"}, ContentSnapshot: true}, {Delta: Message{Content: "abc"}, ContentSnapshot: true}, {Done: true}},
+			wantContent: "abc",
+		},
+		{
+			name:          "reasoning content fills empty reasoning",
+			chunks:        []ChatChunk{{Delta: Message{ReasoningContent: "raw"}}, {Done: true}},
+			wantReasoning: "raw",
+		},
+		{
+			name:          "thinking wins over reasoning content",
+			chunks:        []ChatChunk{{Thinking: "think"}, {Delta: Message{ReasoningContent: "raw"}}, {Done: true}},
+			wantReasoning: "think",
+		},
+		{
+			name:          "reasoning content first then thinking",
+			chunks:        []ChatChunk{{Delta: Message{ReasoningContent: "raw"}}, {Thinking: "think"}, {Done: true}},
+			wantReasoning: "rawthink",
+		},
+		{
+			name:          "snapshot does not reset reasoning",
+			chunks:        []ChatChunk{{Delta: Message{Content: "old"}, Thinking: "think"}, {Delta: Message{Content: "final"}, ContentSnapshot: true}, {Done: true}},
+			wantContent:   "final",
+			wantReasoning: "think",
+		},
+		{
+			name:   "no text",
+			chunks: []ChatChunk{{Done: true}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := foldClaudeSubChunks(tt.chunks)
+			if err != nil {
+				t.Fatalf("foldClaudeSubChunks() error = %v", err)
+			}
+			if got.Message.Content != tt.wantContent {
+				t.Errorf("Content = %q, want %q", got.Message.Content, tt.wantContent)
+			}
+			if got.Message.ReasoningContent != tt.wantReasoning {
+				t.Errorf("ReasoningContent = %q, want %q", got.Message.ReasoningContent, tt.wantReasoning)
+			}
+		})
 	}
 }
 
-func TestFoldClaudeSubChunksPreservesOriginalError(t *testing.T) {
-	want := errors.New("overage")
-	_, err := foldClaudeSubChunks([]ChatChunk{{Error: want.Error(), OriginalError: want}})
-	if !errors.Is(err, want) {
-		t.Fatalf("error = %v, want original error", err)
+// TestFoldClaudeSubChunksErrorPaths pins the fold's failures: every error path
+// returns the zero response and keeps the error identity it was given.
+func TestFoldClaudeSubChunksErrorPaths(t *testing.T) {
+	original := errors.New("overage")
+	tests := []struct {
+		name       string
+		chunks     []ChatChunk
+		wantIs     error
+		wantString string
+		wantTurn   bool
+	}{
+		{
+			name:   "original error",
+			chunks: []ChatChunk{{Error: original.Error(), OriginalError: original}},
+			wantIs: original,
+		},
+		{
+			name:       "string error",
+			chunks:     []ChatChunk{{Delta: Message{Content: "partial"}, Error: "turn failed"}},
+			wantString: "turn failed",
+			wantTurn:   true,
+		},
+		{
+			name:       "missing terminal chunk",
+			chunks:     []ChatChunk{{Delta: Message{Content: "partial"}}},
+			wantString: "claude_subscription stream closed without a terminal chunk",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := foldClaudeSubChunks(tt.chunks)
+			if err == nil {
+				t.Fatal("foldClaudeSubChunks() error = nil, want an error")
+			}
+			if !reflect.DeepEqual(got, ChatResponse{}) {
+				t.Errorf("response = %+v, want the zero response", got)
+			}
+			if tt.wantIs != nil && !errors.Is(err, tt.wantIs) {
+				t.Errorf("error = %v, want %v", err, tt.wantIs)
+			}
+			if tt.wantString != "" && err.Error() != tt.wantString {
+				t.Errorf("error = %q, want %q", err.Error(), tt.wantString)
+			}
+			if tt.wantTurn {
+				var turn *claudeSubTurnError
+				if !errors.As(err, &turn) {
+					t.Errorf("error = %T, want *claudeSubTurnError", err)
+				}
+			}
+		})
+	}
+}
+
+// TestClaudeSubChatCompletionCancellation proves a cancelled turn reports the
+// context error and no partial response.
+func TestClaudeSubChatCompletionCancellation(t *testing.T) {
+	pool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := ChatRequest{
+		TransportSession: "cancel",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("marker-prompt")},
+	}
+	got, err := NewClaudeSubscriptionProvider(pool, nil).ChatCompletion(ctx, req)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ChatCompletion() error = %v, want context.Canceled", err)
+	}
+	if !reflect.DeepEqual(got, ChatResponse{}) {
+		t.Errorf("response = %+v, want the zero response", got)
 	}
 }
