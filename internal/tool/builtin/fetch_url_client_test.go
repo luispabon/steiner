@@ -32,9 +32,14 @@ func newFetchURLTestEnv(t *testing.T, httpClient func() *http.Client) Env {
 // validation intact.
 func fetchURLTestSafeClient() *http.Client {
 	client := toolkit.SafeHTTPClient(15 * time.Second)
-	transport := client.Transport.(*http.Transport).Clone()
-	transport.DialContext = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
-	client.Transport = transport
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		// No *testing.T here; the factory is passed as a plain func value.
+		panic(fmt.Sprintf("fetchURLTestSafeClient: default client transport = %T, want *http.Transport", client.Transport))
+	}
+	dialTransport := transport.Clone()
+	dialTransport.DialContext = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+	client.Transport = dialTransport
 	return client
 }
 
@@ -76,6 +81,61 @@ func TestFetchURLToolReusesClientAcrossCalls(t *testing.T) {
 
 	if got := factoryCalls.Load(); got != 1 {
 		t.Errorf("httpClient factory calls = %d, want 1 for one tool instance", got)
+	}
+	if got := newConns.Load(); got != 1 {
+		t.Errorf("new connections = %d, want 1 (connections not reused across calls)", got)
+	}
+}
+
+func TestFetchURLToolBuildsDefaultClientOncePerInstance(t *testing.T) {
+	var newConns atomic.Int32
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("plain text body"))
+	}))
+	server.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			newConns.Add(1)
+		}
+	}
+	server.Start()
+	t.Cleanup(server.Close)
+
+	// Swap the package-level default constructor to count constructions. It
+	// returns the test safe client (unguarded dialer) because the production
+	// default refuses to dial a loopback server. No t.Parallel: this test
+	// mutates a package variable other tests read.
+	original := newSafeFetchClient
+	t.Cleanup(func() { newSafeFetchClient = original })
+	var builds atomic.Int32
+	var timeout time.Duration
+	newSafeFetchClient = func(d time.Duration) *http.Client {
+		builds.Add(1)
+		timeout = d
+		return fetchURLTestSafeClient()
+	}
+
+	toolDef := NewFetchURLTool(newFetchURLTestEnv(t, nil))
+
+	for i := 1; i <= 3; i++ {
+		res, err := toolDef.Handler(context.Background(), map[string]any{"url": server.URL})
+		if err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+		result, ok := res.(*FetchURLResult)
+		if !ok {
+			t.Fatalf("call %d: result type = %T, want *FetchURLResult", i, res)
+		}
+		if result.Content != "plain text body" {
+			t.Errorf("call %d: Content = %q, want %q", i, result.Content, "plain text body")
+		}
+	}
+
+	if got := builds.Load(); got != 1 {
+		t.Errorf("default client constructions = %d, want 1 for one tool instance", got)
+	}
+	if timeout != 15*time.Second {
+		t.Errorf("default client timeout = %v, want 15s", timeout)
 	}
 	if got := newConns.Load(); got != 1 {
 		t.Errorf("new connections = %d, want 1 (connections not reused across calls)", got)
@@ -225,7 +285,7 @@ func TestFetchURLDefaultClientRejectsLoopbackOnEveryCall(t *testing.T) {
 	}
 }
 
-func TestFetchURLDefaultClientBlocksSSRFRedirect(t *testing.T) {
+func TestFetchURLSafeClientBlocksSSRFRedirect(t *testing.T) {
 	var targetRequests atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		targetRequests.Add(1)
@@ -239,9 +299,12 @@ func TestFetchURLDefaultClientBlocksSSRFRedirect(t *testing.T) {
 	}))
 	t.Cleanup(origin.Close)
 
-	// The origin is a loopback server, so the client's per-dial guard is
-	// swapped for an unguarded dialer to let the call reach it. Redirect
-	// validation is the default client's, which is what this test covers.
+	// The origin is a loopback server, so the seam client's per-dial guard is
+	// swapped for an unguarded dialer to let the call reach it. The redirect
+	// validation under test is the one fetchURLTestSafeClient keeps from
+	// toolkit.SafeHTTPClient, exercised through fetch_url's env.httpClient
+	// seam. The production default's redirect checks are covered by
+	// TestFetchURLDefaultClientChecksRedirects.
 	toolDef := NewFetchURLTool(newFetchURLTestEnv(t, fetchURLTestSafeClient))
 
 	res, err := toolDef.Handler(context.Background(), map[string]any{"url": origin.URL})

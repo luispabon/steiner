@@ -53,6 +53,11 @@ type FetchURLResult struct {
 	TotalLines    int         `json:"total_lines,omitempty"`
 }
 
+// newSafeFetchClient builds fetch_url's default HTTP client. It is a variable
+// so tests can count constructions and prove one client is built per tool
+// instance; production always resolves to toolkit.SafeHTTPClient.
+var newSafeFetchClient = toolkit.SafeHTTPClient
+
 // newFetchURLClient resolves the HTTP client a fetch_url tool instance shares
 // across its calls. The default client is SSRF-safe: it validates the address
 // of every connection it dials and every redirect target. env.httpClient is a
@@ -61,7 +66,7 @@ func newFetchURLClient(env Env) *http.Client {
 	if env.httpClient != nil {
 		return env.httpClient()
 	}
-	return toolkit.SafeHTTPClient(15 * time.Second)
+	return newSafeFetchClient(15 * time.Second)
 }
 
 // fetchURLPerCallClient returns the client a single fetch_url call should use.
