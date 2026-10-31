@@ -1,0 +1,243 @@
+package builtin
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/tool"
+)
+
+// mustWriteTree writes content to root/rel, creating parent directories.
+func mustWriteTree(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	mustMkdir(t, filepath.Dir(path))
+	mustWrite(t, path, content)
+}
+
+func assertSameStringSet(t *testing.T, label string, got, want []string) {
+	t.Helper()
+	gotSorted := append([]string(nil), got...)
+	wantSorted := append([]string(nil), want...)
+	slices.Sort(gotSorted)
+	slices.Sort(wantSorted)
+	if !slices.Equal(gotSorted, wantSorted) {
+		t.Fatalf("%s = %v, want %v", label, got, want)
+	}
+}
+
+func grepResultFiles(results []grepFileResult) []string {
+	files := make([]string, 0, len(results))
+	for _, result := range results {
+		files = append(files, result.file)
+	}
+	return files
+}
+
+func TestGrepSearch_PrunesBlockedDescendants(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "visible.txt", "needle\n")
+	mustWriteTree(t, root, "secrets/secret.txt", "needle\n")
+	mustWriteTree(t, root, "secrets/nested/deep.txt", "needle\n")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	results, err := grepSearch(context.Background(), grepSearchParams{
+		root:        root,
+		displayPath: root,
+		pattern:     "needle",
+		policy:      &policy,
+	})
+	if err != nil {
+		t.Fatalf("grepSearch: %v", err)
+	}
+	assertSameStringSet(t, "grep files", grepResultFiles(results), []string{"visible.txt"})
+}
+
+func TestGrepSearch_SymlinkRoot(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "real/a.txt", "needle\n")
+	mustWriteTree(t, root, "real/sub/b.txt", "needle\n")
+	mustWriteTree(t, root, "outside/leak.txt", "needle\n")
+	mustSymlink(t, filepath.Join(root, "outside"), filepath.Join(root, "real", "alias"))
+	mustSymlink(t, filepath.Join(root, "real"), filepath.Join(root, "link"))
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	results, err := grepSearch(context.Background(), grepSearchParams{
+		root:        filepath.Join(root, "link"),
+		displayPath: "link",
+		pattern:     "needle",
+		policy:      &policy,
+	})
+	if err != nil {
+		t.Fatalf("grepSearch: %v", err)
+	}
+	assertSameStringSet(t, "grep files", grepResultFiles(results), []string{"a.txt", "sub/b.txt"})
+}
+
+func TestGrepSearch_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "secrets/secret.txt", "needle\n")
+	mustSymlink(t, filepath.Join(root, "secrets"), filepath.Join(root, "link"))
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	_, err := grepSearch(context.Background(), grepSearchParams{
+		root:        filepath.Join(root, "link"),
+		displayPath: "link",
+		pattern:     "needle",
+		policy:      &policy,
+	})
+	if err == nil {
+		t.Fatal("grepSearch succeeded for a symlink root resolving into a blocked path")
+	}
+	var policyErr *tool.PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error = %v, want PathPolicyError", err)
+	}
+}
+
+func TestGlobWalk_PrunesBlockedDescendants(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "visible.go", "package visible\n")
+	mustWriteTree(t, root, "secrets/secret.go", "package secret\n")
+	mustWriteTree(t, root, "secrets/nested/deep.go", "package deep\n")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	matches, err := globWalk(root, "**/*.go", tool.NewPathExcluder(nil, nil), &policy)
+	if err != nil {
+		t.Fatalf("globWalk: %v", err)
+	}
+	assertSameStringSet(t, "glob matches", matches, []string{"visible.go"})
+}
+
+func TestGlobTool_SymlinkRoot(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "real/main.go", "package main\n")
+	mustWriteTree(t, root, "real/sub/lib.go", "package lib\n")
+	mustSymlink(t, filepath.Join(root, "real"), filepath.Join(root, "link"))
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	excluder := tool.NewPathExcluder(nil, nil)
+	toolDef := NewGlobTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
+
+	resultI, err := toolDef.Handler(context.Background(), map[string]any{
+		"path":    "link",
+		"pattern": "**/*.go",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	result, ok := resultI.(Result)
+	if !ok {
+		t.Fatalf("result type = %T, want Result", resultI)
+	}
+	assertSameStringSet(t, "glob output lines", strings.Split(result.Output, "\n"), []string{"main.go", "sub/lib.go"})
+}
+
+func TestLSTool_HidesBlockedEntries(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "visible.txt", "visible")
+	mustWriteTree(t, root, "sub/keep.txt", "keep")
+	mustWriteTree(t, root, "secrets/secret.txt", "secret")
+	mustWriteTree(t, root, "secrets/deep/secret.txt", "secret")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+	ctx := context.Background()
+
+	t.Run("non-recursive listing hides blocked entries", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "."})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		if strings.Contains(result.Output, "secrets") {
+			t.Fatalf("Output leaks blocked entry: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "visible.txt") {
+			t.Fatalf("Output missing visible.txt: %q", result.Output)
+		}
+	})
+
+	t.Run("recursive listing prunes blocked directories", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": ".", "recursive": true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		if strings.Contains(result.Output, "secrets") {
+			t.Fatalf("Output leaks blocked descendant: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "sub/keep.txt") {
+			t.Fatalf("Output missing sub/keep.txt: %q", result.Output)
+		}
+	})
+
+	t.Run("unresolvable entries fail closed", func(t *testing.T) {
+		loopRoot := t.TempDir()
+		mustWriteTree(t, loopRoot, "visible.txt", "visible")
+		mustSymlink(t, "alias", filepath.Join(loopRoot, "alias"))
+
+		loopPolicy := tool.NewPathPolicy(loopRoot, config.PathsConfig{BlockedPaths: []string{"blocked"}})
+		loopDef := NewLSTool(Env{WorkDir: loopRoot, PathPolicy: &loopPolicy})
+		resultI, err := loopDef.Handler(ctx, map[string]any{"path": "."})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		if strings.Contains(result.Output, "alias") {
+			t.Fatalf("Output leaks entry with unresolvable policy path: %q", result.Output)
+		}
+		if !strings.Contains(result.Output, "visible.txt") {
+			t.Fatalf("Output missing visible.txt: %q", result.Output)
+		}
+	})
+}
+
+func TestLSTool_SymlinkRoot(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "real/a.txt", "a")
+	mustWriteTree(t, root, "real/sub/b.txt", "b")
+	mustSymlink(t, filepath.Join(root, "real"), filepath.Join(root, "link"))
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+	ctx := context.Background()
+
+	t.Run("non-recursive listing follows an explicit symlink root", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "link"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"sub/", "a.txt"})
+	})
+
+	t.Run("recursive listing follows an explicit symlink root", func(t *testing.T) {
+		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "link", "recursive": true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		result, ok := resultI.(*Result)
+		if !ok {
+			t.Fatalf("result type = %T, want *Result", resultI)
+		}
+		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"a.txt", "sub/", "sub/b.txt"})
+	})
+}

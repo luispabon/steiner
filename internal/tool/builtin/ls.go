@@ -42,14 +42,19 @@ func NewLSTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("ls: %w", err)
 			}
 
+			walkRoot, err := resolveSearchRoot(absPath, env.PathPolicy)
+			if err != nil {
+				return nil, fmt.Errorf("ls: %w", err)
+			}
+
 			if in.Recursive {
 				excluder := tool.PathExcluder{}
 				if env.Excluder != nil {
 					excluder = *env.Excluder
 				}
-				return lsRecursive(ctx, absPath, in.Limit, in.Offset, excluder)
+				return lsRecursive(ctx, walkRoot, in.Limit, in.Offset, excluder, env.PathPolicy)
 			}
-			return lsNonRecursive(ctx, lsTool, absPath, in.Limit, in.Offset)
+			return lsNonRecursive(ctx, lsTool, walkRoot, in.Limit, in.Offset, env.PathPolicy)
 		},
 	}
 }
@@ -60,6 +65,7 @@ func lsNonRecursive(
 	lsTool *dive.TypedToolAdapter[*toolkit.ListDirectoryInput],
 	absPath string,
 	limit, offset int,
+	policy *tool.PathPolicy,
 ) (*Result, error) {
 	diveResult, err := lsTool.Call(ctx, &toolkit.ListDirectoryInput{
 		Path: absPath,
@@ -99,6 +105,8 @@ func lsNonRecursive(
 		}, nil
 	}
 
+	entries = visibleEntries(entries, absPath, policy)
+
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].IsDir != entries[j].IsDir {
 			return entries[i].IsDir
@@ -119,8 +127,25 @@ func lsNonRecursive(
 	return &result, nil
 }
 
-// lsRecursive walks a directory tree and returns relative paths, skipping excluded directories.
-func lsRecursive(ctx context.Context, absPath string, limit, offset int, excluder tool.PathExcluder) (*Result, error) {
+// visibleEntries drops entries whose resolved path policy denies so a
+// non-recursive listing never leaks a blocked entry.
+func visibleEntries(entries []toolkit.DirectoryEntry, dir string, policy *tool.PathPolicy) []toolkit.DirectoryEntry {
+	if policy == nil {
+		return entries
+	}
+	kept := entries[:0]
+	for _, entry := range entries {
+		if searchPathDenied(policy, filepath.Join(dir, entry.Name)) {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
+}
+
+// lsRecursive walks a directory tree and returns relative paths, skipping
+// excluded directories and directories denied by policy.
+func lsRecursive(ctx context.Context, absPath string, limit, offset int, excluder tool.PathExcluder, policy *tool.PathPolicy) (*Result, error) {
 	var allEntries []string
 
 	err := filepath.WalkDir(absPath, func(path string, d fs.DirEntry, err error) error {
@@ -137,6 +162,13 @@ func lsRecursive(ctx context.Context, absPath string, limit, offset int, exclude
 		}
 
 		if rel == "." {
+			return nil
+		}
+
+		if searchPathDenied(policy, path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
