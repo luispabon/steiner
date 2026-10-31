@@ -1,7 +1,7 @@
 package tool
 
 import (
-	"slices"
+	"strings"
 	"testing"
 )
 
@@ -173,29 +173,106 @@ func TestWorkspaceExcluder_InvalidPatternIgnored(t *testing.T) {
 	}
 }
 
-func TestExpandZeroDirectorySegments(t *testing.T) {
+func TestWorkspaceExcluder_NormalizesPatterns(t *testing.T) {
+	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/"}, nil, false)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: "/ws/generated/out.o", want: true},
+		{path: "/ws/docs/private/x.md", want: true},
+		{path: "/ws/other/docs/private/x.md", want: false},
+		{path: "/ws/build", isDir: true, want: true},
+		{path: "/ws/a/build", isDir: true, want: true},
+		{path: "/ws/buildish/x", want: false},
+	})
+}
+
+func TestWorkspaceExcluder_ComponentPatternAppliesToExplicitRoot(t *testing.T) {
+	ex := newWorkspaceExcluder("/ws", nil, []string{"secrets"}, nil, false)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: "/ws/secrets/deep/x", walkRoot: "/ws/secrets/deep", want: true},
+		{path: "/ws/secrets/deep/x", walkRoot: "/ws", want: true},
+	})
+}
+
+func TestWorkspaceExcluder_EscapedSlashPattern(t *testing.T) {
+	ex := newWorkspaceExcluder("/ws", nil, []string{`a\/b`}, nil, false)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: "/ws/a/b", want: true},
+		{path: "/ws/x/a/b", want: false},
+	})
+}
+
+func TestWorkspaceExcluder_FilesystemRootExclusion(t *testing.T) {
+	ex := newWorkspaceExcluder("/ws", []string{"/"}, nil, nil, false)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: "/", isDir: true, want: true},
+		{path: "/ws/src/main.go", want: true},
+		{path: "/elsewhere/x", walkRoot: "/elsewhere", want: true},
+	})
+}
+
+func TestWorkspaceExcluder_WindowsVolumeRootExclusion(t *testing.T) {
+	ex := newWorkspaceExcluder(`C:\`, []string{`C:\`}, nil, nil, true)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: `C:\`, isDir: true, want: true},
+		{path: `C:\a\b`, want: true},
+		{path: `D:\x`, walkRoot: `D:\`, want: false},
+	})
+}
+
+func TestWorkspaceExcluder_DotExcludePath(t *testing.T) {
+	ex := NewWorkspaceExcluder("/ws", []string{"."}, nil)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: "/ws", isDir: true, want: true},
+		{path: "/ws/src/main.go", want: true},
+		{path: "/other/x", walkRoot: "/other", want: false},
+	})
+}
+
+func TestWorkspacePattern_Matches(t *testing.T) {
 	tests := []struct {
 		pattern string
-		want    []string
+		path    string
+		want    bool
 	}{
-		{pattern: "**/fixtures", want: []string{"**/fixtures", "fixtures"}},
-		{pattern: "a/**/b", want: []string{"a/**/b", "a/b"}},
-		{pattern: "a/**/**/b", want: []string{"a/**/**/b", "a/**/b", "a/b"}},
-		{pattern: "[**/]x", want: []string{"[**/]x"}},
-		{pattern: `\*\*/x`, want: []string{`\*\*/x`}},
-		{pattern: "plain", want: []string{"plain"}},
+		{pattern: "**/fixtures", path: "fixtures", want: true},
+		{pattern: "**/fixtures", path: "a/fixtures", want: true},
+		{pattern: "**/fixtures", path: "a/b", want: false},
+		{pattern: "a/**/b", path: "a/b", want: true},
+		{pattern: "a/**/**/b", path: "a/b", want: true},
+		{pattern: "**/a/**/b", path: "a/b", want: true},
+		{pattern: "build/**", path: "build", want: true},
+		{pattern: "a**/b", path: "ab", want: false},
+		{pattern: "a**/b", path: "a/b", want: true},
+		{pattern: `\*\*/x`, path: "**/x", want: true},
+		{pattern: "[**/]x", path: "**/x", want: false},
+		{pattern: "{a/b,c}/**", path: "a/b/x", want: true},
+		{pattern: "{a/b,c}/**", path: "c/x", want: true},
 	}
 	for _, tc := range tests {
-		t.Run(tc.pattern, func(t *testing.T) {
-			got := expandZeroDirectorySegments(tc.pattern)
-			if len(got) != len(tc.want) {
-				t.Fatalf("expandZeroDirectorySegments(%q) = %q, want %q", tc.pattern, got, tc.want)
+		t.Run(tc.pattern+" "+tc.path, func(t *testing.T) {
+			compiled, ok := compileWorkspaceSlashPattern(tc.pattern)
+			if !ok {
+				t.Fatalf("compileWorkspaceSlashPattern(%q) failed", tc.pattern)
 			}
-			for _, want := range tc.want {
-				if !slices.Contains(got, want) {
-					t.Fatalf("expandZeroDirectorySegments(%q) = %q, missing %q", tc.pattern, got, want)
-				}
+			if got := compiled.matches(tc.path); got != tc.want {
+				t.Fatalf("%q matches %q = %v, want %v", tc.pattern, tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestWorkspacePattern_ManyGlobstarSegments(t *testing.T) {
+	pattern := strings.Repeat("**/", 20) + "target"
+	compiled, ok := compileWorkspaceSlashPattern(pattern)
+	if !ok {
+		t.Fatalf("compileWorkspaceSlashPattern(%q) failed", pattern)
+	}
+	for _, path := range []string{"target", "a/target", strings.Repeat("a/", 20) + "target"} {
+		if !compiled.matches(path) {
+			t.Fatalf("%q should match %q", pattern, path)
+		}
+	}
+	if compiled.matches("target/later") {
+		t.Fatalf("%q should not match %q", pattern, "target/later")
 	}
 }
