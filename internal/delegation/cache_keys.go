@@ -77,22 +77,15 @@ func cacheKeyOrMint(store *CacheKeyStore, agentType AgentType) string {
 	return key
 }
 
-// BeginDispatch coordinates same-cache-key sibling delegations. The first caller for
+// beginDispatch coordinates same-cache-key sibling delegations. The first caller for
 // cacheKey is the leader: it returns release and wait functions that proceed immediately
 // so it can dispatch at once; followers are told isLeader=false and must call the
-// returned wait before spawning. release is idempotent, records leader_exited as the
-// release cause, and clears a follower wait for this cacheKey. An empty cacheKey is
+// returned wait before spawning. release is idempotent, records its cause as the release
+// cause of the gate, and clears a follower wait for this cacheKey. An empty cacheKey is
 // ungated: it always returns isLeader=true with a no-op release and wait.
 //
 // A follower's wait returns why it ended. Leaders never call wait, so their wait
 // returns the zero reason.
-func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release func(), wait func(ctx context.Context) output.DelegationCacheReleaseReason) {
-	isLeader, releaseWithCause, wait := s.beginDispatch(cacheKey)
-	return isLeader, func() { releaseWithCause(output.DelegationCacheReleaseLeaderExited) }, wait
-}
-
-// beginDispatch is BeginDispatch with the release cause exposed, so a caller that
-// releases the gate for different reasons keeps the cause of the first release.
 func (s *CacheKeyStore) beginDispatch(cacheKey string) (isLeader bool, release func(output.DelegationCacheReleaseReason), wait func(ctx context.Context) output.DelegationCacheReleaseReason) {
 	if cacheKey == "" {
 		return true, func(output.DelegationCacheReleaseReason) {}, noWait

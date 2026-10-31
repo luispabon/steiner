@@ -86,18 +86,18 @@ func TestCacheKeyStoreKeyForMintErrorNotCached(t *testing.T) {
 	}
 }
 
-func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
+func TestCacheKeyStoreDispatchGateLeaderAndFollower(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()
-	isLeader, release, _ := store.BeginDispatch("shared-key")
-	t.Cleanup(release)
+	isLeader, release, _ := store.beginDispatch("shared-key")
+	t.Cleanup(func() { release(output.DelegationCacheReleaseLeaderExited) })
 	if !isLeader {
-		t.Fatal("first BeginDispatch() isLeader = false, want true")
+		t.Fatal("first beginDispatch() isLeader = false, want true")
 	}
 
-	followerLeader, _, wait := store.BeginDispatch("shared-key")
+	followerLeader, _, wait := store.beginDispatch("shared-key")
 	if followerLeader {
-		t.Fatal("second BeginDispatch() isLeader = true, want false")
+		t.Fatal("second beginDispatch() isLeader = true, want false")
 	}
 
 	// A cancellable context plus the registered release cleanup guarantees the
@@ -116,7 +116,7 @@ func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	release()
+	release(output.DelegationCacheReleaseLeaderExited)
 	select {
 	case <-waitDone:
 	case <-time.After(time.Second):
@@ -124,12 +124,12 @@ func TestCacheKeyStoreBeginDispatchLeaderAndFollower(t *testing.T) {
 	}
 }
 
-func TestCacheKeyStoreBeginDispatchWaitCancellation(t *testing.T) {
+func TestCacheKeyStoreDispatchGateWaitCancellation(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()
-	_, release, _ := store.BeginDispatch("cancel-key")
-	t.Cleanup(release)
-	_, _, wait := store.BeginDispatch("cancel-key")
+	_, release, _ := store.beginDispatch("cancel-key")
+	t.Cleanup(func() { release(output.DelegationCacheReleaseLeaderExited) })
+	_, _, wait := store.beginDispatch("cancel-key")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -145,27 +145,27 @@ func TestCacheKeyStoreBeginDispatchWaitCancellation(t *testing.T) {
 	}
 }
 
-func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
+func TestCacheKeyStoreDispatchGateReleaseStartsNewWave(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()
-	firstLeader, firstRelease, _ := store.BeginDispatch("wave-key")
-	t.Cleanup(firstRelease)
+	firstLeader, firstRelease, _ := store.beginDispatch("wave-key")
+	t.Cleanup(func() { firstRelease(output.DelegationCacheReleaseLeaderExited) })
 	if !firstLeader {
-		t.Fatal("first BeginDispatch() isLeader = false, want true")
+		t.Fatal("first beginDispatch() isLeader = false, want true")
 	}
-	firstRelease()
+	firstRelease(output.DelegationCacheReleaseLeaderExited)
 
-	secondLeader, secondRelease, _ := store.BeginDispatch("wave-key")
-	t.Cleanup(secondRelease)
+	secondLeader, secondRelease, _ := store.beginDispatch("wave-key")
+	t.Cleanup(func() { secondRelease(output.DelegationCacheReleaseLeaderExited) })
 	if !secondLeader {
-		t.Fatal("new wave BeginDispatch() isLeader = false, want true")
+		t.Fatal("new wave beginDispatch() isLeader = false, want true")
 	}
-	followerLeader, _, secondWait := store.BeginDispatch("wave-key")
+	followerLeader, _, secondWait := store.beginDispatch("wave-key")
 	if followerLeader {
-		t.Fatal("second wave follower BeginDispatch() isLeader = true, want false")
+		t.Fatal("second wave follower beginDispatch() isLeader = true, want false")
 	}
 
-	firstRelease()
+	firstRelease(output.DelegationCacheReleaseLeaderExited)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	waitDone := make(chan struct{})
@@ -179,7 +179,7 @@ func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
 	case <-time.After(20 * time.Millisecond):
 	}
 
-	secondRelease()
+	secondRelease(output.DelegationCacheReleaseLeaderExited)
 	select {
 	case <-waitDone:
 	case <-time.After(time.Second):
@@ -187,21 +187,21 @@ func TestCacheKeyStoreBeginDispatchReleaseStartsNewWave(t *testing.T) {
 	}
 }
 
-func TestCacheKeyStoreBeginDispatchEmptyKeyIsUngated(t *testing.T) {
+func TestCacheKeyStoreDispatchGateEmptyKeyIsUngated(t *testing.T) {
 	t.Parallel()
 	store := NewCacheKeyStore()
-	_, release, _ := store.BeginDispatch("existing-key")
-	isLeader, emptyRelease, wait := store.BeginDispatch("")
+	_, release, _ := store.beginDispatch("existing-key")
+	isLeader, emptyRelease, wait := store.beginDispatch("")
 	if !isLeader {
-		t.Fatal("empty-key BeginDispatch() isLeader = false, want true")
+		t.Fatal("empty-key beginDispatch() isLeader = false, want true")
 	}
-	emptyRelease()
+	emptyRelease(output.DelegationCacheReleaseLeaderExited)
 	wait(context.Background())
-	release()
+	release(output.DelegationCacheReleaseLeaderExited)
 
-	isLeader, _, _ = store.BeginDispatch("")
+	isLeader, _, _ = store.beginDispatch("")
 	if !isLeader {
-		t.Fatal("empty-key BeginDispatch() after release isLeader = false, want true")
+		t.Fatal("empty-key beginDispatch() after release isLeader = false, want true")
 	}
 }
 
