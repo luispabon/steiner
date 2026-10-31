@@ -372,3 +372,24 @@ func TestWorkspacePattern_DeepPathWithEmbeddedSuperStarBounded(t *testing.T) {
 		t.Fatalf("deep path with embedded ** allocated %.1f objects per run, want at most 10", allocs)
 	}
 }
+
+func TestWorkspacePattern_AllDPrefixedPathBounded(t *testing.T) {
+	compiled, ok := compileWorkspaceSlashPattern("**/d**/file")
+	if !ok {
+		t.Fatal("compileWorkspaceSlashPattern failed")
+	}
+	deep := strings.Repeat("d/", 160) + "file"
+	if !compiled.matchesPrefix(deep) {
+		t.Fatalf("all d-prefixed path %q should match", deep)
+	}
+	var matched bool
+	allocs := testing.AllocsPerRun(10, func() {
+		matched = compiled.matchesPrefix(deep)
+	})
+	if !matched {
+		t.Fatalf("all d-prefixed path %q should match", deep)
+	}
+	if allocs > 10 {
+		t.Fatalf("all d-prefixed path allocated %.1f objects per run, want at most 10", allocs)
+	}
+}

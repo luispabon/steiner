@@ -423,6 +423,9 @@ func propagateGlobstar(current, next []bool) {
 }
 
 // advanceSegment moves reachable boundaries across one non-globstar segment.
+// Single-segment tokens test one component. Multi-segment tokens test every
+// candidate end from each reachable start, so their worst case is O(depth²)
+// matcher calls over the path; the scan itself does not allocate.
 func advanceSegment(current, next []bool, segment workspacePatternSegment, relSlash string, offsets []int) {
 	count := len(offsets) - 1
 	for start := 0; start < count; start++ {
