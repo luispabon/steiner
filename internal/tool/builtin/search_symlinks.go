@@ -14,14 +14,18 @@ import (
 // link name stays the path the caller sees; only the read path is resolved.
 //
 // walkCanonical and workspace are the canonical directories a target must stay
-// inside. workspace is empty when the policy names no root.
+// inside, while workspaceLexical is the workspace path exclusions were
+// configured against. workspace is empty when the policy names no root, and
+// virtualTmp records that the caller named the virtual /tmp tree.
 type searchSymlinkScope struct {
-	policy        *tool.PathPolicy
-	excluder      *tool.WorkspaceExcluder
-	walkRoot      string
-	lexicalRoot   string
-	walkCanonical string
-	workspace     string
+	policy           *tool.PathPolicy
+	excluder         *tool.WorkspaceExcluder
+	walkRoot         string
+	lexicalRoot      string
+	walkCanonical    string
+	workspace        string
+	workspaceLexical string
+	virtualTmp       bool
 }
 
 // newSearchSymlinkScope builds the scope for one walk, canonicalizing the
@@ -36,6 +40,8 @@ func newSearchSymlinkScope(policy *tool.PathPolicy, excluder *tool.WorkspaceExcl
 	}
 	if policy != nil {
 		scope.workspace = canonicalSearchPath(policy.Root())
+		scope.workspaceLexical = policy.Root()
+		scope.virtualTmp = policy.VirtualTmpRequest()
 	}
 	return scope
 }
@@ -110,7 +116,7 @@ func (s searchSymlinkScope) target(path string) (string, bool) {
 // outside the walk root is reachable only through the link, and matching it
 // against the walk root leaves no relative path for built-in directory names
 // such as node_modules or .git to match, so those targets are matched against
-// the workspace root instead.
+// the workspace view instead.
 func (s searchSymlinkScope) excluded(resolved string) bool {
 	if excludeSearchEntry(s.excluder, s.policy, s.walkRoot, s.lexicalRoot, resolved, false) {
 		return true
@@ -118,7 +124,38 @@ func (s searchSymlinkScope) excluded(resolved string) bool {
 	if s.workspace == "" || pathWithinCanonicalRoot(s.walkCanonical, resolved) {
 		return false
 	}
-	return excludeSearchEntry(s.excluder, s.policy, s.workspace, s.workspace, resolved, false)
+	base, target := s.externalExclusionPath(resolved)
+	return excludeSearchEntry(s.excluder, s.policy, base, base, target, false)
+}
+
+// externalExclusionPath returns the base and path an out-of-walk target is
+// matched against. A virtual /tmp request anchors at the virtual /tmp root: the
+// sandbox storage tree sits inside the workspace, and the workspace view leaves
+// a /tmp target no relative path for configured patterns to match. Otherwise
+// the canonical target is mapped back onto the lexical workspace path, because
+// configured exclusions are anchored where the caller configured them and that
+// path is not canonical when the workspace root is itself a symlink.
+func (s searchSymlinkScope) externalExclusionPath(resolved string) (string, string) {
+	if s.virtualTmp && s.policy.IsSandboxTmpPath(resolved) {
+		return virtualTmpRoot, s.policy.DisplayPath(resolved)
+	}
+	if rel, ok := relativeToCanonicalRoot(s.workspace, resolved); ok && s.workspaceLexical != "" {
+		return s.workspaceLexical, filepath.Join(s.workspaceLexical, rel)
+	}
+	return s.workspace, resolved
+}
+
+// relativeToCanonicalRoot returns the relative path from root to target when
+// target is contained by root.
+func relativeToCanonicalRoot(root, target string) (string, bool) {
+	if !pathWithinCanonicalRoot(root, target) {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", false
+	}
+	return rel, true
 }
 
 // contains reports whether the canonical target stays inside one of the
@@ -127,6 +164,9 @@ func (s searchSymlinkScope) excluded(resolved string) bool {
 func (s searchSymlinkScope) contains(target string) bool {
 	return pathWithinCanonicalRoot(s.walkCanonical, target) || pathWithinCanonicalRoot(s.workspace, target)
 }
+
+// virtualTmpRoot is the caller-visible path the sandbox /tmp rewrite maps onto.
+const virtualTmpRoot = "/tmp"
 
 // pathWithinCanonicalRoot reports whether target is inside root, treating an
 // empty root as no root at all.

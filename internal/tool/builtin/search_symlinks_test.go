@@ -52,12 +52,13 @@ func symlinkSearchFixture(t *testing.T, excludePaths, excludePatterns, blockedPa
 	return Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder}
 }
 
-// grepPatternRows runs grep in files_with_matches mode and returns its rows.
-func grepPatternRows(t *testing.T, env Env, searchPath, pattern string) []string {
+// grepPatternRows runs grep for the fixture needle in files_with_matches mode
+// and returns its rows.
+func grepPatternRows(t *testing.T, env Env, searchPath string) []string {
 	t.Helper()
 	result := runGrepForTest(t, NewGrepTool(env), map[string]any{
 		"path":        searchPath,
-		"pattern":     pattern,
+		"pattern":     "needle",
 		"output_mode": "files_with_matches",
 	})
 	return outputRows(result.Output, "No matches found")
@@ -119,7 +120,7 @@ func TestSymlinkSearchEntryEligibility(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := symlinkSearchFixture(t, tt.excludePaths, tt.excludePatterns, tt.blockedPaths)
-			assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src", "needle"), tt.want)
+			assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src"), tt.want)
 			assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), tt.want)
 		})
 	}
@@ -244,10 +245,69 @@ func TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot(t *testing.T) {
 	env := workspaceTestEnv(t, root, nil, nil)
 
 	wantUnderSearchRoot := []string{"link-visible.go", "visible.go"}
-	assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src", "needle"), wantUnderSearchRoot)
+	assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src"), wantUnderSearchRoot)
 	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), wantUnderSearchRoot)
 
 	wantUnderBuiltinDir := []string{"alias.go", "real.go"}
-	assertSameStringSet(t, "grep rows under built-in dir", grepPatternRows(t, env, "node_modules/pkg", "needle"), wantUnderBuiltinDir)
+	assertSameStringSet(t, "grep rows under built-in dir", grepPatternRows(t, env, "node_modules/pkg"), wantUnderBuiltinDir)
 	assertSameStringSet(t, "glob rows under built-in dir", globPatternRows(t, env, "node_modules/pkg", "**/*.go"), wantUnderBuiltinDir)
+}
+
+// TestSymlinkSearchUsesLexicalWorkspaceForConfiguredExcludes proves configured
+// exclusions still match a link target outside the search root when the
+// workspace root is a symlink alias. The excluder is anchored at the path the
+// caller configured, while the link target resolves to the alias's real
+// location, so the target has to be mapped back into the configured view.
+func TestSymlinkSearchUsesLexicalWorkspaceForConfiguredExcludes(t *testing.T) {
+	realRoot := t.TempDir()
+	for _, rel := range []string{"src/main.go", "shared/open.go", "secret/key.txt"} {
+		mustWriteTree(t, realRoot, rel, "needle\n")
+	}
+	mustSymlink(t, "../secret/key.txt", filepath.Join(realRoot, "src", "link-secret.go"))
+	mustSymlink(t, "../shared/open.go", filepath.Join(realRoot, "src", "link-open.go"))
+
+	alias := filepath.Join(t.TempDir(), "workspace")
+	mustSymlink(t, realRoot, alias)
+
+	env := workspaceTestEnv(t, alias, []string{"secret"}, []string{"secret/*.txt"})
+	want := []string{"link-open.go", "main.go"}
+	assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src"), want)
+	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), want)
+}
+
+// TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets proves a virtual /tmp
+// walk applies configured patterns to a link target outside the walk root. The
+// workspace view cannot describe such a target, so the pattern is matched
+// against the target's virtual /tmp path instead.
+func TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets(t *testing.T) {
+	root := t.TempDir()
+	sandboxTmp := filepath.Join(root, "sandbox-tmp")
+	session := filepath.Join(sandboxTmp, "s1")
+	mustWriteTree(t, session, "report.txt", "needle\n")
+	mustWriteTree(t, sandboxTmp, "other/app.txt", "needle\n")
+	mustWriteTree(t, sandboxTmp, "other/allowed.txt", "needle\n")
+	mustSymlink(t, "../other/app.txt", filepath.Join(session, "link-app.txt"))
+	mustSymlink(t, "../other/allowed.txt", filepath.Join(session, "link-allowed.txt"))
+
+	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp).WithVirtualTmpRequest("/tmp")
+	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"app.txt"})
+
+	matches, err := globWalk(session, session, "**/*.txt", excluder, &policy)
+	if err != nil {
+		t.Fatalf("globWalk: %v", err)
+	}
+	want := []string{"link-allowed.txt", "report.txt"}
+	assertSameStringSet(t, "glob matches", matches, want)
+
+	results, _, err := grepSearch(context.Background(), grepSearchParams{
+		root:        session,
+		displayPath: "s1",
+		pattern:     "needle",
+		excluder:    &excluder,
+		policy:      &policy,
+	})
+	if err != nil {
+		t.Fatalf("grepSearch: %v", err)
+	}
+	assertSameStringSet(t, "grep files", grepResultFiles(results), want)
 }
