@@ -207,6 +207,28 @@ func TestFoldClaudeSubChunksErrorPaths(t *testing.T) {
 	}
 }
 
+// TestClaudeSubChatCompletionCancellationAfterPartialChunk proves a cancel that
+// lands after a partial chunk but before any terminal chunk still reports the
+// context error, not the missing-terminal error, and no response. It drives the
+// fold stream ChatCompletion drains, so the chunk is delivered before cancel.
+func TestClaudeSubChatCompletionCancellationAfterPartialChunk(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stream := make(chan ChatChunk)
+	go func() {
+		stream <- ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: "partial"}}
+		cancel()
+		close(stream)
+	}()
+	got, err := claudeSubFoldStream(ctx, stream)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("claudeSubFoldStream() error = %v, want context.Canceled", err)
+	}
+	if !reflect.DeepEqual(got, ChatResponse{}) {
+		t.Errorf("response = %+v, want the zero response", got)
+	}
+}
+
 // TestClaudeSubChatCompletionCancellation proves a cancelled turn reports the
 // context error and no partial response.
 func TestClaudeSubChatCompletionCancellation(t *testing.T) {

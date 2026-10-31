@@ -38,6 +38,12 @@ func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req Cha
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	return claudeSubFoldStream(ctx, stream)
+}
+
+// claudeSubFoldStream drains a provider stream and folds it. A cancelled
+// context owns the failure when the stream ended without a terminal chunk.
+func claudeSubFoldStream(ctx context.Context, stream <-chan ChatChunk) (ChatResponse, error) {
 	var chunks []ChatChunk
 	for chunk := range stream {
 		chunks = append(chunks, chunk)
