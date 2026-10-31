@@ -88,6 +88,7 @@ A timed-out command returns the output captured so far, with `timed_out: true` a
 
 - A leading UTF-8 BOM is removed and CRLF becomes LF before matching, so `^`, `$`, and the rendered lines agree on Windows and Unix line endings. A lone CR is kept.
 - `multiline: true` compiles the pattern with `(?ms)`: `^` and `$` match line boundaries and `.` matches newlines. Inline flags in the pattern override this, so `(?-m)` restores whole-file anchors and `(?-s)` stops `.` from crossing newlines.
+- A zero-width match at end of file reports the final line only when that line holds text. When the file ends with a newline, the match falls on the synthetic empty line after it and no match row is emitted.
 - A file with a NUL byte in its first 8192 bytes is treated as binary and skipped.
 - An invalid regex, an invalid `glob`, or a `glob` that expands past 256 forms fails the call.
 
