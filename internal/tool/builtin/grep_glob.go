@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/gobwas/glob"
@@ -22,9 +23,9 @@ var errGrepGlobTooComplex = fmt.Errorf("pattern expands beyond %d forms", maxGre
 // A slashless alternative names a file at any depth, so it matches the path
 // basename. An alternative containing a slash matches the root-relative path
 // only. A leading "./" on the pattern or on any brace alternative anchors that
-// alternative to the search root. Every "**/" also matches zero directories.
-// Braces, escapes, and character classes keep gobwas/glob syntax; an empty
-// pattern yields a nil matcher.
+// alternative to the search root. A "**/" that forms its own path segment also
+// matches zero directories. Braces, escapes, and character classes keep
+// gobwas/glob syntax; an empty pattern yields a nil matcher.
 func compileGrepFileGlob(fileGlob string) (glob.Glob, error) {
 	if fileGlob == "" {
 		return nil, nil
@@ -89,10 +90,10 @@ func expandGrepGlobPatterns(pattern string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		expanded = append(expanded, forms...)
-		if len(expanded) > maxGrepGlobPatterns {
+		if len(expanded)+len(forms) > maxGrepGlobPatterns {
 			return nil, errGrepGlobTooComplex
 		}
+		expanded = append(expanded, forms...)
 	}
 	return expanded, nil
 }
@@ -164,26 +165,42 @@ func splitGrepGlobBraces(pattern string) (int, int, []string, bool) {
 	return 0, 0, nil, false
 }
 
-// expandGrepGlobZeroDir returns the pattern plus every variant with one "**/"
-// removed, so a directory doublestar also matches zero directories.
+// expandGrepGlobZeroDir returns every pattern produced by removing any subset
+// of the standalone "**/" segments, so each of them matches zero directories
+// as well as one or more. Removing only a prefix of the segments is not enough:
+// gobwas/glob cannot elide an inner "**/" once an earlier segment is consumed.
 func expandGrepGlobZeroDir(pattern string) ([]string, error) {
-	idx, ok := findGrepGlobZeroDir(pattern)
-	if !ok {
-		return []string{pattern}, nil
+	forms := map[string]struct{}{pattern: {}}
+	queue := []string{pattern}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, offset := range grepGlobZeroDirOffsets(current) {
+			next := current[:offset] + current[offset+len("**/"):]
+			if _, seen := forms[next]; seen {
+				continue
+			}
+			forms[next] = struct{}{}
+			if len(forms) > maxGrepGlobPatterns {
+				return nil, errGrepGlobTooComplex
+			}
+			queue = append(queue, next)
+		}
 	}
-	rest, err := expandGrepGlobZeroDir(pattern[:idx] + pattern[idx+len("**/"):])
-	if err != nil {
-		return nil, err
+	expanded := make([]string, 0, len(forms))
+	for form := range forms {
+		expanded = append(expanded, form)
 	}
-	if len(rest)+1 > maxGrepGlobPatterns {
-		return nil, errGrepGlobTooComplex
-	}
-	return append([]string{pattern}, rest...), nil
+	sort.Strings(expanded)
+	return expanded, nil
 }
 
-// findGrepGlobZeroDir reports the first "**/" outside a character class and
-// not escaped. Doublestar text inside classes or escape sequences is literal.
-func findGrepGlobZeroDir(pattern string) (int, bool) {
+// grepGlobZeroDirOffsets reports every "**/" that forms its own path segment,
+// meaning it starts the pattern or follows a separator, and is neither escaped
+// nor inside a character class. A doublestar attached to a literal prefix is a
+// spanning wildcard, not a directory wildcard, so "foo**/bar.go" keeps it.
+func grepGlobZeroDirOffsets(pattern string) []int {
+	var offsets []int
 	for i := 0; i < len(pattern); i++ {
 		switch pattern[i] {
 		case '\\':
@@ -191,12 +208,17 @@ func findGrepGlobZeroDir(pattern string) (int, bool) {
 		case '[':
 			i = skipGrepGlobClass(pattern, i)
 		case '*':
-			if strings.HasPrefix(pattern[i:], "**/") {
-				return i, true
+			if !strings.HasPrefix(pattern[i:], "**/") {
+				continue
 			}
+			if i > 0 && pattern[i-1] != '/' {
+				continue
+			}
+			offsets = append(offsets, i)
+			i += len("**/") - 1
 		}
 	}
-	return 0, false
+	return offsets
 }
 
 // skipGrepGlobClass returns the index of the ']' closing the character class

@@ -85,6 +85,24 @@ func TestCompileGrepFileGlobMatches(t *testing.T) {
 			misses:  []string{"root.md"},
 		},
 		{
+			name:    "multiple nonadjacent doublestar segments match zero directories",
+			pattern: "a/**/b/**/c.go",
+			matches: []string{"a/b/c.go", "a/q/b/c.go", "a/b/q/c.go", "a/q/b/r/c.go"},
+			misses:  []string{"b/c.go", "a/c.go", "a/q/c.go", "a/q/b/c.md"},
+		},
+		{
+			name:    "leading and inner doublestar segments match zero directories",
+			pattern: "**/a/**/b.go",
+			matches: []string{"a/b.go", "a/q/b.go", "x/a/b.go", "x/a/q/b.go"},
+			misses:  []string{"b.go", "a/b.md"},
+		},
+		{
+			name:    "doublestar attached to a literal is not a directory segment",
+			pattern: "foo**/bar.go",
+			matches: []string{"foo/bar.go", "fooX/bar.go"},
+			misses:  []string{"foobar.go", "bar.go"},
+		},
+		{
 			name:    "middle doublestar matches zero directories",
 			pattern: "pkg/**/root.go",
 			matches: []string{"pkg/root.go", "pkg/a/root.go", "pkg/a/b/root.go"},
