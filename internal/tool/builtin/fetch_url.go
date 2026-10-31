@@ -55,8 +55,9 @@ type FetchURLResult struct {
 }
 
 // fetchRedirectLimit is the number of redirects fetch_url's default client
-// follows before refusing the chain.
-const fetchRedirectLimit = 10
+// follows. httpguard refuses `len(via) > fetchRedirectLimit`, so a tenth hop
+// is refused, preserving the standard client's `len(via) >= 10` boundary.
+const fetchRedirectLimit = 9
 
 // newSafeFetchClient builds fetch_url's default HTTP client. It is a variable
 // so tests can count constructions and prove one client is built per tool

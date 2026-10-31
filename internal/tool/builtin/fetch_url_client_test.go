@@ -284,9 +284,11 @@ func TestFetchURLDefaultClientRedirectPolicy(t *testing.T) {
 		hops    int
 		blocked bool
 	}{
-		{name: "https hop within the limit", target: "https://example.com/next", hops: fetchRedirectLimit},
+		// Literal hop counts rather than fetchRedirectLimit arithmetic: nine
+		// followed and the tenth refused is the contract being pinned.
+		{name: "ninth hop within the limit", target: "https://example.com/next", hops: 9},
 		{name: "plain http hop is allowed", target: "http://example.com/next", hops: 1},
-		{name: "one hop past the limit", target: "https://example.com/next", hops: fetchRedirectLimit + 1, blocked: true},
+		{name: "tenth hop is refused", target: "https://example.com/next", hops: 10, blocked: true},
 		{name: "non-http scheme", target: "ftp://example.com/next", hops: 1, blocked: true},
 	}
 	for _, tt := range tests {
@@ -336,14 +338,20 @@ func TestFetchURLDefaultClientRefusesNonPublicAddresses(t *testing.T) {
 }
 
 // TestFetchURLDefaultClientIgnoresAmbientProxy proves the guarded client does
-// not relay through an ambient proxy: a proxy would reach the target from an
-// address the dial check never sees. The tradeoff is documented in
-// docs/user/tools.md.
+// not relay through an ambient proxy, using a live recording proxy: a proxy
+// would reach the target from an address the dial check never sees. The
+// tradeoff is documented in docs/user/tools.md.
 func TestFetchURLDefaultClientIgnoresAmbientProxy(t *testing.T) {
-	t.Setenv("HTTP_PROXY", "http://127.0.0.1:9")
-	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
-	t.Setenv("http_proxy", "http://127.0.0.1:9")
-	t.Setenv("https_proxy", "http://127.0.0.1:9")
+	var proxyRequests atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyRequests.Add(1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(proxy.Close)
+
+	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
+		t.Setenv(name, proxy.URL)
+	}
 	t.Setenv("NO_PROXY", "")
 	t.Setenv("no_proxy", "")
 
@@ -366,6 +374,9 @@ func TestFetchURLDefaultClientIgnoresAmbientProxy(t *testing.T) {
 	}
 	if !errors.Is(err, httpguard.ErrNonPublicAddress) {
 		t.Errorf("client.Do with HTTP_PROXY set = %v, want httpguard.ErrNonPublicAddress from the guard", err)
+	}
+	if got := proxyRequests.Load(); got != 0 {
+		t.Errorf("proxy requests = %d, want 0: the guarded request was relayed through the ambient proxy", got)
 	}
 }
 

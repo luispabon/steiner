@@ -26,8 +26,8 @@ MCP tools from connected servers appear with the `mcp__<server>__<tool>` prefix.
 
 `fetch_url` and `web_search` use separate HTTP clients with different hardening.
 
-- `fetch_url` uses a guarded client. Every address it dials, including each redirect target, must be publicly routable: loopback, private RFC 1918, CGNAT shared space (`100.64.0.0/10`), IPv6 unique-local, link-local (including `169.254.169.254`), documentation, benchmark, and reserved ranges are refused at connection time. Each request is bounded at 15 seconds and follows at most 10 redirects, plain HTTP hops included.
-- The guarded client ignores the ambient proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, in either case). A proxy relays the request from its own address, which defeats the dial check, so proxy support is deliberately traded away. On a network whose only route out is a proxy, `fetch_url` cannot reach public URLs. The local workaround is to run the fetch through `bash` with a proxy-aware client, for example `curl -sSL <url>`, which honours the ambient proxy settings.
+- `fetch_url` uses a guarded client. Every address it dials, including each redirect target, must be publicly routable: loopback, private RFC 1918, CGNAT shared space (`100.64.0.0/10`), IPv6 unique-local, link-local (including `169.254.169.254`), documentation, benchmark, and reserved ranges are refused at connection time. Each request is bounded at 15 seconds and follows at most 9 redirects, plain HTTP hops included; a tenth hop is refused.
+- The guarded client ignores the ambient proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, in either case). A proxy relays the request from its own address, which defeats the dial check, so proxy support is deliberately traded away: on a network whose only route out is a proxy, `fetch_url` cannot reach public URLs.
 - Search backends (`web_search`) are unchanged and still honour the ambient proxy variables. A non-200 search response body is read through an 8 KiB cap, and at most its first 100 bytes appear in the error.
 
 ## Bash output
