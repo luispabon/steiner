@@ -174,11 +174,13 @@ func TestWorkspaceExcluder_InvalidPatternIgnored(t *testing.T) {
 }
 
 func TestWorkspaceExcluder_NormalizesPatterns(t *testing.T) {
-	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/", "/docs/**"}, nil, false)
+	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/", "/docs/**", "/./legacy/**"}, nil, false)
 	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
 		{path: "/ws/generated/out.o", want: true},
 		{path: "/ws/docs/private/x.md", want: true},
 		{path: "/ws/docs/api/x.md", want: true},
+		{path: "/ws/legacy/code.go", want: true},
+		{path: "/ws/other/legacy/code.go", want: false},
 		{path: "/ws/other/docs/api/x.md", want: false},
 		{path: "/ws/other/docs/private/x.md", want: false},
 		{path: "/ws/build", isDir: true, want: true},
@@ -196,6 +198,31 @@ func TestWorkspaceExcluder_NegatedClassStaysWithinSegment(t *testing.T) {
 		{path: "/ws/ayb/c", want: true},
 		{path: "/ws/pkg/ayb", want: true},
 	})
+}
+
+func TestNormalizeWorkspacePattern(t *testing.T) {
+	tests := []struct {
+		pattern string
+		windows bool
+		want    string
+	}{
+		{pattern: "docs/**", want: "docs/**"},
+		{pattern: "./docs/**", want: "docs/**"},
+		{pattern: "/./docs/**", want: "docs/**"},
+		{pattern: "/.//./docs/**/", want: "docs/**"},
+		{pattern: "././docs/", want: "docs"},
+		{pattern: "a/./b", want: "a/./b"},
+		{pattern: "build/", want: "build"},
+		{pattern: `\docs\**`, windows: true, want: "docs/**"},
+		{pattern: "/", want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.pattern, func(t *testing.T) {
+			if got := normalizeWorkspacePattern(tc.pattern, tc.windows); got != tc.want {
+				t.Fatalf("normalizeWorkspacePattern(%q, %v) = %q, want %q", tc.pattern, tc.windows, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestWorkspaceExcluder_ComponentPatternAppliesToExplicitRoot(t *testing.T) {
@@ -257,6 +284,7 @@ func TestWorkspacePattern_MatchesPrefix(t *testing.T) {
 		{pattern: "build/**", path: "build", want: true},
 		{pattern: "a**/b", path: "ab", want: false},
 		{pattern: "a**/b", path: "a/b", want: true},
+		{pattern: "a**/b", path: "axx/y/b", want: true},
 		{pattern: `\*\*/x`, path: "**/x", want: true},
 		{pattern: "[**/]x", path: "**/x", want: false},
 		{pattern: "{a/b,c}/**", path: "a/b/x", want: true},

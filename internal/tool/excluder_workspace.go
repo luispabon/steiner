@@ -371,8 +371,9 @@ type workspacePattern struct {
 
 // workspacePatternSegment is one path segment of a compiled slash pattern. A
 // globstar segment matches zero or more path segments. Any other segment matches
-// one path segment, or several when it can match a separator (a brace
-// alternative or character class containing one).
+// one path segment, or several when it contains a separator or a "**" super
+// wildcard that can span separators (a brace alternative or character class
+// containing a separator also qualifies).
 type workspacePatternSegment struct {
 	globstar bool
 	multi    bool
@@ -449,11 +450,35 @@ func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
 			return workspacePattern{}, false
 		}
 		compiled = append(compiled, workspacePatternSegment{
-			multi:   strings.Contains(segment, "/"),
+			multi:   strings.Contains(segment, "/") || hasUnescapedDoubleStar(segment),
 			matcher: matcher,
 		})
 	}
 	return workspacePattern{segments: compiled}, true
+}
+
+// hasUnescapedDoubleStar reports whether pattern contains a "**" super wildcard
+// outside a bracket expression and not escaped by a backslash. Such a segment
+// can match across path separators under gobwas semantics.
+func hasUnescapedDoubleStar(pattern string) bool {
+	escaped, inClass := false, false
+	for i := 0; i < len(pattern); i++ {
+		switch c := pattern[i]; {
+		case escaped:
+			escaped = false
+		case c == '\\':
+			escaped = true
+		case inClass:
+			if c == ']' {
+				inClass = false
+			}
+		case c == '[':
+			inClass = true
+		case c == '*' && i+1 < len(pattern) && pattern[i+1] == '*':
+			return true
+		}
+	}
+	return false
 }
 
 // excludeSeparatorFromNegatedClasses adds the separator to every negated
@@ -532,18 +557,25 @@ func splitWorkspacePatternSegments(pattern string) ([]string, bool) {
 }
 
 // normalizeWorkspacePattern normalises a configured pattern for workspace-
-// relative matching: Windows separators and case are folded, leading "./"
-// prefixes are dropped, a leading separator marks the workspace root and is
-// dropped, and trailing separators are trimmed.
+// relative matching: Windows separators and case are folded, leading "./" and
+// "/" prefixes (which mark the workspace root) are dropped, and trailing
+// separators are trimmed.
 func normalizeWorkspacePattern(pattern string, windows bool) string {
 	if windows {
 		pattern = strings.ToLower(strings.ReplaceAll(pattern, "\\", "/"))
 	}
-	for strings.HasPrefix(pattern, "./") {
-		pattern = pattern[2:]
+	// Prefixes repeat: "/./docs" and "././docs" both mean "docs". Interior
+	// "./" components are left untouched.
+	for {
+		switch {
+		case strings.HasPrefix(pattern, "./"):
+			pattern = pattern[2:]
+		case strings.HasPrefix(pattern, "/"):
+			pattern = pattern[1:]
+		default:
+			return trimTrailingPatternSeparators(pattern)
+		}
 	}
-	pattern = strings.TrimLeft(pattern, "/")
-	return trimTrailingPatternSeparators(pattern)
 }
 
 // trimTrailingPatternSeparators removes trailing separators that are not
