@@ -18,7 +18,6 @@
 package builtin
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -66,6 +65,11 @@ type grepCountRow struct {
 type grepWindow struct {
 	start int
 	end   int
+}
+
+// grepTypeAliases maps accepted type names to their canonical grepTypeToExt key.
+var grepTypeAliases = map[string]string{
+	"golang": "go",
 }
 
 var grepTypeToExt = map[string][]string{
@@ -280,7 +284,7 @@ func compileGrepPattern(pattern string, caseInsens, multiline bool) (*regexp.Reg
 		p = "(?i)" + p
 	}
 	if multiline {
-		p = "(?s)" + p
+		p = "(?ms)" + p
 	}
 	re, err := regexp.Compile(p)
 	if err != nil {
@@ -304,7 +308,38 @@ func grepExtensions(fileType string) []string {
 	if fileType == "" {
 		return nil
 	}
-	return grepTypeToExt[fileType]
+	canonical, ok := canonicalGrepType(fileType)
+	if !ok {
+		return nil
+	}
+	return grepTypeToExt[canonical]
+}
+
+func canonicalGrepType(fileType string) (string, bool) {
+	name := strings.ToLower(strings.TrimSpace(fileType))
+	if name == "" {
+		return "", true
+	}
+	if canonical, ok := grepTypeAliases[name]; ok {
+		name = canonical
+	}
+	if _, ok := grepTypeToExt[name]; !ok {
+		return "", false
+	}
+	return name, true
+}
+
+// grepTypeNames returns every accepted type name in deterministic order.
+func grepTypeNames() []string {
+	names := make([]string, 0, len(grepTypeToExt)+len(grepTypeAliases))
+	for name := range grepTypeToExt {
+		names = append(names, name)
+	}
+	for alias := range grepTypeAliases {
+		names = append(names, alias)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func normalizedDisplayPath(root, displayPath string) string {
@@ -380,15 +415,11 @@ func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp
 		return grepFileResult{}, false, fmt.Errorf("read %s: %w", relPath, err)
 	}
 
-	checkLen := 512
-	if len(content) < checkLen {
-		checkLen = len(content)
-	}
-	if bytes.Contains(content[:checkLen], []byte{0}) {
+	if isBinary(content) {
 		return grepFileResult{}, false, nil
 	}
 
-	contentText := string(content)
+	contentText := normalizeGrepContent(content)
 	lines := strings.Split(contentText, "\n")
 	matches := grepLineMatches(lines, contentText, relPath, re, multiline)
 	if len(matches) == 0 {
@@ -400,6 +431,15 @@ func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp
 		lines:   lines,
 		matches: matches,
 	}, true, nil
+}
+
+const grepUTF8BOM = "\xef\xbb\xbf"
+
+// normalizeGrepContent strips a leading UTF-8 BOM and normalizes CRLF line
+// endings before matching so anchors and displayed text agree.
+func normalizeGrepContent(content []byte) string {
+	text := strings.TrimPrefix(string(content), grepUTF8BOM)
+	return strings.ReplaceAll(text, "\r\n", "\n")
 }
 
 func grepLineMatches(lines []string, contentText, relPath string, re *regexp.Regexp, multiline bool) []grepMatch {
@@ -486,8 +526,17 @@ func grepMarkMatchedLines(lineMatched []bool, lines []string, lineStarts []int, 
 	if len(lines) == 0 || len(lineStarts) == 0 {
 		return
 	}
-	contentEnd := lineStarts[len(lineStarts)-1] + len(lines[len(lines)-1])
-	if matchStart >= contentEnd {
+	finalLine := len(lines) - 1
+	contentEnd := lineStarts[finalLine] + len(lines[finalLine])
+	if matchStart > contentEnd {
+		return
+	}
+	if matchStart == contentEnd {
+		// A zero-width EOF match belongs to the final line only when that line
+		// is real text. A trailing newline produces a synthetic empty line.
+		if lines[finalLine] != "" {
+			lineMatched[finalLine] = true
+		}
 		return
 	}
 	if matchEnd == matchStart {
