@@ -34,7 +34,8 @@ func NewGlobTool(env Env) tool.ToolDef {
 				in.Path = "."
 			}
 
-			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
+			policy := env.PathPolicy.WithVirtualTmpRequest(in.Path)
+			absPath, err := policy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
@@ -44,12 +45,12 @@ func NewGlobTool(env Env) tool.ToolDef {
 				excluder = *env.Excluder
 			}
 
-			walkRoot, err := resolveSearchRoot(absPath, env.PathPolicy)
+			walkRoot, err := resolveSearchRoot(absPath, &policy)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			allFiles, err := globWalk(walkRoot, absPath, in.Pattern, excluder, env.PathPolicy)
+			allFiles, err := globWalk(walkRoot, absPath, in.Pattern, excluder, &policy)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}

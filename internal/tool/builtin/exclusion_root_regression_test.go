@@ -105,39 +105,83 @@ func TestSearchExclusions_ExplicitRootBelowBuiltinSymlink(t *testing.T) {
 	assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, "build/up", false, 0), []string{"src/"})
 }
 
-// TestSearchExclusions_SandboxTmpAnchoredAtVirtualTmp proves exclusions
-// configured for the sandbox tmp storage directory do not hide the virtual
-// /tmp tree, and that an exclusion written against /tmp still applies.
-func TestSearchExclusions_SandboxTmpAnchoredAtVirtualTmp(t *testing.T) {
+// TestSearchExclusions_SandboxTmpProvenance proves exclusion checks follow the
+// path form the caller named. A request for the virtual /tmp tree is evaluated
+// against /tmp, which sits outside the workspace, so workspace-relative
+// exclusions and slashless component patterns do not hide it while an absolute
+// /tmp entry does. A request naming the storage directory keeps the physical
+// view, so exclusions written against it apply. The fixture uses the production
+// layout, .steiner/tmp/sandbox-tmp/<id>, so the storage directory sits inside
+// the workspace.
+func TestSearchExclusions_SandboxTmpProvenance(t *testing.T) {
 	root := t.TempDir()
-	sandboxTmp := filepath.Join(root, ".steiner", "tmp")
+	sandboxTmp := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp", "s1")
 	mustWriteTree(t, sandboxTmp, "notes.go", "needle\n")
 
+	storagePath := filepath.Join(".steiner", "tmp", "sandbox-tmp", "s1")
+	storageAbsolute := filepath.Join(root, storagePath)
+
 	tests := []struct {
-		name         string
-		excludePaths []string
-		want         []string
+		name            string
+		excludePaths    []string
+		excludePatterns []string
+		searchPath      string
+		want            []string
 	}{
 		{
-			name:         "storage directory exclusion leaves sandbox tmp searchable",
+			name:         "virtual tmp request bypasses storage directory exclusion",
 			excludePaths: []string{".steiner/tmp"},
+			searchPath:   "/tmp",
 			want:         []string{"notes.go"},
 		},
 		{
-			name:         "virtual tmp exclusion applies",
+			name:         "physical storage request honors storage directory exclusion",
+			excludePaths: []string{".steiner/tmp"},
+			searchPath:   storagePath,
+		},
+		{
+			name:         "absolute physical storage request honors storage directory exclusion",
+			excludePaths: []string{filepath.Join(root, ".steiner", "tmp")},
+			searchPath:   storageAbsolute,
+		},
+		{
+			name:         "virtual tmp request ignores absolute storage path exclusion",
+			excludePaths: []string{storageAbsolute},
+			searchPath:   "/tmp",
+			want:         []string{"notes.go"},
+		},
+		{
+			name:         "virtual tmp exclusion applies to a virtual tmp request",
 			excludePaths: []string{"/tmp"},
+			searchPath:   "/tmp",
+		},
+		{
+			name:            "slashless tmp pattern skips the physical storage request",
+			excludePatterns: []string{"tmp"},
+			searchPath:      storagePath,
+		},
+		{
+			name:            "slashless tmp pattern does not apply to a virtual tmp request",
+			excludePatterns: []string{"tmp"},
+			searchPath:      "/tmp",
+			want:            []string{"notes.go"},
+		},
+		{
+			name:       "explicit physical storage root stays searchable",
+			searchPath: storagePath,
+			want:       []string{"notes.go"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp)
-			excluder := tool.NewWorkspaceExcluder(root, tt.excludePaths, nil)
+			excluder := tool.NewWorkspaceExcluder(root, tt.excludePaths, tt.excludePatterns)
 			env := Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder}
 
-			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, "/tmp"), tt.want)
-			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, "/tmp"), tt.want)
-			assertSameStringSet(t, "recursive ls rows", lsWorkspaceRows(t, env, "/tmp", true, 0), tt.want)
-			assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, "/tmp", false, 0), tt.want)
+			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, tt.searchPath), tt.want)
+			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, tt.searchPath), tt.want)
+			assertSameStringSet(t, "recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, true, 0), tt.want)
+			assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, false, 0), tt.want)
 		})
 	}
 }

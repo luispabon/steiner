@@ -56,15 +56,15 @@ func excludeSearchEntry(excluder *tool.WorkspaceExcluder, policy *tool.PathPolic
 }
 
 // searchExclusionPaths maps sandbox tmp storage paths back to the virtual /tmp
-// paths a caller sees. Sandbox /tmp lives inside the workspace, so matching the
-// internal storage path would let a user exclusion for that directory hide the
-// sandbox tmp tree; anchoring exclusions at /tmp keeps that tree searchable and
-// applies an explicit /tmp exclusion instead.
+// paths a caller sees, but only for a request that named the virtual tree.
+// Sandbox /tmp lives inside the workspace, so matching the internal storage
+// path would let a user exclusion for that directory hide the sandbox tmp tree.
+// The virtual /tmp tree is outside the workspace, so workspace-relative
+// exclusions do not describe it and an absolute /tmp exclusion does. A caller
+// that names the storage path keeps the physical view, so exclusions written
+// against that directory still apply.
 func searchExclusionPaths(policy *tool.PathPolicy, walkRoot, lexicalRoot, path string) (string, string, string) {
-	if policy == nil {
-		return walkRoot, lexicalRoot, path
-	}
-	if !policy.IsSandboxTmpPath(walkRoot) && !policy.IsSandboxTmpPath(lexicalRoot) {
+	if policy == nil || !policy.VirtualTmpRequest() {
 		return walkRoot, lexicalRoot, path
 	}
 	return policy.DisplayPath(walkRoot), policy.DisplayPath(lexicalRoot), policy.DisplayPath(path)

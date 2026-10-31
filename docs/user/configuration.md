@@ -994,6 +994,8 @@ Note: the TUI file picker shows `.steiner/` contents except `.steiner/tmp` and `
 
 Exclusions are filters, not access controls. `read` still opens an excluded file, and only `blocked_paths` denies access.
 
+Sandboxed `/tmp` is stored under `.steiner/tmp/sandbox-tmp/<id>/`, inside the workspace. A search that asks for `/tmp` keeps the virtual `/tmp` path for exclusions, so workspace-relative `exclude_paths` and `exclude_patterns` entries do not hide it; an absolute entry such as `/tmp` does. A search that names the storage directory itself, relative or absolute, is filtered as a workspace path, so a `.steiner/tmp` entry excludes it. See [Sandboxing](sandboxing.md).
+
 This block also applies to each child sub-agent's own tool executor, not just the parent's.
 
 ```yaml

@@ -31,12 +31,13 @@ func NewLSTool(env Env) tool.ToolDef {
 				in.Path = "."
 			}
 
-			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
+			policy := env.PathPolicy.WithVirtualTmpRequest(in.Path)
+			absPath, err := policy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("ls: %w", err)
 			}
 
-			walkRoot, err := resolveSearchRoot(absPath, env.PathPolicy)
+			walkRoot, err := resolveSearchRoot(absPath, &policy)
 			if err != nil {
 				return nil, fmt.Errorf("ls: %w", err)
 			}
@@ -47,9 +48,9 @@ func NewLSTool(env Env) tool.ToolDef {
 			}
 
 			if in.Recursive {
-				return lsRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
+				return lsRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, &policy)
 			}
-			return lsNonRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
+			return lsNonRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, &policy)
 		},
 	}
 }

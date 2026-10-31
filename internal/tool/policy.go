@@ -35,8 +35,12 @@ func (e *PathPolicyError) Error() string {
 
 // PathPolicy constrains tool paths relative to the active project root.
 type PathPolicy struct {
-	root            string
-	sandboxTmpDir   string
+	root          string
+	sandboxTmpDir string
+	// virtualTmp records that the request named the virtual /tmp tree, which
+	// the sandbox rewrites to a directory inside the workspace. Exclusion
+	// checks use it to keep matching the path form the caller asked for.
+	virtualTmp      bool
 	projectRootOnly bool
 	blockedPaths    []string
 	writablePaths   []string
@@ -362,4 +366,28 @@ func (p PathPolicy) IsSandboxTmpPath(path string) bool {
 		return false
 	}
 	return path == p.sandboxTmpDir || strings.HasPrefix(path, p.sandboxTmpDir+string(filepath.Separator))
+}
+
+// WithVirtualTmpRequest returns a copy of p that records whether raw asked for
+// the virtual /tmp tree. The sandbox rewrites /tmp to a directory inside the
+// workspace, so the resolved path no longer says which form the caller used;
+// exclusion checks need that provenance to match the paths the caller asked
+// about. A raw path that already names the storage directory, or that the
+// rewrite leaves outside it, stays physical.
+func (p PathPolicy) WithVirtualTmpRequest(raw string) PathPolicy {
+	if p.sandboxTmpDir == "" {
+		return p
+	}
+	normalized := normalizePolicyPath(p.root, raw)
+	if normalized == "" || p.IsSandboxTmpPath(normalized) {
+		return p
+	}
+	p.virtualTmp = p.IsSandboxTmpPath(p.rewriteTmpPath(normalized))
+	return p
+}
+
+// VirtualTmpRequest reports whether the request addressed the virtual /tmp tree
+// rather than the sandbox storage directory behind it.
+func (p PathPolicy) VirtualTmpRequest() bool {
+	return p.virtualTmp
 }

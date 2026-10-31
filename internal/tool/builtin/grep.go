@@ -54,7 +54,8 @@ func NewGrepTool(env Env) tool.ToolDef {
 			if searchPath == "" {
 				searchPath = "."
 			}
-			absPath, err := env.PathPolicy.ResolveReadPath(searchPath)
+			policy := env.PathPolicy.WithVirtualTmpRequest(searchPath)
+			absPath, err := policy.ResolveReadPath(searchPath)
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}
@@ -73,7 +74,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 				fileGlob:    in.Glob,
 				fileType:    in.Type,
 				excluder:    env.Excluder,
-				policy:      env.PathPolicy,
+				policy:      &policy,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
