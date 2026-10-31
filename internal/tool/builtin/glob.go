@@ -49,7 +49,7 @@ func NewGlobTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			allFiles, err := globWalk(walkRoot, in.Pattern, excluder, env.PathPolicy)
+			allFiles, err := globWalk(walkRoot, absPath, in.Pattern, excluder, env.PathPolicy)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
@@ -67,7 +67,7 @@ func NewGlobTool(env Env) tool.ToolDef {
 // unresolvable entries fail closed. The returned paths are relative to root,
 // use forward slashes, and are sorted alphabetically. The walk stops early
 // when maxGlobLimit matches are collected.
-func globWalk(root, pattern string, excluder tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]string, error) {
+func globWalk(root, lexicalRoot, pattern string, excluder tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]string, error) {
 	matchers, err := compileGlobMatchers(pattern)
 	if err != nil {
 		return nil, err
@@ -92,9 +92,11 @@ func globWalk(root, pattern string, excluder tool.WorkspaceExcluder, policy *too
 		// Exclusion is workspace-anchored: configured paths and patterns compare
 		// against the workspace, and built-in directory names are matched
 		// relative to the walk root so ancestors of the root (e.g.
-		// /srv/build/proj, .steiner/worktrees/x) never blind the walk. The root
-		// itself is never excluded here.
-		if rel != "." && excluder.ExcludeEntry(root, path, d.IsDir()) {
+		// /srv/build/proj, .steiner/worktrees/x) never blind the walk. A root
+		// reached through a symlink is validated in both its resolved and
+		// lexical form so configured exclusions keep applying. The root itself
+		// is never excluded here.
+		if rel != "." && excludeSearchEntry(&excluder, root, lexicalRoot, path, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

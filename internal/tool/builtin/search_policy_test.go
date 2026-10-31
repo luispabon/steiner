@@ -109,7 +109,7 @@ func TestGlobWalk_PrunesBlockedDescendants(t *testing.T) {
 	mustWriteTree(t, root, "secrets/nested/deep.go", "package deep\n")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	matches, err := globWalk(root, "**/*.go", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
+	matches, err := globWalk(root, root, "**/*.go", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
 	if err != nil {
 		t.Fatalf("globWalk: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob reads the sandbox copy", func(t *testing.T) {
-		matches, err := globWalk(want, "**/*.txt", tool.NewWorkspaceExcluder(want, nil, nil), &policy)
+		matches, err := globWalk(want, want, "**/*.txt", tool.NewWorkspaceExcluder(want, nil, nil), &policy)
 		if err != nil {
 			t.Fatalf("globWalk: %v", err)
 		}
@@ -379,7 +379,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("ls reads the sandbox copy", func(t *testing.T) {
-		result, err := lsRecursive(ctx, want, defaultLSLimit, 0, tool.NewWorkspaceExcluder(want, nil, nil), &policy)
+		result, err := lsRecursive(ctx, want, want, defaultLSLimit, 0, tool.NewWorkspaceExcluder(want, nil, nil), &policy)
 		if err != nil {
 			t.Fatalf("lsRecursive: %v", err)
 		}
@@ -429,7 +429,7 @@ func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
 	})
 
 	t.Run("glob keeps read semantics for matched special files", func(t *testing.T) {
-		matches, err := globWalk(root, "*", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
+		matches, err := globWalk(root, root, "*", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
 		if err != nil {
 			t.Fatalf("globWalk: %v", err)
 		}

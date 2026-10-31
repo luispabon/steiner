@@ -156,7 +156,8 @@ func TestLSTool(t *testing.T) {
 
 func TestLSRecursive_ReturnsRootErrors(t *testing.T) {
 	t.Run("returns missing root error", func(t *testing.T) {
-		_, err := lsRecursive(context.Background(), filepath.Join(t.TempDir(), "missing"), defaultLSLimit, 0, tool.WorkspaceExcluder{}, nil)
+		missing := filepath.Join(t.TempDir(), "missing")
+		_, err := lsRecursive(context.Background(), missing, missing, defaultLSLimit, 0, tool.WorkspaceExcluder{}, nil)
 		if !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("lsRecursive error = %v, want not exist error", err)
 		}
@@ -176,7 +177,7 @@ func TestLSRecursive_ReturnsRootErrors(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		_, err := lsRecursive(context.Background(), root, defaultLSLimit, 0, tool.WorkspaceExcluder{}, nil)
+		_, err := lsRecursive(context.Background(), root, root, defaultLSLimit, 0, tool.WorkspaceExcluder{}, nil)
 		if !errors.Is(err, fs.ErrPermission) {
 			t.Fatalf("lsRecursive error = %v, want permission error", err)
 		}
@@ -208,7 +209,7 @@ func TestLSRecursive_SkipsInaccessibleDirectories(t *testing.T) {
 		t.Skip("filesystem does not deny directory traversal after chmod 000")
 	}
 
-	result, err := lsRecursive(context.Background(), tmpDir, defaultLSLimit, 0, tool.WorkspaceExcluder{}, nil)
+	result, err := lsRecursive(context.Background(), tmpDir, tmpDir, defaultLSLimit, 0, tool.WorkspaceExcluder{}, nil)
 	if err != nil {
 		t.Fatalf("lsRecursive: %v", err)
 	}

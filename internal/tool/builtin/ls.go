@@ -53,9 +53,9 @@ func NewLSTool(env Env) tool.ToolDef {
 			}
 
 			if in.Recursive {
-				return lsRecursive(ctx, walkRoot, in.Limit, in.Offset, excluder, env.PathPolicy)
+				return lsRecursive(ctx, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
 			}
-			return lsNonRecursive(ctx, lsTool, walkRoot, in.Limit, in.Offset, excluder, env.PathPolicy)
+			return lsNonRecursive(ctx, lsTool, walkRoot, absPath, in.Limit, in.Offset, excluder, env.PathPolicy)
 		},
 	}
 }
@@ -65,6 +65,7 @@ func lsNonRecursive(
 	ctx context.Context,
 	lsTool *dive.TypedToolAdapter[*toolkit.ListDirectoryInput],
 	absPath string,
+	lexicalRoot string,
 	limit, offset int,
 	excluder tool.WorkspaceExcluder,
 	policy *tool.PathPolicy,
@@ -106,7 +107,7 @@ func lsNonRecursive(
 		return nil, fmt.Errorf("ls: %w", err)
 	}
 
-	entries = visibleEntries(entries, absPath, policy, excluder)
+	entries = visibleEntries(entries, absPath, lexicalRoot, policy, excluder)
 
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].IsDir != entries[j].IsDir {
@@ -142,15 +143,17 @@ func listedPathDenied(policy *tool.PathPolicy, path string) bool {
 // visibleEntries drops entries whose resolved path policy denies and entries
 // hidden by workspace exclusions, so a non-recursive listing never leaks a
 // blocked or excluded entry. Filtering happens before pagination so limit and
-// offset count only visible entries.
-func visibleEntries(entries []toolkit.DirectoryEntry, dir string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder) []toolkit.DirectoryEntry {
+// offset count only visible entries. lexicalRoot is the path the caller named
+// before a symlink root was resolved, so configured exclusions written against
+// that path keep applying.
+func visibleEntries(entries []toolkit.DirectoryEntry, dir, lexicalRoot string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder) []toolkit.DirectoryEntry {
 	kept := entries[:0]
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name)
 		if listedPathDenied(policy, path) {
 			continue
 		}
-		if excluder.ExcludeEntry(dir, path, entry.IsDir) {
+		if excludeSearchEntry(&excluder, dir, lexicalRoot, path, entry.IsDir) {
 			continue
 		}
 		kept = append(kept, entry)
@@ -159,8 +162,10 @@ func visibleEntries(entries []toolkit.DirectoryEntry, dir string, policy *tool.P
 }
 
 // lsRecursive walks a directory tree and returns relative paths, skipping
-// excluded directories and directories denied by policy.
-func lsRecursive(ctx context.Context, absPath string, limit, offset int, excluder tool.WorkspaceExcluder, policy *tool.PathPolicy) (*Result, error) {
+// excluded directories and directories denied by policy. absPath is the
+// resolved walk root and lexicalRoot the path the caller named, so configured
+// exclusions are validated against both forms when the root is a symlink.
+func lsRecursive(ctx context.Context, absPath, lexicalRoot string, limit, offset int, excluder tool.WorkspaceExcluder, policy *tool.PathPolicy) (*Result, error) {
 	var allEntries []string
 
 	err := filepath.WalkDir(absPath, func(path string, d fs.DirEntry, err error) error {
@@ -187,7 +192,7 @@ func lsRecursive(ctx context.Context, absPath string, limit, offset int, exclude
 			return nil
 		}
 
-		if excluder.ExcludeEntry(absPath, path, d.IsDir()) {
+		if excludeSearchEntry(&excluder, absPath, lexicalRoot, path, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
