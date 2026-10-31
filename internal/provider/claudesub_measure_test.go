@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -247,12 +249,13 @@ func TestClaudeSubCallDiagnosticsUsageGate(t *testing.T) {
 	}
 }
 
-// TestClaudeSubCallMetricsResetDelivery proves a second delivery attempt reports
-// its own process and gate cost while a probe the failed attempt spawned stays
-// recorded for the call.
+// TestClaudeSubCallMetricsResetDelivery proves a second delivery attempt keeps
+// the gate cost a failed attempt already spent and the probe it may have
+// spawned, while dropping the failed attempt's own disposition.
 func TestClaudeSubCallMetricsResetDelivery(t *testing.T) {
 	metrics := &claudeSubCallMetrics{
 		process:           claudeSubProcessResume,
+		reseedReason:      claudeSubReseedCheckpoint,
 		usageGate:         42 * time.Millisecond,
 		usageGatePolls:    3,
 		usageProbeSpawned: true,
@@ -261,11 +264,43 @@ func TestClaudeSubCallMetricsResetDelivery(t *testing.T) {
 	if metrics.process != "" {
 		t.Errorf("process = %q, want cleared", metrics.process)
 	}
-	if metrics.usageGate != 0 || metrics.usageGatePolls != 0 {
-		t.Errorf("usage gate = %v/%d polls, want cleared", metrics.usageGate, metrics.usageGatePolls)
+	if metrics.reseedReason != "" {
+		t.Errorf("reseed reason = %q, want cleared: it describes the failed attempt", metrics.reseedReason)
+	}
+	if metrics.usageGate != 42*time.Millisecond || metrics.usageGatePolls != 3 {
+		t.Errorf("usage gate = %v/%d polls, want the failed attempt's cost kept for the call", metrics.usageGate, metrics.usageGatePolls)
 	}
 	if !metrics.usageProbeSpawned {
 		t.Error("usageProbeSpawned = false, want sticky for the call after a failed attempt spawned one")
+	}
+}
+
+// TestClaudeSubCallMetricsGateAccumulates proves the usage gate's time and poll
+// count add up across the delivery attempts of one call.
+func TestClaudeSubCallMetricsGateAccumulates(t *testing.T) {
+	metrics := &claudeSubCallMetrics{process: claudeSubProcessResume}
+	metrics.noteUsageGate(20*time.Millisecond, 2)
+	metrics.resetDelivery()
+	metrics.noteReseed(claudeSubReseedRetry)
+	metrics.noteUsageGate(30*time.Millisecond, 1)
+	if got := metrics.usageGate; got != 50*time.Millisecond {
+		t.Errorf("usage gate = %v, want 50ms across both attempts", got)
+	}
+	if got := metrics.usageGatePolls; got != 3 {
+		t.Errorf("usage gate polls = %d, want 3 across both attempts", got)
+	}
+	if got := metrics.process; got != "" {
+		t.Errorf("process = %q, want cleared until the retry reports its own", got)
+	}
+	if got := metrics.reseedReason; got != claudeSubReseedRetry {
+		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedRetry)
+	}
+	diagnostics := metrics.diagnostics()
+	if diagnostics == nil || diagnostics.ClaudeSub == nil {
+		t.Fatalf("diagnostics = %+v, want claude_subscription measurements", diagnostics)
+	}
+	if got := diagnostics.ClaudeSub.UsageGateMillis; got != 50 {
+		t.Errorf("UsageGateMillis = %d, want 50", got)
 	}
 }
 
@@ -315,5 +350,214 @@ func TestClaudeSubCallDiagnosticsSummaryColdReseed(t *testing.T) {
 	}
 	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedHelper {
 		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedHelper)
+	}
+}
+
+// TestClaudeSubCallDiagnosticsUsageProbe proves the call records the fresh probe
+// process that confirms a live process's unconfirmable extra-usage state, and
+// that a refusing probe keeps the call fail-closed with the probe still
+// recorded.
+func TestClaudeSubCallDiagnosticsUsageProbe(t *testing.T) {
+	notReady := json.RawMessage(`{"rate_limits_available":false}`)
+	t.Run("fresh probe confirms", func(t *testing.T) {
+		// The gate spends its whole poll budget on the first poll, so only the
+		// fresh process can confirm the account.
+		claudeSubUsageGateFast(t, 0)
+		live := &claudeSubScript{
+			batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")},
+			usage:   notReady,
+		}
+		pool, spawner, _ := claudeSubUsageProbeTurnPool(t, "probe-confirms", live, claudeSubFixture(t, "get_usage_ok.json"))
+		final := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+			TransportSession: "probe-confirms",
+			Model:            claudeSubTestSpec().Model,
+			Messages:         []Message{claudeSubUserText("hello")},
+		})
+		if n := spawner.callCount(); n != 2 {
+			t.Fatalf("spawn count = %d, want 2 (live process and fresh probe)", n)
+		}
+		diagnostics := final.Diagnostics.ClaudeSub
+		if !diagnostics.UsageProbeSpawned {
+			t.Error("UsageProbeSpawned = false, want true after the fresh probe confirmed the account")
+		}
+		if got := diagnostics.UsageGatePolls; got != 1 {
+			t.Errorf("UsageGatePolls = %d, want 1 (only the live process was polled)", got)
+		}
+	})
+	t.Run("fresh probe refuses", func(t *testing.T) {
+		claudeSubUsageGateFast(t, 0)
+		live := &claudeSubScript{
+			batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")},
+			usage:   notReady,
+		}
+		pool, spawner, _ := claudeSubUsageProbeTurnPool(t, "probe-refuses", live, notReady)
+		metrics := &claudeSubCallMetrics{}
+		err := claudeSubTurn(withClaudeSubMetrics(context.Background(), metrics), pool, ChatRequest{
+			TransportSession: "probe-refuses",
+			Model:            claudeSubTestSpec().Model,
+			Messages:         []Message{claudeSubUserText("hello")},
+		}, func(ChatChunk) error { return nil })
+		if !errors.Is(err, errClaudeSubUsageNotReady) {
+			t.Fatalf("turn error = %v, want the fail-closed usage refusal", err)
+		}
+		if n := spawner.callCount(); n != 2 {
+			t.Errorf("spawn count = %d, want 2 (live process and refusing probe)", n)
+		}
+		diagnostics := metrics.diagnostics()
+		if diagnostics == nil || diagnostics.ClaudeSub == nil {
+			t.Fatalf("diagnostics = %+v, want claude_subscription measurements", diagnostics)
+		}
+		if !diagnostics.ClaudeSub.UsageProbeSpawned {
+			t.Error("UsageProbeSpawned = false, want true: the probe process started even though it refused")
+		}
+		if got := diagnostics.ClaudeSub.UsageGatePolls; got != 1 {
+			t.Errorf("UsageGatePolls = %d, want 1", got)
+		}
+	})
+}
+
+// TestClaudeSubChatCompletionReturnsCallDiagnostics proves the folded response
+// carries the measurements the terminal chunk reported.
+func TestClaudeSubChatCompletionReturnsCallDiagnostics(t *testing.T) {
+	pool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	response, err := NewClaudeSubscriptionProvider(pool, nil).ChatCompletion(context.Background(), ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("hello")},
+	})
+	if err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+	if response.Diagnostics == nil || response.Diagnostics.ClaudeSub == nil {
+		t.Fatalf("diagnostics = %+v, want claude_subscription measurements", response.Diagnostics)
+	}
+	if got := response.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
+		t.Errorf("process = %q, want %q", got, claudeSubProcessSpawn)
+	}
+	if got := response.Diagnostics.ClaudeSub.ReseedReason; got != "" {
+		t.Errorf("reseed reason = %q, want empty for a fresh call", got)
+	}
+}
+
+// TestClaudeSubCallDiagnosticsRetryReseed proves a resumed process that fails
+// before output reports the retry reseed, and the retry's own process, on the
+// terminal chunk.
+func TestClaudeSubCallDiagnosticsRetryReseed(t *testing.T) {
+	errEvent := claudeSubEvent{
+		Type:      "result",
+		Subtype:   "error_during_execution",
+		SessionID: "sess-1",
+		Raw:       json.RawMessage(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"No conversation found with session ID: sess-1","session_id":"sess-1"}`),
+	}
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{batches: [][]claudeSubEvent{{errEvent}}}, claudeSubTextTurns(t, 1))
+	final := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
+	}
+	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
+		t.Errorf("process = %q, want %q: the failed resume attempt's disposition must be dropped", got, claudeSubProcessSpawn)
+	}
+	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedRetry {
+		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedRetry)
+	}
+}
+
+// claudeSubMeasuredTurnAsync runs one measured turn and returns its terminal
+// chunk. It uses no testing helpers, so it is safe on a goroutine.
+func claudeSubMeasuredTurnAsync(pool *ClaudeSubscriptionPool, req ChatRequest) (ChatChunk, error) {
+	stream, err := NewClaudeSubscriptionProvider(pool, nil).StreamChatCompletion(context.Background(), req)
+	if err != nil {
+		return ChatChunk{}, err
+	}
+	var final ChatChunk
+	for chunk := range stream {
+		if chunk.Done {
+			final = chunk
+		}
+	}
+	if !final.Done {
+		return ChatChunk{}, errors.New("turn emitted no Done chunk")
+	}
+	if final.Error != "" {
+		return ChatChunk{}, errors.New(final.Error)
+	}
+	if final.Diagnostics == nil || final.Diagnostics.ClaudeSub == nil {
+		return ChatChunk{}, errors.New("terminal chunk carries no claude_subscription measurements")
+	}
+	return final, nil
+}
+
+// TestClaudeSubCallDiagnosticsConcurrentCalls proves concurrent calls keep their
+// own measurements: the resumed call reports resume, the cold call reports
+// spawn, and neither sees the other's reseed.
+func TestClaudeSubCallDiagnosticsConcurrentCalls(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	scripts := []*claudeSubScript{claudeSubTextTurns(t, 1), claudeSubTextTurns(t, 1)}
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	next := 0
+	spawner.onSpawn = func(c *claudeSubFakeConn) {
+		if next >= len(scripts) {
+			return
+		}
+		sc := scripts[next]
+		next++
+		c.mu.Lock()
+		c.responder = sc.respond
+		c.mu.Unlock()
+	}
+	calls := []struct {
+		name string
+		req  ChatRequest
+	}{
+		{name: claudeSubProcessResume, req: ChatRequest{
+			TransportSession: "concurrent-resume",
+			Model:            claudeSubTestSpec().Model,
+			Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+			BackendState:     claudeSubEncodeState(t, st),
+		}},
+		{name: claudeSubProcessSpawn, req: ChatRequest{
+			TransportSession: "concurrent-spawn",
+			Model:            claudeSubTestSpec().Model,
+			Messages:         []Message{claudeSubUserText("read notes")},
+		}},
+	}
+	type outcome struct {
+		name  string
+		final ChatChunk
+		err   error
+	}
+	outcomes := make(chan outcome, len(calls))
+	var wg sync.WaitGroup
+	for _, call := range calls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			final, err := claudeSubMeasuredTurnAsync(pool, call.req)
+			outcomes <- outcome{name: call.name, final: final, err: err}
+		}()
+	}
+	wg.Wait()
+	close(outcomes)
+	want := map[string]string{claudeSubProcessResume: claudeSubProcessResume, claudeSubProcessSpawn: claudeSubProcessSpawn}
+	for got := range outcomes {
+		if got.err != nil {
+			t.Errorf("%s call: %v", got.name, got.err)
+			continue
+		}
+		if process := got.final.Diagnostics.ClaudeSub.Process; process != want[got.name] {
+			t.Errorf("%s call process = %q, want %q", got.name, process, want[got.name])
+		}
+		if reason := got.final.Diagnostics.ClaudeSub.ReseedReason; reason != "" {
+			t.Errorf("%s call reseed reason = %q, want empty", got.name, reason)
+		}
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Errorf("spawn count = %d, want 2 (one process per call)", n)
 	}
 }

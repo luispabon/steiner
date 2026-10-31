@@ -135,8 +135,10 @@ func claudeSubPrefixDigest(entries []claudeSubEntry) (string, error) {
 // failed check reseeds instead: a missing or foreign state, a prompt and tools
 // fingerprint that differs from the request's (D5), a missing final uuid, or a
 // history whose prefix or final message the stored state does not reproduce. A
-// state owned by another key forks (D3). The reason is empty when restorable is
-// true and when the call needs no reseed because the request carries no history.
+// state owned by another key forks (D3). The reason is claudeSubReseedNoState
+// whenever there is no stored state to resume, before any request check. It is
+// empty when restorable is true, and also when a stored state exists but the
+// request carries no history, because that call needs no reseed.
 func claudeSubRestoreFor(msgs []Message, stored claudeSubBackendState, hasState bool, key, fingerprint string) (claudeSubResume, bool, string, error) {
 	if !hasState || stored.CLISessionID == "" || stored.TransportSession == "" {
 		return claudeSubResume{}, false, claudeSubReseedNoState, nil

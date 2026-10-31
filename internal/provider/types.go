@@ -199,7 +199,8 @@ type ClaudeSubCallDiagnostics struct {
 	// ReseedReason names the branch that reseeded the transcript. Empty unless
 	// the call reseeded.
 	ReseedReason string
-	// UsageGateMillis is the wall time the extra-usage gate spent on the call.
+	// UsageGateMillis is the wall time the extra-usage gate spent on the call,
+	// truncated to whole milliseconds.
 	UsageGateMillis int64
 	// UsageGatePolls is the number of get_usage calls the gate made.
 	UsageGatePolls int
