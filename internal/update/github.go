@@ -49,7 +49,15 @@ func fetchReleaseByTag(ctx context.Context, owner, repo, tag, token string) (*re
 
 // fetchRelease performs a GET request to the given GitHub API URL and returns
 // the parsed release. If token is non-empty, it is passed as a Bearer token.
+// The request ends when the caller's context ends, after releaseFetchTimeout,
+// or after networkIdleTimeout without progress.
 func fetchRelease(ctx context.Context, url, token string) (*release, error) {
+	ctx, cancel := context.WithTimeout(ctx, releaseFetchTimeout)
+	defer cancel()
+
+	ctx, watchdog := newIdleWatchdog(ctx, networkIdleTimeout)
+	defer watchdog.stop()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -62,17 +70,18 @@ func fetchRelease(ctx context.Context, url, token string) (*release, error) {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch release: %w", err)
+		return nil, fmt.Errorf("fetch release: %w", requestCause(ctx, err))
 	}
+	watchdog.reset()
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxReleaseJSONBytes+1))
+	body, err := io.ReadAll(io.LimitReader(&progressReader{r: resp.Body, watchdog: watchdog}, maxReleaseJSONBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", requestCause(ctx, err))
 	}
 
 	if len(body) > maxReleaseJSONBytes {

@@ -2,18 +2,20 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/deepnoodle-ai/dive/toolkit"
+	"github.com/deepnoodle-ai/wonton/httpguard"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
@@ -26,12 +28,13 @@ func newFetchURLTestEnv(t *testing.T, httpClient func() *http.Client) Env {
 	return Env{WorkDir: workDir, PathPolicy: &policy, httpClient: httpClient}
 }
 
-// fetchURLTestSafeClient returns the default SSRF-safe client with its per-dial
-// address guard removed, so tests can run redirect and concurrency cases
-// against loopback httptest servers while keeping the client's SSRF redirect
-// validation intact.
+// fetchURLTestSafeClient returns the default guarded client with its per-dial
+// address check removed, so tests can run concurrency and cookie cases against
+// loopback httptest servers. Use it only where the dial guard is not the
+// subject; the guard itself is covered by
+// TestFetchURLDefaultClientRefusesNonPublicAddresses.
 func fetchURLTestSafeClient() *http.Client {
-	client := toolkit.SafeHTTPClient(15 * time.Second)
+	client := newHTTPGuardClient(15 * time.Second)
 	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
 		// No *testing.T here; the factory is passed as a plain func value.
@@ -40,6 +43,34 @@ func fetchURLTestSafeClient() *http.Client {
 	dialTransport := transport.Clone()
 	dialTransport.DialContext = (&net.Dialer{Timeout: 5 * time.Second}).DialContext
 	client.Transport = dialTransport
+	return client
+}
+
+// fetchURLTestLoopbackGuardedClient returns a client built like fetch_url's
+// default (same redirect bounds, guarded dial) with a single loopback exception
+// for originURL's host, httpguard's documented escape hatch for reaching one
+// private host. Every other address, redirect targets included, stays guarded.
+func fetchURLTestLoopbackGuardedClient(t *testing.T, originURL string) *http.Client {
+	t.Helper()
+	origin, err := url.Parse(originURL)
+	if err != nil {
+		t.Fatalf("parse origin URL: %v", err)
+	}
+	originIP := net.ParseIP(origin.Hostname())
+	if originIP == nil {
+		t.Fatalf("origin host %q is not an IP literal", origin.Hostname())
+	}
+	client := httpguard.NewClient(
+		httpguard.WithMaxRedirects(fetchRedirectLimit),
+		httpguard.WithHTTPRedirects(),
+		httpguard.WithAddressValidator(func(ip net.IP) error {
+			if ip.Equal(originIP) {
+				return nil
+			}
+			return httpguard.ValidatePublicIP(ip)
+		}),
+	)
+	client.Timeout = 15 * time.Second
 	return client
 }
 
@@ -218,7 +249,7 @@ func TestFetchURLToolConcurrentCalls(t *testing.T) {
 	}
 }
 
-func TestFetchURLDefaultClientChecksRedirects(t *testing.T) {
+func TestFetchURLDefaultClientRedirectPolicy(t *testing.T) {
 	client := newFetchURLClient(Env{})
 	if client.Jar != nil {
 		t.Errorf("default client Jar = %v, want nil", client.Jar)
@@ -226,17 +257,68 @@ func TestFetchURLDefaultClientChecksRedirects(t *testing.T) {
 	if client.Timeout != 15*time.Second {
 		t.Errorf("default client Timeout = %v, want 15s", client.Timeout)
 	}
+	if client.CheckRedirect == nil {
+		t.Fatal("default client CheckRedirect = nil, want bounded redirects")
+	}
+
+	newReq := func(t *testing.T, target string) *http.Request {
+		t.Helper()
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
+		if err != nil {
+			t.Fatalf("build request %s: %v", target, err)
+		}
+		return req
+	}
+	chain := func(t *testing.T, hops int) []*http.Request {
+		t.Helper()
+		via := make([]*http.Request, 0, hops)
+		for i := range hops {
+			via = append(via, newReq(t, fmt.Sprintf("https://example.com/%d", i)))
+		}
+		return via
+	}
 
 	tests := []struct {
 		name    string
 		target  string
+		hops    int
 		blocked bool
 	}{
-		{name: "loopback", target: "http://127.0.0.1/portal", blocked: true},
-		{name: "private range", target: "http://10.1.2.3/admin", blocked: true},
-		{name: "link-local metadata", target: "http://169.254.169.254/latest/meta-data/", blocked: true},
-		{name: "file scheme", target: "file:///etc/passwd", blocked: true},
-		{name: "public literal IP", target: "http://93.184.216.34/"},
+		// Literal hop counts rather than fetchRedirectLimit arithmetic: nine
+		// followed and the tenth refused is the contract being pinned.
+		{name: "ninth hop within the limit", target: "https://example.com/next", hops: 9},
+		{name: "plain http hop is allowed", target: "http://example.com/next", hops: 1},
+		{name: "tenth hop is refused", target: "https://example.com/next", hops: 10, blocked: true},
+		{name: "non-http scheme", target: "ftp://example.com/next", hops: 1, blocked: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := client.CheckRedirect(newReq(t, tt.target), chain(t, tt.hops))
+			if tt.blocked && err == nil {
+				t.Errorf("CheckRedirect(%s) after %d hops = nil, want refusal", tt.target, tt.hops)
+			}
+			if !tt.blocked && err != nil {
+				t.Errorf("CheckRedirect(%s) after %d hops = %v, want nil", tt.target, tt.hops, err)
+			}
+		})
+	}
+}
+
+// TestFetchURLDefaultClientRefusesNonPublicAddresses pins the guarded dial
+// against address space the standard library's IP predicates alone would miss
+// (CGNAT shared space and IPv6 unique-local) plus loopback and the link-local
+// metadata address. Literal addresses are refused before a connection is
+// attempted, so no network access is needed.
+func TestFetchURLDefaultClientRefusesNonPublicAddresses(t *testing.T) {
+	client := newFetchURLClient(Env{})
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "loopback", target: "http://127.0.0.1/portal"},
+		{name: "CGNAT shared space", target: "http://100.64.12.7/"},
+		{name: "IPv6 unique local", target: "http://[fd00::1]/"},
+		{name: "link-local metadata", target: "http://169.254.169.254/latest/meta-data/"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -244,14 +326,32 @@ func TestFetchURLDefaultClientChecksRedirects(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build request: %v", err)
 			}
-			err = client.CheckRedirect(req, []*http.Request{req})
-			if tt.blocked && err == nil {
-				t.Errorf("CheckRedirect(%s) = nil, want SSRF rejection", tt.target)
+			resp, err := client.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
 			}
-			if !tt.blocked && err != nil {
-				t.Errorf("CheckRedirect(%s) = %v, want nil", tt.target, err)
+			if !errors.Is(err, httpguard.ErrNonPublicAddress) {
+				t.Errorf("client.Do(%s) = %v, want httpguard.ErrNonPublicAddress", tt.target, err)
 			}
 		})
+	}
+}
+
+// TestFetchURLDefaultClientIgnoresAmbientProxy pins the guarded transport to a
+// nil proxy function, which is what keeps HTTP(S)_PROXY from relaying fetch_url
+// requests. It asserts the transport field directly instead of routing a
+// request through a live proxy: Go caches proxy environment lookups after the
+// first use, and the dial guard refuses a loopback proxy, so a hit counter
+// could not tell proxy use from a blocked dial. The tradeoff is documented in
+// docs/user/tools.md.
+func TestFetchURLDefaultClientIgnoresAmbientProxy(t *testing.T) {
+	client := newFetchURLClient(Env{})
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("default client transport = %T, want *http.Transport", client.Transport)
+	}
+	if transport.Proxy != nil {
+		t.Fatal("default client transport Proxy is set, want nil: ambient proxies must not relay fetch_url requests")
 	}
 }
 
@@ -275,8 +375,8 @@ func TestFetchURLDefaultClientRejectsLoopbackOnEveryCall(t *testing.T) {
 		if !ok {
 			t.Fatalf("call %d: result type = %T, want the SSRF rejection as *FetchURLError", i, res)
 		}
-		if !strings.Contains(fetchErr.Error, "not allowed") {
-			t.Errorf("call %d: error = %q, want an SSRF rejection (\"not allowed\")", i, fetchErr.Error)
+		if !strings.Contains(fetchErr.Error, httpguard.ErrNonPublicAddress.Error()) {
+			t.Errorf("call %d: error = %q, want an SSRF rejection (%q)", i, fetchErr.Error, httpguard.ErrNonPublicAddress.Error())
 		}
 	}
 
@@ -285,27 +385,19 @@ func TestFetchURLDefaultClientRejectsLoopbackOnEveryCall(t *testing.T) {
 	}
 }
 
-func TestFetchURLSafeClientBlocksSSRFRedirect(t *testing.T) {
-	var targetRequests atomic.Int32
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		targetRequests.Add(1)
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = w.Write([]byte("internal secret"))
-	}))
-	t.Cleanup(target.Close)
-
+func TestFetchURLGuardedClientBlocksSSRFRedirect(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL+"/secret", http.StatusFound)
+		http.Redirect(w, r, "http://10.1.2.3/secret", http.StatusFound)
 	}))
 	t.Cleanup(origin.Close)
 
-	// The origin is a loopback server, so the seam client's per-dial guard is
-	// swapped for an unguarded dialer to let the call reach it. The redirect
-	// validation under test is the one fetchURLTestSafeClient keeps from
-	// toolkit.SafeHTTPClient, exercised through fetch_url's env.httpClient
-	// seam. The production default's redirect checks are covered by
-	// TestFetchURLDefaultClientChecksRedirects.
-	toolDef := NewFetchURLTool(newFetchURLTestEnv(t, fetchURLTestSafeClient))
+	// The origin is a loopback server, so the guarded client admits exactly
+	// that one address. The redirect target is a private address and must
+	// still be refused when the client dials it, so a redirect hop goes
+	// through the same address check as the first request.
+	toolDef := NewFetchURLTool(newFetchURLTestEnv(t, func() *http.Client {
+		return fetchURLTestLoopbackGuardedClient(t, origin.URL)
+	}))
 
 	res, err := toolDef.Handler(context.Background(), map[string]any{"url": origin.URL})
 	if err != nil {
@@ -315,10 +407,7 @@ func TestFetchURLSafeClientBlocksSSRFRedirect(t *testing.T) {
 	if !ok {
 		t.Fatalf("result type = %T, want the SSRF redirect rejection as *FetchURLError", res)
 	}
-	if !strings.Contains(fetchErr.Error, "not allowed") {
-		t.Errorf("error = %q, want an SSRF rejection (\"not allowed\")", fetchErr.Error)
-	}
-	if got := targetRequests.Load(); got != 0 {
-		t.Errorf("redirect target requests = %d, want 0: the redirect was not blocked", got)
+	if !strings.Contains(fetchErr.Error, httpguard.ErrNonPublicAddress.Error()) {
+		t.Errorf("error = %q, want the redirect target refused with %q", fetchErr.Error, httpguard.ErrNonPublicAddress.Error())
 	}
 }

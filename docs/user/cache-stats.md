@@ -48,7 +48,7 @@ The `/cache-stats` slash command opens a read-only overlay with one table for ea
 
 ### Per-turn telemetry
 
-For headless runs, set `STEINER_USAGE_TELEMETRY` to a file path. Steiner appends one JSON line per usage-bearing response and per Codex WebSocket connection event. Recording is off unless the variable is set. An unwritable path reports a warning and disables this diagnostic output; telemetry remains best-effort, and Steiner never reads the file back.
+For headless runs, set `STEINER_USAGE_TELEMETRY` to a file path. Steiner appends one JSON line per usage-bearing response and per Codex WebSocket connection event. Recording is off unless the variable is set. If opening the path fails, Steiner warns and disables the usage telemetry writer for that recorder; WebSocket telemetry retries opening on later events. Write failures warn and recording continues. Telemetry remains best-effort, and Steiner never reads the file back.
 
 ```bash
 export STEINER_USAGE_TELEMETRY=~/.local/state/steiner/telemetry.jsonl
@@ -56,7 +56,9 @@ export STEINER_USAGE_TELEMETRY_RUN="batch-job-2026-08-25"
 steiner --exec < task.txt
 ```
 
-Usage records include timestamp, optional run id, source, provider and model identity, raw prompt tokens, cache-read and cache-create tokens, and completion tokens. `prompt_tokens` includes cached input. WebSocket records identify `dial` or `reconnect`, an optional reason, and an optional cache key. Each line is appended atomically and is intended for external analysis.
+Usage records include timestamp, optional run id, source, provider and model identity, raw prompt tokens, cache-read and cache-create tokens, and completion tokens. `prompt_tokens` includes cached input. WebSocket records identify `dial` or `reconnect`, an optional reason, and an optional cache key. Lines are intended for external analysis.
+
+Usage and WebSocket telemetry write each line synchronously without buffering or fsync. A slow filesystem can delay usage recording and model turns, as well as WebSocket dial and reconnect handling. Usage bucket persistence is separate and asynchronous.
 
 Structured cache diagnostics are a separate opt-in stream: with `diagnostics.enabled: true` and `diagnostics.streams.cache: true`, one JSONL record per usage-bearing response is written to `<diagnostics.dir>/cache.jsonl`, covering the parent and delegated agents. Records contain model identity, token counts, source and run metadata, plus hashes and prefix comparison counts, never message content or the cache key itself. Advisor records deliberately expose `prefix_message_count` rather than `message_count`; this field-name exception preserves the advisor diagnostics contract. See the configuration reference for diagnostics settings.
 

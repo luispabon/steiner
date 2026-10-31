@@ -98,11 +98,21 @@ func looksLikeHTML(text string) bool {
 	return strings.HasPrefix(lower, "<!doctype html") || strings.HasPrefix(lower, "<html") || strings.Contains(lower, "<body")
 }
 
+// HTML error-page patterns, compiled once instead of on every error response.
+var (
+	htmlScriptRe = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	htmlStyleRe  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	htmlTitleRe  = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	htmlTagRe    = regexp.MustCompile(`(?s)<[^>]+>`)
+
+	htmlEntityReplacer = strings.NewReplacer("&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&#39;", "'", "&quot;", `"`)
+)
+
 func htmlToErrorText(body string) string {
-	text := regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`).ReplaceAllString(body, " ")
-	text = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`).ReplaceAllString(text, " ")
-	text = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`).ReplaceAllString(text, " title: $1 ")
-	text = regexp.MustCompile(`(?s)<[^>]+>`).ReplaceAllString(text, " ")
-	text = strings.NewReplacer("&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&#39;", "'", "&quot;", `"`).Replace(text)
+	text := htmlScriptRe.ReplaceAllString(body, " ")
+	text = htmlStyleRe.ReplaceAllString(text, " ")
+	text = htmlTitleRe.ReplaceAllString(text, " title: $1 ")
+	text = htmlTagRe.ReplaceAllString(text, " ")
+	text = htmlEntityReplacer.Replace(text)
 	return strings.Join(strings.Fields(text), " ")
 }

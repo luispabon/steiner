@@ -25,6 +25,10 @@ steiner --dev update
 
 `--dev` and a specific version cannot be used together. When switching channels, Steiner warns that the current build will be replaced.
 
+## Network deadlines
+
+Update requests fail instead of hanging. Release metadata requests time out after 30 seconds, the checksums file after 60 seconds, and the binary asset after 15 minutes. A request that makes no progress for 30 seconds is abandoned, including one still waiting for a response. Cancelling the command also cancels any request in flight.
+
 ## Passive checks
 
 Interactive startup checks GitHub for a newer release at most once per `update_check.interval_hours` and shows a sidebar notice when one is available. Set `update_check.enabled: false` to disable the check.
