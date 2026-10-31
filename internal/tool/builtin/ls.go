@@ -153,7 +153,7 @@ func visibleEntries(entries []toolkit.DirectoryEntry, dir, lexicalRoot string, p
 		if listedPathDenied(policy, path) {
 			continue
 		}
-		if excludeSearchEntry(&excluder, dir, lexicalRoot, path, entry.IsDir) {
+		if excludeSearchEntry(&excluder, policy, dir, lexicalRoot, path, entry.IsDir) {
 			continue
 		}
 		kept = append(kept, entry)
@@ -192,7 +192,7 @@ func lsRecursive(ctx context.Context, absPath, lexicalRoot string, limit, offset
 			return nil
 		}
 
-		if excludeSearchEntry(&excluder, absPath, lexicalRoot, path, d.IsDir()) {
+		if excludeSearchEntry(&excluder, policy, absPath, lexicalRoot, path, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

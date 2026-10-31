@@ -96,7 +96,7 @@ func globWalk(root, lexicalRoot, pattern string, excluder tool.WorkspaceExcluder
 		// reached through a symlink is validated in both its resolved and
 		// lexical form so configured exclusions keep applying. The root itself
 		// is never excluded here.
-		if rel != "." && excludeSearchEntry(&excluder, root, lexicalRoot, path, d.IsDir()) {
+		if rel != "." && excludeSearchEntry(&excluder, policy, root, lexicalRoot, path, d.IsDir()) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
