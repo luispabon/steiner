@@ -424,15 +424,23 @@ func buildServerEnv(base []string, srv config.LSPServerConfig, cacheDir string) 
 	return out
 }
 
-// serverForExtension returns the first enabled server that declares the file extension.
+// serverForExtension returns the enabled server that declares the file
+// extension, comparing extensions case-insensitively. When several enabled
+// servers declare the extension it returns the lexicographically smallest
+// name, so routing stays stable regardless of map iteration order even when a
+// caller supplies a config that validation would have rejected.
 // Must be called with m.mu held.
 func (m *Manager) serverForExtension(file string) string {
 	ext := strings.ToLower(filepath.Ext(file))
+	names := make([]string, 0, len(m.cfg.Servers))
 	for name, srv := range m.cfg.Servers {
-		if !srv.Enabled {
-			continue
+		if srv.Enabled {
+			names = append(names, name)
 		}
-		for _, e := range srv.FileExtensions {
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		for _, e := range m.cfg.Servers[name].FileExtensions {
 			if strings.ToLower(e) == ext {
 				return name
 			}

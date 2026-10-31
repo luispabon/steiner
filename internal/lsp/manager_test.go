@@ -971,6 +971,74 @@ func TestManagerContextCancellationDuringSpawn(t *testing.T) {
 	wg.Wait()
 }
 
+func TestServerForExtensionDeterministicTieBreak(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		servers map[string]config.LSPServerConfig
+		file    string
+		want    string
+	}{
+		{
+			name: "duplicate enabled extension picks smallest name",
+			servers: map[string]config.LSPServerConfig{
+				"zeta":  {Enabled: true, FileExtensions: []string{".go"}},
+				"alpha": {Enabled: true, FileExtensions: []string{".go"}},
+				"mid":   {Enabled: true, FileExtensions: []string{".GO"}},
+			},
+			file: "main.go",
+			want: "alpha",
+		},
+		{
+			name: "disabled server loses to enabled one",
+			servers: map[string]config.LSPServerConfig{
+				"aaa": {Enabled: false, FileExtensions: []string{".ts"}},
+				"bbb": {Enabled: true, FileExtensions: []string{".ts"}},
+			},
+			file: "app.ts",
+			want: "bbb",
+		},
+		{
+			name: "extension case is ignored on both sides",
+			servers: map[string]config.LSPServerConfig{
+				"go": {Enabled: true, FileExtensions: []string{".Go"}},
+			},
+			file: "MAIN.GO",
+			want: "go",
+		},
+		{
+			name: "no enabled server declares the extension",
+			servers: map[string]config.LSPServerConfig{
+				"go": {Enabled: false, FileExtensions: []string{".go"}},
+			},
+			file: "main.go",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := NewManager(config.LSPConfig{Servers: tt.servers}, t.TempDir(), nil, ManagerOptions{})
+			t.Cleanup(func() { _ = m.Close() })
+
+			// Repeat so an implementation that depends on map iteration order
+			// fails reliably rather than occasionally.
+			for i := 0; i < 50; i++ {
+				m.mu.Lock()
+				got := m.serverForExtension(tt.file)
+				m.mu.Unlock()
+
+				if got != tt.want {
+					t.Fatalf("iteration %d: serverForExtension(%q) = %q, want %q", i, tt.file, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func TestManagerCacheDirExistsAndPersists(t *testing.T) {
 	t.Parallel()
 	tmpdir := t.TempDir()
