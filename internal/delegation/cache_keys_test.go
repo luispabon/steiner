@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/output"
 )
 
 func TestCacheKeyStoreKeyForReusesSameAgentType(t *testing.T) {
@@ -210,7 +212,7 @@ func TestCacheKeyStoreDispatchGateTimeout(t *testing.T) {
 	}
 
 	gate := &dispatchGate{ready: make(chan struct{})}
-	defer gate.release()
+	defer gate.release(output.DelegationCacheReleaseLeaderExited)
 	waitDone := make(chan struct{})
 	go func() {
 		waitForTimeout(gate, 20*time.Millisecond)(context.Background())

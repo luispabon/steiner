@@ -2,72 +2,106 @@ package delegation
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// followerReleaseDelay is long enough for the follower to be blocked in its
-// wait when the test releases the gate, cancels the context, or lets a
-// shortened dispatch gate timeout fire.
-const followerReleaseDelay = 20 * time.Millisecond
+// gateTestTimeout is a shortened dispatch gate timeout: long enough that clock
+// and scheduler noise cannot turn a released wait into a timeout, short enough
+// to keep the test fast.
+const gateTestTimeout = 20 * time.Millisecond
+
+// gateWaitSignalSink records events and closes waiting once the follower's
+// cache-waiting event arrives, so tests act only after the follower has joined
+// the gate. Every release path decides the release cause, so acting after this
+// point keeps the cause deterministic regardless of scheduling.
+type gateWaitSignalSink struct {
+	*recordingEventSink
+	waiting chan struct{}
+	once    sync.Once
+}
+
+func newGateWaitSignalSink() *gateWaitSignalSink {
+	return &gateWaitSignalSink{recordingEventSink: &recordingEventSink{}, waiting: make(chan struct{})}
+}
+
+func (s *gateWaitSignalSink) Emit(event output.Event) {
+	s.recordingEventSink.Emit(event)
+	if event.Type == output.EventTypeDelegationCacheWaiting {
+		s.once.Do(func() { close(s.waiting) })
+	}
+}
+
+// releasedEvent asserts the follower emitted exactly a waiting event followed by
+// a release event, and returns the release payload.
+func releasedEvent(t *testing.T, events []output.Event) output.DelegationCacheReleasedEvent {
+	t.Helper()
+	if len(events) != 2 {
+		t.Fatalf("emitted %d events, want waiting then released", len(events))
+	}
+	if events[0].Type != output.EventTypeDelegationCacheWaiting || events[1].Type != output.EventTypeDelegationCacheReleased {
+		t.Fatalf("event types = %q, %q, want %q, %q", events[0].Type, events[1].Type, output.EventTypeDelegationCacheWaiting, output.EventTypeDelegationCacheReleased)
+	}
+	payload, ok := events[1].Payload.(output.DelegationCacheReleasedEvent)
+	if !ok {
+		t.Fatalf("released payload = %T, want output.DelegationCacheReleasedEvent", events[1].Payload)
+	}
+	return payload
+}
 
 func TestApplyDispatchGateFollowerEmitsRelease(t *testing.T) {
 	const cacheKey = "gate-key"
 	occ := output.DelegationOccurrence{CallID: "call-1", BatchID: "batch-1", AgentID: "child-follower"}
 	tests := []struct {
-		name        string
-		timeout     time.Duration
-		cancel      bool
-		wantReason  output.DelegationCacheReleaseReason
-		minWaitedMs int64
+		name string
+		// timeout shortens the gate wait; no case releases the gate itself, so
+		// the timeout case ends on the timer alone.
+		timeout time.Duration
+		// firstResponse releases the gate through the leader's release sink, as
+		// the leader's first provider response does.
+		firstResponse bool
+		cancel        bool
+		wantReason    output.DelegationCacheReleaseReason
+		minWaitedMs   int64
 	}{
-		{name: "leader first response", wantReason: output.DelegationCacheReleaseLeaderFirstResponse, minWaitedMs: 10},
-		{name: "timeout", timeout: followerReleaseDelay, wantReason: output.DelegationCacheReleaseTimeout, minWaitedMs: 15},
-		{name: "context cancelled", cancel: true, wantReason: output.DelegationCacheReleaseCancelled, minWaitedMs: 10},
+		{name: "leader first response", firstResponse: true, wantReason: output.DelegationCacheReleaseLeaderFirstResponse},
+		{name: "timeout", timeout: gateTestTimeout, wantReason: output.DelegationCacheReleaseTimeout, minWaitedMs: 15},
+		{name: "context cancelled", cancel: true, wantReason: output.DelegationCacheReleaseCancelled},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			store := NewCacheKeyStore()
 			store.testWaitTimeout = tt.timeout
-			leader, release, _ := store.BeginDispatch(cacheKey)
-			if !leader {
-				t.Fatal("first BeginDispatch() isLeader = false, want true")
-			}
-			t.Cleanup(release)
-			events := &recordingEventSink{}
+			leaderOcc := output.DelegationOccurrence{CallID: "call-0", BatchID: "batch-1", AgentID: "child-leader"}
+			leaderSink, leaderTeardown := applyDispatchGate(context.Background(), store, cacheKey, leaderOcc, &recordingEventSink{}, &recordingEventSink{})
+			// The leader outlives every case here: releasing it in cleanup keeps
+			// only the case's own release path in play while the follower waits.
+			t.Cleanup(leaderTeardown)
+
+			events := newGateWaitSignalSink()
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
-			go func() {
-				time.Sleep(followerReleaseDelay)
-				if tt.cancel {
-					cancel()
-					return
-				}
-				release()
-			}()
+			if tt.firstResponse || tt.cancel {
+				go func() {
+					<-events.waiting
+					if tt.cancel {
+						cancel()
+						return
+					}
+					leaderSink.Emit(output.Event{Type: output.EventTypeAPIResponse})
+				}()
+			}
 
 			start := time.Now()
-			sink, followerRelease := applyDispatchGate(ctx, store, cacheKey, occ, events, output.NoopSink{})
+			_, followerRelease := applyDispatchGate(ctx, store, cacheKey, occ, events, output.NoopSink{})
 			followerRelease()
 			elapsedMs := time.Since(start).Milliseconds()
-			if sink == nil {
-				t.Fatal("applyDispatchGate() sink = nil, want the child sink")
-			}
 
-			got := events.Events()
-			if len(got) != 2 {
-				t.Fatalf("emitted %d events, want waiting then released", len(got))
-			}
-			if got[0].Type != output.EventTypeDelegationCacheWaiting || got[1].Type != output.EventTypeDelegationCacheReleased {
-				t.Fatalf("event types = %q, %q, want %q, %q", got[0].Type, got[1].Type, output.EventTypeDelegationCacheWaiting, output.EventTypeDelegationCacheReleased)
-			}
-			payload, ok := got[1].Payload.(output.DelegationCacheReleasedEvent)
-			if !ok {
-				t.Fatalf("released payload = %T, want output.DelegationCacheReleasedEvent", got[1].Payload)
-			}
+			payload := releasedEvent(t, events.Events())
 			if payload.DelegationOccurrence != occ {
 				t.Errorf("released occurrence = %+v, want %+v", payload.DelegationOccurrence, occ)
 			}
@@ -79,6 +113,60 @@ func TestApplyDispatchGateFollowerEmitsRelease(t *testing.T) {
 			}
 			if payload.WaitedMs > elapsedMs {
 				t.Errorf("waited_ms = %d exceeds the %d ms spent in applyDispatchGate", payload.WaitedMs, elapsedMs)
+			}
+		})
+	}
+}
+
+func TestApplyDispatchGateLeaderReleaseCause(t *testing.T) {
+	const cacheKey = "cause-key"
+	followerOcc := output.DelegationOccurrence{CallID: "call-2", BatchID: "batch-1", AgentID: "child-follower"}
+	tests := []struct {
+		name    string
+		release func(firstResponse, teardown func())
+		want    output.DelegationCacheReleaseReason
+	}{
+		{
+			name:    "first api response via release sink",
+			release: func(firstResponse, _ func()) { firstResponse() },
+			want:    output.DelegationCacheReleaseLeaderFirstResponse,
+		},
+		{
+			name:    "leader teardown without a response",
+			release: func(_, teardown func()) { teardown() },
+			want:    output.DelegationCacheReleaseLeaderExited,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := NewCacheKeyStore()
+			leaderEvents := &recordingEventSink{}
+			leaderOcc := output.DelegationOccurrence{CallID: "call-1", BatchID: "batch-1", AgentID: "child-leader"}
+			leaderSink, leaderTeardown := applyDispatchGate(context.Background(), store, cacheKey, leaderOcc, leaderEvents, &recordingEventSink{})
+			t.Cleanup(leaderTeardown)
+
+			events := newGateWaitSignalSink()
+			go func() {
+				<-events.waiting
+				firstResponse := func() { leaderSink.Emit(output.Event{Type: output.EventTypeAPIResponse}) }
+				tt.release(firstResponse, leaderTeardown)
+			}()
+
+			start := time.Now()
+			_, followerRelease := applyDispatchGate(context.Background(), store, cacheKey, followerOcc, events, output.NoopSink{})
+			followerRelease()
+			elapsedMs := time.Since(start).Milliseconds()
+
+			payload := releasedEvent(t, events.Events())
+			if payload.Reason != tt.want {
+				t.Errorf("released reason = %q, want %q", payload.Reason, tt.want)
+			}
+			if payload.WaitedMs < 0 || payload.WaitedMs > elapsedMs {
+				t.Errorf("waited_ms = %d, want between 0 and the %d ms spent in applyDispatchGate", payload.WaitedMs, elapsedMs)
+			}
+			if got := leaderEvents.Events(); len(got) != 0 {
+				t.Errorf("leader emitted %d events, want none", len(got))
 			}
 		})
 	}

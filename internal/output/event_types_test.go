@@ -143,6 +143,7 @@ func TestDelegationCacheReleasedEventJSON(t *testing.T) {
 		waitedMs int64
 	}{
 		{name: "leader first response", reason: DelegationCacheReleaseLeaderFirstResponse, waitedMs: 2100},
+		{name: "leader exited", reason: DelegationCacheReleaseLeaderExited, waitedMs: 1800},
 		{name: "timeout", reason: DelegationCacheReleaseTimeout, waitedMs: 10000},
 		{name: "cancelled", reason: DelegationCacheReleaseCancelled, waitedMs: 0},
 	}

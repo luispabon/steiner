@@ -14,9 +14,10 @@ func applyDispatchGate(ctx context.Context, store *CacheKeyStore, cacheKey strin
 	if store == nil {
 		return childEvents, func() {}
 	}
-	isLeader, release, wait := store.BeginDispatch(cacheKey)
+	isLeader, release, wait := store.beginDispatch(cacheKey)
 	if isLeader {
-		return newDispatchReleaseSink(childEvents, release), release
+		firstResponse := func() { release(output.DelegationCacheReleaseLeaderFirstResponse) }
+		return newDispatchReleaseSink(childEvents, firstResponse), func() { release(output.DelegationCacheReleaseLeaderExited) }
 	}
 	start := time.Now()
 	if parentEvents != nil {
