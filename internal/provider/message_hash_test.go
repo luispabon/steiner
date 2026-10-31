@@ -74,6 +74,52 @@ func TestMessageHashInput_ImageOrderAndDeterminism(t *testing.T) {
 	}
 }
 
+func TestAppendMessageHashInput_LiteralBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  Message
+		want string
+	}{
+		{
+			name: "role_then_content_then_reasoning",
+			msg:  Message{Role: MessageRoleAssistant, Content: "answer", ReasoningContent: "thinking"},
+			want: "assistantanswerthinking",
+		},
+		{
+			name: "tool_args_in_call_order_then_raw_args",
+			msg: Message{Role: MessageRoleAssistant, ToolCalls: []ToolCall{
+				{Name: "read", Arguments: map[string]any{"path": "one", "limit": 2}, RawArguments: `{"raw":true}`},
+				{Name: "write", Arguments: map[string]any{"path": "two"}},
+			}},
+			want: `assistantread{"limit":2,"path":"one"}{"raw":true}write{"path":"two"}`,
+		},
+		{
+			name: "images_in_order_with_media_type",
+			msg: Message{Role: MessageRoleUser, Images: []ImageBlock{
+				{MediaType: "image/png", Data: "aaa"},
+				{MediaType: "image/jpeg", Data: "bbb"},
+			}},
+			want: "userimage/pngaaaimage/jpegbbb",
+		},
+		{
+			name: "unicode_content",
+			msg:  Message{Role: MessageRoleUser, Content: "héllo wörld ✓"},
+			want: "userhéllo wörld ✓",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := string(AppendMessageHashInput(nil, tc.msg)); got != tc.want {
+				t.Fatalf("AppendMessageHashInput() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAppendMessageHashInput_MatchesMessageHashInput is a wrapper check: it
+// only proves the two exported entry points agree. The exact bytes are pinned
+// by TestAppendMessageHashInput_LiteralBytes.
 func TestAppendMessageHashInput_MatchesMessageHashInput(t *testing.T) {
 	cases := []struct {
 		name string

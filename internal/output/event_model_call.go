@@ -58,9 +58,10 @@ type APIRequestEvent struct {
 	// MessageCount, MessageHashes, PromptBytes, ToolsBytes and BlocksBytes are
 	// fixed-size scalars derived from Messages/Tools/Blocks so a parser can
 	// spot prefix divergence and payload growth without the log carrying
-	// message bodies. MessageHashes are computed over role, content and tool
-	// call name/count (never tool call arguments or image data), so a
-	// tool-call-only message still hashes distinctly from an empty one.
+	// message bodies. MessageHashes are computed over role, content, reasoning
+	// content, each tool call's name with its marshaled and raw arguments, and
+	// each image's media type and data, so a tool-call-only message still
+	// hashes distinctly from an empty one.
 	// MessageCount/PromptBytes/ToolsBytes/BlocksBytes intentionally lack
 	// omitempty: zero is a meaningful measurement (e.g. an empty request),
 	// not an absent field.

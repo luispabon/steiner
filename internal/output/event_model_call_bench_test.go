@@ -21,7 +21,7 @@ func BenchmarkNewAPIRequestEvent(b *testing.B) {
 	blocks := benchRequestBlocks(8)
 	maxTokens := 8192
 	for _, size := range benchRequestSizes {
-		messages := BenchRequestMessages(size)
+		messages := benchRequestMessages(size)
 		b.Run(fmt.Sprintf("conv%dKiB", size>>10), func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(size))
@@ -36,7 +36,7 @@ func BenchmarkNewAPIRequestEvent(b *testing.B) {
 // hashing can be measured without the deep copies and tool marshaling.
 func BenchmarkMessageHashes(b *testing.B) {
 	for _, size := range benchRequestSizes {
-		messages := BenchRequestMessages(size)
+		messages := benchRequestMessages(size)
 		b.Run(fmt.Sprintf("conv%dKiB", size>>10), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
@@ -59,10 +59,10 @@ func BenchmarkRequestToolsBytes(b *testing.B) {
 	}
 }
 
-// BenchRequestMessages builds a conversation whose message content totals
+// benchRequestMessages builds a conversation whose message content totals
 // roughly totalBytes: a repeating cycle of a user message, an assistant
 // message with a tool call, and the matching tool result.
-func BenchRequestMessages(totalBytes int) []provider.Message {
+func benchRequestMessages(totalBytes int) []provider.Message {
 	const chunk = 4 << 10
 	count := totalBytes / chunk
 	messages := make([]provider.Message, 0, count)

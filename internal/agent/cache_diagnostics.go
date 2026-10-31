@@ -154,12 +154,22 @@ func cacheBaselineKeyForRequest(req RunRequest) CacheBaselineKey {
 }
 
 // perMessageHashes returns one 8-hex-char content hash per message, computed
-// over provider.MessageHashInput. Order is preserved so the result doubles as
-// the input to both cumulativePrefixHash and longestCommonPrefixLen.
+// over the provider.AppendMessageHashInput bytes. Order is preserved so the
+// result doubles as the input to both cumulativePrefixHash and
+// longestCommonPrefixLen. Fingerprints are appended into one buffer reused
+// across messages and hashed in place, so this per-model-call pass never
+// materializes a fingerprint string per message. An empty fingerprint keeps
+// shortHash's empty-input result ("") rather than the digest of no bytes.
 func perMessageHashes(messages []provider.Message) []string {
 	hashes := make([]string, len(messages))
+	var buf []byte
 	for i, msg := range messages {
-		hashes[i] = shortHash(provider.MessageHashInput(msg))
+		buf = provider.AppendMessageHashInput(buf[:0], msg)
+		if len(buf) == 0 {
+			continue
+		}
+		sum := sha256.Sum256(buf)
+		hashes[i] = hex.EncodeToString(sum[:4])
 	}
 	return hashes
 }

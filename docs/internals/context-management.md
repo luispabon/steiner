@@ -56,7 +56,7 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 
 `output.NewAPIRequestEvent` (`internal/output/event_model_call.go`) builds the per-request event behind the context report, and `interactive.snapshotSink` (`internal/interactive/wiring.go`) stores it for later reporting.
 
-- `MessageHashes` are the first four bytes of `sha256` over `provider.AppendMessageHashInput`. One buffer is reused across a request, so the hash input is never materialized as a string; the bytes are identical to `provider.MessageHashInput`, which cache diagnostics still uses.
+- `MessageHashes` are the first four bytes of `sha256` over `provider.AppendMessageHashInput`. One buffer is reused across a request, so the hash input is never materialized as a string; the bytes are identical to `provider.MessageHashInput`, and cache diagnostics hashes them through the same append path.
 - `PromptBytes` is the sum of each message's role and content length. `BlocksBytes` is the sum of `ContextBlock.ByteSize`.
 - `ToolsBytes` is the encoded length of the tool definitions, computed by `json.Marshal` on every request. Tools are re-cloned into each request, so the encoding is not memoized by slice identity: an in-place edit of a reused slice would otherwise report a stale size.
 - Messages, tools, blocks, and the `MaxTokens` value are deep-copied into the event, so later mutation of the conversation cannot reach it. `snapshotSink` then stores its own deep copy through `SnapshotStore.Store`, because every later sink receives the same payload and nothing guarantees it stays unmodified.
