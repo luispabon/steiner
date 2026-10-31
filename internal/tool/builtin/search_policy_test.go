@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -240,4 +241,121 @@ func TestLSTool_SymlinkRoot(t *testing.T) {
 		}
 		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"a.txt", "sub/", "sub/b.txt"})
 	})
+}
+
+func TestGlobTool_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "secrets/secret.go", "package secret\n")
+	mustSymlink(t, filepath.Join(root, "secrets"), filepath.Join(root, "link"))
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	excluder := tool.NewPathExcluder(nil, nil)
+	toolDef := NewGlobTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
+
+	_, err := toolDef.Handler(context.Background(), map[string]any{
+		"path":    "link",
+		"pattern": "**/*.go",
+	})
+	var policyErr *tool.PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error = %v, want PathPolicyError", err)
+	}
+}
+
+func TestLSTool_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "secrets/secret.txt", "secret")
+	mustSymlink(t, filepath.Join(root, "secrets"), filepath.Join(root, "link"))
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+	ctx := context.Background()
+
+	for _, recursive := range []bool{false, true} {
+		name := "non-recursive"
+		if recursive {
+			name = "recursive"
+		}
+		t.Run(name, func(t *testing.T) {
+			_, err := toolDef.Handler(ctx, map[string]any{"path": "link", "recursive": recursive})
+			var policyErr *tool.PathPolicyError
+			if !errors.As(err, &policyErr) {
+				t.Fatalf("error = %v, want PathPolicyError", err)
+			}
+		})
+	}
+}
+
+func TestLSTool_UnparseableListingFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	oddDir := filepath.Join(root, "odd\n\nname")
+	if err := os.MkdirAll(oddDir, 0o755); err != nil {
+		t.Skipf("filesystem rejects directory names containing blank lines: %v", err)
+	}
+	mustWriteTree(t, oddDir, "visible.txt", "visible")
+	mustWriteTree(t, oddDir, "secrets/secret.txt", "secret")
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
+	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
+
+	_, err := toolDef.Handler(context.Background(), map[string]any{"path": "odd\n\nname"})
+	if err == nil {
+		t.Fatal("ls returned an unfiltered listing instead of failing closed")
+	}
+	if strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error leaks entry names: %v", err)
+	}
+}
+
+func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
+	realTmp, err := os.MkdirTemp("/tmp", "steiner-975-root-")
+	if err != nil {
+		t.Skipf("cannot create directory under /tmp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(realTmp) })
+	mustWriteTree(t, realTmp, "leak.txt", "needle\n")
+
+	target, err := filepath.EvalSymlinks(realTmp)
+	if err != nil {
+		t.Fatalf("resolve target: %v", err)
+	}
+
+	root := t.TempDir()
+	sandboxTmp := filepath.Join(t.TempDir(), "sandbox-tmp")
+	mustMkdir(t, sandboxTmp)
+	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp)
+
+	want, err := policy.ResolveReadPath(target)
+	if err != nil {
+		t.Fatalf("resolve target through policy: %v", err)
+	}
+	if want == target {
+		t.Skip("sandbox /tmp rewrite does not apply to symlink targets on this platform")
+	}
+
+	link := filepath.Join(root, "link")
+	mustSymlink(t, realTmp, link)
+
+	got, err := resolveSearchRoot(link, &policy)
+	if err != nil {
+		t.Fatalf("resolveSearchRoot: %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolveSearchRoot = %q, want policy-resolved %q", got, want)
+	}
+
+	results, err := grepSearch(context.Background(), grepSearchParams{
+		root:        link,
+		displayPath: "link",
+		pattern:     "needle",
+		policy:      &policy,
+	})
+	if err != nil {
+		return // The rewritten sandbox path may not exist; failing is closed.
+	}
+	for _, file := range grepResultFiles(results) {
+		if strings.Contains(file, "leak") {
+			t.Fatalf("grep read through the symlink into the unsandboxed /tmp target: %s", file)
+		}
+	}
 }

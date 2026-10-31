@@ -100,9 +100,8 @@ func lsNonRecursive(
 
 	entries, err := parseDirectoryEntries(contentText)
 	if err != nil {
-		return &Result{
-			Output: contentText,
-		}, nil
+		// Fail closed: the raw listing is not filtered by policy.
+		return nil, fmt.Errorf("ls: %w", err)
 	}
 
 	entries = visibleEntries(entries, absPath, policy)
