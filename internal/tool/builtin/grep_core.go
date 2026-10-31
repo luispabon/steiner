@@ -191,6 +191,7 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, grep
 func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]grepFileResult, grepSearchStats, error) {
 	var results []grepFileResult
 	var stats grepSearchStats
+	links := newSearchSymlinkScope(policy, excluder, root, lexicalRoot)
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if handled, walkErr := grepWalkEntryError(&stats, path, root, d, err); handled {
@@ -214,7 +215,7 @@ func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regex
 		}
 		relPath = filepath.ToSlash(relPath)
 
-		skipDir, skipFile := grepShouldSkipEntry(root, lexicalRoot, path, relPath, d, excluder, policy, filterGlob, exts)
+		skipDir, skipFile, readPath := grepShouldSkipEntry(root, lexicalRoot, path, relPath, d, excluder, policy, filterGlob, exts, links)
 		if skipDir {
 			return filepath.SkipDir
 		}
@@ -222,7 +223,9 @@ func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regex
 			return nil
 		}
 
-		scan, err := grepSearchFile(ctx, path, relPath, re, multiline)
+		// A symlink entry is read through its policy-resolved target while the
+		// lexical link name stays the displayed path.
+		scan, err := grepSearchFile(ctx, readPath, relPath, re, multiline)
 		if err != nil {
 			if skippedEntryError(err) {
 				stats.skippedUnreadable++
@@ -429,20 +432,34 @@ func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *reg
 	return []grepFileResult{scan.file}, stats, nil
 }
 
-func grepShouldSkipEntry(walkRoot, lexicalRoot, path, relPath string, d fs.DirEntry, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy, filterGlob glob.Glob, exts []string) (bool, bool) {
+// grepShouldSkipEntry decides whether the walk entry at path is searched. The
+// returned read path is the file to open: the entry itself for a regular file,
+// or the policy-resolved target for an eligible symlink. File filters always
+// match the lexical entry path, so a link keeps the name the caller sees.
+func grepShouldSkipEntry(walkRoot, lexicalRoot, path, relPath string, d fs.DirEntry, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy, filterGlob glob.Glob, exts []string, links searchSymlinkScope) (bool, bool, string) {
 	if excludeSearchEntry(excluder, policy, walkRoot, lexicalRoot, path, d.IsDir()) {
-		return d.IsDir(), true
+		return d.IsDir(), true, ""
 	}
 	if d.IsDir() {
-		return false, true
+		return false, true, ""
+	}
+	if searchSymlinkEntry(d) {
+		if grepPathExcluded(walkRoot, lexicalRoot, path, relPath, filterGlob, exts, excluder, policy) {
+			return false, true, ""
+		}
+		target, ok := links.target(path)
+		if !ok {
+			return false, true, ""
+		}
+		return false, false, target
 	}
 	if !d.Type().IsRegular() {
-		return false, true
+		return false, true, ""
 	}
 	if grepPathExcluded(walkRoot, lexicalRoot, path, relPath, filterGlob, exts, excluder, policy) {
-		return false, true
+		return false, true, ""
 	}
-	return false, false
+	return false, false, path
 }
 
 // grepPathExcluded reports whether an explicit file path is excluded by

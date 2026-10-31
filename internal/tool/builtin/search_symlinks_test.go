@@ -1,0 +1,225 @@
+package builtin
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/tool"
+)
+
+// symlinkSearchFixture writes the workspace shared by the symlink search tests.
+// Every real file contains "needle", and each link under src/ exercises one
+// eligibility rule: a plain link, a link out of the walk root but inside the
+// workspace, an absolute link, dangling and directory links, a special file, a
+// blocked target, an excluded target, a target outside the workspace, and a
+// target that only escapes containment when its parent symlink is resolved.
+func symlinkSearchFixture(t *testing.T, excludePaths, excludePatterns, blockedPaths []string) Env {
+	t.Helper()
+	root := t.TempDir()
+	for _, rel := range []string{"src/inside.go", "outside/outside.go", "excluded/excluded.go", "blocked/blocked.go"} {
+		mustWriteTree(t, root, rel, "needle\n")
+	}
+	if err := syscall.Mkfifo(filepath.Join(root, "special.pipe"), 0o600); err != nil {
+		t.Skipf("Mkfifo unsupported: %v", err)
+	}
+	escapeDir := t.TempDir()
+	mustWriteTree(t, escapeDir, "escape.go", "needle\n")
+	mustSymlink(t, escapeDir, filepath.Join(root, "inner"))
+
+	src := filepath.Join(root, "src")
+	mustMkdir(t, src)
+	links := map[string]string{
+		"link-inside.go":    "inside.go",
+		"link-workspace.go": "../outside/outside.go",
+		"link-absolute.go":  filepath.Join(root, "outside", "outside.go"),
+		"link-byname.go":    "inside.go",
+		"link-dangling.go":  "../outside/missing.go",
+		"link-directory.go": "../outside",
+		"link-special.go":   "../special.pipe",
+		"link-blocked.go":   "../blocked/blocked.go",
+		"link-excluded.go":  "../excluded/excluded.go",
+		"link-escape.go":    filepath.Join(escapeDir, "escape.go"),
+		"link-chain.go":     "../inner/escape.go",
+	}
+	for name, target := range links {
+		mustSymlink(t, target, filepath.Join(src, name))
+	}
+
+	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: blockedPaths})
+	excluder := tool.NewWorkspaceExcluder(root, excludePaths, excludePatterns)
+	return Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder}
+}
+
+// grepPatternRows runs grep in files_with_matches mode and returns its rows.
+func grepPatternRows(t *testing.T, env Env, searchPath, pattern string) []string {
+	t.Helper()
+	result := runGrepForTest(t, NewGrepTool(env), map[string]any{
+		"path":        searchPath,
+		"pattern":     pattern,
+		"output_mode": "files_with_matches",
+	})
+	return outputRows(result.Output, "No matches found")
+}
+
+// globPatternRows runs the glob tool and returns its rows.
+func globPatternRows(t *testing.T, env Env, searchPath, pattern string) []string {
+	t.Helper()
+	resultI, err := NewGlobTool(env).Handler(context.Background(), map[string]any{
+		"path":    searchPath,
+		"pattern": pattern,
+	})
+	if err != nil {
+		t.Fatalf("glob %q: %v", searchPath, err)
+	}
+	result, ok := resultI.(Result)
+	if !ok {
+		t.Fatalf("glob result type = %T, want Result", resultI)
+	}
+	return outputRows(result.Output, "")
+}
+
+// TestSymlinkSearchEntryEligibility proves grep and glob agree on which nested
+// symlink entries they may treat as regular files, and that the lexical link
+// name is what both return.
+func TestSymlinkSearchEntryEligibility(t *testing.T) {
+	tests := []struct {
+		name            string
+		excludePaths    []string
+		excludePatterns []string
+		blockedPaths    []string
+		want            []string
+	}{
+		{
+			name: "eligible regular file links only",
+			want: []string{
+				"inside.go",
+				"link-absolute.go",
+				"link-blocked.go",
+				"link-byname.go",
+				"link-excluded.go",
+				"link-inside.go",
+				"link-workspace.go",
+			},
+		},
+		{
+			name:            "excluded link name and excluded or blocked targets are rejected",
+			excludePaths:    []string{"src/link-byname.go"},
+			excludePatterns: []string{"excluded"},
+			blockedPaths:    []string{"blocked"},
+			want: []string{
+				"inside.go",
+				"link-absolute.go",
+				"link-inside.go",
+				"link-workspace.go",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := symlinkSearchFixture(t, tt.excludePaths, tt.excludePatterns, tt.blockedPaths)
+			assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src", "needle"), tt.want)
+			assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), tt.want)
+		})
+	}
+}
+
+// TestGrepSymlinkReadsResolvedTarget proves a searched link is read through its
+// resolved target while the reported path stays the lexical link name, and that
+// the scan counters account for linked files.
+func TestGrepSymlinkReadsResolvedTarget(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "src/real.go", "inside only\n")
+	mustWriteTree(t, root, "shared/target.go", "shared needle\n")
+	mustWriteTree(t, root, "shared/payload.bin", grepCountersBinaryContent)
+	mustSymlink(t, "../shared/target.go", filepath.Join(root, "src", "alias.go"))
+	mustSymlink(t, "../shared/payload.bin", filepath.Join(root, "src", "payload.bin"))
+	env := workspaceTestEnv(t, root, nil, nil)
+
+	result := runGrepForTest(t, NewGrepTool(env), map[string]any{
+		"path":        "src",
+		"pattern":     "shared needle",
+		"output_mode": "content",
+	})
+	if !strings.Contains(result.Output, "## alias.go") {
+		t.Errorf("Output = %q, want the lexical link name as the file header", result.Output)
+	}
+	if strings.Contains(result.Output, "target.go") {
+		t.Errorf("Output = %q, want the resolved target hidden behind the link name", result.Output)
+	}
+	if result.FilesSearched != 2 {
+		t.Errorf("FilesSearched = %d, want 2 for the regular file and the linked file", result.FilesSearched)
+	}
+	if result.SkippedBinary != 1 {
+		t.Errorf("SkippedBinary = %d, want 1 for the linked binary file", result.SkippedBinary)
+	}
+
+	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "*.bin"), []string{"payload.bin"})
+}
+
+// TestGrepNestedSymlinkUsesSandboxTmpRewrite proves a nested link into /tmp is
+// read through the policy-resolved sandbox path instead of the host file behind
+// the link. The searches call grepSearch and globWalk directly because a
+// workspace that itself lives under /tmp would be rewritten before the walk
+// starts, which is unrelated to nested-link handling.
+func TestGrepNestedSymlinkUsesSandboxTmpRewrite(t *testing.T) {
+	hostDir, err := os.MkdirTemp("/tmp", "steiner-975-nested-link-")
+	if err != nil {
+		t.Skipf("cannot create directory under /tmp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(hostDir) })
+	mustWriteTree(t, hostDir, "needle.txt", "host-needle\n")
+
+	root := t.TempDir()
+	sandboxTmp := filepath.Join(root, "sandbox-tmp")
+	mustMkdir(t, sandboxTmp)
+	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp)
+
+	// The sandbox copy holds different content from the host file, so a search
+	// that reads the host target instead of the rewritten path cannot match.
+	sandboxFile := filepath.Join(sandboxTmp, filepath.Base(hostDir), "needle.txt")
+	mustWriteTree(t, filepath.Dir(sandboxFile), filepath.Base(sandboxFile), "sandbox-needle\n")
+
+	src := filepath.Join(root, "src")
+	mustMkdir(t, src)
+	mustSymlink(t, filepath.Join(hostDir, "needle.txt"), filepath.Join(src, "tmplink.txt"))
+
+	t.Run("grep reads the sandbox copy", func(t *testing.T) {
+		results, stats, err := grepSearch(context.Background(), grepSearchParams{
+			root:        src,
+			displayPath: "src",
+			pattern:     "sandbox-needle",
+			policy:      &policy,
+		})
+		if err != nil {
+			t.Fatalf("grepSearch: %v", err)
+		}
+		assertSameStringSet(t, "grep files", grepResultFiles(results), []string{"tmplink.txt"})
+		if stats.filesSearched != 1 {
+			t.Errorf("filesSearched = %d, want 1 for the linked file", stats.filesSearched)
+		}
+
+		hostResults, _, err := grepSearch(context.Background(), grepSearchParams{
+			root:        src,
+			displayPath: "src",
+			pattern:     "host-needle",
+			policy:      &policy,
+		})
+		if err != nil {
+			t.Fatalf("grepSearch: %v", err)
+		}
+		assertSameStringSet(t, "host files", grepResultFiles(hostResults), nil)
+	})
+
+	t.Run("glob lists the link", func(t *testing.T) {
+		matches, err := globWalk(src, src, "**/*.txt", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
+		if err != nil {
+			t.Fatalf("globWalk: %v", err)
+		}
+		assertSameStringSet(t, "glob matches", matches, []string{"tmplink.txt"})
+	})
+}
