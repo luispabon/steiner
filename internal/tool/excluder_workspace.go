@@ -44,10 +44,11 @@ var builtinExcludeComponents = func() map[string]struct{} {
 //     inside the workspace, walk-relative outside);
 //   - built-in directory names match walk-relative directory components only.
 //
-// Patterns may be prefixed with "./" and may end with separators; both forms
-// are normalised. A path segment that is exactly "**" matches zero or more
-// path segments, so "**/fixtures" matches both "fixtures" and "a/fixtures".
-// Invalid patterns are ignored.
+// Patterns may be prefixed with "./" or "/" and may end with separators;
+// these forms are normalised. A path segment that is exactly "**" matches zero
+// or more path segments, so "**/fixtures" matches both "fixtures" and
+// "a/fixtures". Character classes do not match separators, so "a[!x]b" matches
+// a single path segment. Invalid patterns are ignored.
 //
 // The zero value excludes nothing.
 type WorkspaceExcluder struct {
@@ -212,27 +213,12 @@ func (e WorkspaceExcluder) forceIncluded(components []string) bool {
 // ancestor directory prefixes, so a pattern for a directory also excludes the
 // entries beneath it.
 func matchSlashPatterns(patterns []workspacePattern, relSlash string) bool {
-	if len(patterns) == 0 || relSlash == "" {
-		return false
-	}
-	for _, prefix := range relPrefixes(relSlash) {
-		for _, pattern := range patterns {
-			if pattern.matches(prefix) {
-				return true
-			}
+	for _, pattern := range patterns {
+		if pattern.matchesPrefix(relSlash) {
+			return true
 		}
 	}
 	return false
-}
-
-// relPrefixes returns relSlash followed by each ancestor directory prefix.
-func relPrefixes(relSlash string) []string {
-	parts := strings.Split(relSlash, "/")
-	prefixes := make([]string, len(parts))
-	for i := range parts {
-		prefixes[i] = strings.Join(parts[:i+1], "/")
-	}
-	return prefixes
 }
 
 // matchComponentPatterns reports whether any slashless pattern matches any
@@ -375,72 +361,80 @@ func exactPathMatch(path, prefix string) bool {
 	return strings.HasPrefix(path, prefix+separator)
 }
 
-// workspacePattern is a compiled slash pattern. Patterns without a full-segment
-// "**" match through a single gobwas matcher. Patterns with full-segment "**"
-// compile once into segments and match with a bounded segment walk, so
-// zero-directory "**/" handling never expands every combination.
+// workspacePattern is a compiled slash pattern. It compiles into path segments
+// and matches with a bounded segment walk that accepts a match of the entry or
+// any ancestor prefix, so zero-directory "**/" handling neither expands
+// combinations nor rescans prefixes.
 type workspacePattern struct {
-	matcher  glob.Glob
 	segments []workspacePatternSegment
 }
 
 // workspacePatternSegment is one path segment of a compiled slash pattern. A
-// globstar segment matches zero or more path segments; any other segment
-// matches one or more (a brace alternative can span separators).
+// globstar segment matches zero or more path segments. Any other segment matches
+// one path segment, or several when it can match a separator (a brace
+// alternative or character class containing one).
 type workspacePatternSegment struct {
 	globstar bool
+	multi    bool
 	matcher  glob.Glob
 }
 
-// matches reports whether relSlash matches the pattern.
-func (p workspacePattern) matches(relSlash string) bool {
-	if p.matcher != nil {
-		return p.matcher.Match(relSlash)
+// matchesPrefix reports whether the pattern matches relSlash or any ancestor
+// directory prefix of it.
+func (p workspacePattern) matchesPrefix(relSlash string) bool {
+	if len(p.segments) == 0 || relSlash == "" {
+		return false
 	}
 	parts := strings.Split(relSlash, "/")
-	reachable := make([]bool, len(parts)+1)
-	reachable[0] = true
+	current := make([]bool, len(parts)+1)
+	next := make([]bool, len(parts)+1)
+	current[0] = true
 	for _, segment := range p.segments {
-		next := make([]bool, len(parts)+1)
-		for start, ok := range reachable {
-			if !ok {
-				continue
+		clear(next)
+		if segment.globstar {
+			reachable := false
+			for i := range next {
+				reachable = reachable || current[i]
+				next[i] = reachable
 			}
-			if segment.globstar {
-				for end := start; end <= len(parts); end++ {
-					next[end] = true
+		} else {
+			for start := 0; start < len(parts); start++ {
+				if !current[start] {
+					continue
 				}
-				continue
-			}
-			for end := start + 1; end <= len(parts); end++ {
-				if segment.matcher.Match(strings.Join(parts[start:end], "/")) {
-					next[end] = true
+				if segment.multi {
+					for end := start + 1; end <= len(parts); end++ {
+						if segment.matcher.Match(strings.Join(parts[start:end], "/")) {
+							next[end] = true
+						}
+					}
+					continue
+				}
+				if segment.matcher.Match(parts[start]) {
+					next[start+1] = true
 				}
 			}
 		}
-		reachable = next
+		current, next = next, current
 	}
-	return reachable[len(parts)]
+	// Any reachable component boundary is a directory prefix the pattern
+	// matched, which excludes the entry beneath it.
+	for _, reachable := range current {
+		if reachable {
+			return true
+		}
+	}
+	return false
 }
 
 // compileWorkspaceSlashPattern compiles one slash pattern, reporting false when
 // the pattern is invalid. Only a segment that is exactly "**" is a globstar; a
-// segment such as "a**" keeps its gobwas meaning and is not expanded.
+// segment such as "a**" keeps its gobwas meaning and matches within one path
+// segment.
 func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
 	segments, ok := splitWorkspacePatternSegments(pattern)
-	hasGlobstar := false
-	for _, segment := range segments {
-		if segment == "**" {
-			hasGlobstar = true
-			break
-		}
-	}
-	if !ok || !hasGlobstar {
-		matcher, err := glob.Compile(pattern, '/')
-		if err != nil {
-			return workspacePattern{}, false
-		}
-		return workspacePattern{matcher: matcher}, true
+	if !ok {
+		return workspacePattern{}, false
 	}
 	compiled := make([]workspacePatternSegment, 0, len(segments))
 	for _, segment := range segments {
@@ -448,19 +442,58 @@ func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
 			compiled = append(compiled, workspacePatternSegment{globstar: true})
 			continue
 		}
-		matcher, err := glob.Compile(segment, '/')
+		// gobwas matches a negated character class against the separator too;
+		// excluding it keeps classes from crossing path segment boundaries.
+		matcher, err := glob.Compile(excludeSeparatorFromNegatedClasses(segment), '/')
 		if err != nil {
 			return workspacePattern{}, false
 		}
-		compiled = append(compiled, workspacePatternSegment{matcher: matcher})
+		compiled = append(compiled, workspacePatternSegment{
+			multi:   strings.Contains(segment, "/"),
+			matcher: matcher,
+		})
 	}
 	return workspacePattern{segments: compiled}, true
 }
 
+// excludeSeparatorFromNegatedClasses adds the separator to every negated
+// character class, so a class such as "[!x]" cannot match a path separator
+// although gobwas compiles classes without separator awareness.
+func excludeSeparatorFromNegatedClasses(pattern string) string {
+	var out strings.Builder
+	out.Grow(len(pattern) + 4)
+	escaped, inClass := false, false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case escaped:
+			out.WriteByte(c)
+			escaped = false
+		case c == '\\':
+			out.WriteByte(c)
+			escaped = true
+		case inClass:
+			if c == ']' {
+				inClass = false
+			}
+			out.WriteByte(c)
+			if c == '!' && i > 0 && pattern[i-1] == '[' {
+				out.WriteByte('/')
+			}
+		case c == '[':
+			inClass = true
+			out.WriteByte(c)
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
+}
+
 // splitWorkspacePatternSegments splits a slash pattern on separators outside
 // bracket expressions and brace groups and not escaped by a backslash. It
-// reports false when the split leaves an empty segment, which keeps malformed
-// patterns on the single-matcher path.
+// reports false when the split leaves an empty segment, which marks the pattern
+// as malformed.
 func splitWorkspacePatternSegments(pattern string) ([]string, bool) {
 	var segments []string
 	start := 0
@@ -499,8 +532,9 @@ func splitWorkspacePatternSegments(pattern string) ([]string, bool) {
 }
 
 // normalizeWorkspacePattern normalises a configured pattern for workspace-
-// relative matching: Windows separators and case are folded and a leading
-// "./" is dropped.
+// relative matching: Windows separators and case are folded, leading "./"
+// prefixes are dropped, a leading separator marks the workspace root and is
+// dropped, and trailing separators are trimmed.
 func normalizeWorkspacePattern(pattern string, windows bool) string {
 	if windows {
 		pattern = strings.ToLower(strings.ReplaceAll(pattern, "\\", "/"))
@@ -508,6 +542,7 @@ func normalizeWorkspacePattern(pattern string, windows bool) string {
 	for strings.HasPrefix(pattern, "./") {
 		pattern = pattern[2:]
 	}
+	pattern = strings.TrimLeft(pattern, "/")
 	return trimTrailingPatternSeparators(pattern)
 }
 
