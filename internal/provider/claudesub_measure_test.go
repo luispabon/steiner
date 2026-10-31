@@ -461,7 +461,7 @@ func TestClaudeSubCallDiagnosticsRetryReseed(t *testing.T) {
 		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
 	}
 	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
-		t.Errorf("process = %q, want %q: the failed resume attempt's disposition must be dropped", got, claudeSubProcessSpawn)
+		t.Errorf("process = %q, want %q for the reseeding retry", got, claudeSubProcessSpawn)
 	}
 	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedRetry {
 		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedRetry)

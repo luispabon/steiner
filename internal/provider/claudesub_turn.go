@@ -148,9 +148,10 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		if !retry {
 			return err
 		}
-		// The failed attempt left no usable record, so the retry reseeds. Its
-		// process disposition belongs to that attempt and is dropped; the gate's
-		// time and polls stay accumulated for the call.
+		// The failed attempt left no usable record, so the retry reseeds. The
+		// reset is defensive: the retry's attach sets the process again and the
+		// noteReseed below overwrites the reason, while the gate's accumulated
+		// time and polls stay.
 		claudeSubMetricsFrom(ctx).resetDelivery()
 		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
 		forceReseed = true
