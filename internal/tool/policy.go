@@ -35,8 +35,12 @@ func (e *PathPolicyError) Error() string {
 
 // PathPolicy constrains tool paths relative to the active project root.
 type PathPolicy struct {
-	root            string
-	sandboxTmpDir   string
+	root          string
+	sandboxTmpDir string
+	// virtualTmp records that the request named the virtual /tmp tree, which
+	// the sandbox rewrites to a directory inside the workspace. Exclusion
+	// checks use it to keep matching the path form the caller asked for.
+	virtualTmp      bool
 	projectRootOnly bool
 	blockedPaths    []string
 	writablePaths   []string
@@ -132,6 +136,19 @@ func (p PathPolicy) ResolveCWD(raw string) (string, error) {
 // paths. The project-root constraint is intentionally skipped so that read,
 // glob, grep, and ls can operate anywhere the filesystem allows.
 func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
+	return p.resolveRead(raw, true)
+}
+
+// ResolveReadEntryPath normalizes a path discovered inside a directory walk and
+// reports whether policy blocks it. Unlike ResolveReadPath it does not reject
+// device, pipe, and socket files: listing a name is safe even when reading the
+// file is not, so listings can show special files that readers still refuse to
+// open.
+func (p PathPolicy) ResolveReadEntryPath(raw string) (string, error) {
+	return p.resolveRead(raw, false)
+}
+
+func (p PathPolicy) resolveRead(raw string, rejectSpecial bool) (string, error) {
 	normalized := normalizePolicyPath(p.root, raw)
 	if normalized == "" {
 		return "", fmt.Errorf("path is required")
@@ -142,8 +159,10 @@ func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
 	} else if blocked {
 		return "", p.blockedPathError(normalized)
 	}
-	if err := rejectSpecialFile(normalized); err != nil {
-		return "", err
+	if rejectSpecial {
+		if err := rejectSpecialFile(normalized); err != nil {
+			return "", err
+		}
 	}
 	return normalized, nil
 }
@@ -347,4 +366,28 @@ func (p PathPolicy) IsSandboxTmpPath(path string) bool {
 		return false
 	}
 	return path == p.sandboxTmpDir || strings.HasPrefix(path, p.sandboxTmpDir+string(filepath.Separator))
+}
+
+// WithVirtualTmpRequest returns a copy of p that records whether raw asked for
+// the virtual /tmp tree. The sandbox rewrites /tmp to a directory inside the
+// workspace, so the resolved path no longer says which form the caller used;
+// exclusion checks need that provenance to match the paths the caller asked
+// about. A raw path that already names the storage directory, or that the
+// rewrite leaves outside it, stays physical.
+func (p PathPolicy) WithVirtualTmpRequest(raw string) PathPolicy {
+	if p.sandboxTmpDir == "" {
+		return p
+	}
+	normalized := normalizePolicyPath(p.root, raw)
+	if normalized == "" || p.IsSandboxTmpPath(normalized) {
+		return p
+	}
+	p.virtualTmp = p.IsSandboxTmpPath(p.rewriteTmpPath(normalized))
+	return p
+}
+
+// VirtualTmpRequest reports whether the request addressed the virtual /tmp tree
+// rather than the sandbox storage directory behind it.
+func (p PathPolicy) VirtualTmpRequest() bool {
+	return p.virtualTmp
 }

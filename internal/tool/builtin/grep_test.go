@@ -195,7 +195,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 
 	t.Run("excluded file paths are not searched", func(t *testing.T) {
 		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-		excluder := tool.NewPathExcluder([]string{"secret"}, nil)
+		excluder := tool.NewWorkspaceExcluder(tmpDir, []string{"secret"}, nil)
 		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -217,7 +217,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 
 	t.Run("excluded directories are not traversed", func(t *testing.T) {
 		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-		excluder := tool.NewPathExcluder(nil, []string{".git"})
+		excluder := tool.NewWorkspaceExcluder(tmpDir, nil, []string{".git"})
 		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -239,7 +239,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 
 	t.Run("non-excluded files are still searchable", func(t *testing.T) {
 		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-		excluder := tool.NewPathExcluder([]string{"secret"}, nil)
+		excluder := tool.NewWorkspaceExcluder(tmpDir, []string{"secret"}, nil)
 		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -264,7 +264,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 
 	t.Run("builtin exclusions are active", func(t *testing.T) {
 		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-		excluder := tool.NewPathExcluder(nil, nil)
+		excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -287,7 +287,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit excluded root is not searched", func(t *testing.T) {
+	t.Run("explicit root under a configured exclusion is not searched", func(t *testing.T) {
 		steinerLog := filepath.Join(tmpDir, ".steiner", "steiner.log")
 		if err := os.MkdirAll(filepath.Dir(steinerLog), 0o755); err != nil {
 			t.Fatalf("mkdir .steiner: %v", err)
@@ -297,7 +297,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 
 		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-		excluder := tool.NewPathExcluder(nil, nil)
+		excluder := tool.NewWorkspaceExcluder(tmpDir, []string{".steiner"}, nil)
 		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -313,11 +313,8 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches != 0 {
-			t.Fatalf("Matches = %d, want 0 for excluded root", result.Matches)
-		}
 		if strings.Contains(result.Output, "EventTypeDelegationExtension") {
-			t.Fatalf("output searched excluded root: %s", result.Output)
+			t.Fatalf("output searched configured-excluded root: %s", result.Output)
 		}
 	})
 
@@ -332,7 +329,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 
 		policy := tool.NewPathPolicy(worktreeRoot, config.PathsConfig{})
-		excluder := tool.NewPathExcluder(nil, nil)
+		excluder := tool.NewWorkspaceExcluder(worktreeRoot, nil, nil)
 		env := Env{WorkDir: worktreeRoot, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -371,7 +368,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 
 		policy := tool.NewPathPolicy(worktreeRoot, config.PathsConfig{})
-		excluder := tool.NewPathExcluder(nil, nil)
+		excluder := tool.NewWorkspaceExcluder(worktreeRoot, nil, nil)
 		env := Env{WorkDir: worktreeRoot, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -395,7 +392,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 	})
 
-	t.Run("path .steiner is still excluded", func(t *testing.T) {
+	t.Run("explicit builtin-named root is searchable", func(t *testing.T) {
 		steinerLog := filepath.Join(tmpDir, ".steiner", "steiner.log")
 		if err := os.MkdirAll(filepath.Dir(steinerLog), 0o755); err != nil {
 			t.Fatalf("mkdir .steiner: %v", err)
@@ -405,7 +402,7 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		}
 
 		policy := tool.NewPathPolicy(tmpDir, config.PathsConfig{})
-		excluder := tool.NewPathExcluder(nil, nil)
+		excluder := tool.NewWorkspaceExcluder(tmpDir, nil, nil)
 		env := Env{WorkDir: tmpDir, PathPolicy: &policy, Excluder: &excluder}
 		toolDef := NewGrepTool(env)
 
@@ -421,11 +418,8 @@ func TestGrepTool_Exclusions(t *testing.T) {
 		if !ok {
 			t.Fatalf("result type = %T, want GrepResult", resultI)
 		}
-		if result.Matches != 0 {
-			t.Fatalf("Matches = %d, want 0 for excluded root", result.Matches)
-		}
-		if strings.Contains(result.Output, "EventTypeDelegationExtension") {
-			t.Fatalf("output searched excluded root: %s", result.Output)
+		if !strings.Contains(result.Output, "EventTypeDelegationExtension") {
+			t.Fatalf("output did not search explicitly targeted .steiner root: %s", result.Output)
 		}
 	})
 }
@@ -438,7 +432,7 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 		t.Fatalf("write multiline file: %v", err)
 	}
 
-	matches, err := grepSearch(context.Background(), grepSearchParams{
+	matches, stats, err := grepSearch(context.Background(), grepSearchParams{
 		root:        tmpDir,
 		displayPath: "multiline.txt",
 		pattern:     "alpha\\nbeta",
@@ -446,6 +440,9 @@ func TestGrepSearch_MultilineMatchesAcrossLines(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("grepSearch returned error: %v", err)
+	}
+	if stats.filesSearched != 1 {
+		t.Fatalf("stats.filesSearched = %d, want 1", stats.filesSearched)
 	}
 	if len(matches) != 1 {
 		t.Fatalf("len(matches) = %d, want 1", len(matches))
@@ -644,7 +641,7 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		_, err := grepSearch(context.Background(), grepSearchParams{root: root, displayPath: root, pattern: "needle"})
+		_, _, err := grepSearch(context.Background(), grepSearchParams{root: root, displayPath: root, pattern: "needle"})
 		if !errors.Is(err, fs.ErrPermission) {
 			t.Fatalf("grepSearch error = %v, want permission error", err)
 		}
@@ -668,7 +665,7 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 			t.Skip("filesystem does not deny file reads after chmod 000")
 		}
 
-		results, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
+		results, _, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
 		if err != nil {
 			t.Fatalf("grepSearch: %v", err)
 		}
@@ -698,7 +695,7 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
 
-		results, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
+		results, _, err := grepSearch(context.Background(), grepSearchParams{root: tmpDir, displayPath: tmpDir, pattern: "needle"})
 		if err != nil {
 			t.Fatalf("grepSearch: %v", err)
 		}
@@ -712,7 +709,7 @@ func TestGrepSearch_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := grepSearch(ctx, grepSearchParams{root: t.TempDir(), displayPath: ".", pattern: "needle"})
+	_, _, err := grepSearch(ctx, grepSearchParams{root: t.TempDir(), displayPath: ".", pattern: "needle"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context canceled", err)
 	}

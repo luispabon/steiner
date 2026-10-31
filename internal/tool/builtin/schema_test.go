@@ -116,6 +116,63 @@ func TestGrepSchema(t *testing.T) {
 	}
 }
 
+func TestGrepSchemaDescriptionsAndBounds(t *testing.T) {
+	props := schemaProperties(GrepSchema())
+	if props == nil {
+		t.Fatal("properties is nil")
+	}
+
+	typeProp, _ := props["type"].(map[string]any)
+	if typeProp == nil {
+		t.Fatal("missing type property")
+	}
+	if _, ok := typeProp["enum"]; ok {
+		t.Error("type should list valid names in its description, not an enum")
+	}
+	desc, _ := typeProp["description"].(string)
+	if want := strings.Join(grepTypeNames(), ", "); !strings.Contains(desc, want) {
+		t.Errorf("type description = %q, want the sorted accepted names %q", desc, want)
+	}
+	for _, mention := range []string{"case-insensitive", "alias", "rejected"} {
+		if !strings.Contains(desc, mention) {
+			t.Errorf("type description = %q, want it to mention %q", desc, mention)
+		}
+	}
+
+	globProp, _ := props["glob"].(map[string]any)
+	globDesc, _ := globProp["description"].(string)
+	for _, mention := range []string{"basename", "search root", "zero directories"} {
+		if !strings.Contains(globDesc, mention) {
+			t.Errorf("glob description = %q, want it to mention %q", globDesc, mention)
+		}
+	}
+
+	multilineProp, _ := props["multiline"].(map[string]any)
+	multilineDesc, _ := multilineProp["description"].(string)
+	for _, mention := range []string{"(?ms)", "(?-m)"} {
+		if !strings.Contains(multilineDesc, mention) {
+			t.Errorf("multiline description = %q, want it to mention %q", multilineDesc, mention)
+		}
+	}
+
+	for _, name := range []string{"context", "before_context", "after_context"} {
+		prop, _ := props[name].(map[string]any)
+		if prop == nil {
+			t.Fatalf("missing %s property", name)
+		}
+		if got := prop["minimum"]; got != 0 {
+			t.Errorf("%s minimum = %v, want 0", name, got)
+		}
+	}
+	offsetProp, _ := props["offset"].(map[string]any)
+	if offsetProp == nil {
+		t.Fatal("missing offset property")
+	}
+	if _, ok := offsetProp["minimum"]; ok {
+		t.Error("offset should not declare a minimum; negative values clamp to 0")
+	}
+}
+
 func TestLSSchema(t *testing.T) {
 	s := LSSchema()
 	if got := schemaType(s); got != "object" {

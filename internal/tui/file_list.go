@@ -42,14 +42,21 @@ func (f fileListOverlay) Open(root string) fileListOverlay {
 }
 
 // walkDirEntries walks root and returns relative paths, with directories
-// suffixed by "/". It uses the file picker excluder, which force-includes
-// .steiner but prefix-excludes its heavy subdirectories (tmp, worktrees).
+// suffixed by "/". A symlinked root is resolved before the walk, because
+// filepath.WalkDir lstats the root and would otherwise report the symlink
+// itself instead of descending into it. The returned paths stay lexical,
+// relative to the root the caller passed. Symlinks nested inside the root are
+// not followed: they are listed as file entries. It uses the file picker
+// excluder, anchored to the resolved root: the picker force-includes .steiner
+// but exact-excludes its heavy subdirectories (tmp, worktrees), and built-in
+// directory names apply relative to the resolved root.
 func walkDirEntries(root string) ([]string, error) {
-	excluder := tool.NewPathExcluderWithIncludes(tool.FilePickerExcludePaths, nil, tool.FilePickerAlwaysInclude)
+	walkRoot := resolveWalkRoot(root)
+	excluder := tool.NewWorkspaceExcluderWithIncludes(walkRoot, tool.FilePickerExcludePaths, nil, tool.FilePickerAlwaysInclude)
 	var entries []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			if path == root {
+			if path == walkRoot {
 				return err
 			}
 			if d != nil && d.IsDir() {
@@ -57,7 +64,7 @@ func walkDirEntries(root string) ([]string, error) {
 			}
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
+		rel, err := filepath.Rel(walkRoot, path)
 		if err != nil {
 			return nil
 		}
@@ -65,12 +72,12 @@ func walkDirEntries(root string) ([]string, error) {
 			return nil
 		}
 		if d.IsDir() {
-			if excluder.ShouldExclude(rel) {
+			if excluder.ExcludeEntry(walkRoot, path, true) {
 				return filepath.SkipDir
 			}
 			entries = append(entries, rel+"/")
 		} else {
-			if excluder.ShouldExclude(rel) {
+			if excluder.ExcludeEntry(walkRoot, path, false) {
 				return nil
 			}
 			entries = append(entries, rel)
@@ -81,6 +88,17 @@ func walkDirEntries(root string) ([]string, error) {
 		return nil, err
 	}
 	return entries, nil
+}
+
+// resolveWalkRoot resolves symlinks in root so the walk descends into a
+// symlinked root. The original root is returned when resolution fails, leaving
+// walkDirEntries to report the underlying access error.
+func resolveWalkRoot(root string) string {
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return root
+	}
+	return resolved
 }
 
 func (f fileListOverlay) Close() fileListOverlay {

@@ -34,17 +34,23 @@ func NewGlobTool(env Env) tool.ToolDef {
 				in.Path = "."
 			}
 
-			absPath, err := env.PathPolicy.ResolveReadPath(in.Path)
+			policy := env.PathPolicy.WithVirtualTmpRequest(in.Path)
+			absPath, err := policy.ResolveReadPath(in.Path)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			excluder := tool.PathExcluder{}
+			excluder := tool.WorkspaceExcluder{}
 			if env.Excluder != nil {
 				excluder = *env.Excluder
 			}
 
-			allFiles, err := globWalk(absPath, in.Pattern, excluder, env.PathPolicy)
+			walkRoot, err := resolveSearchRoot(absPath, &policy)
+			if err != nil {
+				return nil, fmt.Errorf("glob: %w", err)
+			}
+
+			allFiles, err := globWalk(walkRoot, absPath, in.Pattern, excluder, &policy)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
@@ -57,17 +63,22 @@ func NewGlobTool(env Env) tool.ToolDef {
 // globWalk walks the directory tree rooted at root and returns all files
 // whose relative path matches pattern (using gobwas/glob for full glob
 // semantics including ** and {a,b} alternation). Excluded directories are
-// not traversed. Each matched path is validated through PathPolicy before
-// being included. The returned paths are relative to root, use forward
-// slashes, and are sorted alphabetically. The walk stops early when
-// maxGlobLimit matches are collected.
-func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.PathPolicy) ([]string, error) {
+// not traversed. Every entry is validated through PathPolicy before it is
+// traversed or matched, so denied directories are pruned and denied or
+// unresolvable entries fail closed. A symlink is listed only when its target is
+// an eligible regular file: dangling links, directory links, special files,
+// targets outside the walk root and workspace, and denied or excluded targets
+// are omitted, and the lexical link name is what matches and is returned. The
+// returned paths are relative to root, use forward slashes, and are sorted
+// alphabetically. The walk stops early when maxGlobLimit matches are collected.
+func globWalk(root, lexicalRoot, pattern string, excluder tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]string, error) {
 	matchers, err := compileGlobMatchers(pattern)
 	if err != nil {
 		return nil, err
 	}
 
 	var matches []string
+	links := newSearchSymlinkScope(policy, &excluder, root, lexicalRoot)
 
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -83,28 +94,31 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 		if err != nil {
 			return err
 		}
-		// Exclusion is evaluated on the path relative to the walk root so that
-		// ancestors of the root (e.g. /srv/build/proj, .steiner/worktrees/x)
-		// never blind the walk. The root itself is never excluded.
-		if rel != "." && excluder.ShouldExclude(filepath.ToSlash(rel)) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
+		// Exclusion is workspace-anchored: configured paths and patterns compare
+		// against the workspace, and built-in directory names are matched
+		// relative to the walk root so ancestors of the root (e.g.
+		// /srv/build/proj, .steiner/worktrees/x) never blind the walk. A root
+		// reached through a symlink is validated in both its resolved and
+		// lexical form so configured exclusions keep applying. The root itself
+		// is never excluded here.
+		if rel != "." && excludeSearchEntry(&excluder, policy, root, lexicalRoot, path, d.IsDir()) {
+			return globSkipEntry(d)
+		}
+
+		if searchPathDenied(policy, path) {
+			return globSkipEntry(d)
 		}
 
 		if d.IsDir() {
 			return nil
 		}
 
-		if !matchesAnyGlob(matchers, filepath.ToSlash(rel)) {
+		if !links.eligible(d, path) {
 			return nil
 		}
 
-		if policy != nil {
-			if _, err := policy.ResolveReadPath(path); err != nil {
-				return nil
-			}
+		if !matchesAnyGlob(matchers, filepath.ToSlash(rel)) {
+			return nil
 		}
 
 		matches = append(matches, rel)
@@ -119,6 +133,16 @@ func globWalk(root, pattern string, excluder tool.PathExcluder, policy *tool.Pat
 
 	sort.Strings(matches)
 	return matches, nil
+}
+
+// globSkipEntry returns the walk outcome for an entry filtered out before the
+// pattern match: an excluded or denied directory is pruned, and every other
+// entry is skipped.
+func globSkipEntry(d fs.DirEntry) error {
+	if d.IsDir() {
+		return filepath.SkipDir
+	}
+	return nil
 }
 
 func compileGlobMatchers(pattern string) ([]glob.Glob, error) {

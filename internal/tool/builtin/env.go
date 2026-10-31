@@ -12,7 +12,9 @@ import (
 type Env struct {
 	WorkDir    string
 	PathPolicy *tool.PathPolicy
-	Excluder   *tool.PathExcluder
+	// Excluder holds workspace-anchored entry exclusions (built-in directory
+	// names plus configured paths and patterns) applied by grep, glob, and ls.
+	Excluder *tool.WorkspaceExcluder
 	// BashTimeoutCap is the authoritative execution-timeout cap for the bash
 	// tool, normally sourced from limits.tool_timeouts["bash"]. NewBashTool
 	// resolves it to whole seconds: caps above 600s clamp to 600s, and

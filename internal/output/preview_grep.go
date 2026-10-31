@@ -8,9 +8,14 @@ import (
 
 func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	var payload struct {
-		Shown      *int   `json:"shown"`
-		NextOffset int    `json:"next_offset,omitempty"`
-		Output     string `json:"output"`
+		Shown              *int   `json:"shown"`
+		Matches            *int   `json:"matches"`
+		NextOffset         int    `json:"next_offset,omitempty"`
+		Output             string `json:"output"`
+		FilesSearched      *int   `json:"files_searched"`
+		SkippedBinary      *int   `json:"skipped_binary"`
+		SkippedUnreadable  *int   `json:"skipped_unreadable"`
+		SkippedDirectories *int   `json:"skipped_directories"`
 	}
 	if err := json.Unmarshal([]byte(result), &payload); err != nil {
 		return plainToolPreview()
@@ -26,6 +31,10 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	}
 
 	var grepFiles []ToolPreviewGrepFile
+	totalMatches := 0
+	if payload.Matches != nil {
+		totalMatches = *payload.Matches
+	}
 	matches := 0
 	switch mode {
 	case "files_with_matches":
@@ -48,17 +57,46 @@ func buildGrepPreview(arguments map[string]any, result string) ToolPreview {
 	}
 
 	preview := ToolPreview{
-		Kind:       ToolPreviewKindGrep,
-		Path:       path,
-		Returned:   len(grepFiles),
-		Matches:    matches,
-		NextOffset: payload.NextOffset,
-		OutputMode: mode,
-		Output:     payload.Output,
-		GrepFiles:  grepFiles,
+		Kind:         ToolPreviewKindGrep,
+		Path:         path,
+		Returned:     len(grepFiles),
+		Matches:      matches,
+		TotalMatches: totalMatches,
+		NextOffset:   payload.NextOffset,
+		OutputMode:   mode,
+		Output:       payload.Output,
+		GrepFiles:    grepFiles,
+		GrepScan: grepScanPreview(
+			payload.FilesSearched,
+			payload.SkippedBinary,
+			payload.SkippedUnreadable,
+			payload.SkippedDirectories,
+		),
 	}
 
 	return preview
+}
+
+// grepScanPreview builds the scan counters of a grep preview. A result without
+// files_searched predates the counters, so it yields nil instead of a zero
+// count that would read as a search over no candidate files.
+func grepScanPreview(filesSearched, skippedBinary, skippedUnreadable, skippedDirectories *int) *ToolPreviewGrepScan {
+	if filesSearched == nil {
+		return nil
+	}
+	return &ToolPreviewGrepScan{
+		FilesSearched:      *filesSearched,
+		SkippedBinary:      optionalInt(skippedBinary),
+		SkippedUnreadable:  optionalInt(skippedUnreadable),
+		SkippedDirectories: optionalInt(skippedDirectories),
+	}
+}
+
+func optionalInt(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func previewGrepFiles(output string) []ToolPreviewGrepFile {

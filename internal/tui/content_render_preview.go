@@ -135,16 +135,63 @@ func (b *contentBuffer) buildGrepLines(tc *toolCallSegment) []string {
 	}
 }
 
+// emptyGrepMessage describes an empty grep page. A page past the last result
+// still reports the search's match total, so it is not "no matches found".
+func emptyGrepMessage(preview output.ToolPreview) string {
+	if preview.TotalMatches > 0 {
+		return "no results at this offset"
+	}
+	if grepNoCandidates(preview.GrepScan) {
+		return "no candidate files searched"
+	}
+	return "no matches found"
+}
+
+// grepScanSuffix describes what a grep search traversed and marks the result
+// partial when entries were skipped. It returns "" for results saved before the
+// counters existed, so a legacy result keeps its old summary.
+func grepScanSuffix(scan *output.ToolPreviewGrepScan) string {
+	if scan == nil {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d files searched", scan.FilesSearched)}
+	var skipped []string
+	if scan.SkippedBinary > 0 {
+		skipped = append(skipped, fmt.Sprintf("%d binary", scan.SkippedBinary))
+	}
+	if scan.SkippedUnreadable > 0 {
+		skipped = append(skipped, fmt.Sprintf("%d unreadable", scan.SkippedUnreadable))
+	}
+	if scan.SkippedDirectories > 0 {
+		skipped = append(skipped, fmt.Sprintf("%d unreadable directories", scan.SkippedDirectories))
+	}
+	if len(skipped) > 0 {
+		parts = append(parts, "partial: "+strings.Join(skipped, ", ")+" skipped")
+	}
+	return " · " + strings.Join(parts, " · ")
+}
+
+// grepNoCandidates reports whether the search matched against no file at all
+// and skipped entries instead, which "no matches found" would misdescribe.
+func grepNoCandidates(scan *output.ToolPreviewGrepScan) bool {
+	if scan == nil {
+		return false
+	}
+	return scan.FilesSearched == 0 &&
+		(scan.SkippedBinary > 0 || scan.SkippedUnreadable > 0 || scan.SkippedDirectories > 0)
+}
+
 // buildGrepResultLines renders a grep-mode summary header followed by
 // per-file lines produced by renderFile, with a shared "no matches
 // found"/"more available" wrapping for all grep output modes.
 func (b *contentBuffer) buildGrepResultLines(tc *toolCallSegment, summary string, renderFile func(output.ToolPreviewGrepFile) []string) []string {
+	summary += grepScanSuffix(tc.preview.GrepScan)
 	if tc.preview.NextOffset > 0 {
 		summary += " · more available"
 	}
 	lines := []string{b.styles.FgDim.Render(summary)}
 	if len(tc.preview.GrepFiles) == 0 {
-		lines = append(lines, b.styles.FgMute.Render("no matches found"))
+		lines = append(lines, b.styles.FgMute.Render(emptyGrepMessage(tc.preview)))
 		return lines
 	}
 	for _, file := range tc.preview.GrepFiles {

@@ -109,7 +109,7 @@ Compact canonical reference for safe configuration edits.
 | `paths.project_root_only`|bool|`true`|Confine tool paths to project root. |
 | `paths.writable_paths`|[]string|`[]`|Extra paths mutation tools may write. |
 | `paths.blocked_paths`|[]string|`[]`|Always-denied paths. |
-| `paths.exclude_paths`|[]string|—|Excluded from listings and glob results. |
+| `paths.exclude_paths`|[]string|—|Excluded from walks and searches. |
 | `paths.exclude_patterns`|[]string|—|Excluded glob patterns. |
 | `logging.enabled`|bool|`false`|Enable file logging. |
 | `logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`. |

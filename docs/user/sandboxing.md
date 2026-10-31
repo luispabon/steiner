@@ -10,7 +10,7 @@ Bubblewrap runs with `--die-with-parent`, so sandboxed processes are killed if S
 
 The sandbox fails closed: `bwrap` is resolved once at startup and executed by absolute path. If sandboxing is enabled and `bwrap` cannot be resolved, commands are refused with an error rather than run unwrapped. Use `--unsafe` to run without a sandbox deliberately.
 
-Sandboxed `/tmp` is a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, or process exit.
+Sandboxed `/tmp` is a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, or process exit. Searches of `/tmp` are filtered against the virtual `/tmp` paths, so workspace-relative exclusion entries for the storage directory do not hide them, while a search of the storage directory itself is filtered as a workspace path. See [Configuration](configuration.md#paths-block).
 
 For SSH client-only commands, Steiner can create an ephemeral system-config overlay. Dynamic includes may be skipped. If OpenSSH still rejects the config, Steiner can ask to rerun outside the sandbox.
 

@@ -29,7 +29,7 @@ import (
 // headers, context lines, separators and notices all count toward it.
 const grepRenderedLineBudget = 200
 
-func buildGrepResult(files []grepFileResult, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {
+func buildGrepResult(files []grepFileResult, stats grepSearchStats, mode string, showLines bool, beforeContext, afterContext, offset, headLimit int) GrepResult {
 	// files_with_matches and count render one line per logical result.
 	lineLimit := min(headLimit, grepRenderedLineBudget)
 	switch mode {
@@ -37,19 +37,19 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 		rows := grepFilesWithMatches(files)
 		page := paginateGrepRows(rows, offset, lineLimit)
 		output := renderGrepFilesWithMatches(page)
-		return buildGrepResultFromPage(len(rows), len(page), offset, output)
+		return buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
 	case "count":
 		rows := grepCountRows(files)
 		page := paginateGrepRows(rows, offset, lineLimit)
 		output := renderGrepCountRows(page)
-		return buildGrepResultFromPage(len(rows), len(page), offset, output)
+		return buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
 	case "content":
 		fallthrough
 	default:
 		rows := grepContentSelections(files)
 		candidates := paginateGrepRows(rows, offset, headLimit)
 		page, output := fitGrepContentPage(files, candidates, showLines, beforeContext, afterContext)
-		result := buildGrepResultFromPage(len(rows), len(page), offset, output)
+		result := buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
 		// Apply line bounding for content mode only; never truncate
 		// file paths in files_with_matches or path:count rows.
 		if result.Output != "" && len(page) > 0 {
@@ -61,7 +61,7 @@ func buildGrepResult(files []grepFileResult, mode string, showLines bool, before
 	}
 }
 
-func buildGrepResultFromPage(total, returned, offset int, output string) GrepResult {
+func buildGrepResultFromPage(total, returned, offset int, stats grepSearchStats, output string) GrepResult {
 	hasMore := offset+returned < total
 	truncated := total > 0 && (offset > 0 || hasMore)
 	nextOffset := 0
@@ -73,9 +73,13 @@ func buildGrepResultFromPage(total, returned, offset int, output string) GrepRes
 	}
 
 	result := GrepResult{
-		Shown:      returned,
-		NextOffset: nextOffset,
-		Output:     output,
+		Shown:              returned,
+		NextOffset:         nextOffset,
+		Output:             output,
+		FilesSearched:      stats.filesSearched,
+		SkippedBinary:      stats.skippedBinary,
+		SkippedUnreadable:  stats.skippedUnreadable,
+		SkippedDirectories: stats.skippedDirectories,
 	}
 	if truncated {
 		result.Matches = total
@@ -293,15 +297,65 @@ func grepLineColumns(matches []grepMatch) map[int]int {
 
 // renderGrepLine renders one line. Selected lines always carry their column,
 // so a continuation line of a multiline match renders "N:0: " and stays
-// distinct from context rows ("N: ").
+// distinct from context rows ("N: "). Lines longer than the per-line cap keep
+// their row prefix and render a bounded excerpt around their match column.
 func renderGrepLine(b *strings.Builder, lineNumber int, line string, column int, selected, showLines bool) {
+	prefix := ""
 	switch {
 	case !showLines:
-		_, _ = fmt.Fprintf(b, "%s\n", line)
 	case selected:
-		_, _ = fmt.Fprintf(b, "%d:%d: %s\n", lineNumber, column, line)
+		prefix = fmt.Sprintf("%d:%d: ", lineNumber, column)
 	default:
-		_, _ = fmt.Fprintf(b, "%d: %s\n", lineNumber, line)
+		prefix = fmt.Sprintf("%d: ", lineNumber)
+	}
+	text := grepLineExcerpt(line, column, defaultMaxLineRunes-len([]rune(prefix)))
+	_, _ = fmt.Fprintf(b, "%s%s\n", prefix, text)
+}
+
+// grepLineExcerpt bounds text to maxRunes runes. A clipped line keeps the runes
+// around column, so a match far into a long line stays visible, and marks each
+// clipped end with LineTruncationMarker. Those markers count toward maxRunes.
+func grepLineExcerpt(text string, column, maxRunes int) string {
+	runes := []rune(text)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return text
+	}
+	markerRunes := len([]rune(LineTruncationMarker))
+	if maxRunes <= markerRunes {
+		return string(runes[:maxRunes])
+	}
+	if maxRunes <= 2*markerRunes {
+		return string(runes[:maxRunes-markerRunes]) + LineTruncationMarker
+	}
+
+	focus := 0
+	if column > 0 {
+		focus = min(column-1, len(runes)-1)
+	}
+
+	start := 0
+	if focus > maxRunes/2 {
+		start = focus - maxRunes/2
+	}
+	budget := maxRunes
+	if start > 0 {
+		budget -= markerRunes
+	}
+	end := min(len(runes), start+budget)
+	if end < len(runes) {
+		budget -= markerRunes
+		end = start + budget
+	}
+	// Keep the window full when the tail needs no marker.
+	start = max(0, end-budget)
+
+	switch {
+	case start == 0:
+		return string(runes[:end]) + LineTruncationMarker
+	case end == len(runes):
+		return LineTruncationMarker + string(runes[start:])
+	default:
+		return LineTruncationMarker + string(runes[start:end]) + LineTruncationMarker
 	}
 }
 
@@ -309,19 +363,18 @@ func mergeGrepWindows(lineNumbers []int, totalLines, beforeContext, afterContext
 	if len(lineNumbers) == 0 || totalLines == 0 {
 		return nil
 	}
+	beforeContext = max(beforeContext, 0)
+	afterContext = max(afterContext, 0)
 
 	sortedNumbers := append([]int(nil), lineNumbers...)
 	sort.Ints(sortedNumbers)
 
 	windows := make([]grepWindow, 0, len(sortedNumbers))
 	for _, lineNumber := range sortedNumbers {
-		start := lineNumber - beforeContext
-		if start < 1 {
-			start = 1
-		}
-		end := lineNumber + afterContext
-		if end > totalLines {
-			end = totalLines
+		start := max(1, lineNumber-beforeContext)
+		end := totalLines
+		if afterContext < totalLines-lineNumber {
+			end = lineNumber + afterContext
 		}
 
 		if len(windows) == 0 {

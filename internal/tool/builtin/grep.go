@@ -21,6 +21,9 @@ func NewGrepTool(env Env) tool.ToolDef {
 			}
 
 			normalizeGrep(&in)
+			if err := validateGrep(&in); err != nil {
+				return nil, fmt.Errorf("grep: %w", err)
+			}
 
 			if in.OutputMode == "" {
 				in.OutputMode = "content"
@@ -51,7 +54,8 @@ func NewGrepTool(env Env) tool.ToolDef {
 			if searchPath == "" {
 				searchPath = "."
 			}
-			absPath, err := env.PathPolicy.ResolveReadPath(searchPath)
+			policy := env.PathPolicy.WithVirtualTmpRequest(searchPath)
+			absPath, err := policy.ResolveReadPath(searchPath)
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}
@@ -61,7 +65,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 				showLines = *in.LineNumbers
 			}
 
-			files, err := grepSearch(ctx, grepSearchParams{
+			files, stats, err := grepSearch(ctx, grepSearchParams{
 				root:        absPath,
 				displayPath: searchPath,
 				pattern:     in.Pattern,
@@ -70,13 +74,13 @@ func NewGrepTool(env Env) tool.ToolDef {
 				fileGlob:    in.Glob,
 				fileType:    in.Type,
 				excluder:    env.Excluder,
-				policy:      env.PathPolicy,
+				policy:      &policy,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
 			}
 
-			result := buildGrepResult(files, in.OutputMode, showLines, in.BeforeContext, in.AfterContext, in.Offset, in.HeadLimit)
+			result := buildGrepResult(files, stats, in.OutputMode, showLines, in.BeforeContext, in.AfterContext, in.Offset, in.HeadLimit)
 			return result, nil
 		},
 	}

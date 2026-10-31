@@ -791,6 +791,41 @@ func TestPolicy_TmpPath_NoRewriteWhenSandboxTmpDirEmpty(t *testing.T) {
 	}
 }
 
+// TestPathPolicy_WithVirtualTmpRequest proves the sandbox /tmp provenance
+// survives the storage rewrite: a request for /tmp is recorded as virtual,
+// while a request naming the storage directory stays physical.
+func TestPathPolicy_WithVirtualTmpRequest(t *testing.T) {
+	sandboxTmpDir := "/project/.steiner/tmp/sandbox-tmp/s1"
+	policy := NewPathPolicyWithSandbox("/project", config.PathsConfig{}, sandboxTmpDir)
+
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "bare /tmp is virtual", raw: "/tmp", want: true},
+		{name: "/tmp subpath is virtual", raw: "/tmp/sub/f.txt", want: true},
+		{name: "relative path into /tmp is virtual", raw: "../../tmp/f.txt", want: true},
+		{name: "relative storage path is physical", raw: ".steiner/tmp/sandbox-tmp/s1/f.txt"},
+		{name: "absolute storage path is physical", raw: sandboxTmpDir + "/f.txt"},
+		{name: "workspace path is physical", raw: "src/main.go"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := policy.WithVirtualTmpRequest(tc.raw).VirtualTmpRequest(); got != tc.want {
+				t.Fatalf("WithVirtualTmpRequest(%q).VirtualTmpRequest() = %t, want %t", tc.raw, got, tc.want)
+			}
+		})
+	}
+
+	t.Run("policy without a sandbox tmp dir is never virtual", func(t *testing.T) {
+		plain := NewPathPolicy("/project", config.PathsConfig{})
+		if plain.WithVirtualTmpRequest("/tmp").VirtualTmpRequest() {
+			t.Fatal("policy without a sandbox tmp dir reported a virtual /tmp request")
+		}
+	})
+}
+
 func TestPolicy_ResolveReadPath_RejectsSpecialFiles(t *testing.T) {
 	policy := NewPathPolicy(t.TempDir(), config.PathsConfig{})
 

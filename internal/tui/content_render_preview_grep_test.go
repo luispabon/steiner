@@ -42,6 +42,53 @@ func TestBuildGrepContentLines_MatchCountExcludesContext(t *testing.T) {
 	}
 }
 
+func TestBuildGrepContentLines_EmptyPageAtOffset(t *testing.T) {
+	t.Parallel()
+	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
+	tests := []struct {
+		name      string
+		total     int
+		want      string
+		notInText string
+	}{
+		{
+			name:      "page past the last match reports the offset",
+			total:     12,
+			want:      "no results at this offset",
+			notInText: "no matches found",
+		},
+		{
+			name:      "search without matches reports no matches",
+			want:      "no matches found",
+			notInText: "no results at this offset",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tc := &toolCallSegment{
+				tool:     "grep",
+				bodyKind: "grep",
+				preview: output.ToolPreview{
+					Kind:         "grep",
+					OutputMode:   "content",
+					Path:         "/tmp",
+					TotalMatches: tt.total,
+				},
+			}
+
+			joined := strings.Join(b.buildGrepContentLines(tc), "\n")
+			if !strings.Contains(joined, tt.want) {
+				t.Errorf("should show %q, got: %q", tt.want, joined)
+			}
+			if strings.Contains(joined, tt.notInText) {
+				t.Errorf("should not show %q, got: %q", tt.notInText, joined)
+			}
+		})
+	}
+}
+
 func TestBuildGrepCountLines_MatchCountSumsFileCounts(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
