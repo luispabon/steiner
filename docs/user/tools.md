@@ -80,7 +80,7 @@ A timed-out command returns the output captured so far, with `timed_out: true` a
 - `next_offset` is the first logical result not on this page. To continue, pass it as `offset`. It is omitted on the last page.
 - `shown` is the number of results on this page. When the result is paged, `matches` gives the total number of logical results. It is omitted when everything fits on one page.
 - An `offset` past the last logical result returns empty `output` with `shown: 0` and `matches` set to the total. It is not an error.
-- `files_searched` counts the files read. `skipped_binary`, `skipped_unreadable`, and `skipped_directories` count entries left out of the search.
+- `files_searched` counts the readable non-binary files scanned for matches, whether or not they matched. `skipped_binary`, `skipped_unreadable`, and `skipped_directories` count entries left out of the search.
 - If the context for a single match alone exceeds the 200-line budget, the page holds a bounded excerpt around that match, ending with a truncation marker. Pagination still moves forward.
 - A rendered line is capped at 400 runes. A clipped line keeps the text around its match column and marks each clipped end with `<truncated>`.
 

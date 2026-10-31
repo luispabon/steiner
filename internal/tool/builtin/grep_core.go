@@ -107,10 +107,10 @@ var grepTypeToExt = map[string][]string{
 
 // grepSearchStats counts what one search traversed, so an empty result can be
 // told apart from a search that had no candidate files. A regular file lands
-// in exactly one bucket: filesSearched when it was read and matched,
-// skippedBinary when it was read and rejected as binary. Excluded, glob or type
-// filtered, and policy-denied entries are intentional filters, so they count
-// in neither bucket.
+// in exactly one bucket: filesSearched when it was read and was not binary,
+// whether or not it matched, skippedBinary when it was read and rejected as
+// binary. Excluded, glob or type filtered, and policy-denied entries are
+// intentional filters, so they count in neither bucket.
 type grepSearchStats struct {
 	filesSearched      int
 	skippedBinary      int

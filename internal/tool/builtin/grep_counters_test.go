@@ -122,6 +122,60 @@ func TestGrepTool_ScanCounters(t *testing.T) {
 		}
 	})
 
+	t.Run("nonbinary direct root is counted as searched", func(t *testing.T) {
+		toolDef, _ := newGrepCountersTool(t, map[string]string{
+			"match.txt": "needle\n",
+			"bin.dat":   grepCountersBinaryContent,
+		})
+
+		result := runGrepForTest(t, toolDef, map[string]any{
+			"pattern":     "needle",
+			"output_mode": "content",
+			"path":        "match.txt",
+		})
+		if result.FilesSearched != 1 {
+			t.Errorf("FilesSearched = %d, want 1", result.FilesSearched)
+		}
+		if result.SkippedBinary != 0 {
+			t.Errorf("SkippedBinary = %d, want 0 for a sibling binary file outside the root", result.SkippedBinary)
+		}
+		if !strings.Contains(result.Output, "needle") {
+			t.Errorf("Output = %q, want the matching line", result.Output)
+		}
+	})
+
+	t.Run("offset past the last result keeps the whole-search counters", func(t *testing.T) {
+		toolDef, _ := newGrepCountersTool(t, map[string]string{
+			"alpha.txt": "needle\n",
+			"bravo.txt": "needle\n",
+			"bin.dat":   grepCountersBinaryContent,
+		})
+
+		result := runGrepForTest(t, toolDef, map[string]any{
+			"pattern":     "needle",
+			"output_mode": "files_with_matches",
+			"offset":      10,
+		})
+		if result.Shown != 0 {
+			t.Errorf("Shown = %d, want 0 past the last result", result.Shown)
+		}
+		if result.NextOffset != 0 {
+			t.Errorf("NextOffset = %d, want 0 past the last result", result.NextOffset)
+		}
+		if result.Output != "" {
+			t.Errorf("Output = %q, want empty output past the last result", result.Output)
+		}
+		if result.Matches != 2 {
+			t.Errorf("Matches = %d, want the 2 logical results", result.Matches)
+		}
+		if result.FilesSearched != 2 {
+			t.Errorf("FilesSearched = %d, want 2", result.FilesSearched)
+		}
+		if result.SkippedBinary != 1 {
+			t.Errorf("SkippedBinary = %d, want 1", result.SkippedBinary)
+		}
+	})
+
 	t.Run("counters cover the whole search for a page", func(t *testing.T) {
 		toolDef, _ := newGrepCountersTool(t, map[string]string{
 			"alpha.txt": "needle one\nneedle two\nneedle three\n",
