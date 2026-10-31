@@ -45,20 +45,23 @@ type cachePayload struct {
 	// compared. Emitted on every cache record (no omitempty).
 	PrefixComparisonEnabled bool `json:"prefix_comparison_enabled"`
 
-	// Measurement fields below describe how the call was served. They are
-	// omitted unless a field's comment says otherwise.
+	// Measurement fields below describe how the call was served. A measured
+	// zero or false value is omitted, so an absent field means zero or not
+	// measured; fields without omitempty are emitted on every record.
 	Attempts             int  `json:"attempts,omitempty"`
 	CacheAffinityDropped bool `json:"cache_affinity_dropped,omitempty"`
-	// ContextGeneration is the number of compaction stages applied in the run
-	// when the call was issued. It is emitted on every record; 0 means no
-	// compaction has applied to the run yet.
+	// ContextGeneration is the number of compactions applied within the current
+	// run when the call was issued. It is emitted on every record; it restarts
+	// at 0 for each run, and 0 means no compaction has applied to this run
+	// yet.
 	ContextGeneration int `json:"context_generation"`
 	// PrefixPredecessorMessages is the message count of the predecessor request
 	// that shared_prefix_messages was measured against. It is emitted only when
 	// a predecessor is known, including a known empty one (0).
 	PrefixPredecessorMessages *int `json:"prefix_predecessor_messages,omitempty"`
 	// PrefixDivergenceRole is the role of the first request message that differs
-	// from the predecessor. It is empty for an append of the predecessor.
+	// from the predecessor. It is empty for an append of the predecessor, and
+	// also when the current request is a strict prefix of the predecessor.
 	PrefixDivergenceRole string `json:"prefix_divergence_role,omitempty"`
 	// claude_subscription-only measurements.
 	ClaudeSubProcess           string `json:"claudesub_process,omitempty"`

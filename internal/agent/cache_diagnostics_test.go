@@ -587,6 +587,51 @@ func TestCompleteModelCall_PromotesPostVisionStripMessages(t *testing.T) {
 	}
 }
 
+// TestCompleteModelCall_StreamDiagnosticsReachCacheRecord proves a streaming
+// call's terminal-chunk call diagnostics reach the emitted cache record.
+func TestCompleteModelCall_StreamDiagnosticsReachCacheRecord(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	prov := &fakeProvider{streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+		chunks := make(chan provider.ChatChunk, 2)
+		chunks <- provider.ChatChunk{Delta: provider.Message{Content: "hello"}}
+		chunks <- provider.ChatChunk{
+			Done:         true,
+			FinishReason: "stop",
+			Usage:        &provider.UsageStats{PromptTokens: 10, CompletionTokens: 1},
+			Diagnostics:  &provider.CallDiagnostics{Attempts: 2},
+		}
+		close(chunks)
+		return chunks, nil
+	}}
+	req := RunRequest{
+		Provider:           prov,
+		Diagnostics:        w,
+		StreamingPreferred: true,
+		ResolvedModel:      provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+		Events:             output.NoopSink{},
+	}
+	chatRequest := provider.ChatRequest{
+		Model:    "test-model",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	}
+	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, prompt.ModelTokenBudget{}, nil); err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	var payload cachePayload
+	if err := json.Unmarshal(mustMarshal(t, records[0].Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Attempts != 2 {
+		t.Fatalf("attempts = %d, want the terminal chunk's 2", payload.Attempts)
+	}
+}
+
 func TestCompleteModelCall_RejectedBudgetDoesNotPromote(t *testing.T) {
 	store := NewCacheBaselineStore()
 	prov := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
@@ -837,15 +882,18 @@ func TestComputeRequestCacheStats_PrefixDivergence(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: "first"},
 	}
 	tests := []struct {
-		name            string
-		current         []provider.Message
-		compare         bool
-		wantShared      int
-		wantPredecessor int
-		wantKnown       bool
-		wantRole        string
+		name             string
+		current          []provider.Message
+		compare          bool
+		emptyPredecessor bool
+		wantShared       int
+		wantPredecessor  int
+		wantKnown        bool
+		wantRole         string
 	}{
 		{name: "no predecessor", current: predecessor},
+		{name: "empty current request", compare: true, wantPredecessor: 2, wantKnown: true},
+		{name: "empty known predecessor", compare: true, emptyPredecessor: true, current: predecessor, wantKnown: true},
 		{name: "append", compare: true, current: []provider.Message{
 			{Role: provider.MessageRoleSystem, Content: "system prompt"},
 			{Role: provider.MessageRoleUser, Content: "first"},
@@ -872,7 +920,11 @@ func TestComputeRequestCacheStats_PrefixDivergence(t *testing.T) {
 				ResolvedModel:  provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
 			}
 			if tt.compare {
-				store.Promote(cacheBaselineKeyForRequest(req), perMessageHashes(predecessor))
+				hashes := perMessageHashes(predecessor)
+				if tt.emptyPredecessor {
+					hashes = nil
+				}
+				store.Promote(cacheBaselineKeyForRequest(req), hashes)
 			}
 			stats := computeRequestCacheStats(req, tt.current)
 			if !stats.comparisonEnabled {
