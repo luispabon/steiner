@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -113,6 +114,63 @@ func TestGrepSchema(t *testing.T) {
 	}
 	if _, ok := props["offset"]; !ok {
 		t.Error("missing offset property")
+	}
+}
+
+func TestGrepSchemaEnumsAndBounds(t *testing.T) {
+	props := schemaProperties(GrepSchema())
+	if props == nil {
+		t.Fatal("properties is nil")
+	}
+
+	typeProp, _ := props["type"].(map[string]any)
+	if typeProp == nil {
+		t.Fatal("missing type property")
+	}
+	enum, _ := typeProp["enum"].([]string)
+	want := grepTypeNames()
+	if len(enum) != len(want) {
+		t.Fatalf("type enum = %v, want %v", enum, want)
+	}
+	if !sort.StringsAreSorted(enum) {
+		t.Errorf("type enum = %v, want sorted order", enum)
+	}
+	for i := range want {
+		if enum[i] != want[i] {
+			t.Fatalf("type enum = %v, want %v", enum, want)
+		}
+	}
+	desc, _ := typeProp["description"].(string)
+	for _, mention := range []string{"case-insensitive", "alias", "rejected"} {
+		if !strings.Contains(desc, mention) {
+			t.Errorf("type description = %q, want it to mention %q", desc, mention)
+		}
+	}
+
+	globProp, _ := props["glob"].(map[string]any)
+	globDesc, _ := globProp["description"].(string)
+	for _, mention := range []string{"basename", "search root", "zero directories"} {
+		if !strings.Contains(globDesc, mention) {
+			t.Errorf("glob description = %q, want it to mention %q", globDesc, mention)
+		}
+	}
+
+	multilineProp, _ := props["multiline"].(map[string]any)
+	multilineDesc, _ := multilineProp["description"].(string)
+	for _, mention := range []string{"(?ms)", "(?-m)"} {
+		if !strings.Contains(multilineDesc, mention) {
+			t.Errorf("multiline description = %q, want it to mention %q", multilineDesc, mention)
+		}
+	}
+
+	for _, name := range []string{"context", "before_context", "after_context", "offset"} {
+		prop, _ := props[name].(map[string]any)
+		if prop == nil {
+			t.Fatalf("missing %s property", name)
+		}
+		if got := prop["minimum"]; got != 0 {
+			t.Errorf("%s minimum = %v, want 0", name, got)
+		}
 	}
 }
 

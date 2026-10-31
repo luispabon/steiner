@@ -985,10 +985,14 @@ Constrains filesystem access for tools that read or write files.
 | `project_root_only` | bool     | `true`  | When `true`, tools are restricted to paths within the detected project root. |
 | `writable_paths`    | []string | `[]`    | Additional paths outside the project root that mutation tools may write to.  |
 | `blocked_paths`     | []string | `[]`    | Paths that are always denied, even if they fall within the project root.     |
-| `exclude_paths`     | []string | —       | Paths excluded from directory listings and glob results.                     |
-| `exclude_patterns`  | []string | —       | Glob patterns excluded from directory listings and glob results.             |
+| `exclude_paths`     | []string | —       | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; absolute entries also apply outside the workspace. |
+| `exclude_patterns`  | []string | —       | Globs excluded from searches and directory walks. A pattern containing a slash matches workspace-relative paths; a pattern without a slash matches any path component. |
 
-Note: the TUI file picker shows `.steiner/` contents except `.steiner/tmp` and `.steiner/worktrees`, which are always hidden to keep the picker fast. The same exclusion rules still apply to `glob` and `grep` tools.
+Note: the TUI file picker shows `.steiner/` contents except `.steiner/tmp` and `.steiner/worktrees`, which are always hidden to keep the picker fast.
+
+`exclude_paths` and `exclude_patterns` apply to `glob`, `grep`, and directory walks, including recursive `ls`. A matching directory hides everything beneath it. Relative `exclude_paths` entries are anchored to the workspace root; absolute entries are used as written and also apply to roots outside the workspace. An `exclude_patterns` entry containing a slash matches the workspace-relative path, and a `**/` inside it also matches zero directories; an entry without a slash matches any path component at any depth. Built-in directory names such as `.git`, `node_modules`, `.steiner`, `vendor`, `dist`, `build`, and `target` are always excluded and match directory components, so a file that shares one of those names stays visible. Passing a `path` to a search does not override these exclusions: a search rooted inside an excluded directory returns nothing.
+
+Exclusions are filters, not access controls. `read` still opens an excluded file, and only `blocked_paths` denies access.
 
 This block also applies to each child sub-agent's own tool executor, not just the parent's.
 
