@@ -245,9 +245,10 @@ func grepRootExcluded(root, displayPath string, excluder *tool.PathExcluder, pol
 // resolveSearchRoot resolves a directory root that is itself a symlink to its
 // target directory so walkers descend into it. Nested symlinks are not
 // followed: filepath.WalkDir never descends into symlink entries. The resolved
-// target is validated through policy so a symlink cannot redirect a search
-// into a denied location. A root that cannot be inspected is returned
-// unchanged so the calling tool reports its own missing-path error.
+// target is validated and normalized through policy, including the sandbox
+// /tmp rewrite, so a symlink cannot redirect a search into a denied location
+// or out of the sandbox. A root that cannot be inspected is returned unchanged
+// so the calling tool reports its own missing-path error.
 func resolveSearchRoot(root string, policy *tool.PathPolicy) (string, error) {
 	info, err := os.Lstat(root)
 	if err != nil {
@@ -260,12 +261,14 @@ func resolveSearchRoot(root string, policy *tool.PathPolicy) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve symlink root: %w", err)
 	}
-	if policy != nil {
-		if _, err := policy.ResolveReadPath(target); err != nil {
-			return "", err
-		}
+	if policy == nil {
+		return target, nil
 	}
-	return target, nil
+	resolved, err := policy.ResolveReadPath(target)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
 // searchPathDenied reports whether policy denies path. Resolution errors deny
