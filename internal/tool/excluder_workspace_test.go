@@ -174,14 +174,27 @@ func TestWorkspaceExcluder_InvalidPatternIgnored(t *testing.T) {
 }
 
 func TestWorkspaceExcluder_NormalizesPatterns(t *testing.T) {
-	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/"}, nil, false)
+	ex := newWorkspaceExcluder("/ws", nil, []string{"./generated/**", "build/", "docs/private/", "/docs/**"}, nil, false)
 	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
 		{path: "/ws/generated/out.o", want: true},
 		{path: "/ws/docs/private/x.md", want: true},
+		{path: "/ws/docs/api/x.md", want: true},
+		{path: "/ws/other/docs/api/x.md", want: false},
 		{path: "/ws/other/docs/private/x.md", want: false},
 		{path: "/ws/build", isDir: true, want: true},
 		{path: "/ws/a/build", isDir: true, want: true},
 		{path: "/ws/buildish/x", want: false},
+	})
+}
+
+func TestWorkspaceExcluder_NegatedClassStaysWithinSegment(t *testing.T) {
+	ex := newWorkspaceExcluder("/ws", nil, []string{"**/a[!x]b", "a[!x]b/c"}, nil, false)
+	runWorkspaceExcludeCases(t, ex, []workspaceExcludeCase{
+		{path: "/ws/a/b", want: false},
+		{path: "/ws/a/b/c", want: false},
+		{path: "/ws/ayb", want: true},
+		{path: "/ws/ayb/c", want: true},
+		{path: "/ws/pkg/ayb", want: true},
 	})
 }
 
@@ -228,7 +241,7 @@ func TestWorkspaceExcluder_DotExcludePath(t *testing.T) {
 	})
 }
 
-func TestWorkspacePattern_Matches(t *testing.T) {
+func TestWorkspacePattern_MatchesPrefix(t *testing.T) {
 	tests := []struct {
 		pattern string
 		path    string
@@ -237,6 +250,7 @@ func TestWorkspacePattern_Matches(t *testing.T) {
 		{pattern: "**/fixtures", path: "fixtures", want: true},
 		{pattern: "**/fixtures", path: "a/fixtures", want: true},
 		{pattern: "**/fixtures", path: "a/b", want: false},
+		{pattern: "**/target", path: "target/later", want: true},
 		{pattern: "a/**/b", path: "a/b", want: true},
 		{pattern: "a/**/**/b", path: "a/b", want: true},
 		{pattern: "**/a/**/b", path: "a/b", want: true},
@@ -247,6 +261,13 @@ func TestWorkspacePattern_Matches(t *testing.T) {
 		{pattern: "[**/]x", path: "**/x", want: false},
 		{pattern: "{a/b,c}/**", path: "a/b/x", want: true},
 		{pattern: "{a/b,c}/**", path: "c/x", want: true},
+		{pattern: "**/a[!x]b", path: "a/b", want: false},
+		{pattern: "**/a[!x]b", path: "ayb", want: true},
+		{pattern: "**/a[!x]b", path: "pkg/ayb", want: true},
+		{pattern: "a[!x]b/c", path: "a/b/c", want: false},
+		{pattern: "a[!x]b/c", path: "ayb/c", want: true},
+		{pattern: "{a[!x]b,c}/d", path: "a/b/d", want: false},
+		{pattern: "{a[!x]b,c}/d", path: "ayb/d", want: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.pattern+" "+tc.path, func(t *testing.T) {
@@ -254,8 +275,8 @@ func TestWorkspacePattern_Matches(t *testing.T) {
 			if !ok {
 				t.Fatalf("compileWorkspaceSlashPattern(%q) failed", tc.pattern)
 			}
-			if got := compiled.matches(tc.path); got != tc.want {
-				t.Fatalf("%q matches %q = %v, want %v", tc.pattern, tc.path, got, tc.want)
+			if got := compiled.matchesPrefix(tc.path); got != tc.want {
+				t.Fatalf("%q matchesPrefix %q = %v, want %v", tc.pattern, tc.path, got, tc.want)
 			}
 		})
 	}
@@ -268,11 +289,29 @@ func TestWorkspacePattern_ManyGlobstarSegments(t *testing.T) {
 		t.Fatalf("compileWorkspaceSlashPattern(%q) failed", pattern)
 	}
 	for _, path := range []string{"target", "a/target", strings.Repeat("a/", 20) + "target"} {
-		if !compiled.matches(path) {
+		if !compiled.matchesPrefix(path) {
 			t.Fatalf("%q should match %q", pattern, path)
 		}
 	}
-	if compiled.matches("target/later") {
-		t.Fatalf("%q should not match %q", pattern, "target/later")
+	if compiled.matchesPrefix("later/other") {
+		t.Fatalf("%q should not match %q", pattern, "later/other")
+	}
+}
+
+func TestWorkspacePattern_DeepPathWorkBounded(t *testing.T) {
+	compiled, ok := compileWorkspaceSlashPattern("**/target/**")
+	if !ok {
+		t.Fatal("compileWorkspaceSlashPattern failed")
+	}
+	deep := strings.Repeat("segment/", 300) + "target/file.go"
+	var matched bool
+	allocs := testing.AllocsPerRun(20, func() {
+		matched = compiled.matchesPrefix(deep)
+	})
+	if !matched {
+		t.Fatalf("deep path %q should match", deep)
+	}
+	if allocs > 10 {
+		t.Fatalf("deep path matching allocated %.1f objects per run, want at most 10", allocs)
 	}
 }
