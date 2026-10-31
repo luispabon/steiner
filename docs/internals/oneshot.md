@@ -161,7 +161,7 @@ Interactive runs use `routeControlToOneshot`:
 - Indicator states emitted by the engine (`events.go`): `starting`, `boundary`, `completed`, `cancelled`, `orphaned`. `phaseIndicatorRunning` is defined but nothing emits it.
 - Control routing: one `interactive.PhaseRouter` per run is set with `Session.SetActivePhaseControl` and passed to the orchestrator as `RegisterControl` (`router.Register`). While it is set, the session driver is detached from the steer queue (`DetachSteers`). Release reattaches it (`AttachSteers`). Between phases the router has no target: steers wait in the queue, and cancel requests report that no phase is active.
 - The orchestrator runs under `Session.RunBackground`, and `CancelBackground` cancels it. On quit, `runQuitSequence` cancels background runs first, which takes the cancellation path above. `awaitRuns` then joins them.
-- Steering-only composer: while a run is active, only `/exit`, `/thinking`, and `/accent` (with or without arguments) run as commands. Other input is sent as a steering message.
+- Steering-only composer: see [Steering input](../user/oneshot.md#steering-input) for command and input behavior.
 - `OneshotFinishedEvent` is emitted from the run goroutine on success and on error. Its handler clears `oneshotRunning` and the phase chrome fields.
 
 ## Tests

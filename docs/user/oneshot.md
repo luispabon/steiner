@@ -23,6 +23,10 @@ steiner oneshot --list
 /oneshot --list
 ```
 
+## Steering input
+
+While a oneshot run is active, the TUI composer queues input as a steering message instead of starting a new turn. Only these inputs run as commands: exact `/exit` and `/thinking`, plus `/accent` and `/accent <preset>`. Every other input, including other slash commands, is steering.
+
 ## Configuration
 
 The `oneshot` config block controls PR closeout behavior. Per-phase model assignments live in the selected profile's `oneshot` map. Use raw `provider/model-id` references by default. Use an alias only when it supplies a stable name or persistent `ModelConfig` settings. No profile is built in, so define the profile you use. Every profile must define `default_model`, and named profiles do not inherit from `default`:
@@ -53,7 +57,7 @@ models:
 - Select a profile at startup with `--profile <name>` for oneshot, interactive, or `--exec` runs.
 - `auto_pr` is optional and defaults to `false`.
 
-When `auto_pr` is true and review passes, the opened PR/MR is titled from the first H1 heading the plan phase writes to `overview.md`, falling back to the task string if no H1 is found. Its body strips the first H1 from `overview.md`, then appends the review outcome from `review.md` after a separator.
+When `auto_pr` is true and review passes, the opened PR/MR is titled from the first non-blank line of `overview.md` when that line is an H1 heading. Otherwise the title falls back to `task_summary`, then the run slug, then `oneshot closeout`. Its body is `overview.md` with a leading H1 and the blank lines after it removed. When the review outcome in `review.md` is non-empty, the body appends it after a `---` separator; an empty review adds nothing.
 
 ## Listing and resumable runs
 

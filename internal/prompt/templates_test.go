@@ -1,8 +1,11 @@
 package prompt
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 // TestPromptTemplatesParseAndExecute proves every preamble template is
@@ -59,5 +62,54 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 				t.Fatalf("template %q rendered empty", tc.name)
 			}
 		})
+	}
+}
+
+// TestExecutionModesTemplateListsPlanModeWritableDirs pins the plan-mode
+// writable directory list in the execution modes template to
+// config.PlanModeWritableDirs: the template must name exactly those
+// directories, so a directory added to or removed from config fails here
+// instead of leaving the prompt stale.
+func TestExecutionModesTemplateListsPlanModeWritableDirs(t *testing.T) {
+	t.Parallel()
+
+	var b strings.Builder
+	if err := promptTemplates.ExecuteTemplate(&b, templateExecutionModes, nil); err != nil {
+		t.Fatalf("execute template %q: %v", templateExecutionModes, err)
+	}
+
+	want := config.PlanModeWritableDirs()
+	if len(want) == 0 {
+		t.Fatal("config.PlanModeWritableDirs() returned no directories")
+	}
+
+	// Collapse the template's line wrapping so the denial clause is contiguous.
+	rendered := strings.Join(strings.Fields(b.String()), " ")
+	const clauseStart = "`mutate` is denied outside"
+	i := strings.Index(rendered, clauseStart)
+	if i < 0 {
+		t.Fatalf("execution modes template missing %q in %q", clauseStart, rendered)
+	}
+	clause := rendered[i+len(clauseStart):]
+	if j := strings.Index(clause, ";"); j >= 0 {
+		clause = clause[:j]
+	}
+
+	// The clause lists directories as code spans, so odd split indexes are the
+	// quoted paths. Each must match a configured directory, and every
+	// configured directory must appear.
+	parts := strings.Split(clause, "`")
+	if len(parts)%2 == 0 {
+		t.Fatalf("unbalanced backticks in plan-mode denial clause %q", clause)
+	}
+	var got []string
+	for j := 1; j < len(parts); j += 2 {
+		got = append(got, strings.TrimSuffix(parts[j], "/"))
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+
+	if !slices.Equal(got, want) {
+		t.Errorf("plan-mode writable dirs in execution modes template = %#v, want %#v (clause %q)", got, want, clause)
 	}
 }

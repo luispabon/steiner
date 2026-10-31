@@ -2,10 +2,10 @@
 // spend budgets) per account, persists them as local history, and projects
 // when a window or budget is likely to run out.
 //
-// The package is a leaf domain package. It uses only the standard library and
-// golang.org/x/sys/unix, and it does not import provider, agent, tui, or
-// config. Callers supply fetchers and passive observations; the package owns
-// merging, persistence, projections, and refresh scheduling.
+// The package is a leaf domain package. It uses only the standard library,
+// golang.org/x/sys/unix, and internal/fsatomic, and it does not import provider,
+// agent, tui, or config. Callers supply fetchers and passive observations; the
+// package owns merging, persistence, projections, and refresh scheduling.
 package quota
 
 import (

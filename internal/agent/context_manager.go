@@ -75,7 +75,6 @@ func (s *ContextStateManager) SetEventSink(sink output.EventSink) {
 func (s *ContextStateManager) enrichContextState(state RunState) ContextState {
 	next := state.Context.Clone()
 	next.TurnCount = state.TurnCount
-	next.CompactionCount = state.Context.CompactionCount
 	next.RecentToolCalls = summarizeRecentToolCalls(state.Lineage.latestMessages(), 3)
 	return next
 }
