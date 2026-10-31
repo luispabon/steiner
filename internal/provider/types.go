@@ -176,7 +176,9 @@ type ChatResponse struct {
 // content. Providers that measure nothing leave ChatResponse.Diagnostics nil.
 type CallDiagnostics struct {
 	// Attempts is the number of transport attempts the successful call spent,
-	// counting the attempt that succeeded.
+	// counting the attempt that succeeded. It is 0 when the provider does not
+	// count transport attempts: claude_subscription runs one CLI turn and
+	// reports none.
 	Attempts int
 	// CacheAffinityDropped reports that the successful attempt was sent with
 	// PromptCacheKey blanked, after a previous attempt hit the known

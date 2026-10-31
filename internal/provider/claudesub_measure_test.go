@@ -94,6 +94,7 @@ func TestClaudeSubCallDiagnosticsRestoreReseedReason(t *testing.T) {
 		{name: "no stored state", noState: true, want: claudeSubReseedNoState},
 		{name: "stale fingerprint", mutate: func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }, want: claudeSubReseedFingerprint},
 		{name: "missing final uuid", mutate: func(st *claudeSubBackendState) { st.FinalUUID = "" }, want: claudeSubReseedFinalUUID},
+		{name: "stored prefix mismatch", mutate: func(st *claudeSubBackendState) { st.SyncPrefixDigest = "bad" }, want: claudeSubReseedPrefix},
 		{name: "foreign schema version", mutate: func(st *claudeSubBackendState) { st.Version = claudeSubBackendStateVersion + 1 }, want: claudeSubReseedNoState},
 	}
 	for _, tt := range tests {
@@ -136,6 +137,13 @@ func TestClaudeSubCallDiagnosticsLiveReseedReason(t *testing.T) {
 		{name: "checkpoint mismatch", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, want: claudeSubReseedCheckpoint},
 		{name: "rewritten history", rewrite: true, want: claudeSubReseedPlan},
 		{name: "exited process", dead: true, want: claudeSubReseedExited},
+		// The state belongs to another transport session and no longer
+		// reproduces the request prefix, so the fork cannot resume and the call
+		// reseeds on a fresh process.
+		{name: "owner fork without a restorable state", mutate: func(st *claudeSubBackendState) {
+			st.TransportSession = "previous-owner"
+			st.SyncPrefixDigest = "bad"
+		}, want: claudeSubReseedOwnerFork},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -236,5 +244,54 @@ func TestClaudeSubCallDiagnosticsUsageGate(t *testing.T) {
 	}
 	if diagnostics.UsageProbeSpawned {
 		t.Error("UsageProbeSpawned = true, want false when the live process confirms")
+	}
+}
+
+// TestClaudeSubCallDiagnosticsSummaryForkFallback proves a summary whose fork
+// helper fails before output reports the live parent that actually answered, not
+// the failed helper.
+func TestClaudeSubCallDiagnosticsSummaryForkFallback(t *testing.T) {
+	helper := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubFailedResumeBatch()}}
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 3), helper)
+	_, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	final := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{claudeSubUserText("first question"), a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (parent and the failed fork helper)", got)
+	}
+	if _, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); !ok {
+		t.Fatal("fork helper did not resume: the fallback was not exercised")
+	}
+	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessReuse {
+		t.Errorf("process = %q, want %q (the live parent answered in place)", got, claudeSubProcessReuse)
+	}
+}
+
+// TestClaudeSubCallDiagnosticsSummaryColdReseed proves a summary with no live
+// parent reports the helper reseed and a spawned process.
+func TestClaudeSubCallDiagnosticsSummaryColdReseed(t *testing.T) {
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	msgs := []Message{claudeSubUserText("first question"), {Role: MessageRoleAssistant, Content: "first answer"}, claudeSubUserText("summarize")}
+	final := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 msgs,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	if got := spawner.callCount(); got != 1 {
+		t.Fatalf("spawned %d processes, want 1 cold helper", got)
+	}
+	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
+		t.Errorf("process = %q, want %q", got, claudeSubProcessSpawn)
+	}
+	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedHelper {
+		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedHelper)
 	}
 }

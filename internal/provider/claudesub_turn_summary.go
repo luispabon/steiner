@@ -29,7 +29,9 @@ func claudeSubSummaryTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	// No fork, or a fork that failed before any output. The live parent is
 	// untouched in both cases, so it answers in place or the request reseeds.
 	// Either way the parent's generation loses its backend state, so the final
-	// chunk clears it.
+	// chunk clears it. The failed fork described nothing about this delivery, so
+	// drop its process and usage-gate measurements.
+	claudeSubMetricsFrom(ctx).resetDelivery()
 	return claudeSubParentInPlace(ctx, pool, req, key, spec, claudeSubClearOnDone(emit))
 }
 

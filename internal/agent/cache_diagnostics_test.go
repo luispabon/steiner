@@ -766,13 +766,34 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 			},
 		},
 		{
-			name:     "unmeasured call",
+			name:     "known empty predecessor",
 			response: provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}},
-			stats:    requestCacheStats{prefixHash: "abcd"},
+			stats:    requestCacheStats{prefixHash: "abcd", predecessorKnown: true, messageHashes: []string{"a"}},
+			wantPresent: []string{
+				`"context_generation":0`,
+				`"prefix_predecessor_messages":0`,
+			},
 			wantAbsent: []string{
 				"attempts",
 				"cache_affinity_dropped",
-				"context_generation",
+				"prefix_divergence_role",
+				"claudesub_process",
+				"claudesub_reseed_reason",
+				"claudesub_usage_gate_ms",
+				"claudesub_usage_gate_polls",
+				"claudesub_usage_probe_spawned",
+			},
+		},
+		{
+			name:     "unmeasured call without a predecessor",
+			response: provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}},
+			stats:    requestCacheStats{prefixHash: "abcd"},
+			wantPresent: []string{
+				`"context_generation":0`,
+			},
+			wantAbsent: []string{
+				"attempts",
+				"cache_affinity_dropped",
 				"prefix_predecessor_messages",
 				"prefix_divergence_role",
 				"claudesub_process",

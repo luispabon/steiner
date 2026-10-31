@@ -210,8 +210,10 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		err = c.wire.DecodeStream(ctx, resp.Body, func(chunk ChatChunk) error {
 			if chunk.Done {
 				chunk.UpstreamEndpoint = endpointID
-				// A stream that delivered its terminal chunk is not retried, so
-				// attempts and cache-affinity drop are final here. Measurement only.
+				// A Done chunk does not mark the stream partial, so a retryable
+				// error after an empty Done still retries and emits another Done.
+				// These values describe the attempt that produced this chunk; the
+				// consumer keeps the last Done it processes. Measurement only.
 				chunk.Diagnostics = &CallDiagnostics{Attempts: attempts, CacheAffinityDropped: dropCacheAffinity}
 			}
 			if chunksReceived == 0 {

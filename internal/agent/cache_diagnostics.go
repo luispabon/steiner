@@ -45,20 +45,22 @@ type cachePayload struct {
 	// compared. Emitted on every cache record (no omitempty).
 	PrefixComparisonEnabled bool `json:"prefix_comparison_enabled"`
 
-	// Measurement fields below describe how the call was served. Each is
-	// omitted when it was not measured.
+	// Measurement fields below describe how the call was served. They are
+	// omitted unless a field's comment says otherwise.
 	Attempts             int  `json:"attempts,omitempty"`
 	CacheAffinityDropped bool `json:"cache_affinity_dropped,omitempty"`
 	// ContextGeneration is the number of compaction stages applied in the run
-	// when the call was issued.
-	ContextGeneration int `json:"context_generation,omitempty"`
+	// when the call was issued. It is emitted on every record; 0 means no
+	// compaction has applied to the run yet.
+	ContextGeneration int `json:"context_generation"`
 	// PrefixPredecessorMessages is the message count of the predecessor request
-	// that shared_prefix_messages was measured against.
-	PrefixPredecessorMessages int `json:"prefix_predecessor_messages,omitempty"`
+	// that shared_prefix_messages was measured against. It is emitted only when
+	// a predecessor is known, including a known empty one (0).
+	PrefixPredecessorMessages *int `json:"prefix_predecessor_messages,omitempty"`
 	// PrefixDivergenceRole is the role of the first request message that differs
 	// from the predecessor. It is empty for an append of the predecessor.
 	PrefixDivergenceRole string `json:"prefix_divergence_role,omitempty"`
-	// Claude_subscription-only measurements.
+	// claude_subscription-only measurements.
 	ClaudeSubProcess           string `json:"claudesub_process,omitempty"`
 	ClaudeSubReseedReason      string `json:"claudesub_reseed_reason,omitempty"`
 	ClaudeSubUsageGateMillis   int64  `json:"claudesub_usage_gate_ms,omitempty"`
@@ -94,6 +96,11 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 	// A fallback target's call is not the run's cold start, so it reports
 	// cold_start false and leaves the process-wide latch untouched.
 	coldStart := !req.compactionFallbackTarget && !coldStartRecorded.Swap(true)
+	var predecessorMessages *int
+	if stats.predecessorKnown {
+		count := stats.predecessorMessages
+		predecessorMessages = &count
+	}
 	payload := cachePayload{
 		ProviderAlias:             req.ResolvedModel.ProviderAlias,
 		BackendModelID:            req.ResolvedModel.BackendModelID,
@@ -112,7 +119,7 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 		PrefixPredecessorKnown:    stats.predecessorKnown,
 		PrefixComparisonEnabled:   stats.comparisonEnabled,
 		ContextGeneration:         req.contextGeneration,
-		PrefixPredecessorMessages: stats.predecessorMessages,
+		PrefixPredecessorMessages: predecessorMessages,
 		PrefixDivergenceRole:      stats.divergenceRole,
 	}
 	if callDiagnostics := response.Diagnostics; callDiagnostics != nil {

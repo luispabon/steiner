@@ -71,10 +71,9 @@ Each usage-bearing model response writes one `cache` record (`internal/agent/cac
 - `prefix_hash`: a cumulative 8-hex digest folded over one 8-hex hash per message. Each per-message digest is over the `provider.AppendMessageHashInput` bytes, appended into one reused buffer per request: role, content, reasoning content, tool-call names and arguments, and image media types and data. It hashes logical messages, not wire JSON.
 - `cache_key_hash`: an 8-hex hash of the cache key.
 
-Measurement fields are written when the call measured them and omitted otherwise:
+`context_generation` is written on every record: compaction stages applied in the run when the call was issued (`turnProgressor.compactionCount`), where 0 means no compaction has applied yet. `prefix_predecessor_messages` is written whenever `prefix_predecessor_known` is true, including a known 0. Every other measurement field is written when the call measured it and omitted otherwise:
 
-- `attempts`: transport attempts the successful call spent (`Client.ChatCompletion`, `Client.streamWithRetry`). `cache_affinity_dropped` marks a successful attempt sent without `PromptCacheKey` after the cache-retention rejection.
-- `context_generation`: compaction stages applied in the run when the call was issued (`turnProgressor.compactionCount`).
+- `attempts`: transport attempts the successful call spent (`Client.ChatCompletion`, `Client.streamWithRetry`). claude_subscription calls report none, because the CLI turn has one transport attempt and does not count it. `cache_affinity_dropped` marks a successful attempt sent without `PromptCacheKey` after the cache-retention rejection.
 - `claudesub_process`, `claudesub_reseed_reason`, `claudesub_usage_gate_ms`, `claudesub_usage_gate_polls`, `claudesub_usage_probe_spawned`: claude_subscription only. The process disposition is `reuse`, `resume`, or `spawn`. The reseed reason is one of `no_state`, `fingerprint`, `final_uuid`, `prefix`, `plan`, `checkpoint`, `owner_fork`, `exited`, `retry`, or `helper`. The gate fields report the extra-usage gate's elapsed milliseconds and `get_usage` poll count, and the probe flag reports a fresh confirmation process started for the call.
 
 Provider measurements reach the agent as `provider.CallDiagnostics`: on `ChatResponse` for a non-streaming call, and on the terminal `ChatChunk` for a streaming call, which `consumeModelStream` copies onto the folded response.
