@@ -29,6 +29,12 @@ func (c *manualClock) AfterFunc(_ time.Duration, f func()) agent.Timer {
 	return stoppedTimer{}
 }
 
+func (c *manualClock) timerCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.timers)
+}
+
 func (c *manualClock) fireAll() {
 	c.mu.Lock()
 	timers := c.timers
@@ -117,17 +123,21 @@ func TestCompletionSinkFollowsTheLiveDriver(t *testing.T) {
 
 func TestDeliveredCompletionWakesARunAfterTheWindow(t *testing.T) {
 	t.Parallel()
-	s, rec, clock, _ := asyncTestSession(t, newMockSessionStore())
+	s, rec, clock, bg := asyncTestSession(t, newMockSessionStore())
 	inputs := make(chan RunInput, 2)
 	s.SetRunner(&inputRunner{run: func(_ context.Context, in RunInput) (RunResult, error) {
 		inputs <- in
 		return withAnswer(in, "noted"), nil
 	}})
 
+	bg.setPendingStates(agent.SubAgentRunning)
 	rec.get().DeliverCompletions([]agent.SubAgentCompletion{{
 		ParentCallID: "call-1", AgentID: "a1", AgentType: "explore", Status: "complete",
 		Body: agent.FailureBody("complete", "done"),
 	}})
+	if got := clock.timerCount(); got != 1 {
+		t.Fatalf("coalescing timers after delivery = %d, want 1 (window armed)", got)
+	}
 	select {
 	case in := <-inputs:
 		t.Fatalf("run started before the coalescing window: %+v", in)
