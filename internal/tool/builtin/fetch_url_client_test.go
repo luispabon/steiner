@@ -337,24 +337,14 @@ func TestFetchURLDefaultClientRefusesNonPublicAddresses(t *testing.T) {
 	}
 }
 
-// TestFetchURLDefaultClientIgnoresAmbientProxy proves the guarded client does
-// not relay through an ambient proxy, using a live recording proxy: a proxy
-// would reach the target from an address the dial check never sees. The
-// tradeoff is documented in docs/user/tools.md.
+// TestFetchURLDefaultClientIgnoresAmbientProxy pins the guarded transport to a
+// nil proxy function, which is what keeps HTTP(S)_PROXY from relaying fetch_url
+// requests. It asserts the transport field directly instead of routing a
+// request through a live proxy: Go caches proxy environment lookups after the
+// first use, and the dial guard refuses a loopback proxy, so a hit counter
+// could not tell proxy use from a blocked dial. The tradeoff is documented in
+// docs/user/tools.md.
 func TestFetchURLDefaultClientIgnoresAmbientProxy(t *testing.T) {
-	var proxyRequests atomic.Int32
-	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		proxyRequests.Add(1)
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	t.Cleanup(proxy.Close)
-
-	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
-		t.Setenv(name, proxy.URL)
-	}
-	t.Setenv("NO_PROXY", "")
-	t.Setenv("no_proxy", "")
-
 	client := newFetchURLClient(Env{})
 	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
@@ -362,21 +352,6 @@ func TestFetchURLDefaultClientIgnoresAmbientProxy(t *testing.T) {
 	}
 	if transport.Proxy != nil {
 		t.Fatal("default client transport Proxy is set, want nil: ambient proxies must not relay fetch_url requests")
-	}
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://100.64.12.7/", nil)
-	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
-	resp, err := client.Do(req)
-	if err == nil {
-		_ = resp.Body.Close()
-	}
-	if !errors.Is(err, httpguard.ErrNonPublicAddress) {
-		t.Errorf("client.Do with HTTP_PROXY set = %v, want httpguard.ErrNonPublicAddress from the guard", err)
-	}
-	if got := proxyRequests.Load(); got != 0 {
-		t.Errorf("proxy requests = %d, want 0: the guarded request was relayed through the ambient proxy", got)
 	}
 }
 
