@@ -319,7 +319,7 @@ func workspacePathIsAbs(path string, windows bool) bool {
 
 // compileWorkspaceExcludePatterns compiles configured patterns into
 // workspace-relative slash patterns and component patterns. Patterns that fail
-// to compile are skipped, matching PathExcluder's silent handling.
+// to compile are skipped.
 func compileWorkspaceExcludePatterns(patterns []string, windows bool) ([]workspacePattern, []glob.Glob) {
 	var slashPatterns []workspacePattern
 	var componentPatterns []glob.Glob

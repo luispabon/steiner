@@ -86,6 +86,11 @@ func TestWorkspaceExcluder_BuiltinDirectories(t *testing.T) {
 		{path: "/ws/build", isDir: true, want: true},
 		{path: "/ws/build", want: false},
 		{path: "/ws/.steiner", isDir: true, want: true},
+		{path: "/ws/.claude", isDir: true, want: true},
+		{path: "/ws/.claude/settings.json", want: true},
+		{path: "/ws/.git-worktrees/step-1/main.go", want: true},
+		{path: "/ws/.next/static", want: true},
+		{path: "/ws/.nuxt/dist", want: true},
 		{path: "/ws/src/main.go", want: false},
 	})
 }
