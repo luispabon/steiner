@@ -49,6 +49,9 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 		return provider.ChatResponse{}, fmt.Errorf("stream completed without a final chunk")
 	}
 
+	// Clone so the stored reply does not keep the streaming builder's slack
+	// capacity alive through the returned message.
+	message.Content = strings.Clone(message.Content)
 	response.Message = message
 	return response, nil
 }
@@ -170,6 +173,12 @@ func emitUnseenFinalContent(sink output.EventSink, turn int, source output.Chunk
 	}
 }
 
+// handleFinalChunk reconciles the final chunk into the response and message. It
+// may replace message.Content outright, for a content snapshot or a final that
+// extends the streamed text, so a caller holding a streaming builder must
+// re-seed that builder from message.Content afterwards; consumeModelChunk does
+// so, which keeps a delta arriving after the final chunk appending to the
+// reconciled text.
 func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message) {
 	response.Usage = chunk.Usage
 	response.FinishReason = chunk.FinishReason
