@@ -23,30 +23,27 @@ var errGrepGlobTooComplex = fmt.Errorf("pattern expands beyond %d forms", maxGre
 // A slashless alternative names a file at any depth, so it matches the path
 // basename. An alternative containing a slash matches the root-relative path
 // only. A leading "./" on the pattern or on any brace alternative anchors that
-// alternative to the search root. A "**/" that forms its own path segment also
-// matches zero directories. Braces, escapes, and character classes keep
-// gobwas/glob syntax; an empty pattern yields a nil matcher.
+// alternative to the search root; the marker is read before zero-directory
+// expansion, so a "./" left behind by dropping a "**/" segment stays literal.
+// A "**/" that forms its own path segment also matches zero directories.
+// Braces, escapes, and character classes keep gobwas/glob syntax; an empty
+// pattern yields a nil matcher.
 func compileGrepFileGlob(fileGlob string) (glob.Glob, error) {
 	if fileGlob == "" {
 		return nil, nil
 	}
 
-	patterns, err := expandGrepGlobPatterns(fileGlob)
+	forms, err := expandGrepGlobPatterns(fileGlob)
 	if err != nil {
 		return nil, fmt.Errorf("invalid glob: %w", err)
 	}
 
 	var matcher grepGlobSet
 	compiled := make(map[string]struct{})
-	for _, pattern := range patterns {
-		rootAnchored := false
-		for strings.HasPrefix(pattern, "./") {
-			pattern = pattern[len("./"):]
-			rootAnchored = true
-		}
-		candidates := []string{pattern}
-		if !rootAnchored && !strings.Contains(pattern, "/") {
-			candidates = append(candidates, "**/"+pattern)
+	for _, form := range forms {
+		candidates := []string{form.pattern}
+		if !form.rootAnchored && !strings.Contains(form.pattern, "/") {
+			candidates = append(candidates, "**/"+form.pattern)
 		}
 		for _, candidate := range candidates {
 			if _, ok := compiled[candidate]; ok {
@@ -75,27 +72,51 @@ func (s grepGlobSet) Match(path string) bool {
 	return false
 }
 
-// expandGrepGlobPatterns flattens brace alternations and then drops each
-// zero-directory form of "**/" from every alternative. It fails with
+// grepGlobForm is one expanded file_glob alternative plus the root anchoring
+// its original brace alternative carried.
+type grepGlobForm struct {
+	pattern      string
+	rootAnchored bool
+}
+
+// expandGrepGlobPatterns flattens brace alternations, strips any leading "./"
+// root marker from each original alternative, and only then drops every
+// zero-directory form of that alternative's "**/" segments. It fails with
 // errGrepGlobTooComplex instead of silently changing semantics when expansion
 // exceeds maxGrepGlobPatterns.
-func expandGrepGlobPatterns(pattern string) ([]string, error) {
+func expandGrepGlobPatterns(pattern string) ([]grepGlobForm, error) {
 	alternatives, err := expandGrepGlobBraces(pattern)
 	if err != nil {
 		return nil, err
 	}
-	var expanded []string
+	var expanded []grepGlobForm
 	for _, alternative := range alternatives {
-		forms, err := expandGrepGlobZeroDir(alternative)
+		rootAnchored, trimmed := trimGrepGlobRootMarker(alternative)
+		forms, err := expandGrepGlobZeroDir(trimmed)
 		if err != nil {
 			return nil, err
 		}
 		if len(expanded)+len(forms) > maxGrepGlobPatterns {
 			return nil, errGrepGlobTooComplex
 		}
-		expanded = append(expanded, forms...)
+		for _, form := range forms {
+			expanded = append(expanded, grepGlobForm{pattern: form, rootAnchored: rootAnchored})
+		}
 	}
 	return expanded, nil
+}
+
+// trimGrepGlobRootMarker removes leading "./" segments and reports whether the
+// pattern was marked root-relative. It must run on the original brace
+// alternative: a "./" produced later by dropping a "**/" segment is literal
+// pattern text and must not anchor the pattern.
+func trimGrepGlobRootMarker(pattern string) (bool, string) {
+	rootAnchored := false
+	for strings.HasPrefix(pattern, "./") {
+		pattern = pattern[len("./"):]
+		rootAnchored = true
+	}
+	return rootAnchored, pattern
 }
 
 // expandGrepGlobBraces rewrites the first brace alternation, splitting on

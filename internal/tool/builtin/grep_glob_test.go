@@ -103,6 +103,12 @@ func TestCompileGrepFileGlobMatches(t *testing.T) {
 			misses:  []string{"foobar.go", "bar.go"},
 		},
 		{
+			name:    "dropping a doublestar segment does not create a root marker",
+			pattern: "**/./x.go",
+			matches: []string{"pkg/./x.go"},
+			misses:  []string{"x.go", "pkg/x.go", "pkg/deep/x.go"},
+		},
+		{
 			name:    "middle doublestar matches zero directories",
 			pattern: "pkg/**/root.go",
 			matches: []string{"pkg/root.go", "pkg/a/root.go", "pkg/a/b/root.go"},
