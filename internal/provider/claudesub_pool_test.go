@@ -24,6 +24,106 @@ func claudeSubTestRun(_ context.Context, path string, args ...string) ([]byte, e
 	return nil, fmt.Errorf("unexpected claude args %v for %s", args, path)
 }
 
+func TestClaudeSubPoolFreshAuthShutdownCancelsAndJoins(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	started := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	result := make(chan error, 1)
+	go func() { result <- pool.confirmAuthFresh(context.Background()) }()
+	<-started
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- pool.Close() }()
+	if err := <-closeResult; err != nil {
+		t.Fatalf("pool Close() = %v", err)
+	}
+	if err := <-result; !errors.Is(err, errClaudeSubPoolClosed) {
+		t.Fatalf("confirmAuthFresh() = %v, want pool closed", err)
+	}
+	if pool.authJob == nil || !claudeSubJobDone(pool.authJob) {
+		t.Fatal("fresh auth job was not joined by pool shutdown")
+	}
+}
+
+func TestClaudeSubPoolFreshAuthConcurrentCallsShareJob(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	var calls atomic.Int32
+	started := make(chan struct{})
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			if calls.Add(1) == 1 {
+				close(started)
+			}
+			entered <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return []byte(`{"loggedIn":false}`), nil
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- pool.confirmAuthFresh(context.Background()) }()
+	}
+	<-started
+	<-entered
+	select {
+	case <-entered:
+		t.Fatal("concurrent fresh auth started a second runner")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	for range 2 {
+		if err := <-results; !errors.Is(err, errClaudeSubSignedOut) {
+			t.Fatalf("confirmAuthFresh() = %v, want signed-out result", err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("fresh auth calls = %d, want one shared job", got)
+	}
+}
+
+func TestClaudeSubPoolFreshAuthCancellationIsTracked(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	started := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- pool.confirmAuthFresh(ctx) }()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("confirmAuthFresh() = %v, want context.Canceled", err)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("pool Close() = %v", err)
+	}
+	if pool.authJob == nil || !claudeSubJobDone(pool.authJob) {
+		t.Fatal("fresh auth job was not joined by pool shutdown")
+	}
+}
+
 // claudeSubTestSpec is a minimal settled startup specification.
 func claudeSubTestSpec() claudeSubStartSpec {
 	return claudeSubStartSpec{

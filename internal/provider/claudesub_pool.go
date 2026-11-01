@@ -209,6 +209,9 @@ type ClaudeSubscriptionPool struct {
 	cli           claudeSubCLI
 	cliErr        error
 	cliNeedsRetry bool
+	// authJob is the pool-owned single-flight fresh auth check. It is bounded by
+	// the pool lifetime and tracked so shutdown cancels and joins it.
+	authJob *claudeSubJob
 
 	// Seams, defaulted in NewClaudeSubscriptionPool and overridden in tests so
 	// no test locates or starts a real claude CLI or relies on filesystem
@@ -351,19 +354,66 @@ func (p *ClaudeSubscriptionPool) locateCLI(ctx context.Context) (claudeSubCLI, e
 
 // confirmAuthFresh checks auth status without consulting the cached locator job.
 // It is used only after a fresh usage process also reports an unconfirmable
-// state, and therefore cannot turn a usage refusal into authorization.
+// state, and therefore cannot turn a usage refusal into authorization. The
+// check is a pool-owned single-flight job: callers can stop waiting, but the
+// bounded operation remains tracked until it finishes or pool shutdown cancels
+// it.
+var claudeSubFreshAuthTimeout = 8 * time.Second
+
 func (p *ClaudeSubscriptionPool) confirmAuthFresh(ctx context.Context) error {
 	p.mu.Lock()
+	if p.state != claudeSubPoolRunning {
+		p.mu.Unlock()
+		return errClaudeSubPoolClosed
+	}
 	cli, cliErr := p.cli, p.cliErr
-	p.mu.Unlock()
 	if cliErr != nil {
+		p.mu.Unlock()
 		return cliErr
 	}
 	if cli.Path == "" {
+		p.mu.Unlock()
 		return errors.New("claude CLI path is unavailable for fresh auth status")
 	}
-	out, err := p.run(ctx, cli.Path, "auth", "status")
-	return claudeSubFreshAuthStatus(out, err)
+	job := p.authJob
+	if job == nil || (job.started && claudeSubJobDone(job)) {
+		job = p.newTrackedJob()
+		p.authJob = job
+	}
+	job.startLocked(func() error {
+		authCtx, cancel := context.WithTimeout(p.ctx, claudeSubFreshAuthTimeout)
+		defer cancel()
+		out, err := p.run(authCtx, cli.Path, "auth", "status")
+		return claudeSubFreshAuthStatus(out, err)
+	})
+	p.mu.Unlock()
+	select {
+	case <-job.done:
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		p.mu.Lock()
+		closed := p.state != claudeSubPoolRunning
+		err := job.err
+		p.mu.Unlock()
+		if closed {
+			return errClaudeSubPoolClosed
+		}
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.ctx.Done():
+		return errClaudeSubPoolClosed
+	}
+}
+
+func claudeSubJobDone(job *claudeSubJob) bool {
+	select {
+	case <-job.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // retryCLILookup marks a signed-out cached locator for one synchronized retry.

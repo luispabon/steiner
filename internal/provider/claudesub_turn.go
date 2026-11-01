@@ -366,6 +366,8 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 						s.pool.retryCLILookup()
 						s.pool.retire(s.key, s)
 						return &claudeSubUsageGateError{err: authErr}
+					} else if errors.Is(authErr, context.Canceled) || errors.Is(authErr, context.DeadlineExceeded) || errors.Is(authErr, errClaudeSubPoolClosed) {
+						return authErr
 					}
 				}
 				// The poll budget, and possibly the fresh confirmation, is already

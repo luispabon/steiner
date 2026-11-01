@@ -59,7 +59,7 @@ func locateClaudeSubCLI(ctx context.Context, lookPath func(string) (string, erro
 		}
 		return claudeSubCLI{}, fmt.Errorf("parse claude auth status: %w", statusErr)
 	}
-	if !*status.LoggedIn && claudeSubExitCode(err) == 1 {
+	if !*status.LoggedIn && (err == nil || claudeSubExitCode(err) == 1) {
 		return claudeSubCLI{}, errClaudeSubSignedOut
 	}
 	if err != nil {
@@ -106,7 +106,7 @@ func claudeSubFreshAuthStatus(out []byte, runErr error) error {
 		}
 		return fmt.Errorf("parse claude auth status: %w", parseErr)
 	}
-	if !*status.LoggedIn && claudeSubExitCode(runErr) == 1 {
+	if !*status.LoggedIn && (runErr == nil || claudeSubExitCode(runErr) == 1) {
 		return errClaudeSubSignedOut
 	}
 	if runErr != nil {

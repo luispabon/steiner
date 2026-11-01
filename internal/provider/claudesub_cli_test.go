@@ -136,6 +136,12 @@ func TestClaudeSubFreshAuthStatusAcceptsExitOneSignedOut(t *testing.T) {
 	}
 }
 
+func TestClaudeSubFreshAuthStatusExitZeroFalseIsSignedOut(t *testing.T) {
+	if err := claudeSubFreshAuthStatus([]byte(`{"loggedIn":false}`), nil); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubFreshAuthStatus() = %v, want signed-out error", err)
+	}
+}
+
 func TestClaudeSubChildEnv(t *testing.T) {
 	base := []string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=sk-secret", "ANTHROPIC_AUTH_TOKEN=auth-token", "CLAUDE_CODE_OAUTH_TOKEN=oauth-token", "CLAUDE_CODE_ENTRYPOINT=cli", "HOME=/home/user"}
 	want := []string{"PATH=/usr/bin:/bin", "HOME=/home/user", "CLAUDE_CODE_DISABLE_FAST_MODE=1", "CLAUDE_CODE_RETRY_WATCHDOG=1", "MAX_MCP_OUTPUT_TOKENS=32768", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1", "CLAUDE_CODE_SILENT_TURN_REMINDER=0", "CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off", "CLAUDE_CODE_TODO_REMINDER_MODE=off", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1"}

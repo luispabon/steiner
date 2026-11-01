@@ -49,6 +49,16 @@ func (j *claudeSubJob) start(fn func() error) {
 	})
 }
 
+// startLocked starts a job while its pool is already locked. It is used when
+// shutdown must not race the publication of a pool-owned job.
+func (j *claudeSubJob) startLocked(fn func() error) {
+	j.once.Do(func() {
+		j.started = true
+		j.pool.cleanupJobs = append(j.pool.cleanupJobs, j)
+		go func() { j.finish(fn()) }()
+	})
+}
+
 // trackJob registers a started job under the pool mutex so final result
 // assembly can tell whether it is unsettled. It never blocks on the job.
 func (p *ClaudeSubscriptionPool) trackJob(j *claudeSubJob) {
