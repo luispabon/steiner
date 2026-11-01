@@ -22,6 +22,13 @@ Sub-agents are asynchronous by nature - a bunch can be spawned at the same time,
 
 Steiner steers models to `plan`, `implement` and `review` for all changes, via specific workflows as well as the basic system preamble guidance. We steer models to engage with the user to understand their request in detail before embarking on any real work.
 
+```mermaid
+flowchart LR
+    Plan --> Implement
+    Implement --> Review
+    Review --> Implement
+```
+
 Agent skills are supported, and only injected when invoked (many agents bloat their context with skill slugs and descriptions to allow models to invoke them by themselves). Bundled [skills](docs/user/skills.md) cover implementation, review, simplification and security audits.
 
 For unattended tasks, [oneshot](docs/user/oneshot.md) runs planning, implementation and review in one worktree and can resume an interrupted run.
