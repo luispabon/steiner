@@ -257,11 +257,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 			return s, false, nil
 		}
 		owner := a.hasState && a.stored.TransportSession != a.key
-		if owner {
-			claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedOwnerFork)
-		} else {
-			claudeSubMetricsFrom(ctx).noteReseed(rejectReason)
-		}
+		claudeSubMetricsFrom(ctx).noteReseed(rejectReason)
 		pool.retireAndRelease(a.key, s)
 		return claudeSubAttachSession(ctx, pool, req, a, !owner)
 	}

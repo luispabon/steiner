@@ -14,24 +14,9 @@ import (
 // measurements.
 func claudeSubRunMeasuredTurn(t *testing.T, pool *ClaudeSubscriptionPool, req ChatRequest) ChatChunk {
 	t.Helper()
-	stream, err := NewClaudeSubscriptionProvider(pool, nil).StreamChatCompletion(context.Background(), req)
+	final, err := claudeSubMeasuredTurnAsync(pool, req)
 	if err != nil {
-		t.Fatalf("StreamChatCompletion: %v", err)
-	}
-	var final ChatChunk
-	for chunk := range stream {
-		if chunk.Done {
-			final = chunk
-		}
-	}
-	if !final.Done {
-		t.Fatal("turn emitted no Done chunk")
-	}
-	if final.Error != "" {
-		t.Fatalf("turn failed: %s", final.Error)
-	}
-	if final.Diagnostics == nil || final.Diagnostics.ClaudeSub == nil {
-		t.Fatalf("terminal chunk diagnostics = %+v, want claude_subscription measurements", final.Diagnostics)
+		t.Fatal(err)
 	}
 	return final
 }

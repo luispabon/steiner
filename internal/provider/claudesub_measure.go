@@ -86,7 +86,7 @@ func (m *claudeSubCallMetrics) diagnostics() *CallDiagnostics {
 	if m == nil {
 		return nil
 	}
-	if m.process == "" && m.reseedReason == "" && m.usageGate == 0 && m.usageGatePolls == 0 && !m.usageProbeSpawned {
+	if *m == (claudeSubCallMetrics{}) {
 		return nil
 	}
 	return &CallDiagnostics{ClaudeSub: &ClaudeSubCallDiagnostics{
