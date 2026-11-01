@@ -1,114 +1,84 @@
-# Tool Sandboxing
+# Sandboxing and approvals
 
-Steiner uses Linux `bubblewrap` to sandbox tool execution and limit model-driven writes.
+Steiner runs subprocesses inside a Linux `bubblewrap` (`bwrap`) sandbox and checks file paths before tools touch them. When a call crosses one of these boundaries, Steiner asks you before going further. This page covers what the sandbox does, what triggers an approval prompt, and what approving does. Prompt keys are listed in [Interactive mode](interactive.md).
 
-## Overview and limits
+## What the sandbox covers
 
-By default, `bash` and subprocess tools run in a sandbox with a read-only view of the host filesystem and writable access limited to the workspace and sandbox state. The host filesystem remains readable, including credential files. Network access is shared with the host, so sandboxing is not a barrier against deliberate exfiltration or malicious code. The environment allowlist blocks inherited credential variables, but it does not block credential files on disk.
+Sandboxed:
 
-Bubblewrap runs with `--die-with-parent`, so sandboxed processes are killed if Steiner exits or crashes, and `--new-session`, so they cannot open the controlling terminal (`/dev/tty`) to inject input. Locally launched MCP stdio servers and LSP servers use the same wrapper and need no terminal.
+- `bash` commands
+- custom tools ([Tools](tools.md))
+- locally launched MCP stdio servers ([MCP](mcp.md))
+- language servers ([LSP](lsp.md))
 
-The sandbox fails closed: `bwrap` is resolved once at startup and executed by absolute path. If sandboxing is enabled and `bwrap` cannot be resolved, commands are refused with an error rather than run unwrapped. Use `--unsafe` to run without a sandbox deliberately.
+Not sandboxed:
 
-Sandboxed `/tmp` is a session-scoped directory under `.steiner/tmp/sandbox-tmp/<id>/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, or process exit. Searches of `/tmp` are filtered against the virtual `/tmp` paths, so workspace-relative exclusion entries for the storage directory do not hide them, while a search of the storage directory itself is filtered as a workspace path. See [Configuration](configuration.md#paths-block).
+- the built-in file tools (`read`, `mutate`, `glob`, `grep`, `ls`, `display_file`), which enforce path policy inside Steiner
+- `fetch_url` and `web_search`
+- remote HTTP MCP servers, which run on someone else's infrastructure
 
-For SSH client-only commands, Steiner can create an ephemeral system-config overlay. Dynamic includes may be skipped. If OpenSSH still rejects the config, Steiner can ask to rerun outside the sandbox.
+## What the sandbox is not
 
-Built-in Go tools (`read`, `mutate`, `glob`, `grep`, `ls`) are not sandboxed; they enforce path policy in-process. Locally launched MCP stdio servers are sandbox-wrapped. Remote HTTP servers run on their operator's infrastructure and are not affected.
+The sandbox limits accidental and model-driven writes. It is not a confidentiality boundary:
 
-## Standard and unsafe mode
+- The whole host filesystem stays readable, including credential files such as `~/.ssh` and `~/.aws`.
+- Network access is shared with the host, so a sandboxed command can send anything it can read.
+- The environment allowlist keeps credential variables out, but not credential files on disk.
 
-Standard mode is the default:
+Treat it as protection against mistakes, not against deliberately malicious code.
 
-```bash
-steiner
-```
+## Platform support and fallback
 
-Bash and subprocess tools run in the sandbox. A boundary violation prompts:
+The sandbox works on Linux with `bwrap` on `PATH`. Install it with `sudo apt-get install bubblewrap`, `sudo dnf install bubblewrap`, or `apk add bubblewrap`.
 
-- **Allow for this session**: add a writable host mount and retry.
-- **Use --unsafe**: rerun without sandboxing.
-- **Cancel**: abort the command.
+**If the sandbox is unavailable, Steiner does not refuse to run.** On macOS or Windows, or on Linux when `bwrap` is missing or cannot create a namespace, Steiner starts with the sandbox unavailable and runs `bash`, custom tools, MCP stdio servers, and language servers directly on the host. It shows a warning that tools run unsandboxed. Setting `sandbox.warning_on_unsupported_platform: false` hides that warning. On Windows, use WSL2 or a Linux VM to get the sandbox.
 
-Unsafe mode disables the sandbox for the session:
+Path policy for the built-in file tools, plan-mode `mutate` limits, and MCP approval still apply without the sandbox.
+
+## Turning the sandbox off
 
 ```bash
 steiner --unsafe
 ```
 
-Use it when a tool needs paths outside the workspace or to isolate a sandbox issue. It removes the primary protection and runs commands directly on the host. There are no boundary prompts in unsafe mode. `--unsafe` is independent of [project config trust](configuration.md#project-trust): it never affects, and is never affected by, the trust dialog.
+`--unsafe`, or `sandbox.enabled: false` in config, runs subprocesses directly on the host for the whole session. Unless `sandbox.warning_on_unsupported_platform` is false, Steiner shows a warning naming the source: `--unsafe`, the project config, or the global config. Without the sandbox there are no sandbox denial prompts. `--unsafe` is independent of project trust (see [Configuration](configuration.md)).
 
-The sandbox-bypass startup warning names its source — `--unsafe`, `sandbox.enabled=false` in the project config, or `sandbox.enabled=false` in the global config — rather than a single generic message.
+## Filesystem inside the sandbox
 
-## Platform requirements
+- The host root is mounted read-only. Paths keep their host locations.
+- The project root is writable in build mode.
+- `/tmp` is a session directory under `.steiner/tmp/sandbox-tmp/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, and exit.
+- The sandbox home, `.steiner/home/`, holds tool state and persists across sessions. Delete it to reset.
+- When `~/.cache` exists, a private cache (`.steiner/home/cache/`) is mounted in its place, so sandboxed tools cannot poison the cache used by unsandboxed runs. The first builds are slower. Set `sandbox.bind_host_cache: true` to share the real cache read-write.
+- `/dev` is minimal and `/proc` is fresh.
+- Docker sockets are masked and `DOCKER_HOST` is unset unless `permissions.docker: true`. Docker access is equivalent to root on the host, so only enable it when you mean to. A `docker context` that uses `ssh://` is not covered.
+- MCP stdio servers and language servers always see the project read-only, with the same writable exceptions as plan mode below.
 
-Linux with bubblewrap (`bwrap`) in `$PATH` is supported. Install it with `sudo apt-get install bubblewrap`, `sudo dnf install bubblewrap`, or `apk add bubblewrap` as appropriate.
-
-macOS and Windows do not support sandboxing. Steiner disables it automatically and reports sandbox status `unavailable`; tools use a graceful unsandboxed fallback. Use WSL2 or a Linux VM on Windows. The unsupported-platform warning can be disabled with `sandbox.warning_on_unsupported_platform`.
-
-## Configuration
-
-The entire host filesystem is visible read-only. `sandbox.host_mounts` grants extra paths, with `ro` as the default and `rw` for writes:
+`sandbox.host_mounts` mounts extra paths. Everything is already readable, so use them for writable access outside the project:
 
 ```yaml
 sandbox:
   host_mounts:
     - path: /var/log
-      mode: rw
-    - path: /opt/tools
-      mode: rw
+      mode: rw    # default is ro
 ```
 
-Mounts keep their host paths and are present at startup. All paths are already readable; use mounts for writable access outside the workspace.
+See the [`sandbox` block](configuration.md#sandbox-block) and [`permissions` block](configuration.md#permissions-block).
 
-The sandbox home is `.steiner/home/`, used for isolated tool caches and state. It persists across sessions and is ignored by git. Remove it with `rm -rf .steiner/home/` when a reset is needed.
+### Plan mode
 
-### Cache directory
+In plan mode, sandboxed `bash` and custom tools see the project read-only, except:
 
-When `~/.cache` exists on the host, the sandbox mounts a private cache directory (`.steiner/home/cache/`) at that path instead of the real one. Tools such as Go, pip, and uv still get a writable cache, but anything they write cannot poison the host cache used by later unsandboxed runs. The private cache starts empty, so first builds are slower. To share the real cache read-write, opt in:
+- `.steiner/plans/` and `.steiner/security/`, only when they are real directories inside the project and not symlinks
+- `.git`, and for a linked worktree its git directory and the shared repository directory, so plan-mode `bash` can stage, commit, and create branches
 
-```yaml
-sandbox:
-  bind_host_cache: true
-```
+A symlinked `.steiner`, sandbox home, or sandbox `/tmp` is rejected rather than mounted writable. Steiner still writes saved bash output under `.steiner/tmp/bash-output/` itself, but sandboxed commands cannot write there in plan mode.
 
-## Mount layout
-
-The host root is read-only. The workspace and sandbox home are writable according to policy, `/dev` is minimal, `/proc` is fresh, and session temporary files are mounted at `/tmp`. Host paths keep their original locations. `sandbox.host_mounts` adds paths at their existing locations. In plan mode, `.steiner/plans/` and `.steiner/security/` are bound writable only when they are real directories under the workspace; symlinked or invalid plan directories are left unbound. Symlinked `.steiner`, sandbox home, or sandbox temporary paths are rejected rather than created, removed, or bound writable.
-
-## Bash output artifacts
-
-When bash output is cut, Steiner saves the full output to `.steiner/tmp/bash-output/` in the project or worktree. Steiner writes these files itself, outside the sandboxed command. They hold the full command output and may contain secrets, tokens, or file contents the command printed. On Unix the directory is 0700 and each file is 0600.
-
-The artifacts sit in the workspace, so commands that can write the workspace can also read or change them. Do not treat them as tamper-evident.
-
-Retention is shared with fetched files in `.steiner/tmp/fetched/`. At startup, files older than 7 days are removed, and the combined size is kept within a 250 MiB soft budget. See [Bash output](tools.md#artifact-retention-and-privacy).
+Without a working sandbox, plan-mode `bash` and custom tools can write anywhere your user can, so plan mode is not a filesystem guarantee in that state. See [Execution modes](execution-modes.md).
 
 ## Environment variables
 
-Only variables on the built-in allowlist pass from the host. It includes common path, locale, proxy, TLS, Go, Rust, Node, Python, Java, XDG, and terminal variables. Credential-shaped variables are not included. `HOME` is passed through, but the sandbox home is available for tool state.
-
-Extend the list with `env_passthrough`; a trailing `*` is a prefix match. Or set `env_passthrough_all: true` to pass the entire host environment, including credentials. This removes the credential barrier and emits a warning when sandboxing is enabled.
-
-```yaml
-sandbox:
-  env_passthrough: ["MYAPP_*", "SOME_TOOL_TOKEN"]
-  env_passthrough_all: false
-```
-
-Server variables under `mcp.servers.<name>.env` are declared configuration and bypass inherited-host filtering.
-
-## Sandbox boundary prompts
-
-When a sandboxed tool attempts to write outside the workspace, Steiner prompts for a decision. Reading outside the workspace succeeds through the read-only root.
-
-- **Allow for this session** adds a writable mount for the current session and retries inside the sandbox. It is not persisted.
-- **Use --unsafe** disables sandboxing for the rest of the session, runs the command on the host, and shows a session banner.
-- **Cancel** aborts the current execution.
-
-Configured host mounts avoid these prompts. Unsafe mode never shows them.
-
-### Allowed variables
+Sandboxed processes receive only allowlisted host variables:
 
 | Group | Variables |
 |-------|-----------|
@@ -123,25 +93,60 @@ Configured host mounts avoid these prompts. Unsafe mode never shows them.
 | XDG | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME` |
 | Terminal | `COLORTERM`, `NO_COLOR`, `TERM_PROGRAM` |
 
-Nothing credential-shaped is on the built-in list. For example, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_PRIVATE_TOKEN`, `DOCKER_CONFIG`, `KUBECONFIG`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are blocked because they are not listed.
-
-## Docker permission
-
-Docker access is denied by default:
+Everything else is dropped, including tokens such as `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. To pass a variable through, add its name to `sandbox.env_passthrough`; a trailing `*` matches a prefix:
 
 ```yaml
-permissions:
-  docker: true
+sandbox:
+  env_passthrough: ["MYAPP_*", "SOME_TOOL_TOKEN"]
 ```
 
-With `false`, reachable Docker sockets are masked and `DOCKER_HOST` is unset. Set `true` only when host-root-equivalent Docker daemon access is intended. A `docker context` using `ssh://` is not covered by this control.
+`sandbox.env_passthrough_all: true` passes the entire host environment, credentials included. Steiner warns at startup whenever it is set with the sandbox enabled.
+
+Variables under `mcp.servers.<name>.env` are passed to that MCP server without filtering. Language server `env` values pass through the sandbox filter; see [LSP](lsp.md).
+
+## Approval prompts
+
+Steiner asks for approval in three cases:
+
+| Trigger | What approving does |
+|---------|---------------------|
+| A sandboxed `bash` command exits nonzero with `Permission denied` or `Operation not permitted` in its output | Runs the same command again **without the sandbox**, directly on the host |
+| `mutate` targets a path outside the project root, or `bash` gets a `cwd` outside it, while `paths.project_root_only` is on | Lets that call skip the project-root check; `paths.blocked_paths` and `paths.writable_paths` still apply |
+| An MCP tool on a server with approval `ask` | Calls the tool; see [MCP](mcp.md) |
+
+Approving a sandbox denial does not add a writable mount: the retry runs unsandboxed with full host access. In plan mode, and for sub-agents limited to a read-only project, the retry stays in the read-only sandbox instead.
+
+If OpenSSH rejects a config file inside the sandbox (`Bad owner or permissions on ...`), Steiner prompts the same way. Approving reruns the command outside the sandbox.
+
+Denying a sandbox denial returns the original result to the model with a hint to add a `sandbox.host_mounts` entry or use `--unsafe`. Path violations that are not about the project root, such as `paths.blocked_paths`, `paths.writable_paths`, or plan-mode write limits, are denied without a prompt.
+
+### Choices and their scope
+
+The interactive prompt offers **Allow once**, **Allowed for session**, and **Deny**. Approving a path request relaxes the project-root policy, not the sandbox's writable mounts.
+
+- **Allow once** approves this call only.
+- **Allowed for session** approves this call and every later prompt of the same kind until Steiner exits. For `bash` and `mutate` the grant covers the whole tool: after allowing a sandbox denial for the session, later `bash` denials retry unsandboxed without asking. For MCP the grant covers one server's tool.
+- Grants live in memory only. They are never written to disk and end when Steiner exits.
+
+### Non-interactive runs
+
+- `steiner --exec` reads the answer from the terminal (`/dev/tty`) when one is available, otherwise from stdin. `y` or `yes` approves; anything else, or no input, denies. Each prompt is answered separately.
+- [Oneshot](oneshot.md) runs approve `mutate` path prompts inside the run's worktree automatically and deny every other prompt.
+- MCP `ask` tools use the same approval input in `--exec`. Oneshot denies calls that require approval. See [MCP](mcp.md).
+
+### Avoiding prompts
+
+There is no per-tool approval setting. To change what prompts, use:
+
+- `sandbox.host_mounts` with `mode: rw` for paths commands need to write
+- `paths.project_root_only`, `paths.writable_paths`, and `paths.blocked_paths` for `mutate` and `bash` working directories ([`paths` block](configuration.md#paths-block))
+- `permissions.docker` for Docker access
+- `mcp.servers.<name>.approval` and `trust_annotations` for MCP tools
 
 ## Troubleshooting
 
-A write outside the workspace fails unless a configured or session-approved writable mount covers it. Reading outside the workspace succeeds through the read-only root. To isolate a problem, check the target and permissions, inspect mounts from inside the sandbox, try `--unsafe`, and verify from the host that `which bwrap` and `bwrap --version` work.
-
-Running `bwrap` inside a sandbox is a nested namespace attempt and can fail even when the host supports sandboxing. Verify with `bwrap --ro-bind / / true` in a host terminal. Inside a session, `cat /proc/1/comm` should print `bwrap`, and `cat /proc/self/uid_map` shows a user-namespace mapping. If startup reports `unavailable`, bwrap is missing or its namespace probe failed.
-
-If `ssh -G` reports `Bad owner or permissions on /etc/ssh/ssh_config.d/...`, OpenSSH rejected an included config visible in the sandbox. Steiner treats this as a compatibility failure and can prompt to rerun outside.
-
-For executor and mount resolution, nested namespace diagnosis, and deferred V2 work, see [Sandboxing internals](../internals/sandboxing.md).
+- **A write outside the project fails**: add a writable `sandbox.host_mounts` entry, or approve the retry if running it unsandboxed is acceptable.
+- **Startup says the sandbox is unavailable on Linux**: check `which bwrap` and `bwrap --version`, then `bwrap --ro-bind / / true` in a host terminal. Some containers and hardened kernels block the user namespaces bwrap needs.
+- **Nested sandboxes**: running Steiner, or `bwrap`, inside a sandboxed command can fail even when the host supports it.
+- **A tool cannot find a credential**: the variable is probably not on the allowlist. Add it to `sandbox.env_passthrough`.
+- **To check whether the sandbox is the cause**, run once with `--unsafe`.

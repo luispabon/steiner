@@ -117,7 +117,7 @@ Go version: `1.26`.
 
 * Never hardcode or commit provider credentials.
 * Treat `--log-file` and `STEINER_LOG_FILE` as sensitive; they may capture prompts/tool output.
-* Default local provider URL: `http://localhost:11434/v1`.
+* Ollama requires an explicit `base_url`, such as `http://localhost:11434/v1`.
 
 ## Documentation maintenance
 
@@ -126,25 +126,26 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | Change | Update |
 |---|---|
 | `internal/tool`: add/remove/rename a built-in tool | `user/tools.md`; allowlist tables in `user/sub-agent-delegation.md` if the tool appears there |
-| `internal/config`: add/change/remove a field | `user/configuration.md` field entry (defaults are listed inline); compact reference in `skills/configure/SKILL.md`; prompt-injection toggles also `user/optional-features.md` |
+| `internal/config`: add/change/remove a field | `user/configuration.md` field entry (defaults are listed inline); compact reference in `skills/configure/SKILL.md`; prompt-injection toggles also `user/configuration.md` |
 | `internal/config` load/merge/validation pipeline; model metadata resolution (`internal/metadata`, `internal/modelcatalog`, provider fact sources) | `internals/configuration.md`; `user/configuration.md` if user-visible precedence or behaviour changed |
 | Project trust: `internal/config/{trust_store,project_diff*,security_fields}.go`, `cmd/steiner/project_trust.go`, `internal/tui/trust_dialog*.go` | both `configuration.md` "Project trust" (user page incl. the security-relevant field list when `securityFieldPatterns` changes) |
 | `internal/delegation`: sub-agent type or tool allowlist | `user/sub-agent-delegation.md` types and allowlist tables; `internals/sub-agent-delegation.md` if architecture, bootstrapping, or tool construction changed |
 | `internal/prompt`, `internal/agent`: assembly, compaction, budgets, token estimation, context management | both `context-management.md` |
-| `internal/provider`: cache hints, `PromptCacheKey` assignment, cache identity | `internals/prompt-caching.md`; `user/cache-stats.md` if user-visible |
-| `internal/usagestats`: recorder, bucketing, persistence, retention, windows, surfacing | `user/cache-stats.md`; `internals/prompt-caching.md` |
+| `internal/provider`: cache hints, `PromptCacheKey` assignment, cache identity | `internals/prompt-caching.md`; `user/usage.md` if user-visible |
+| `internal/usagestats`: recorder, bucketing, persistence, retention, windows, surfacing | `user/usage.md`; `internals/prompt-caching.md` |
 | `internal/oneshot`: engine, phases, manifest, lock/resume, closeout, reports | both `oneshot.md`; config fields also `user/configuration.md` |
 | Execution modes: plan/build enforcement, mode switching, `modes.default` | both `execution-modes.md`; `user/sub-agent-delegation.md` "Safety" if the `code`/`follow_up` denial scope changed |
 | `internal/mcp`: manager, transport, naming, approval, tooldefs | both `mcp.md`; config fields also `user/configuration.md` |
 | `internal/lsp`: server types, config, tools, server lifecycle | both `lsp.md` (user page holds server setup examples); config fields also `user/configuration.md`; tool availability also `user/sub-agent-delegation.md` allowlists |
 | `internal/diagnostics`: envelope, streams, writer/rotation/retention | `user/configuration.md` "`diagnostics` block"; `internals/diagnostics.md`; `skills/configure/SKILL.md` |
 | `internal/notify`: platform driver or Service behaviour | both `desktop-notifications.md` (internals if driver interface, extension points, lifecycle, or error handling changed) |
-| `internal/oauth`: flow, token store, refresh, PKCE | `user/optional-features.md` "Codex OAuth" if setup or token storage changed; `user/configuration.md` "Provider types" if auth behaviour changed |
-| Optional features: accent colour, web search, image paste, conversation forking, code simplification | that section of `user/optional-features.md` |
-| `claude_subscription` provider | both `claude-subscription.md`; `user/provider-and-model-setup.md`, `user/configuration.md`, `user/model-enumeration.md` references; `index.md` links |
-| `internal/quota`, provider `quota_*` fetchers | both `usage-dashboard.md` |
+| `internal/oauth`: flow, token store, refresh, PKCE | `user/provider-and-model-setup.md` "Codex (ChatGPT sign-in)" if setup or token storage changed; `user/configuration.md` "Provider types" if auth behaviour changed |
+| Optional features: accent colour, web search, image paste, conversation forking, code simplification | `user/interactive.md` for accent colour, image paste and conversation forking; `user/tools.md` for web search; `user/skills.md` for code simplification |
+| `claude_subscription` provider | both `claude-subscription.md`; `user/provider-and-model-setup.md`, `user/configuration.md` references; `index.md` links |
+| `internal/quota`, provider `quota_*` fetchers | `user/usage.md`; `internals/usage-dashboard.md` |
 | `internal/sandbox`: mounts, env, wrapper resolution | both `sandboxing.md` |
 | `internal/advisor`: request flow, budgets, cache profile | both `advisor.md` |
+| `internal/skill`, bundled skills: discovery, invocation, or configuration | `user/skills.md` |
 | `skills/security-audit/SKILL.md`: workflow, lenses, verdicts, report format, invocation | `user/security-audit.md` |
 | Package boundaries, entry points, turn lifecycle, provider/tool/session/TUI architecture | `internals/architecture.md` |
 | New feature or new `internal/` package | a docs page if it warrants detail, linked from `index.md`; a new package also gets a Repo map entry and a row here |

@@ -37,7 +37,7 @@ Additional flags:
 
 The child environment strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, and `CLAUDE_CODE_ENTRYPOINT`. These values override inherited ones: `CLAUDE_CODE_DISABLE_FAST_MODE=1`, `CLAUDE_CODE_RETRY_WATCHDOG=1`, `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `CLAUDE_CODE_SILENT_TURN_REMINDER=0`, `CLAUDE_CODE_TOTAL_TOKENS_REMINDER=off`, `CLAUDE_CODE_TODO_REMINDER_MODE=off`, and `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`. `MAX_MCP_OUTPUT_TOKENS` is set to a bounded value.
 
-The CLI still injects account and environment context that these switches do not remove. See [Context the CLI adds](../user/claude-subscription.md#context-the-cli-adds).
+The CLI still injects account and environment context that these switches do not remove. See [Privacy](../user/claude-subscription.md#privacy).
 
 ## Loopback MCP host
 

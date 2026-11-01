@@ -1,50 +1,36 @@
 # Execution modes
 
-Interactive sessions run in one of two execution modes: `plan` or `build`. The mode controls whether the agent may write to the project and delegate mutating work.
+Interactive sessions run in one of two execution modes, `plan` or `build`. The mode controls whether the agent may write to the project and dispatch sub-agents that edit files.
 
-For prompt-prefix, executor, child propagation, and session restoration mechanics, see [Execution modes internals](../internals/execution-modes.md).
+Execution modes apply to interactive sessions only. There is no `--mode` flag, and `steiner oneshot` and `--exec` runs are not affected. `--profile` selects model assignments and is unrelated to the execution mode.
 
-## Mode semantics
+## Modes
 
-- **`build`**: the default mode. Normal workspace editing: `mutate`, `bash`, and the `code` and `documentor` sub-agent tools are available without restriction.
-- **`plan`**: project edits are restricted. Writes outside `.steiner/plans/` and `.steiner/security/` are denied; plan artifacts go under `.steiner/plans/` and security-audit reports under `.steiner/security/`. Plan-mode tool writes cannot traverse symlinks outside approved directories, and a symlink used as an approved directory is denied. Plan mode also serves as chat and Q&A mode.
-
-There is no third `chat` mode and no auto-detection. There is no `--mode` CLI flag; execution modes apply to interactive sessions only. Oneshot and non-interactive `exec` runs are unaffected. Use `--profile <name>` to select model assignments; it is separate from execution-mode selection.
+- **`build`**: the default. Normal workspace editing. `mutate`, `bash`, and the `code` and `documentor` sub-agents are available. Writes still go through the usual path policy, sandbox, and approval checks; see [Sandboxing](sandboxing.md).
+- **`plan`**: project edits are restricted. Writes are allowed only under `.steiner/plans/` (plan artifacts) and `.steiner/security/` (security audit reports). Use plan mode for planning, questions, and discussion.
 
 ## Switching modes
 
-- **Shift+Tab** toggles between `plan` and `build` in the TUI. Open overlays take priority over the toggle.
-- **`/mode`** with no argument toggles the mode. `/mode plan` or `/mode build` sets it explicitly. Invalid arguments report an error and leave the mode unchanged.
-- **`workflow_handoff` acceptance** switches the session to `build` mode. Structured `implement` and `review` targets require `overview.md` and `plan.yaml` and start their named workflow. The loose `build` target requires `plan.md` and executes that plan directly, even when skills are disabled.
-- **Direct skill invocation** switches to `plan` for `/plan` and to `build` for other skills, including `/implement`, `/review`, `/simplify`, and `/pull-request`. `/security-audit` leaves the current mode unchanged, since it reports on the existing state rather than editing.
+- **Shift+Tab** toggles between `plan` and `build`. Open overlays take the key first.
+- **`/mode`** toggles the mode. `/mode plan` or `/mode build` sets it. Any other argument reports an error and leaves the mode unchanged.
+- **Accepting a `workflow_handoff`** switches the session to `build`. The handoff clears the conversation, optionally switches model, then starts the next step: the `implement` and `review` targets run the matching skill on a plan folder containing `overview.md` and `plan.yaml`; the `build` target submits a prompt to implement the folder's `plan.md` directly.
+- **Invoking a skill** with `/<skill>` switches to `plan` for `/plan` and to `build` for every other skill, including custom ones. `/security-audit` leaves the mode unchanged. See [Skills](skills.md).
 
-Switching emits a status line and updates the footer badge and sidebar mode row. A restored session re-announces its mode on the next turn.
+The footer badge and sidebar show the current mode, and a status line confirms each switch. A restored session keeps its saved mode.
+
+Set the startup mode with `modes.default` (`plan` or `build`, default `build`). See [Configuration](configuration.md#modes-block).
 
 ## Enforcement matrix
 
-| Surface | `plan` mode, sandbox on | `plan` mode, sandbox off/unavailable | `build` mode |
-|---|---|---|---|
-| `mutate` and other path-writing tools | Denied outside `.steiner/plans/` and `.steiner/security/` | Denied outside `.steiner/plans/` and `.steiner/security/` | Allowed |
-| `bash` | Project read-only under bubblewrap, except `.steiner/plans/`, `.steiner/security/`, and `.git` | Unenforced | Allowed, sandboxed as normal |
-| Config-defined subprocess tools | Project read-only under bubblewrap | Unenforced | Allowed, sandboxed as normal |
-| MCP tools | Available; `allow` becomes `ask` | Available; `allow` becomes `ask` | Available |
-| `code` and `documentor` sub-agent tools | Denied | Denied | Allowed |
-| `review` sub-agent tool | Allowed | Allowed | Allowed |
-| `follow_up` targeting a `code` or `documentor` child | Denied | Denied | Allowed |
+| Surface | `plan` mode | `build` mode |
+|---|---|---|
+| `mutate` and other path-writing tools | Denied outside `.steiner/plans/` and `.steiner/security/` | Allowed, subject to path policy and approvals |
+| `bash` and config-defined subprocess tools | Project mounted read-only, except the plan-mode writable paths, when the sandbox is active; unrestricted without a sandbox | Allowed, sandboxed as normal |
+| MCP tools | Available; a server with approval `allow` asks instead | Available |
+| `code` and `documentor` sub-agents | Denied | Allowed |
+| `follow_up` to a `code` or `documentor` sub-agent | Denied | Allowed |
+| Other sub-agent types (`explore`, `review`, `evaluate`, and so on) | Allowed | Allowed |
 
-The `documentor` sub-agent is denied in plan mode for the same reason as `code`: it has `mutate`, even though its write scope limits that tool to documentation files.
+The `mutate` and sub-agent restrictions apply with or without a sandbox. The `bash` restriction needs a working sandbox: without one, plan-mode `bash` and subprocess tools can write anywhere the user can, so plan mode is not a filesystem guarantee. Even with the sandbox, plan-mode `bash` can still run git commands that commit or create branches. Treat plan mode as a guard against accidental edits, not as protection from a hostile prompt. See [Sandboxing](sandboxing.md) for the mounts.
 
-The `mutate` and sub-agent restrictions do not depend on bubblewrap. Without a working sandbox, plan-mode `bash` and subprocess tools can write through direct filesystem access, so plan mode is not a filesystem guarantee in that state.
-
-With a working sandbox, the project stays read-only except `.steiner/plans/`, `.steiner/security/`, and `.git`. Plan-mode `bash` can stage, commit, and create branches, so treat it as trusted rather than as protection from malicious prompts.
-
-Plan mode still lets Steiner write its private bash output cache under `.steiner/tmp/bash-output/`. Steiner creates those files itself, outside the sandboxed command. Sandboxed commands cannot write there in plan mode, because the project is mounted read-only and that path is not one of the plan-mode writable paths. See [Bash output](tools.md#bash-output).
-
-## Configuration
-
-```yaml
-modes:
-  default: build
-```
-
-`modes.default` accepts `plan` or `build` and defaults to `build`. See [Configuration](configuration.md#modes-block) for the full field reference.
+The `documentor` sub-agent is denied in plan mode because it has `mutate`, even though its writes are limited to documentation files.

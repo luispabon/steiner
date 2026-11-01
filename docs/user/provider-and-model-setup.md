@@ -1,16 +1,14 @@
 # Provider and model setup
 
-## The model reference contract
+A provider is a connection you declare under `providers`. A model reference picks a model through one of those providers. This page covers setup recipes, model references, aliases, profiles, model selection, and model discovery. For every provider field, type, and default, see the [`providers` block](configuration.md#providers-block) and the [`models` block](configuration.md#models-block).
 
-`providers.<name>` configures a connection. A model reference selects a model through that configured provider:
+## Model references
 
-- `providers.<name>` must exist. The provider name is the key you chose under `providers`, not a display name.
-- `<name>/<model-id>` is the normal model reference. Model IDs may contain slashes, for example `openrouter/openai/gpt-4o`.
-- `models.definitions` is optional. Its keys are aliases for model definitions that need a shorter or stable name, or persistent `ModelConfig` settings.
+- `<provider>/<model-id>` is the normal reference. `<provider>` is the key you chose under `providers`, not a display name or the provider type.
+- Model IDs may contain slashes, for example `openrouter/openai/gpt-4o`. Steiner matches the longest configured provider key that prefixes the reference.
+- An exact alias from `models.definitions` wins over prefix parsing.
 
-Raw references work in `models.profiles` role assignments (`default_model`, `advisor`, `sub_agents`, `oneshot`, and `workflow_handoff`), `--model`, `STEINER_MODEL`, and `/model`. Raw references carry only provider and model ID. They cannot persist settings such as reasoning, request parameters, retry policy, prompts, transport, or limits. Use an alias when one of those settings belongs to a model.
-
-An exact configured alias takes precedence over raw parsing. Otherwise Steiner chooses the longest configured provider prefix, so model IDs can contain slashes.
+Raw references work everywhere a model is chosen: profile roles, `--model`, `STEINER_MODEL`, `/model`, and `steiner model inspect`. A raw reference carries only the provider and model ID. Use an [alias](#aliases) when a model needs stored settings such as reasoning effort, request parameters, retry policy, prompts, transport, or limits.
 
 ## Local providers
 
@@ -22,7 +20,7 @@ Start a model in Ollama:
 ollama run qwen2.5-coder:14b
 ```
 
-Configure the provider and raw model reference in `.steiner/config.yaml`:
+Configure the provider in `.steiner/config.yaml`. Ollama has no default base URL, so set it explicitly:
 
 ```yaml
 providers:
@@ -36,11 +34,11 @@ models:
       default_model: ollama/qwen2.5-coder:14b
 ```
 
-The Ollama provider uses the OpenAI-compatible API at the configured `/v1` base URL. Replace the model ID with one available in your Ollama installation.
+Steiner uses Ollama's OpenAI-compatible API at the `/v1` base URL. Replace the model ID with one installed in your Ollama.
 
 ### LM Studio
 
-Start LM Studio's local server, load a model, and use the model ID reported by that server:
+Start LM Studio's local server, load a model, and use the model ID the server reports:
 
 ```yaml
 providers:
@@ -56,7 +54,7 @@ models:
 
 ## Cloud providers
 
-Keep API keys out of the config file. `api_key_env` is the name of an environment variable. Export that variable before running Steiner.
+Keep API keys out of config files. `api_key_env` names an environment variable that holds the key; export it before running Steiner. The variable name is your choice. `export` lasts for the current shell only, so use your normal secret management to persist it.
 
 ### OpenAI
 
@@ -78,6 +76,8 @@ models:
 
 ### Anthropic
 
+The `anthropic` type has no default base URL. Set `base_url` to the API root that includes `/v1`; Steiner appends `/messages` for requests and `/models` for discovery. The key is sent as the `x-api-key` header.
+
 ```bash
 export ANTHROPIC_API_KEY='your-key'
 ```
@@ -86,6 +86,7 @@ export ANTHROPIC_API_KEY='your-key'
 providers:
   anthropic:
     type: anthropic
+    base_url: https://api.anthropic.com/v1
     api_key_env: ANTHROPIC_API_KEY
 
 models:
@@ -112,15 +113,63 @@ models:
       default_model: openrouter/<provider-model-id>
 ```
 
-OpenRouter model IDs commonly contain a slash, such as `openai/gpt-4o`, so the complete reference can be `openrouter/openai/gpt-4o`.
+OpenRouter model IDs usually contain a slash, so a complete reference looks like `openrouter/openai/gpt-4o`.
 
-## Claude subscription
+### OpenCode Go and Zen
 
-For the unofficial Claude subscription provider, see [Claude subscription](claude-subscription.md) for setup, account requirements, safety gates, privacy, and limitations. The provider type is `claude_subscription`; its model references use the full IDs reported by the signed-in `claude` CLI.
+Sign in at https://opencode.ai, generate an API key, and export it:
 
-## OpenAI-compatible gateways
+```bash
+export OPENCODE_API_KEY='your-opencode-key'
+```
 
-Use `openai_compat` for a server that exposes the OpenAI-compatible chat-completions shape. Set the URL and key requirements for that server:
+```yaml
+providers:
+  opencode-go:
+    type: opencode_go
+    api_key_env: OPENCODE_API_KEY
+
+models:
+  profiles:
+    default:
+      default_model: opencode-go/<model-id>
+```
+
+OpenCode Zen uses the same shape with `type: opencode_zen`, for example a provider key `opencode-zen` and references like `opencode-zen/<model-id>`. Both types have built-in default base URLs. Model IDs come from OpenCode: run `steiner models refresh`, then pick one with `/model`.
+
+### Codex (ChatGPT sign-in)
+
+The `codex` type uses your OpenAI account through OAuth instead of an API key. Sign in, then check the stored login:
+
+```bash
+steiner login codex
+steiner login codex status
+```
+
+`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for the browser sign-in. `--debug-url` prints the authorisation URL before opening the browser, which helps when the browser does not open. `steiner login codex status` prints the token expiry and `valid` or `needs refresh`, or tells you to run `steiner login codex`. Steiner refreshes the token automatically when it is close to expiry; if a refresh fails, run `steiner login codex` again.
+
+```yaml
+providers:
+  codex:
+    type: codex
+
+models:
+  profiles:
+    default:
+      default_model: codex/<codex-model-id>
+```
+
+Codex ignores `api_key` and `api_key_env`; it always uses the stored sign-in. Without one, Steiner stops and tells you to run `steiner login codex`. The available model IDs depend on your account: run `steiner models refresh`, then use `/model` to see them. For the HTTP or WebSocket transport choice, see the [`providers` block](configuration.md#providers-block).
+
+### Claude subscription
+
+The `claude_subscription` type runs your signed-in `claude` CLI. See [Claude subscription](claude-subscription.md) for requirements, setup, the extra usage safety gate, privacy, and limitations.
+
+## Gateways
+
+### OpenAI-compatible endpoints
+
+Use `openai_compat` for any server that exposes the OpenAI-compatible chat-completions API. `base_url` is required; omit `api_key_env` when the endpoint needs no key.
 
 ```yaml
 providers:
@@ -135,13 +184,9 @@ models:
       default_model: gateway/<model-id>
 ```
 
-Omit `api_key_env` when the endpoint needs no key. A user-provided Gemini-compatible endpoint, if it exposes the supported OpenAI-compatible shape, is configured the same way with `type: openai_compat`; this does not make every Gemini endpoint compatible. Native `type: gemini` is not runtime-supported.
-
-Generic gateway types (`openai_compat`, `ollama`, `litellm`) have no fixed models.dev provider identity. Explicit model limits win first, then the cached provider catalog where applicable, then a live Ollama probe supplies context when unresolved, then merged models.dev data, then a conservative fallback. Unless `advanced.limits` is set explicitly, steiner takes the most conservative context window and max output tokens found for the model across every models.dev provider that lists it.
+A Gemini-compatible endpoint works this way only if it exposes that API shape. Config validation accepts `type: gemini`, but Steiner cannot run it.
 
 ### LiteLLM
-
-LiteLLM has its own provider type:
 
 ```yaml
 providers:
@@ -156,118 +201,13 @@ models:
       default_model: litellm/<model-id>
 ```
 
-## OpenCode
+Generic types (`openai_compat`, `ollama`, `litellm`) front arbitrary backends, so Steiner cannot always tell which model sits behind an ID. When it cannot, it uses conservative context and output limits. If you know the real limits, set them on an [alias](#aliases) with `advanced.limits`.
 
-Steiner connects to OpenCode's Go and Zen gateways using an API key from your OpenCode account.
+## Aliases
 
-1. Sign in to your account at https://opencode.ai.
-2. Generate an API key
-3. Export it in your shell and reference that variable from Steiner:
-
-```bash
-export OPENCODE_API_KEY='your-opencode-key'
-```
+An alias under `models.definitions` gives a model a short or stable name, or stores settings a raw reference cannot carry. Aliases are optional:
 
 ```yaml
-providers:
-  opencode-go:
-    type: opencode_go
-    api_key_env: OPENCODE_API_KEY
-
-    # Alternatively
-    # api_key: ${OPENCODE_API_KEY}
-
-models:
-  profiles:
-    default:
-      default_model: opencode-go/<model-id>
-```
-
-The variable name is yours to choose; it only has to match `api_key_env`. `export`
-lasts for the current shell only, so use your shell's normal secret management
-for persistence, and prefer `api_key_env` over putting the key in `api_key`.
-
-OpenCode Zen is the same shape with `type: opencode_zen`; use whatever provider
-key you configure (for example `opencode-zen`), giving a reference like
-`opencode-zen/<model-id>`.
-
-### Finding model IDs
-
-Model IDs come from OpenCode, not Steiner. Run `steiner models refresh` to
-enumerate OpenCode's models, then start `steiner` and pick one with `/model`; the
-chooser lists entries as `opencode-go/<model-id>`.
-
-## Codex OAuth
-
-Codex uses your OpenAI account through OAuth and does not use an API key. It always uses the fixed OAuth Responses transport; configured base URLs do not change that transport or its catalog fingerprint.
-
-Log in and check the login status:
-
-```bash
-steiner login codex
-steiner login codex status
-```
-
-`steiner login codex` opens your browser to authenticate and saves the resulting
-token to `~/.config/steiner/codex_auth.json`. It waits `--timeout` (default
-`120s`) for you to finish, and `--debug-url` prints the authorization URL before
-the browser is opened. `steiner login codex status` reports the stored token's
-expiry as `valid` or `needs refresh`, or tells you to run `steiner login codex`.
-
-Steiner caches the stored token in-process and reuses it until the token file
-changes or disappears, or until the token is expired or within five minutes of
-expiry. The last case is refreshed before use even though the file itself is
-unchanged, and a token file that records no expiry is used as stored. Concurrent
-callers in one process share a single refresh: the caller that starts it supplies
-the HTTP client used for the request, and the refresh stops after 30 seconds. On
-Unix, a refresh also takes an advisory lock on `codex_auth.json.lock` (mode
-`0600`), so a second Steiner process adopts the refreshed token instead of
-refreshing again. Windows, AIX, and other platforms without `flock`, and
-filesystems where `flock` is unavailable, have no cross-process exclusion: two
-processes can refresh at the same time, the last write wins, and the refresh
-token rotated by the other process stops working, which can require logging in
-again. If the refreshed token cannot be written, or the token file cannot be
-inspected before the write, the call that refreshed it reports the error and the
-process keeps using the refreshed token from memory; the write is retried at the
-next refresh. If it never succeeds, other Steiner processes still read the older
-token from disk, fail to refresh it, and report an authentication error until
-you run `steiner login codex` again. Steiner checks that the token file still
-exists before writing a refreshed token, so a removal that happens before that
-check is respected; a removal racing the write can still be overwritten.
-`steiner login codex` does not take the lock, so a login that writes while
-another process's refresh request is in flight (up to 30 seconds) can be
-replaced by that refresh's write.
-
-Configure the provider with `type: codex` and select the model with its raw
-reference:
-
-```yaml
-providers:
-  codex:
-    type: codex
-
-models:
-  profiles:
-    default:
-      default_model: codex/<codex-model-id>
-```
-
-`<codex-model-id>` is account-dependent; Steiner does not ship a fixed list. Run
-`steiner models refresh`, then start `steiner` and use `/model` to see the IDs your
-account can access (for example `codex/gpt-5-codex`). Do not add `api_key` or
-`api_key_env` for Codex. See [Optional features](optional-features.md#codex-oauth)
-for the short feature pointer.
-
-## Optional aliases
-
-Use an alias when it gives a model a shorter or stable name, or when it stores settings that a raw reference cannot carry. This is a valid reasoning configuration example:
-
-```yaml
-providers:
-  openai:
-    type: openai
-    api_key_env: OPENAI_API_KEY
-
 models:
   definitions:
     careful:
@@ -282,11 +222,16 @@ models:
       default_model: careful
 ```
 
-Here `careful` is useful because it persists the reasoning setting. Without that customization, use `openai/<model-id>` directly. Aliases are optional, not required for ordinary provider setup.
+Without the reasoning setting, `openai/<model-id>` would do the same job. For every alias field, see the [`models` block](configuration.md#models-block).
 
-## Profiles and selection precedence
+## Profiles
 
-Every declared profile must define `default_model`, including named profiles. Profiles are optional: without a `default` profile, no role assignments are selected, and the orchestrator model still comes from `--model`, `STEINER_MODEL`, or `/model`. A named profile does not inherit from `default`, and any role it omits falls back to its own `default_model`. A named profile without `default_model` fails config load. Selecting an undeclared profile, including `default`, is an error. For example:
+A profile under `models.profiles` assigns models to roles: `default_model`, `advisor`, `compaction_fallback`, `sub_agents`, `oneshot`, and `workflow_handoff`. Each role accepts an alias or a raw reference.
+
+- Every declared profile must set `default_model`. A profile without one fails to load.
+- Profiles are independent. A named profile does not inherit from `default`; a role it omits falls back to its own `default_model`.
+- Without a `default` profile, no roles are assigned unless you pick a profile, and the orchestrator model must come from `--model`, `STEINER_MODEL`, or `/model`.
+- Selecting an undeclared profile, including `default`, is an error.
 
 ```yaml
 models:
@@ -299,25 +244,84 @@ models:
       default_model: ollama/qwen2.5-coder:14b
 ```
 
-`local-only` has no `sub_agents.code` entry, so its `code` sub-agents use `ollama/qwen2.5-coder:14b`, not the OpenRouter model from `default`.
+`local-only` has no `sub_agents.code` entry, so its `code` sub-agents use `ollama/qwen2.5-coder:14b`, not the OpenRouter model from `default`. Select it at startup with `--profile local-only`.
 
-Select a profile at startup with `--profile local-only`.
+## Selection precedence
 
-For the active orchestrator at startup, selection precedence is:
+At startup, the active orchestrator model is chosen in this order, with later entries overriding earlier ones:
 
 1. The selected profile's `default_model`.
-2. `STEINER_MODEL`, when set to a valid raw reference or configured alias.
-3. `--model`, which overrides `STEINER_MODEL`.
+2. `STEINER_MODEL`, when it is a valid raw reference or configured alias.
+3. `--model`.
 
-The environment and CLI overrides affect the active orchestrator only. Advisor, sub-agent, oneshot, and workflow-handoff assignments still come from the selected profile. In interactive mode, `/model <provider>/<model-id>` changes the active orchestrator for the session. `/profile <name>` changes the profile used for future role assignments and fallback; it does not replace the current active orchestrator selection. In the TUI, `alt+m` opens a model picker and `alt+p` a profile picker. A model switch in a conversation that already has messages asks for confirmation first, because it invalidates the prompt cache.
+`STEINER_MODEL` and `--model` change only the active orchestrator. Advisor, sub-agent, compaction fallback, oneshot, and workflow-handoff assignments still come from the selected profile.
+
+During an interactive session:
+
+- `/model <reference>` switches the active orchestrator.
+- `/model` with no argument, or `alt+m`, opens the model picker. The picker can also set reasoning effort for models that support it.
+- `/profile <name>` changes the profile used for future role assignments. It does not change the active orchestrator.
+- `/profile` with no argument, or `alt+p`, opens the profile picker.
+
+Switching the model or its reasoning effort in a conversation that already has messages asks for confirmation first, because the switch invalidates the prompt cache. If a run is in progress, the switch applies to the next run. See [Interactive mode](interactive.md) for the full key and slash command reference.
+
+## Model discovery
+
+Steiner asks configured providers which models they offer and adds them to the model picker. Discovery is on by default. These provider types support it: `openai`, `openai_compat`, `litellm`, `opencode_go`, `opencode_zen`, `ollama`, `lmstudio`, `openrouter`, `anthropic`, `codex`, and `claude_subscription`. Support depends on the provider type, not on the key you gave the provider.
+
+- At startup, cached results load first. Providers with a missing or stale cache refresh in the background, and new entries appear in the picker as each provider answers. Steiner does not refresh again during the session.
+- A cached list stays fresh for seven days. Changing a provider's type or base URL invalidates its cache.
+- Discovered context windows, output limits, and reasoning efforts also feed model metadata. Settings on an alias still win.
+- The picker shows `<provider>/<alias>` for configured aliases and `<provider>/<model-id>` for discovered models. An alias hides the matching raw entry.
+- The picker ranks models by how often you have switched to them, then aliases before raw entries, then by name. Switch counts are keyed by provider key and backend model ID, so renaming an alias keeps its count.
+- Discovery never writes model definitions back to your config, and API keys are never written to the cache.
+
+To turn discovery off:
+
+```yaml
+models:
+  discovery_enabled: false
+```
+
+With discovery off, the picker shows configured aliases only, and discovered data is not used for model metadata. Raw references and switch counts still work.
+
+## Model metadata
+
+Steiner needs each model's context window, output limit, and reasoning support. It takes these from your alias settings first, then discovered provider data, then a live probe for Ollama, then [models.dev](https://models.dev) metadata, then conservative defaults. See the [`models` block](configuration.md#models-block) for the exact precedence.
+
+The models.dev data is cached for seven days. When the cache is stale, Steiner refreshes it as needed and keeps using the old copy if the refresh fails.
+
+## Cache commands
+
+| Command | What it does |
+| --- | --- |
+| `steiner models refresh` | Refresh discovered models for every configured provider. Prints `ok` or `failed` per provider; exits non-zero only when every provider fails. |
+| `steiner models status` | Print `fresh`, `stale`, or `missing` for each provider's discovery cache, without refreshing. |
+| `steiner model-metadata status` | Show the models.dev cache path, size, age, freshness, and model count. |
+| `steiner model-metadata refresh` | Download fresh models.dev metadata. |
+| `steiner model-metadata clear` | Delete the models.dev cache files. |
+| `steiner cache refresh` | Run `model-metadata refresh` and `models refresh` together. |
+| `steiner model inspect <reference>` | Show how an alias or raw reference resolves: provider, backend ID, transport, limits, and where each fact came from. |
+
+When discovery is off, `steiner models refresh` and `steiner models status` report that discovery is disabled. See the [CLI reference](cli.md) for flags.
+
+### Cache and state files
+
+These files live under `$XDG_CACHE_HOME` or `$XDG_STATE_HOME` when set, otherwise under the defaults shown. All can be deleted safely; Steiner rebuilds them.
+
+| Path | Contents |
+| --- | --- |
+| `~/.cache/steiner/provider-models/` | One discovery cache file per provider. |
+| `~/.cache/steiner/model-metadata/` | models.dev metadata. |
+| `~/.local/state/steiner/model-popularity.json` | Model switch counts used for picker ranking. |
 
 ## Verify a setup
 
-From the project containing `.steiner/config.yaml`:
+From the project that contains `.steiner/config.yaml`:
 
 ```bash
 steiner config
 steiner --model ollama/qwen2.5-coder:14b --exec "summarize this repository in one sentence"
 ```
 
-Start `steiner` for interactive mode, then use `/model ollama/qwen2.5-coder:14b` to switch the active orchestrator. Use `steiner model inspect <alias>` only for a configured alias.
+Then start `steiner` and use `/model` to confirm the models you expect are listed.

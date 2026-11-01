@@ -1,45 +1,63 @@
-# Oneshot Mode
+# Oneshot mode
 
-Oneshot is a headless autonomous orchestration mode that runs steiner's agent loop as three distinct phases: plan, implement, review. Each phase is a fresh agent run with empty model context against a dedicated git worktree that starts from `origin/main` when that ref exists and falls back to the repository's local `HEAD` when it does not. Results are committed to a feature branch, and optionally pushed as a pull request.
+Oneshot runs a task autonomously in three phases: plan, implement, review. Each phase is a fresh agent run with an empty conversation, working in a dedicated git worktree. The result is committed to a feature branch and can be opened as a pull request.
 
-Oneshot requires `sub_agent.enabled: true`: the plan, implement, and review phase prompts mandate delegation, so both the CLI (`steiner oneshot`, `--resume`) and the TUI (`/oneshot`, `/oneshot-resume`) refuse to start when sub-agents are disabled in config.
+## Requirements
 
-## Invocation
+- **Sub-agents enabled** (`sub_agent.enabled: true`). The phase prompts require delegation, so the CLI and the TUI refuse to start or resume a run without it.
+- **No `claude_subscription` models.** `steiner oneshot` and `--resume` refuse to run if the default model, the advisor, any phase model, or any sub-agent model uses a `claude_subscription` provider. See [Claude subscription](claude-subscription.md).
+- **A model for every phase and the advisor.** Each phase uses its profile assignment or the profile's `default_model`. If one does not resolve, the run stops with a `no model configured` error before any run state is created. The active interactive model is never used as a fallback.
+- **A git repository.**
 
-**Headless CLI**:
+## Running
+
+From the command line:
 
 ```bash
 steiner oneshot "<task>"
-steiner --profile fast oneshot "<task>"
-steiner oneshot --resume <id>
+steiner --profile careful oneshot "<task>"
+steiner oneshot --resume <run-id>
 steiner oneshot --list
 ```
 
-**Interactive TUI** (from within `steiner`):
+`--list`, `--resume`, and a task are mutually exclusive.
+
+From an interactive session:
 
 ```text
 /oneshot <task>
-/oneshot --resume <id>
-/oneshot --list
+/oneshot --resume <run-id>
+/oneshot-resume
 ```
+
+`/oneshot-resume` opens a picker of resumable runs.
+
+## What a run does
+
+- **Worktree and branch.** The run works in `.steiner/worktrees/oneshot-<run-id>` on branch `oneshot/<slug>-<run-id>`. It starts from `origin/main` when that ref exists, otherwise from the repository's local `HEAD`. Your working tree is not touched.
+- **Run state.** The manifest and lock live in `.steiner/oneshot/<run-id>/`. Planning artifacts and the final report (`final-report.json`) are written inside the worktree under `.steiner/plans/oneshot-<run-id>/`.
+- **Approvals.** Oneshot does not prompt. `mutate` path approvals inside the run worktree are allowed; every other approval request is denied.
+- **Advisor.** The advisor is always available to oneshot phases, using the profile's `advisor` model or `default_model`.
+- **Sub-agents.** Children run in the background while the phase continues. A phase finishes only after every child it started has finished and its result is recorded.
+- **Budget.** Each phase has the same completion-token budget as a normal run (`limits.max_tokens`), counted across all its turns. If it runs out with children still running, they are cancelled and the phase fails.
+
+When the run finishes, the CLI prints the report path and the manifest as JSON.
 
 ## Steering input
 
-While a oneshot run is active, the TUI composer queues input as a steering message instead of starting a new turn. Only these inputs run as commands: exact `/exit` and `/thinking`, plus `/accent` and `/accent <preset>`. Every other input, including other slash commands, is steering.
+While a run started with `/oneshot` is active, the composer sends your input to the current phase as a steering message instead of starting a new turn. Only exact `/exit`, `/thinking`, `/accent`, and `/accent <preset>` run as commands; any other input, including other slash commands, is steering.
 
-## Configuration
+## Pull request closeout
 
-The `oneshot` config block controls PR closeout behavior. Per-phase model assignments live in the selected profile's `oneshot` map. Use raw `provider/model-id` references by default. Use an alias only when it supplies a stable name or persistent `ModelConfig` settings. No profile is built in, so define the profile you use. Every profile must define `default_model`, and named profiles do not inherit from `default`:
+With `oneshot.auto_pr: true` and a passing review, Steiner pushes the branch and opens a pull or merge request on GitHub, GitLab, or Azure DevOps, using your existing git credentials. GitHub needs the `gh` CLI and Azure DevOps needs `az`. It is off by default. See [Configuration](configuration.md#oneshot-block).
+
+The title is the first line of `overview.md` when that line is an H1 heading; otherwise the task summary, then the run slug, then `oneshot closeout`. The body is `overview.md` without its H1, followed by the review outcome after a `---` separator when there is one.
+
+## Models
+
+Per-phase models live in the selected profile's `oneshot` map; unset phases use the profile's `default_model`. Select a profile with `--profile <name>`.
 
 ```yaml
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434/v1
-
-oneshot:
-  auto_pr: false
-
 models:
   profiles:
     default:
@@ -48,41 +66,25 @@ models:
         plan: local/<planner-model-id>
         implement: local/<implementer-model-id>
         review: local/<reviewer-model-id>
-    careful:
-      default_model: local/<model-id>
 ```
 
-- Omitted phase assignments fall back to the selected profile's `default_model`. The advisor uses its own assignment or the same `default_model`.
-- Before any run state is created, steiner checks that every phase and the advisor resolve to a model. If one does not, the run stops with a `no model configured` error. A missing model is never filled from the active orchestrator model.
-- Select a profile at startup with `--profile <name>` for oneshot, interactive, or `--exec` runs.
-- `auto_pr` is optional and defaults to `false`.
+See [Provider and model setup](provider-and-model-setup.md).
 
-When `auto_pr` is true and review passes, the opened PR/MR is titled from the first non-blank line of `overview.md` when that line is an H1 heading. Otherwise the title falls back to `task_summary`, then the run slug, then `oneshot closeout`. Its body is `overview.md` with a leading H1 and the blank lines after it removed. When the review outcome in `review.md` is non-empty, the body appends it after a `---` separator; an empty review adds nothing.
+## Listing and resuming
 
-## Listing and resumable runs
-
-`steiner oneshot --list` displays all resumable runs:
+`steiner oneshot --list` shows resumable runs, newest first:
 
 ```text
-  ID          Slug               Status      Phase
-  abc123      refactor-auth      incomplete  implement
-  def456      add-logging        completed   review
+#    Run ID           Phase                Status             Lock         Updated            Task
 ```
 
-A run is resumable if its manifest exists and is readable, its branch exists, at least one phase is incomplete, and its lock is absent or stale. A run is `completed` when all three phases are complete.
+A run is listed when its manifest is readable, its lock is absent or stale (no update for 15 minutes), and either a phase is incomplete or a failed closeout can be retried. **Status** reads `resume at <phase>` or `retry closeout`, with `(stale lock)` appended when a stale lock will be reclaimed. Runs held by a live process are not listed.
 
-## Sub-agents in the background
+`--resume <run-id>` continues from the first incomplete phase without re-running finished ones. If every phase finished but closeout failed, it re-runs only closeout.
 
-Sub-agents launched during a phase run in the background. The phase model keeps working, and each sub-agent's result is delivered to it as soon as it finishes. A phase completes only after every sub-agent it started has finished and its result has been recorded, so nothing is left running when the next phase begins.
+## Failures and interruptions
 
-Each phase attempt also has a session archive for compaction history. Its `history.md` is stored under the phase session ID in `~/.config/steiner/sessions/<sessionID>/`, not under the oneshot run ID. A resumed phase gets a new session and leaves the earlier attempt, including its archive, on disk.
-
-Each phase has the same completion-token budget as a normal run (`limits.max_tokens`), counted across every turn the phase takes, including turns woken by sub-agent results. If the budget runs out while sub-agents are still running, the phase fails: the remaining sub-agents are cancelled and the failure is recorded in the manifest. The model is not told. Resume with `--resume <id>` to re-run the phase.
-
-If a phase is interrupted while sub-agents are running, resume restarts the phase and does not deliver their lost results. It reports the worktree of each `code` or `documentor` sub-agent that was still running, so you can inspect or salvage its uncommitted work. Sub-agents without a worktree are not listed.
-
-## Error handling
-
-If a phase fails, the failure is recorded in the manifest with a timestamp. SIGINT aborts without rerunning previous phases. Inspect the worktree, fix issues, and resume with `--resume <id>`. If the run finished but closeout (PR/MR push) failed, the manifest records `closeout_state: failed` and `--resume <id>` re-runs only closeout.
-
-For architecture, manifest schema, and phase contracts, see [Oneshot Internals](../internals/oneshot.md).
+- A failed phase is recorded in the manifest with a timestamp. Inspect the worktree, fix what you need, then resume.
+- SIGINT stops the run; resume picks up at the interrupted phase.
+- If a phase is interrupted while children are running, resume restarts the phase and does not recover their results. It lists the worktree of each `code` or `documentor` child that was still running so you can salvage uncommitted work.
+- A resumed phase starts a new session. The earlier attempt's session stays on disk.

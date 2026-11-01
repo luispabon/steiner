@@ -1,14 +1,10 @@
 # MCP servers
 
-Steiner can connect external tools via the Model Context Protocol (MCP). A local stdio subprocess or remote HTTP endpoint advertises tools the agent can call alongside built-in tools. This page covers configuration, naming, approval, sandboxing, lifecycle, output limits, TUI surfaces, security, and troubleshooting.
+Steiner is a Model Context Protocol (MCP) client. It launches local servers over `stdio` or connects to remote servers over Streamable HTTP, lists their tools, and offers them to the model next to the built-in tools.
 
-## What MCP is
+## Setup
 
-Steiner implements an MCP client. It launches or dials MCP servers, lists their tools, and calls them with the server's argument schema. Supported transports are `stdio` and Streamable HTTP.
-
-## Configuration
-
-MCP is configured under the `mcp` block; see the [mcp config block](configuration.md#mcp-block) for the full field reference. `mcp.enabled` defaults to `true`, while each server defaults to `enabled: false` and must be explicitly enabled.
+MCP is on by default (`mcp.enabled: true`), but each server is off until you set `enabled: true` on it. Field reference: [`mcp` block](configuration.md#mcp-block).
 
 ```yaml
 mcp:
@@ -25,60 +21,61 @@ mcp:
       url: https://learn.microsoft.com/api/mcp
 ```
 
-Per-server defaults are `stdio`, approval `ask`, and `connect_timeout` `15s`. The configured `env` map is passed to that server and is not subject to the inherited-host environment allowlist. Use it for server credentials or API keys.
+The transport defaults to `stdio` and approval to `ask`. The `env` map is passed to a stdio server as given, without the sandbox environment filter, so use it for the server's API keys. HTTP servers take `headers` instead.
 
-## Naming
+Tools register as `mcp__<server>__<tool>`. Use `steiner tools` or `/mcp` to inspect available tools.
 
-MCP tools register as `mcp__<server>__<tool>`. Clean names no longer than 64 characters are used as-is. Names needing sanitisation or truncation receive an 8-hex-character suffix derived from the original server and tool names. This keeps names unique and stable. `steiner tools` prints registry names.
+## Choosing which tools appear
 
-## Approval model
+- `allowed_tools` keeps only the listed tools; `blocked_tools` then removes tools. Both use the tool names the server advertises, not the `mcp__` names. Leaving `allowed_tools` unset allows all tools; an empty list allows none.
+- `sub_agents` lists the sub-agent types that may use the server's tools. Unset or empty means sub-agents get none.
+- Tools whose input schema is larger than 64 KiB are skipped with a warning.
 
-Each server has an approval mode:
+## Approval
 
-- `ask`: every call prompts for approval.
-- `allow`: calls run without prompting in build mode. Plan mode downgrades this to `ask`.
-- `deny`: the server connects but advertises no callable tools.
+Each server has an `approval` mode:
 
-Approval previews show sorted arguments, truncate long strings, and collapse nested structures. `Allowed for session` stores an in-memory grant for that server/tool until the run ends. Grants are not persisted.
+| Mode | Behaviour |
+|------|-----------|
+| `ask` | Calls prompt for approval unless trusted annotations permit them. |
+| `allow` | Calls run without prompting. In plan mode `allow` behaves as `ask`. |
+| `deny` | The server connects but none of its tools are offered. |
 
-`trust_annotations: true` can skip approval for read-only tools whose annotations explicitly say `readOnlyHint: true`. Destructive and open-world hints default to true when omitted, so missing annotations are not trusted. A call needing approval fails closed if no approver exists. This means `ask` tools fail in exec and oneshot runs; only allowed build calls and trusted read-only tools can run there.
+The prompt shows the server, the tool, and a preview of the arguments. **Allowed for session** covers that server's tool until Steiner exits; grants are never saved. See [Sandboxing](sandboxing.md) for how approvals work across tools.
 
-Plan mode is read live, so mode switches apply without rebuilding tool definitions.
+With `trust_annotations: true`, an `ask` server's tool skips the prompt when the server marks it `readOnlyHint: true`, or marks it as both non-destructive (`destructiveHint: false`) and closed-world (`openWorldHint: false`). Missing hints count as destructive and open-world, so unannotated tools still prompt. Annotations come from the server, so only trust them for servers you trust.
 
-## Sandboxing and tool filtering
+### Non-interactive runs
 
-Local stdio servers are sandbox-wrapped when sandboxing is enabled. They retain network access, have a read-only project except for the normal sandbox writable areas, and are not subject to this protection when remote HTTP is used. See [Sandboxing](sandboxing.md) for host visibility and limits.
+In `--exec`, calls that need approval prompt through the terminal or stdin. [Oneshot](oneshot.md) denies MCP approval requests. See [Sandboxing](sandboxing.md) for approval input.
 
-`allowed_tools` filters first and `blocked_tools` filters second. Entries are advertised MCP names, not registry names. Missing `allowed_tools` means no allowlist; an explicit empty list filters every tool. Unknown filter entries produce sorted, non-fatal warnings. `sub_agents` controls which child agent types may call a server; missing and explicit empty both expose no tools to children.
+## Sandboxing
 
-## Lifecycle
+When the sandbox is active, stdio servers run inside it with network access, a read-only project, and the read-only host filesystem. Remote HTTP servers run elsewhere and are not sandboxed. See [Sandboxing](sandboxing.md).
 
-Enabled servers connect in parallel, each bounded by `connect_timeout`. A failed server does not block others. Non-interactive runs wait for initialization before building the tool registry. Interactive runs paint immediately, then finish initialization before the first model call.
+## Startup and failures
 
-A dead stdio process or lost HTTP session triggers a fresh reconnect, but the failed call is never replayed. Calls during reconnect wait for its result, bounded by their own timeout. After three consecutive failed reconnects the server becomes `unavailable`. Tool definitions stay registered while a server is reconnecting, keeping the prompt prefix stable. Statuses are `connecting`, `connected`, `failed`, `reconnecting`, and `unavailable`.
+Enabled servers connect in parallel, each bounded by `connect_timeout`. A server that fails does not block the others. Non-interactive runs wait for every server before starting; the interactive TUI opens straight away and waits before the first model call.
 
-Server stderr goes to a derived `-mcp` log file when session logging is configured. Otherwise it is discarded in interactive mode and sent to process stderr in non-interactive modes.
+If a stdio server exits or an HTTP session is lost, Steiner reconnects on the next call. It never replays the call that failed. A server that keeps failing to reconnect becomes unavailable until you restart Steiner.
 
-## Output bounds
+Each call uses `limits.tool_timeout_default`, or a `limits.tool_timeouts` entry keyed by the full `mcp__<server>__<tool>` name. Text output is capped by `limits.tool_output_max_bytes`; non-text content is named but not passed through. See the [`limits` block](configuration.md#limits-block).
 
-Flattened text is capped by `limits.tool_output_max_bytes` (default `65536`) and gets a marker reporting shown and total bytes. Non-text content is named but not decoded. Calls use `limits.tool_timeout_default` (default `30s`) or a per-tool override keyed by the full registered name. Timeouts do not trigger reconnect.
+## `/mcp`
 
-## TUI surfaces
+`/mcp` in the TUI lists declared servers and their tools.
 
-`/mcp` lists every declared server, its status and transport, errors, and advertised tool outcomes (`registered`, `filtered`, or `denied`). The sidebar shows a compact connected/total row with a spinner during connection and an error state for failed servers. MCP calls in the transcript show server and tool provenance. Warnings are emitted once per server failure generation.
+## Security
 
-## Security posture
-
-MCP descriptions and results are third-party content and can carry prompt injection. Treat servers as untrusted code. Path policy does not inspect opaque MCP arguments; approval is the boundary. Sandboxed stdio retains network access and read access to the host filesystem, including credential files, and remote HTTP is not sandboxed. Annotation trust is off by default. HTTP servers that redirect to a different origin (scheme, host, or port) are refused so configured headers are never forwarded to another host; same-origin redirects still carry them. Tools whose input schema exceeds 64 KiB when marshalled are skipped with a warning.
+- Tool descriptions and results are third-party content and can contain prompt injection. Treat servers as untrusted code.
+- Steiner does not inspect MCP arguments for paths. The approval prompt is the boundary.
+- Sandboxed stdio servers can still read host files, including credentials, and reach the network.
+- HTTP redirects to a different scheme, host, or port are refused, so configured headers are never sent to another origin.
 
 ## Troubleshooting
 
-- **`failed`**: check the executable, transport, URL, and credentials.
-- **`unavailable`**: three reconnects failed; fix the server and restart Steiner.
-- **Missing tool**: inspect `/mcp`; `filtered`, `denied`, and `no tools advertised` identify the cause.
-- **No approver**: expected for `ask` tools in non-interactive runs.
-- **`disconnected, verify state`**: the call may have been applied before transport loss; verify before retrying.
-- **Unexpected name**: use `steiner tools` to find the hashed form.
-- **Plan mode prompts**: `allow` is downgraded to `ask` there.
-
-For source-level naming, lifecycle wiring, deferred features, and verification fixtures, see [MCP internals](../internals/mcp.md).
+- **Server failed**: check the command, transport, URL, and credentials in `/mcp`.
+- **Tool missing**: check `allowed_tools`, `blocked_tools`, and `approval` in the server config.
+- **Call fails with `approval_denied`**: check that approval input is available and the call was approved.
+- **Prompts in plan mode for an `allow` server**: expected.
+- **Call failed after a disconnect**: the server may have applied it before the connection dropped. Check the state before retrying.

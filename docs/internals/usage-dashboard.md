@@ -1,6 +1,6 @@
 # Usage dashboard internals
 
-User guide: [Subscription usage dashboard](../user/usage-dashboard.md).
+User guide: [Subscription usage dashboard](../user/usage.md#usage-dashboard).
 
 ## Package and wiring
 

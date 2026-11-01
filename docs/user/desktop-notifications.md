@@ -1,68 +1,39 @@
-# Desktop Notifications
+# Desktop notifications
 
-Steiner can send native desktop notifications when the agent needs user input, letting you step away from the terminal while the agent runs long tasks.
+Steiner can send a desktop notification when the interactive TUI is waiting for you, so you can step away during long tasks. Notifications are off by default and are sent only from the interactive TUI.
 
-## Behaviour
+## When Steiner notifies
 
-Desktop notifications are sent when:
-- The agent requires approval for a tool call
-- A workflow handoff is waiting for user acceptance
+- A tool call needs approval (`Tool approval required: <tool>`).
+- A workflow handoff is waiting for you to accept it (`workflow handoff requested`).
 
-Notification delivery is best-effort — failures (missing daemon, headless environment, SSH session) never affect the agent loop. If enabled but undeliverable, Steiner emits a single non-fatal startup warning and silently no-ops for the remainder of the session.
+The title is `steiner` plus the project directory name, and the body shows the reason and the current git branch. Steiner does not notify when a run finishes.
 
-## Configuration
-
-The `desktop_notifications` block has two fields:
-
-| Field      | Type | Default | Description |
-|------------|------|---------|-------------|
-| `enabled`  | bool | `false` | Master switch. Set to `true` to enable desktop notifications. |
-| `duration` | int  | `0`     | Notification display duration in seconds. Set to `0` for persistent (sticky) notifications that do not auto-dismiss. Set to a positive integer to auto-dismiss after that many seconds. Must be >= 0. |
-
-Example configuration:
+## Setup
 
 ```yaml
 desktop_notifications:
   enabled: true
-  duration: 0  # permanent (sticky) notifications
+  duration: 0   # requests a notification that stays until dismissed
 ```
 
-Auto-dismiss after 5 seconds:
+A positive `duration` requests expiry after that many seconds. The desktop notification daemon controls delivery and dismissal. Field reference: [`desktop_notifications` block](configuration.md#desktop_notifications-block).
 
-```yaml
-desktop_notifications:
-  enabled: true
-  duration: 5
-```
+## Platform support
 
-For the complete configuration reference, see [Configuration](configuration.md).
+| Platform | Support |
+|----------|---------|
+| Linux | Supported through a freedesktop notification daemon on the D-Bus session bus, such as `dunst`, `mako`, or the one your desktop environment provides. |
+| macOS | Not supported. |
+| Windows | Not supported. |
 
-## Platform support matrix
+On Linux X11, clicking a notification can raise the terminal window. On Wayland, clicks do not raise it.
 
-| Platform | Status | Details |
-|----------|--------|---------|
-| Linux | Supported | Notifications delivered via D-Bus / freedesktop notification daemon (e.g. `systemd-notify`, `notification-daemon`, `dunst`). Click-to-focus on X11 via best-effort xdotool/wmctrl. |
-| macOS | Unsupported this iteration | Emits a single startup warning. Notifications are silently disabled for the session. No-op if enabled in config. |
-| Windows | Unsupported this iteration | Emits a single startup warning. Notifications are silently disabled for the session. No-op if enabled in config. |
+## When notifications cannot be delivered
 
-## Click-to-focus behavior
+If notifications are enabled but unavailable at startup, for example on an unsupported platform or without a notification daemon, Steiner appends a `desktop notifications: <reason>` user message to the conversation. Notifications are skipped for that session.
 
-When a user clicks a desktop notification, Steiner attempts to focus its terminal window.
+Common reasons on Linux:
 
-**X11 (Linux)**: Best-effort window raise using `xdotool` or `wmctrl`. Success depends on window manager behavior and available utilities.
-
-**Wayland (Linux)**: No standard mechanism exists. Clicks on notifications are silently ignored — the notification service does not expose window activation to clients.
-
-**macOS and Windows**: Not applicable (notifications disabled this iteration).
-
-## Graceful degradation
-
-When `desktop_notifications.enabled` is `true` but the notification system is unavailable:
-
-1. **Startup check**: Steiner tests the notification daemon on startup.
-2. **Single warning**: If unavailable (headless environment, SSH session, no daemon running), a non-fatal warning is shown in the TUI content area.
-3. **Silent no-op**: For the remainder of the session, notification calls silently fail and execution continues.
-
-This ensures that enabled-but-undeliverable notifications never stall the agent or disrupt the user experience.
-
-For driver interface and platform extension points, see [Desktop Notifications Internals](../internals/desktop-notifications.md).
+- `DBUS_SESSION_BUS_ADDRESS is not set`: no session bus is reachable, which is typical over SSH.
+- `org.freedesktop.Notifications is not available` or `has no name owner`: no notification daemon is running.

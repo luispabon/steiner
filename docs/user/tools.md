@@ -1,116 +1,128 @@
-# Built-in tools
+# Tools
 
-| Tool | Description |
-|------|-------------|
-| `read` | Read files with offset/limit pagination; line numbers are opt-in with `line_numbers: true`; detects and base64-encodes images. Text files over 1MB are rejected, even when paging, because the whole file is scanned for `file_hash` and `total_lines` (images have a separate 5MB limit). Such files cannot satisfy replace's read-first guard through `read` unless the file was read before it grew past the cap; replace still accepts an explicit `file_hash` if you compute it yourself (CRC32-IEEE over the file with trailing tabs, spaces and CR trimmed from each line, as 8 uppercase hex digits). |
-| `mutate` | Apply structured file mutations atomically: create, write, replace, delete_file, or move |
-| `glob` | Find files by pattern |
-| `grep` | Search file contents with surrounding context |
-| `ls` | List directory contents |
-| `bash` | Run shell commands, sandboxed by default |
-| `fetch_url` | Fetch a URL and return bounded content or saved image data |
-| `display_file` | Show a file in the TUI overlay without adding it to conversation |
-| `advisor` | Ask a stronger model for steering guidance; requires `advisor.enabled` |
-| `lsp_definitions` | Jump to symbol definitions through a configured language server |
-| `lsp_implementations` | Find concrete implementations through a configured language server |
-| `lsp_type_definitions` | Jump to a type declaration through a configured language server |
-| `lsp_references` | Find references through a configured language server |
-| `lsp_diagnostics` | Get diagnostics through a configured language server |
-| `lsp_hover` | Get hover information through a configured language server |
-| `lsp_symbols` | Search symbols or outline a file through a configured language server |
-| `workflow_handoff` | Transition to a workflow with approved artifacts |
+The model works through tools. Steiner owns each tool's input schema and result format, keeps output bounded, and enforces path policy and sandboxing around the calls. `steiner tools` lists the built-in, custom, MCP, and LSP tools for your configuration; it does not list `web_search`, `advisor`, `sub_agent`, or `follow_up`, which are added per run.
 
-MCP tools from connected servers appear with the `mcp__<server>__<tool>` prefix. See [MCP](mcp.md) and [Sub-agent delegation](sub-agent-delegation.md) for availability and approval rules.
+## Available tools
 
-## Fetch and search networking
+| Tool | Purpose | Available | Can ask for approval |
+|------|---------|-----------|----------------------|
+| `read` | Read a file with offset/limit paging; detects images | Always | No |
+| `glob` | Find files by pattern | Always | No |
+| `grep` | Search file contents with context and paging | Always | No |
+| `ls` | List a directory | Always | No |
+| `bash` | Run a shell command, sandboxed by default | Always | Yes: sandbox denial, or `cwd` outside the project root |
+| `display_file` | Show a file in the TUI overlay without adding it to the conversation | Always | No |
+| `mutate` | Apply file edits atomically: `create`, `write`, `replace`, `delete_file`, `move` | Always | Yes: a path outside the project root |
+| `fetch_url` | Fetch a URL and return bounded content or saved image data | Always | No |
+| `workflow_handoff` | Propose switching to a workflow with approved artefacts | Always | Asks you to accept the handoff |
+| `web_search` | Search the web | `search.backend` is set | No |
+| `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, `lsp_symbols` | Code intelligence through a language server | `lsp.enabled` | No |
+| `advisor` | Ask a stronger model for guidance | `advisor.enabled` | No |
+| `sub_agent`, `follow_up` | Delegate work to a child agent, or resume one | Sub-agent delegation enabled (`sub_agent.enabled`) | Child tool calls can ask |
+| `mcp__<server>__<tool>` | Tools advertised by MCP servers | `mcp.enabled` and the server is enabled | Yes, except in build mode when the server's `approval` is `allow`, or when trusted annotations mark the tool safe |
+| Custom tools | Your own executables declared under `tools:` | Declared in config | No |
 
-`fetch_url` and `web_search` use separate HTTP clients with different hardening.
+See [Sandboxing](sandboxing.md) for what triggers an approval prompt and what approving does, [LSP](lsp.md), [MCP](mcp.md), [Advisor](advisor.md), and [Sub-agent delegation](sub-agent-delegation.md) for the conditional tools, and [Execution modes](execution-modes.md) for plan-mode restrictions.
 
-- `fetch_url` uses a guarded client. Every address it dials, including each redirect target, must be publicly routable: loopback, private RFC 1918, CGNAT shared space (`100.64.0.0/10`), IPv6 unique-local, link-local (including `169.254.169.254`), documentation, benchmark, and reserved ranges are refused at connection time. Each request is bounded at 15 seconds and follows at most 9 redirects, plain HTTP hops included; a tenth hop is refused.
-- The guarded client ignores the ambient proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, in either case). A proxy relays the request from its own address, which defeats the dial check, so proxy support is deliberately traded away: on a network whose only route out is a proxy, `fetch_url` cannot reach public URLs.
-- Search backends (`web_search`) are unchanged and still honour the ambient proxy variables. A non-200 search response body is read through an 8 KiB cap, and at most its first 100 bytes appear in the error.
+Sub-agents get a per-type subset of these tools. MCP tools reach children only through `mcp.servers.<name>.sub_agents`.
+
+## Paths and exclusions
+
+`read`, `glob`, `grep`, `ls`, and `display_file` can read anywhere the filesystem allows, except `paths.blocked_paths`. Writes through `mutate` are limited to the project root while `paths.project_root_only` is on (the default), and to `paths.writable_paths` when that list is set. The `bash` working directory must be inside the project root while `project_root_only` is on and must not be blocked. These tools run inside Steiner, not in the sandbox. See the [`paths` block](configuration.md#paths-block).
+
+`glob`, `grep`, and `ls` skip excluded paths. Exclusions are filters, not access control: only `paths.blocked_paths` denies access.
+
+- Built-in exclusions match any path component named `.git`, `node_modules`, `.steiner`, `.claude`, `.git-worktrees`, `vendor`, `.cache`, `dist`, `build`, `out`, `target`, `.next`, or `.nuxt`. They are matched relative to the search root, so a search rooted inside one of these directories, such as `vendor/`, still runs.
+- `paths.exclude_paths` and `paths.exclude_patterns` add workspace exclusions. They still apply when the search root is inside an excluded directory, so that search returns nothing.
+- `grep` and `glob` follow a nested symlink only when its target is a regular file inside the search root or workspace that also passes `paths.blocked_paths` and the exclusions. Nested directory symlinks are not followed. Results show the link name, not the target. `ls` lists link names without resolving them.
+
+## File reading and editing
+
+- `read` returns line numbers only when called with `line_numbers: true`. Text files over 1 MB are rejected, even when paging; use `grep` or `bash` to inspect them. Images are returned as image data, up to 5 MB.
+- A file with a NUL byte in its first 8192 bytes is treated as binary: `read` rejects it and `grep` skips it.
+- `mutate` applies all operations in a call as one batch. `replace` on an existing file requires that the file was read earlier in the session, or that the call passes the `file_hash` from a `read` result. This catches edits to a file that changed since it was read.
+- After a successful `mutate`, Steiner may append diagnostics for the changed files from a language server that is already running. See [LSP](lsp.md).
+
+## Grep paging
+
+`grep` pages through logical results: a file path in `files_with_matches` mode, a row in `count` mode, or a matching line in `content` mode.
+
+- `head_limit` sets the page size: 100 by default, at most 500.
+- A `content` page renders at most 200 lines, including context lines and headers, so it can hold fewer results than `head_limit`.
+- `next_offset` is the offset of the next page. Pass it as `offset` to continue. It is omitted on the last page.
+- Rendered lines are capped at 400 characters around the match.
+- `glob` filters by path relative to the search root. A pattern without a slash matches a basename at any depth (`*.go`); a pattern with a slash matches the root-relative path (`src/*.go`); a leading `./` anchors to the root.
+- `type` filters by extension. Accepted values: `c`, `cpp`, `css`, `go` (alias `golang`), `html`, `java`, `js`, `json`, `kotlin`, `md`, `php`, `py`, `rb`, `rust`, `scala`, `sh`, `sql`, `swift`, `ts`, `xml`, `yaml`.
+- `multiline: true` lets `.` match newlines and `^`/`$` match line boundaries.
 
 ## Bash output
 
-`bash` returns the command result in `output`, bounded by `max_output_bytes`. The default is 12288 bytes and the maximum is 32768; larger requests are clamped to the maximum. The limit covers the whole `output` string. A timeout notice that would take more than half the limit is left out of `output` and appears only in `message`.
+`bash` returns at most `max_output_bytes` of output: 12288 bytes by default, at most 32768. Output is cleaned by default: ANSI escape sequences are removed, OSC 8 hyperlinks become `text (uri)`, and adjacent CRLF becomes LF. Set `raw_output: true` to skip cleaning.
 
-Cleaned output is the default:
+When output does not fit, Steiner keeps the start and end and marks the omitted bytes. On a nonzero exit, stderr gets priority. Steiner attempts to save the captured output, capped at 1 MiB, to `.steiner/tmp/bash-output/` in the working directory. When saved, the result's `file_path` lets the model page through it with `read`. A timed-out command returns the output captured so far.
 
-- CRLF becomes LF only where the CR and LF are adjacent. A lone CR is kept.
-- ANSI escape sequences are removed. OSC 8 hyperlinks become `text (uri)`, and other OSC sequences are removed.
-- Malformed escapes become `[malformed escape: \x1b...]`. The label shows at most 8 raw bytes and states how many were omitted.
-- An escape sequence cut off by the capture boundary is dropped.
+The per-call `bash` timeout is capped by `limits.tool_timeouts.bash` (600s by default). See the [`limits` block](configuration.md#limits-block).
 
-Set `raw_output: true` to skip this cleaning and pass bytes through without CRLF normalization or escape handling. Raw mode does not guarantee binary fidelity or the interleaving of stdout and stderr.
+### Saved output and privacy
 
-### Preview shape
+- Saved output can contain secrets, tokens, or file contents the command printed. On Unix the directory is mode 0700 and each file 0600. On other platforms output is not saved.
+- At startup, Steiner prunes files older than 7 days in `.steiner/tmp/bash-output/` and `.steiner/tmp/fetched/`. It also removes older files towards a shared 250 MiB budget, but does not evict files less than one hour old to meet that budget.
+- Commands that can write the workspace can also change these files. Do not treat them as tamper-evident records.
 
-- Output that fits is shown whole, with stderr after stdout under a `[stderr]` label.
-- When output does not fit, a successful command shows stdout and stderr as one text, cut 30% from the head and 70% from the tail, with a `[... N bytes omitted ...]` marker between them.
-- On a nonzero exit, stderr has priority: all of it if it fits, otherwise its own 30%/70% cut. Stdout gets the remaining space.
-- `message` states what each stream lost. Omitted rendered bytes and raw source bytes use different units and are never added together.
+## Fetching URLs
 
-### Artifacts
+`fetch_url` only connects to publicly routable addresses. Loopback, private, CGNAT, link-local (including cloud metadata at `169.254.169.254`), unique-local IPv6, and reserved ranges are refused, including on every redirect hop. Each request times out after 15 seconds and follows at most 9 redirects.
 
-When output is cut, the output is saved as a private file at `.steiner/tmp/bash-output/<random>.log` in the working directory. `file_path` gives the path and `artifact_status` gives the outcome:
+`fetch_url` ignores `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`, because a proxy would bypass the address check. On a network whose only route out is a proxy, `fetch_url` cannot reach the internet. `web_search` does use the proxy variables.
 
-| Status | Meaning |
-|--------|---------|
-| `none` | Nothing was cut, so no file was saved. |
-| `complete` | The file holds all of the output. |
-| `partial` | The file holds some of the output. `message` says what is missing. |
-| `failed` | The file could not be saved. The command result is unchanged. |
+## Web search
 
-- The artifact has `[stdout]` and `[stderr]` sections and is capped at 1 MiB (1048576 bytes). Within the cap, the priority stream (stderr on nonzero exit, stdout otherwise) gets 70% of the content space. A stream that is still too large is cut 30% from the head and 70% from the tail.
-- Capture keeps the first and last 1 MiB of each stream. Bytes between them are a capture gap and cannot be recovered from the artifact.
-- `artifact_limit_hit: true` means the artifact cap dropped bytes that the capture had kept. Steiner then records a nonfatal `bash artifact truncated` warning with the artifact path in the Alt+E dev log. The warning is not added to the conversation view and does not change the command outcome: a nonzero exit stays nonzero, the tool call remains successful, and `artifact_status` still applies.
-- Use `read` with `offset` and `limit` to page through an artifact. `read` cannot recover every artifact: it rejects files with a NUL byte in the first 8192 bytes as binary, and it clips lines longer than 2000 characters. For those files, page with `bash`, for example `grep` or `sed -n`.
+`web_search` returns URL, title, and description results. It is off until you set `search.backend`, and it is registered only while sub-agent delegation is enabled (the default). When available, the `research` sub-agent gets it too.
 
-### Timeouts
+Set `search.backend` to `google`, `kagi`, `brave`, or `searxng`. Google accepts `GOOGLE_SEARCH_CX` and `GOOGLE_SEARCH_API_KEY`; Kagi accepts `KAGI_API_KEY`; Brave accepts `BRAVE_API_KEY`. You can set the corresponding keys in config instead. SearXNG needs `search.searxng_url` rather than an API key.
 
-A timed-out command returns the output captured so far, with `timed_out: true` and a notice that the output above is partial. If an artifact is saved, its status is `partial` and it notes that the command did not finish normally. A session error is handled the same way and reports `exit_code: -1`.
+```yaml
+search:
+  backend: brave
+```
 
-### Artifact retention and privacy
+The environment variables fill a key only when the config leaves it empty. Config validation fails if the selected backend has no credentials. See the [`search` block](configuration.md#search-block).
 
-- `.steiner/tmp/bash-output/` and `.steiner/tmp/fetched/` (fetched URL files) share one cleanup at startup, for the project root and the working directory. Files older than 7 days are removed. If the combined size is still over 250 MiB, the oldest files are removed until it is within that soft budget. Files younger than 1 hour are never removed for size.
-- Only regular files directly inside those two directories are considered. Subdirectories and symlinks are ignored.
-- An artifact holds the full command output, which may include secrets, tokens, or file contents the command printed. On Unix, the directory is mode 0700 and each file is 0600.
-- On platforms without Unix support, artifacts are not saved, so `artifact_status` is `failed`.
-- Commands run as your user can read and change artifacts after Steiner writes them. A sandboxed command that can write the workspace can also modify this directory. Do not treat artifacts as tamper-evident records.
-- In plan mode, Steiner still writes the artifact cache, but sandboxed commands cannot. See [Execution modes](execution-modes.md#enforcement-matrix) and [Sandboxing](sandboxing.md#bash-output-artifacts).
+## Custom tools
 
-## Grep output
+Declare your own executables under `tools:`. Each needs `exec` and a `timeout` greater than zero; names of built-in tools are reserved. Field reference: [`tools` block](configuration.md#tools-block).
 
-`grep` pages through logical results. A logical result is a `files_with_matches` path, a `count` row, or a matching line in `content` mode. Context lines do not count.
+```yaml
+tools:
+  my_tool:
+    exec: /path/to/my-tool
+    description: Run my custom tool.
+    timeout: 10s
+```
 
-- `head_limit` sets the page size. It defaults to 100 and is capped at 500.
-- Each `content` page renders at most 200 lines. File headers, context lines, separators, and notices count toward that budget, so a content page can hold fewer results than `head_limit`. `files_with_matches` and `count` pages are capped at 200 rows.
-- `next_offset` is the first logical result not on this page. To continue, pass it as `offset`. It is omitted on the last page.
-- `shown` is the number of results on this page. When the result is paged, `matches` gives the total number of logical results. It is omitted when everything fits on one page.
-- An `offset` past the last logical result returns empty `output` with `shown: 0` and `matches` set to the total. It is not an error.
-- `files_searched` counts the readable non-binary files scanned for matches, whether or not they matched. `skipped_binary`, `skipped_unreadable`, and `skipped_directories` count entries left out of the search. Only those three categories are counted: entries removed by exclusions, `glob` or `type` filters, or link eligibility are filters and count in none of them.
-- If the context for a single match alone exceeds the 200-line budget, the page holds a bounded excerpt around that match, ending with a truncation marker. Pagination still moves forward.
-- A rendered line is capped at 400 runes. A clipped line keeps the text around its match column and marks each clipped end with `<truncated>`.
+Steiner runs `exec`, with `subcommand` as its first argument when set, as a subprocess in the project root for every call. The subprocess runs in the sandbox like `bash`, and in plan mode the project is read-only to it. Custom tools never trigger an approval prompt.
 
-### Matching
+### Tool contract
 
-- A leading UTF-8 BOM is removed and CRLF becomes LF before matching, so `^`, `$`, and the rendered lines agree on Windows and Unix line endings. A lone CR is kept.
-- `multiline: true` compiles the pattern with `(?ms)`: `^` and `$` match line boundaries and `.` matches newlines. Inline flags in the pattern override this, so `(?-m)` restores whole-file anchors and `(?-s)` stops `.` from crossing newlines.
-- A zero-width match at end of file after a final newline has no real line to report, so no match row is emitted. Without a trailing newline, the match is reported on the final line.
-- A file with a NUL byte in its first 8192 bytes is treated as binary and skipped.
-- An invalid regex, an invalid `glob`, or a `glob` that expands past 256 forms fails the call.
+- **stdin**: the model's arguments as one JSON object, written once and then closed.
+- **stdout**: one JSON object.
+  - Success: `{"ok": true, "result": <any JSON>}`. The model sees `result`.
+  - Optional `"model_result": <any JSON>` next to `result`: the model sees `model_result` instead of `result`. Use it when the full result carries more than the model needs.
+  - Failure: `{"ok": false, "error": {"kind": "<short slug>", "message": "<human-readable>"}}`.
+- **exit code**: exit `0` on every call that produced an envelope. A nonzero exit is always a failure, even with `{"ok": true}` on stdout. Use `ok: false` to report a specific failure.
+- **failures**: for an `ok: false` envelope, invalid JSON, a nonzero exit, or a process that failed to start, the model receives the `kind`, the `message`, the exit code, and bounded summaries of stdout and stderr. An `error.details` value in your envelope is not passed to the model. A timeout or cancellation returns an execution error instead.
+- Raw stdout and stderr are captured up to `limits.tool_output_max_bytes` and are not sent to the model on success.
 
-### File selection
+```json
+// stdin
+{"path": "main.go"}
 
-`glob` filters paths relative to the search root, written with forward slashes:
+// stdout, success
+{"ok": true, "result": {"formatted": true}}
 
-- An alternative without a slash matches a file's basename at any depth, so `*.go` matches `pkg/deep/x.go`.
-- An alternative with a slash matches that root-relative path only, so `src/*.go` does not match `pkg/src/x.go`.
-- A leading `./` anchors the pattern, or just that brace alternative, to the search root: `./*.go` matches top-level files only.
-- Every `**/` also matches zero directories, so `pkg/**/x.go` matches `pkg/x.go`.
-- Braces, character classes, and escapes use glob syntax. The separate `glob` tool keeps its root-relative `pattern` meaning.
-- `type` filters by extension. Values are case-insensitive, `golang` is an alias for `go`, and any other value is rejected. The accepted values are `c`, `cpp`, `css`, `go`, `golang`, `html`, `java`, `js`, `json`, `kotlin`, `md`, `php`, `py`, `rb`, `rust`, `scala`, `sh`, `sql`, `swift`, `ts`, `xml`, and `yaml`.
-- A negative `context`, `before_context`, or `after_context` is rejected.
-- Inside the workspace, `paths.exclude_paths` and `paths.exclude_patterns` still apply when `path` points inside an excluded directory, so that search returns nothing. Built-in directory names are matched relative to the search root, so a search rooted inside one, such as `vendor/` or `.git/`, still runs. See [Configuration](configuration.md#paths-block). Only `paths.blocked_paths` denies access; exclusions are filters.
-- A symlinked directory passed as `path` is resolved and validated against the path policy before the walk. Nested directory symlinks are not followed. A symlinked file passed as `path` is read through its policy-resolved target. Exclusions are checked against both the path you passed and that resolved target.
-- `grep` and `glob` treat a nested symlink as a file only when its target is a regular file inside the search root or the workspace and the target also passes `paths.blocked_paths` and the configured exclusions. Built-in directory exclusions such as `node_modules/` and `.git/` therefore hide a target outside the search root, while a search rooted inside one still lists links whose targets stay inside it. Configured paths and patterns are matched against the workspace path you configured even when that path is a symlink, and for a `/tmp` search an out-of-root target is matched against its `/tmp` path. A sandbox `/tmp` target is read through its rewritten sandbox path. Dangling links, links to directories or special files, and targets outside that containment are skipped. A skipped link is a filter, not a skipped entry, so it is not counted in the counters. `ls` lists link names without resolving them, so it still shows links that `grep` and `glob` reject. Results show the link name, never the target path.
+// stdout, success with a smaller model-facing result
+{"ok": true, "result": {"formatted": true, "diff": "..."}, "model_result": {"formatted": true}}
+
+// stdout, failure
+{"ok": false, "error": {"kind": "invalid_input", "message": "path not found"}}
+```
