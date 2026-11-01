@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -815,6 +816,73 @@ func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
 	}
 	if got := claudeSubUsageProbeCount(retry, `"type":"user"`); got != 1 {
 		t.Errorf("retry user writes = %d, want 1", got)
+	}
+}
+
+// TestClaudeSubSignedOutUsageRefusalIsNotRetried proves confirmed external logout
+// retires only the leased advisor session and preserves the usage-gate wrapper, so
+// a resumed-call retry cannot replay the request.
+func TestClaudeSubSignedOutUsageRefusalIsNotRetried(t *testing.T) {
+	claudeSubUsageGateFast(t, 5*time.Millisecond, time.Millisecond)
+	claudeSubUsageProbeFast(t, time.Second)
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var authChecks atomic.Int32
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if authChecks.Add(1) == 1 {
+			return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+		}
+		return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+	}
+	spawns := 0
+	sessions := make([]*claudeSubFakeConn, 0, 2)
+	spawner.onSpawn = func(conn *claudeSubFakeConn) {
+		spawns++
+		sessions = append(sessions, conn)
+		conn.mu.Lock()
+		conn.responder = claudeSubQuotaUsageResponder(json.RawMessage(`{"rate_limits_available":false}`))
+		conn.mu.Unlock()
+	}
+	other, err := pool.acquire(context.Background(), "other", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("other acquire: %v", err)
+	}
+	pool.release(other)
+	req := ChatRequest{ParentTransportSession: "logout", AdvisorCacheProfile: true, Model: claudeSubTestSpec().Model, Messages: []Message{claudeSubUserText("check this")}}
+	err = claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubTurn() = %v, want signed-out error", err)
+	}
+	var gateErr *claudeSubUsageGateError
+	if !errors.As(err, &gateErr) {
+		t.Fatalf("claudeSubTurn() = %T, want claudeSubUsageGateError wrapper", err)
+	}
+	if claudeSubShouldRetryTurn(err, false, nil, "stored-session") {
+		t.Fatal("confirmed logout would be automatically retried")
+	}
+	if spawns != 3 {
+		t.Fatalf("spawn count = %d, want unrelated session, advisor session, and fresh usage probe", spawns)
+	}
+	if !sessions[1].isClosed() {
+		t.Fatal("signed-out advisor session was not retired")
+	}
+	if sessions[0].isClosed() {
+		t.Fatal("unrelated active session was affected by logout retirement")
+	}
+	if len(claudeSubUserLines(sessions[1])) != 0 {
+		t.Fatal("signed-out session wrote a user message")
+	}
+	pool.mu.Lock()
+	_, present := pool.sessions[claudeSubAdvisorSessionKey("logout")]
+	_, otherPresent := pool.sessions["other"]
+	pool.mu.Unlock()
+	if present {
+		t.Fatal("retired signed-out session remains pooled")
+	}
+	if !otherPresent {
+		t.Fatal("unrelated session was removed from the pool")
 	}
 }
 

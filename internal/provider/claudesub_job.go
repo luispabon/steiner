@@ -21,8 +21,9 @@ type claudeSubJob struct {
 	once    sync.Once
 	done    chan struct{}
 	err     error
-	started bool // guarded by pool.mu; set when the job is registered
-	record  bool // record err in the pool's cleanup ledger on completion
+	cli     claudeSubCLI // result for a locator job; published before done closes
+	started bool         // guarded by pool.mu; set when the job is registered
+	record  bool         // record err in the pool's cleanup ledger on completion
 }
 
 // newCleanupJob returns a job whose error is recorded in the pool's cleanup

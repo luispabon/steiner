@@ -317,7 +317,7 @@ func (p *ClaudeSubscriptionPool) isRunning() bool {
 // cancels the lookup, and shutdown awaits the job to the stored deadline.
 func (p *ClaudeSubscriptionPool) locateCLI(ctx context.Context) (claudeSubCLI, error) {
 	p.mu.Lock()
-	if p.cliNeedsRetry && p.cliJob.started {
+	if p.state == claudeSubPoolRunning && p.cliNeedsRetry && p.cliJob.started {
 		select {
 		case <-p.cliJob.done:
 			p.cliJob = p.newTrackedJob()
@@ -333,6 +333,7 @@ func (p *ClaudeSubscriptionPool) locateCLI(ctx context.Context) (claudeSubCLI, e
 	job.start(func() error {
 		cli, err := locateClaudeSubCLI(p.ctx, p.lookPath, p.run)
 		p.mu.Lock()
+		job.cli = cli
 		p.cli, p.cliErr = cli, err
 		if errors.Is(err, errClaudeSubSignedOut) {
 			p.cliNeedsRetry = true
@@ -345,9 +346,7 @@ func (p *ClaudeSubscriptionPool) locateCLI(ctx context.Context) (claudeSubCLI, e
 	case <-ctx.Done():
 		return claudeSubCLI{}, ctx.Err()
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.cli, p.cliErr
+	return job.cli, job.err
 }
 
 // confirmAuthFresh checks auth status without consulting the cached locator job.

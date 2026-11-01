@@ -171,6 +171,119 @@ func TestClaudeSubPoolRetriesSignedOutLocatorOnLaterAcquire(t *testing.T) {
 	}
 }
 
+func TestClaudeSubPoolConcurrentLocatorRetryUsesOneTrackedJob(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	var calls atomic.Int32
+	retryStarted := make(chan struct{})
+	releaseRetry := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		calls.Add(1)
+		if args[0] == "--version" {
+			if signedIn.Load() {
+				select {
+				case <-retryStarted:
+				default:
+					close(retryStarted)
+				}
+				select {
+				case <-releaseRetry:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.locateCLI(context.Background()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("initial locate = %v, want signed-out error", err)
+	}
+	signedIn.Store(true)
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := pool.locateCLI(context.Background())
+			results <- err
+		}()
+	}
+	select {
+	case <-retryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent retry did not start")
+	}
+	close(releaseRetry)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Errorf("concurrent retry error = %v, want nil", err)
+		}
+	}
+	if got := calls.Load(); got != 4 {
+		t.Fatalf("locator command calls = %d, want 4 (two commands per tracked lookup)", got)
+	}
+}
+
+func TestClaudeSubPoolLocatorRetryShutdownIsTracked(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	retryStarted := make(chan struct{})
+	releaseRetry := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "--version" && signedIn.Load() {
+			select {
+			case <-retryStarted:
+			default:
+				close(retryStarted)
+			}
+			select {
+			case <-releaseRetry:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.locateCLI(context.Background()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("initial locate = %v, want signed-out error", err)
+	}
+	signedIn.Store(true)
+	result := make(chan error, 1)
+	go func() {
+		_, err := pool.locateCLI(context.Background())
+		result <- err
+	}()
+	select {
+	case <-retryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("retry did not start")
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- pool.Close() }()
+	close(releaseRetry)
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("pool close = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("pool shutdown did not settle the tracked locator retry")
+	}
+	select {
+	case <-result:
+	case <-time.After(2 * time.Second):
+		t.Fatal("locator waiter did not return after shutdown")
+	}
+}
+
 func TestClaudeSubPoolLocatesCLIOnce(t *testing.T) {
 	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	var lookups atomic.Int32
@@ -188,6 +301,40 @@ func TestClaudeSubPoolLocatesCLIOnce(t *testing.T) {
 	}
 	if got := lookups.Load(); got != 1 {
 		t.Fatalf("lookPath called %d times, want 1 (cached for the pool's life)", got)
+	}
+}
+
+func TestClaudeSubPoolRetriedLocatorLeavesOtherSession(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	pool.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.acquire(context.Background(), "signed-out", claudeSubTestSpec()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("signed-out acquire = %v, want signed-out error", err)
+	}
+	// The successful locator result is cached by the pool, so this session proves
+	// a retry does not sweep or retire unrelated pooled sessions.
+	signedIn.Store(true)
+	other, err := pool.acquire(context.Background(), "other", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("other acquire = %v", err)
+	}
+	pool.release(other)
+	pool.mu.Lock()
+	_, present := pool.sessions["other"]
+	pool.mu.Unlock()
+	if !present {
+		t.Fatal("unrelated active session was removed")
+	}
+	if got := spawner.callCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want one unrelated session", got)
 	}
 }
 

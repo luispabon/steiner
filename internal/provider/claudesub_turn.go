@@ -365,7 +365,7 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 						// an explicit retry after logging in, never an automatic replay.
 						s.pool.retryCLILookup()
 						s.pool.retire(s.key, s)
-						return authErr
+						return &claudeSubUsageGateError{err: authErr}
 					}
 				}
 				// The poll budget, and possibly the fresh confirmation, is already
