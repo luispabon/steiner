@@ -47,13 +47,19 @@ You can declare several providers of the same type, such as two `openai_compat` 
 | `litellm` | LiteLLM gateway | Required | Optional API key |
 | `openai_compat` | OpenAI chat-completions compatible server | Required | Optional API key |
 
-`gemini` passes validation but cannot run, so don't use it. `openai`, `openrouter`, `ollama`, `lmstudio`, `litellm`, and `openai_compat` use the OpenAI chat-completions API; `anthropic` uses the Anthropic Messages API. `codex` uses the OpenAI Responses API over HTTP or an experimental WebSocket. Model transport settings can override the default for non-subscription types; see the [`models` block](configuration.md#models-block).
+`gemini` passes validation but cannot run, so don't use it.
+
+- `openai`, `openrouter`, `ollama`, `lmstudio`, `litellm`, and `openai_compat` use the OpenAI chat-completions API by default. `anthropic` uses the Anthropic Messages API by default.
+- `opencode_go` and `opencode_zen` select the OpenAI chat-completions or Anthropic Messages API per model.
+- `codex` uses the OpenAI Responses API over HTTP or an experimental WebSocket.
+
+Model transport settings can override the default for non-subscription types; see the [`models` block](configuration.md#models-block).
 
 ### When you need base_url
 
-Hosted types `openai`, `anthropic`, `openrouter`, `opencode_go`, and `opencode_zen` know their addresses, so `base_url` is optional. A non-empty `base_url` overrides the default, for example to send traffic through a proxy. You can use `headers` for extra headers the proxy needs.
+Hosted types `openai`, `anthropic`, `openrouter`, `opencode_go`, and `opencode_zen` know their addresses, so `base_url` is optional. A non-empty `base_url` overrides the default, for example to send traffic through a proxy. You can use `headers` for extra headers the proxy needs. For Anthropic, Steiner adds `/messages` for requests and `/models` for discovery.
 
-For `ollama`, `lmstudio`, `litellm`, and `openai_compat`, set `base_url` to where you run the service. Validation fails without it. Use the API root, usually ending in `/v1`; Steiner adds paths such as `/chat/completions`. For Anthropic, it adds `/messages` for requests and `/models` for discovery.
+For `ollama`, `lmstudio`, `litellm`, and `openai_compat`, set `base_url` to where you run the service. Validation fails without it. Use the API root, usually ending in `/v1`; Steiner adds paths such as `/chat/completions`.
 
 Codex ignores `base_url` for ChatGPT sign-in and sends requests to the ChatGPT backend. `claude_subscription` rejects `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout` because it runs the local CLI.
 
@@ -187,11 +193,11 @@ A Gemini-compatible endpoint works this way only if it exposes that API shape. R
 
 ### Subscription providers
 
-Unlike API-key providers, these types use an account sign-in and count usage against that subscription. You do not set a `base_url` or API key for them.
+These types use an account sign-in and count usage against that subscription. Codex accepts an optional `base_url` but ignores it for a ChatGPT sign-in. Claude subscription rejects both `base_url` and API keys.
 
 #### Codex (ChatGPT sign-in)
 
-Codex uses OAuth to sign in with your ChatGPT account. For a ChatGPT sign-in, requests go to the ChatGPT backend over the OpenAI Responses API; `base_url`, `api_key`, and `api_key_env` are ignored.
+Codex uses OAuth to sign in with your ChatGPT account. For a ChatGPT sign-in, requests go to the ChatGPT backend over the OpenAI Responses API; `base_url` is ignored. If the stored sign-in carries an OpenAI API key (API mode), requests use the configured `base_url` or the default `https://api.openai.com/v1` instead. Codex always uses the stored sign-in, never the configured `api_key` or `api_key_env`; without a sign-in, Steiner stops and tells you to run `steiner login codex`.
 
 Sign in, then check the stored login:
 
@@ -200,7 +206,7 @@ steiner login codex
 steiner login codex status
 ```
 
-`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for browser sign-in. Use `--debug-url` to print the authorisation URL before opening the browser. The status command prints token expiry and `valid` or `needs refresh`, or tells you to sign in. Steiner refreshes the token automatically when it is close to expiry. If refresh fails or there is no login, run `steiner login codex` again.
+`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for browser sign-in. Use `--debug-url` to print the authorisation URL before opening the browser, which helps if the browser does not open. The status command prints token expiry and `valid` or `needs refresh`, or tells you to sign in. Steiner refreshes the token automatically when it is close to expiry. If refresh fails or there is no login, run `steiner login codex` again.
 
 Configure the provider:
 
@@ -210,7 +216,13 @@ providers:
     type: codex
 ```
 
-Optional `codex.transport` is `http` by default; `websocket` is experimental and does not fall back to HTTP on failure. `codex.min_request_interval` sets the minimum gap between requests and defaults to `0s` (disabled). `compaction_fallback_after` defaults to `30m`. See the [`providers` block](configuration.md#providers-block) for details.
+Optional settings:
+
+- `codex.transport` defaults to `http`. `websocket` is experimental and does not fall back to HTTP on failure.
+- `codex.min_request_interval` sets the minimum gap between requests and defaults to `0s` (disabled).
+- `compaction_fallback_after` defaults to `30m`.
+
+See the [`providers` block](configuration.md#providers-block) for details.
 
 Available model IDs depend on your account. Run `steiner models refresh`, then use `/model` to see them. Reference models as `codex/<codex-model-id>`.
 
@@ -333,7 +345,7 @@ With discovery off, the picker shows configured aliases only, and discovered dat
 
 ### Model metadata
 
-Steiner needs each model's context window, output limit, and reasoning support. It takes these from your alias settings first, then discovered provider data, then a live probe for Ollama, then [models.dev](https://models.dev) metadata, then conservative defaults. See the [`models` block](configuration.md#models-block) for the exact precedence.
+Steiner needs each model's context window, output limit, and reasoning support. For context window and output limit, it uses alias settings first, then discovered provider data, then [models.dev](https://models.dev) metadata, then conservative defaults. For context window only, it also tries a live Ollama probe after discovered provider data. Reasoning efforts follow the same order without the probe. See the [`models` block](configuration.md#models-block) for the exact precedence.
 
 The models.dev data is cached for seven days. When the cache is stale, Steiner refreshes it as needed and keeps using the old copy if the refresh fails.
 
@@ -355,7 +367,7 @@ When discovery is off, `steiner models refresh` and `steiner models status` repo
 
 ### Cache and state files
 
-These files live under `$XDG_CACHE_HOME` or `$XDG_STATE_HOME` when set, otherwise under the defaults shown. All can be deleted safely; Steiner rebuilds them.
+These files live under `$XDG_CACHE_HOME` or `$XDG_STATE_HOME` when set, otherwise under the defaults shown. They can be deleted safely. A refresh rebuilds the cache directories; deleting `model-popularity.json` resets picker ranking history, which cannot be recovered by a refresh.
 
 | Path | Contents |
 | --- | --- |
