@@ -184,7 +184,7 @@ No profile is required. Every declared profile must set `default_model`, and pro
 | `models.profiles.<profile>.default_model` | string | none | Required in every declared profile. A model reference, also the fallback for roles without their own assignment. |
 | `models.profiles.<profile>.advisor` | string | unset | Model for advisor calls; falls back to `default_model`. |
 | `models.profiles.<profile>.compaction_fallback` | string | unset | Model for compaction when the prompt cache is presumed cold. Needs a positive `compaction_fallback_after` on the main model's provider. Unset disables it; it does not fall back to `default_model`. |
-| `models.profiles.<profile>.sub_agents.<type>` | string | unset | Model per agent type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. An empty string disables an optional type. Unset types use `default_model`. |
+| `models.profiles.<profile>.sub_agents.<type>` | string | unset | Model per agent type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. Empty or unset assignments use `default_model`, except `vision`, which requires an explicit assignment. |
 | `models.profiles.<profile>.oneshot.<phase>` | string | unset | Model per oneshot phase: `plan`, `implement`, `review`. Unset phases use `default_model`. |
 | `models.profiles.<profile>.workflow_handoff.<destination>` | string | unset | Model per handoff destination: `implement`, `review`, `build`. Unset destinations use `default_model`. |
 
