@@ -384,6 +384,12 @@ func (p *ClaudeSubscriptionPool) confirmAuthFresh(ctx context.Context) error {
 		authCtx, cancel := context.WithTimeout(p.ctx, claudeSubFreshAuthTimeout)
 		defer cancel()
 		out, err := p.run(authCtx, cli.Path, "auth", "status")
+		if p.ctx.Err() != nil {
+			return errClaudeSubPoolClosed
+		}
+		if authCtxErr := authCtx.Err(); authCtxErr != nil {
+			return authCtxErr
+		}
 		return claudeSubFreshAuthStatus(out, err)
 	})
 	p.mu.Unlock()

@@ -24,6 +24,29 @@ func claudeSubTestRun(_ context.Context, path string, args ...string) ([]byte, e
 	return nil, fmt.Errorf("unexpected claude args %v for %s", args, path)
 }
 
+func TestClaudeSubPoolFreshAuthOwnTimeoutOverridesRunnerError(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	oldTimeout := claudeSubFreshAuthTimeout
+	claudeSubFreshAuthTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { claudeSubFreshAuthTimeout = oldTimeout })
+	started := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			close(started)
+			<-ctx.Done()
+			return []byte(`{"loggedIn":false}`), errors.New("signal: killed")
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	result := make(chan error, 1)
+	go func() { result <- pool.confirmAuthFresh(context.Background()) }()
+	<-started
+	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("confirmAuthFresh() = %v, want context deadline", err)
+	}
+}
+
 func TestClaudeSubPoolFreshAuthShutdownCancelsAndJoins(t *testing.T) {
 	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	pool.cli = claudeSubCLI{Path: "/fake/claude"}
@@ -258,16 +281,28 @@ func TestClaudeSubPoolRetriesSignedOutLocatorOnLaterAcquire(t *testing.T) {
 		t.Fatalf("first acquire = %v, want signed-out error", err)
 	}
 	signedIn.Store(true)
+	other, err := pool.acquire(context.Background(), "other", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("unrelated acquire after login = %v", err)
+	}
 	s, err := pool.acquire(context.Background(), "retry", claudeSubTestSpec())
 	if err != nil {
 		t.Fatalf("later acquire after login = %v", err)
 	}
 	pool.release(s)
+	pool.mu.Lock()
+	_, otherPresent := pool.sessions["other"]
+	otherActive := other.active
+	pool.mu.Unlock()
+	if !otherPresent || otherActive != 1 {
+		t.Fatalf("unrelated lease = present:%v active:%d, want held pooled lease", otherPresent, otherActive)
+	}
+	pool.release(other)
 	if got := lookups.Load(); got != 2 {
 		t.Fatalf("lookups = %d, want one initial and one synchronized retry", got)
 	}
-	if got := spawner.callCount(); got != 1 {
-		t.Fatalf("spawn count = %d, want one fresh session after login", got)
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawn count = %d, want unrelated and recovered sessions", got)
 	}
 }
 
