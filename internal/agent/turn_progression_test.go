@@ -954,6 +954,76 @@ func TestHandleCompaction_SuccessfulCompactionRetries(t *testing.T) {
 	}
 }
 
+// TestAdvance_ContextGenerationTracksCompactionCount proves each turn stamps the
+// compactions applied so far in the run, so the turn after a compaction reports
+// the incremented generation its cache diagnostics carry.
+func TestAdvance_ContextGenerationTracksCompactionCount(t *testing.T) {
+	compacted := false
+	compactFn := func(_ context.Context, _ RunRequest, state *RunState, _ int, _ *prompt.RequestTokenBudget, _ map[string]bool, compactionCount *int) (bool, bool, string, error) {
+		if compacted {
+			return false, false, "no candidates left", nil
+		}
+		compacted = true
+		state.Conversation = []Message{{Role: MessageRoleAssistant, Content: "compacted summary"}}
+		state.Lineage = newConversationLineage(state.Conversation)
+		*compactionCount++
+		return true, true, "", nil
+	}
+
+	calls := 0
+	providerStub := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		calls++
+		return provider.ChatResponse{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},
+			FinishReason: "stop",
+			Usage:        &provider.UsageStats{PromptTokens: 10, CompletionTokens: 1},
+		}, nil
+	}}
+	req := RunRequest{
+		Provider: providerStub,
+		Executor: &fakeExecutor{},
+		Prompt: prompt.AssemblyOptions{
+			Conversation:              []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+			ProjectContextBudgetBytes: 128,
+		},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               4096,
+			MaxCompletionTokens:       256,
+			CompactionThresholdTokens: 1,
+		},
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		Limits:        Limits{MaxTurns: 2},
+		Events:        output.NoopSink{},
+	}
+	state := RunState{
+		Conversation: []Message{{Role: MessageRoleUser, Content: "hello"}},
+		Lineage:      newConversationLineage([]Message{{Role: MessageRoleUser, Content: "hello"}}),
+	}
+	p := newTurnProgressor(req, prompt.AssemblyOptions{}, compactFn)
+
+	first := p.advance(context.Background(), state)
+	if !first.Retry {
+		t.Fatalf("first advance Retry = false, want a retry after the compaction; outcome = %+v", first)
+	}
+	if p.compactionCount != 1 {
+		t.Fatalf("p.compactionCount = %d, want 1 after the compaction", p.compactionCount)
+	}
+	if p.request.contextGeneration != 0 {
+		t.Fatalf("contextGeneration = %d on the turn issued before the compaction, want 0", p.request.contextGeneration)
+	}
+
+	second := p.advance(context.Background(), first.State)
+	if second.Error != nil {
+		t.Fatalf("second advance error = %v, want nil", second.Error)
+	}
+	if calls != 1 {
+		t.Fatalf("model calls = %d, want 1", calls)
+	}
+	if p.request.contextGeneration != 1 {
+		t.Fatalf("contextGeneration = %d with compactionCount %d, want the turn after the compaction to stamp 1", p.request.contextGeneration, p.compactionCount)
+	}
+}
+
 func TestPrepareTurn_AssemblyErrorPropagates(t *testing.T) {
 	state := RunState{
 		TurnCount:    0,

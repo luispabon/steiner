@@ -185,6 +185,11 @@ func handleFinalChunk(sink output.EventSink, turn int, source output.ChunkSource
 	response.UpstreamEndpoint = chunk.UpstreamEndpoint
 	response.BackendState = chunk.BackendState
 	response.ClearBackendState = chunk.ClearBackendState
+	// A terminal chunk from a provider that measures nothing carries none, and
+	// the folded response then has no diagnostics either.
+	if chunk.Diagnostics != nil {
+		response.Diagnostics = chunk.Diagnostics
+	}
 	content := chunk.Delta.Content
 	if chunk.ContentSnapshot {
 		streamed := message.Content

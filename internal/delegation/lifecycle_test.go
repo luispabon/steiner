@@ -123,8 +123,8 @@ func TestSpecializedHandlerCacheWaitingCancellationReturnsCancelled(t *testing.T
 	if err != nil {
 		t.Fatalf("mint cache key: %v", err)
 	}
-	_, release, _ := store.BeginDispatch(key)
-	defer release()
+	_, release, _ := store.beginDispatch(key)
+	defer release(output.DelegationCacheReleaseLeaderExited)
 
 	controller := NewActiveController()
 	events := &recordingEventSink{}
@@ -221,8 +221,8 @@ func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testi
 	if err != nil {
 		t.Fatalf("mint cache key: %v", err)
 	}
-	_, release, _ := store.BeginDispatch(key)
-	defer release()
+	_, release, _ := store.beginDispatch(key)
+	defer release(output.DelegationCacheReleaseLeaderExited)
 
 	controller := NewActiveController()
 	sessions := NewSessionStore()

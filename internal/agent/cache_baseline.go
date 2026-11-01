@@ -36,22 +36,22 @@ func NewCacheBaselineStore() *CacheBaselineStore {
 }
 
 // Compare reports how many leading elements of messageHashes match the
-// sequence stored for key, and whether a predecessor was stored at all. It
-// does not modify the stored baseline; call Promote separately once the
-// caller knows the request messageHashes was computed for actually reached
-// the provider and was accepted. An empty key is a no-op returning (0,
-// false) and never reads the store.
-func (s *CacheBaselineStore) Compare(key CacheBaselineKey, messageHashes []string) (sharedPrefixMessages int, predecessorKnown bool) {
+// sequence stored for key, how many elements that predecessor held, and whether
+// a predecessor was stored at all. It does not modify the stored baseline; call
+// Promote separately once the caller knows the request messageHashes was
+// computed for actually reached the provider and was accepted. An empty key is
+// a no-op returning (0, 0, false) and never reads the store.
+func (s *CacheBaselineStore) Compare(key CacheBaselineKey, messageHashes []string) (sharedPrefixMessages int, predecessorMessages int, predecessorKnown bool) {
 	if s == nil || key.CacheKey == "" {
-		return 0, false
+		return 0, 0, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	prev, ok := s.entries[key]
 	if !ok {
-		return 0, false
+		return 0, 0, false
 	}
-	return longestCommonPrefixLen(prev, messageHashes), true
+	return longestCommonPrefixLen(prev, messageHashes), len(prev), true
 }
 
 // Promote stores messageHashes as the new baseline for key, replacing

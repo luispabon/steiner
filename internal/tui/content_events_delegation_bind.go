@@ -162,6 +162,22 @@ func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
 	b.markDelegationDirty(loc.seg)
 }
 
+// handleDelegationCacheReleased clears a follower's cache-warm-up state once it
+// stops waiting, whether the leader, the timeout, or cancellation ended the
+// wait. The event adds no transcript line: the card state is the whole effect.
+func (b *contentBuffer) handleDelegationCacheReleased(event output.Event) {
+	payload, ok := event.Payload.(output.DelegationCacheReleasedEvent)
+	if !ok {
+		return
+	}
+	loc, found := b.lookupOccurrence(keyOf(payload.DelegationOccurrence))
+	if !found || loc.dd == nil {
+		return
+	}
+	loc.dd.cacheWaiting = false
+	b.markDelegationDirty(loc.seg)
+}
+
 // appendToolCallQueuedEvent records a delegation call announced as waiting for a
 // parallelism slot. The box is created here so it is visible before the call is
 // dispatched, then activated by the matching ToolCallStartedEvent.

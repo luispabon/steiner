@@ -161,6 +161,12 @@ type RunRequest struct {
 	// target by compactionFallbackRequest.
 	compactionFallbackTarget bool
 
+	// contextGeneration is the number of compaction stages applied within the
+	// current run when the current call is issued. It restarts at 0 for each
+	// run. Cache diagnostics stamp it so a cold cache can be correlated with
+	// compaction. It carries no request semantics.
+	contextGeneration int
+
 	// Diagnostics receives cache-stream records for this run; emission is added
 	// by stage 2 of the unified-diagnostics plan (issue #707). A nil writer is
 	// a no-op, so unwired paths and tests need no special handling.

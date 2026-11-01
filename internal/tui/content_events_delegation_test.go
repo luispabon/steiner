@@ -13,6 +13,28 @@ import (
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
+func TestDelegationCacheReleasedAddsNoTranscriptItem(t *testing.T) {
+	t.Parallel()
+	buffer := newTestBuffer(t)
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call_1", map[string]any{"type": "code", "task": "inspect cache"}))
+	buffer.AppendEvent(output.NewDelegationCacheWaitingEvent(callOcc("call_1", "child-1"), time.Now().Add(time.Second)))
+	before := len(buffer.segments)
+
+	loc, ok := buffer.activeDelegations["child-1"]
+	if !ok || loc.dd == nil || !loc.dd.cacheWaiting {
+		t.Fatal("delegation is not cache-waiting before delegation_cache_released")
+	}
+
+	buffer.AppendEvent(output.NewDelegationCacheReleasedEvent(callOcc("call_1", "child-1"), output.DelegationCacheReleaseTimeout, 10_000))
+
+	if got := len(buffer.segments); got != before {
+		t.Fatalf("segments after delegation_cache_released = %d, want %d (no transcript item)", got, before)
+	}
+	if loc.dd.cacheWaiting {
+		t.Fatal("cacheWaiting = true after delegation_cache_released, want false")
+	}
+}
+
 func TestDelegationCacheWaitingBindsAndClears(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{

@@ -383,6 +383,79 @@ func TestCodexWSFailedEventFlushesPendingText(t *testing.T) {
 	}
 }
 
+// TestCodexWSCallDiagnosticsAttempts proves both WebSocket entry points report
+// how many transport attempts the successful call spent. The WS path never
+// blanks cache affinity on a retry, so CacheAffinityDropped stays false.
+func TestCodexWSCallDiagnosticsAttempts(t *testing.T) {
+	tests := []struct {
+		name         string
+		stream       bool
+		failFirst    bool
+		wantAttempts int
+	}{
+		{name: "unary first attempt", wantAttempts: 1},
+		{name: "unary after reconnect", failFirst: true, wantAttempts: 2},
+		{name: "stream first attempt", stream: true, wantAttempts: 1},
+		{name: "stream after reconnect", stream: true, failFirst: true, wantAttempts: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := newWSTestServer(t, nil, func(conn *websocket.Conn, connNum int) {
+				if !wsServerRead(t, conn) {
+					return
+				}
+				if tt.failFirst && connNum == 1 {
+					_ = conn.CloseNow()
+					return
+				}
+				wsServerWrite(t, conn, wsTextDelta("ok"))
+				wsServerWrite(t, conn, wsCompleted())
+			})
+			provider := newTestWSProvider(t, server.wsURL())
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			req := ChatRequest{
+				Model:    "test-model",
+				Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+			}
+
+			var diagnostics *CallDiagnostics
+			if tt.stream {
+				stream, err := provider.StreamChatCompletion(ctx, req)
+				if err != nil {
+					t.Fatalf("StreamChatCompletion: %v", err)
+				}
+				chunks := drainChunks(stream)
+				if len(chunks) == 0 {
+					t.Fatal("no chunks received")
+				}
+				final := chunks[len(chunks)-1]
+				if !final.Done || final.Error != "" {
+					t.Fatalf("terminal chunk = %#v, want Done without error", final)
+				}
+				diagnostics = final.Diagnostics
+			} else {
+				response, err := provider.ChatCompletion(ctx, req)
+				if err != nil {
+					t.Fatalf("ChatCompletion: %v", err)
+				}
+				diagnostics = response.Diagnostics
+			}
+
+			if diagnostics == nil {
+				t.Fatal("diagnostics = nil, want the call's attempts")
+			}
+			if got := diagnostics.Attempts; got != tt.wantAttempts {
+				t.Errorf("attempts = %d, want %d", got, tt.wantAttempts)
+			}
+			if diagnostics.CacheAffinityDropped {
+				t.Error("CacheAffinityDropped = true, want false: the WS path never blanks cache affinity")
+			}
+		})
+	}
+}
+
 // TestCodexWSUnaryPathStillReconnects guards the other direction: ChatCompletion
 // buffers, so nothing is visible mid-stream and a failure must still reconnect.
 func TestCodexWSUnaryPathStillReconnects(t *testing.T) {

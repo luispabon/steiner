@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +108,7 @@ func TestDelegationLifecycleEventsFlattenOccurrenceJSON(t *testing.T) {
 		{"queued", NewDelegationQueuedEvent(occ, "code", "task")},
 		{"started", NewDelegationStartedEvent(occ, "task", "alias", "code")},
 		{"cache waiting", NewDelegationCacheWaitingEvent(occ, time.Unix(1, 0))},
+		{"cache released", NewDelegationCacheReleasedEvent(occ, DelegationCacheReleaseTimeout, 2500)},
 		{"complete", NewDelegationCompleteEvent(DelegationCompleteParams{DelegationOccurrence: occ, Status: "complete"})},
 		{"failed", NewDelegationFailedEvent(DelegationFailedParams{DelegationOccurrence: occ, Error: "boom"})},
 	}
@@ -129,6 +131,39 @@ func TestDelegationLifecycleEventsFlattenOccurrenceJSON(t *testing.T) {
 			}
 			if _, nested := decoded.Payload["DelegationOccurrence"]; nested {
 				t.Errorf("occurrence must be flattened, got %s", data)
+			}
+		})
+	}
+}
+
+func TestDelegationCacheReleasedEventJSON(t *testing.T) {
+	testCases := []struct {
+		name     string
+		reason   DelegationCacheReleaseReason
+		waitedMs int64
+	}{
+		{name: "leader first response", reason: DelegationCacheReleaseLeaderFirstResponse, waitedMs: 2100},
+		{name: "leader exited", reason: DelegationCacheReleaseLeaderExited, waitedMs: 1800},
+		{name: "timeout", reason: DelegationCacheReleaseTimeout, waitedMs: 10000},
+		{name: "cancelled", reason: DelegationCacheReleaseCancelled, waitedMs: 0},
+	}
+	occ := DelegationOccurrence{CallID: "call-1", AgentID: "child-1"}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(NewDelegationCacheReleasedEvent(occ, tt.reason, tt.waitedMs))
+			if err != nil {
+				t.Fatalf("marshal event: %v", err)
+			}
+			for _, want := range []string{
+				`"type":"delegation_cache_released"`,
+				fmt.Sprintf(`"waited_ms":%d`, tt.waitedMs),
+				fmt.Sprintf(`"reason":%q`, string(tt.reason)),
+				`"call_id":"call-1"`,
+				`"agent_id":"child-1"`,
+			} {
+				if !strings.Contains(string(data), want) {
+					t.Errorf("event JSON = %s, missing %s", data, want)
+				}
 			}
 		})
 	}

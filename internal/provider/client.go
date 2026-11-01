@@ -115,6 +115,9 @@ func (c *Client) ChatCompletion(ctx context.Context, request ChatRequest) (respo
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	// Measurement only: the successful call reports how many transport attempts
+	// it spent and whether cache affinity was dropped to land it.
+	response.Diagnostics = &CallDiagnostics{Attempts: attempts, CacheAffinityDropped: dropCacheAffinity}
 	return response, nil
 }
 
@@ -207,6 +210,11 @@ func (c *Client) streamWithRetry(ctx context.Context, request ChatRequest, out c
 		err = c.wire.DecodeStream(ctx, resp.Body, func(chunk ChatChunk) error {
 			if chunk.Done {
 				chunk.UpstreamEndpoint = endpointID
+				// A Done chunk does not mark the stream partial, so a retryable
+				// error after an empty Done still retries and emits another Done.
+				// These values describe the attempt that produced this chunk; the
+				// consumer keeps the last Done it processes. Measurement only.
+				chunk.Diagnostics = &CallDiagnostics{Attempts: attempts, CacheAffinityDropped: dropCacheAffinity}
 			}
 			if chunksReceived == 0 {
 				firstChunkAt = time.Now()

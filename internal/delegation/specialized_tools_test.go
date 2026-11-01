@@ -510,8 +510,8 @@ func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint cache key: %v", err)
 	}
-	_, release, _ := store.BeginDispatch(key)
-	defer release()
+	_, release, _ := store.beginDispatch(key)
+	defer release(output.DelegationCacheReleaseLeaderExited)
 
 	events := &recordingEventSink{}
 	runCalled := make(chan struct{}, 2)
@@ -571,7 +571,7 @@ func TestSpecializedHandler_DispatchGateFollowerWaits(t *testing.T) {
 	default:
 	}
 
-	release()
+	release(output.DelegationCacheReleaseLeaderExited)
 	select {
 	case err := <-done:
 		if err != nil {

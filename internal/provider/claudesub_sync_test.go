@@ -1196,33 +1196,39 @@ func TestClaudeSubRestoreFor(t *testing.T) {
 	}
 	rewritten := []Message{claudeSubSyncUserMsg("changed"), history[1], history[2]}
 	tests := []struct {
-		name     string
-		stored   claudeSubBackendState
-		hasState bool
-		msgs     []Message
-		fp       string
-		wantOK   bool
-		wantFork bool
+		name       string
+		stored     claudeSubBackendState
+		hasState   bool
+		msgs       []Message
+		fp         string
+		wantOK     bool
+		wantFork   bool
+		wantReason string
 	}{
 		{name: "restart resumes", stored: stored, hasState: true, msgs: history, fp: "fp", wantOK: true},
 		{name: "owner mismatch forks", stored: with(func(st *claudeSubBackendState) { st.TransportSession = "previous" }), hasState: true, msgs: history, fp: "fp", wantOK: true, wantFork: true},
-		{name: "no stored state reseeds", msgs: history, fp: "fp"},
+		{name: "no stored state reseeds", msgs: history, fp: "fp", wantReason: claudeSubReseedNoState},
+		// A stored state with no request history needs no reseed, so it reports
+		// no branch even though nothing resumes.
 		{name: "no history reseeds", stored: stored, hasState: true, msgs: history[:1], fp: "fp"},
-		{name: "stale fingerprint reseeds", stored: with(func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }), hasState: true, msgs: history, fp: "fp"},
-		{name: "missing cli session reseeds", stored: with(func(st *claudeSubBackendState) { st.CLISessionID = "" }), hasState: true, msgs: history, fp: "fp"},
-		{name: "missing final uuid reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalUUID = "" }), hasState: true, msgs: history, fp: "fp"},
-		{name: "final digest mismatch reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalMessageDigest = "other" }), hasState: true, msgs: history, fp: "fp"},
-		{name: "state past the history reseeds", stored: with(func(st *claudeSubBackendState) { st.SyncEntries = 9 }), hasState: true, msgs: history, fp: "fp"},
-		{name: "rewritten history reseeds", stored: stored, hasState: true, msgs: rewritten, fp: "fp"},
+		{name: "stale fingerprint reseeds", stored: with(func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedFingerprint},
+		{name: "missing cli session reseeds", stored: with(func(st *claudeSubBackendState) { st.CLISessionID = "" }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedNoState},
+		{name: "missing final uuid reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalUUID = "" }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedFinalUUID},
+		{name: "final digest mismatch reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalMessageDigest = "other" }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedFinalUUID},
+		{name: "state past the history reseeds", stored: with(func(st *claudeSubBackendState) { st.SyncEntries = 9 }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedFinalUUID},
+		{name: "rewritten history reseeds", stored: stored, hasState: true, msgs: rewritten, fp: "fp", wantReason: claudeSubReseedPrefix},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resume, ok, err := claudeSubRestoreFor(tt.msgs, tt.stored, tt.hasState, "parent", tt.fp)
+			resume, ok, reason, err := claudeSubRestoreFor(tt.msgs, tt.stored, tt.hasState, "parent", tt.fp)
 			if err != nil {
 				t.Fatalf("restore: %v", err)
 			}
 			if ok != tt.wantOK {
 				t.Fatalf("restorable = %v, want %v", ok, tt.wantOK)
+			}
+			if reason != tt.wantReason {
+				t.Errorf("reseed reason = %q, want %q", reason, tt.wantReason)
 			}
 			if !ok {
 				return

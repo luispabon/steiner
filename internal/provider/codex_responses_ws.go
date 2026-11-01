@@ -97,6 +97,8 @@ func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatReques
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	// The WS transport never blanks cache affinity, so only attempts is reported.
+	result.Diagnostics = &CallDiagnostics{Attempts: attempts}
 	return result, nil
 }
 
@@ -136,6 +138,7 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 			Usage:           result.Usage,
 			Done:            true,
 			FinishReason:    result.FinishReason,
+			Diagnostics:     &CallDiagnostics{Attempts: attempts},
 		})
 		return
 	}

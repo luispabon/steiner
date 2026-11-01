@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -13,10 +14,16 @@ const dispatchGateTimeout = 10 * time.Second
 type dispatchGate struct {
 	ready chan struct{}
 	once  sync.Once
+	// cause is written once, before ready closes, so a receiver of ready reads
+	// the release cause without further synchronisation.
+	cause output.DelegationCacheReleaseReason
 }
 
-func (g *dispatchGate) release() {
-	g.once.Do(func() { close(g.ready) })
+func (g *dispatchGate) release(cause output.DelegationCacheReleaseReason) {
+	g.once.Do(func() {
+		g.cause = cause
+		close(g.ready)
+	})
 }
 
 // CacheKeyStore caches one prompt-cache key per AgentType so repeated
@@ -70,31 +77,38 @@ func cacheKeyOrMint(store *CacheKeyStore, agentType AgentType) string {
 	return key
 }
 
-// BeginDispatch coordinates same-cache-key sibling delegations. The first caller for
+// beginDispatch coordinates same-cache-key sibling delegations. The first caller for
 // cacheKey is the leader: it returns release and wait functions that proceed immediately
 // so it can dispatch at once; followers are told isLeader=false and must call the
-// returned wait before spawning. release is idempotent and clears a follower wait for
-// this cacheKey. An empty cacheKey is ungated: it always returns isLeader=true with a
-// no-op release and wait.
-func (s *CacheKeyStore) BeginDispatch(cacheKey string) (isLeader bool, release func(), wait func(ctx context.Context)) {
+// returned wait before spawning. The first release call sets the gate's release cause
+// and clears a follower wait for this cacheKey; later calls are no-ops. An empty cacheKey
+// is ungated: it always returns isLeader=true with a no-op release and wait.
+//
+// A follower's wait returns why it ended. Leaders never call wait, so their wait
+// returns the zero reason.
+func (s *CacheKeyStore) beginDispatch(cacheKey string) (isLeader bool, release func(output.DelegationCacheReleaseReason), wait func(ctx context.Context) output.DelegationCacheReleaseReason) {
 	if cacheKey == "" {
-		return true, func() {}, func(context.Context) {}
+		return true, func(output.DelegationCacheReleaseReason) {}, noWait
 	}
 
 	s.mu.Lock()
 	if g, ok := s.gates[cacheKey]; ok {
 		s.mu.Unlock()
-		return false, func() {}, s.waitFor(g)
+		return false, func(output.DelegationCacheReleaseReason) {}, s.waitFor(g)
 	}
 	g := &dispatchGate{ready: make(chan struct{})}
 	s.gates[cacheKey] = g
 	s.mu.Unlock()
-	return true, s.releaseFor(cacheKey, g), func(context.Context) {}
+	return true, s.releaseFor(cacheKey, g), noWait
 }
 
-func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
-	return func() {
-		g.release()
+func noWait(context.Context) output.DelegationCacheReleaseReason {
+	return ""
+}
+
+func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func(output.DelegationCacheReleaseReason) {
+	return func(cause output.DelegationCacheReleaseReason) {
+		g.release(cause)
 		s.mu.Lock()
 		if s.gates[cacheKey] == g {
 			delete(s.gates, cacheKey)
@@ -103,7 +117,7 @@ func (s *CacheKeyStore) releaseFor(cacheKey string, g *dispatchGate) func() {
 	}
 }
 
-func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
+func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) output.DelegationCacheReleaseReason {
 	timeout := dispatchGateTimeout
 	if s.testWaitTimeout > 0 {
 		timeout = s.testWaitTimeout
@@ -111,14 +125,36 @@ func (s *CacheKeyStore) waitFor(g *dispatchGate) func(ctx context.Context) {
 	return waitForTimeout(g, timeout)
 }
 
-func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) {
-	return func(ctx context.Context) {
+func waitForTimeout(g *dispatchGate, timeout time.Duration) func(ctx context.Context) output.DelegationCacheReleaseReason {
+	return func(ctx context.Context) output.DelegationCacheReleaseReason {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
-		select {
-		case <-g.ready:
-		case <-timer.C:
-		case <-ctx.Done():
-		}
+		return g.await(ctx, timer.C)
+	}
+}
+
+// await blocks until the gate is released, expired fires, or ctx ends, and
+// reports why the wait ended. expired is the gate timer's channel.
+func (g *dispatchGate) await(ctx context.Context, expired <-chan time.Time) output.DelegationCacheReleaseReason {
+	select {
+	case <-g.ready:
+		return g.cause
+	case <-expired:
+		return g.releasedCauseOr(output.DelegationCacheReleaseTimeout)
+	case <-ctx.Done():
+		return g.releasedCauseOr(output.DelegationCacheReleaseCancelled)
+	}
+}
+
+// releasedCauseOr returns the gate's release cause when ready is already closed.
+// A select that observes ready and the timer or cancellation at the same instant
+// picks between them at random, so without this check a released gate could be
+// labelled as timed out or cancelled.
+func (g *dispatchGate) releasedCauseOr(fallback output.DelegationCacheReleaseReason) output.DelegationCacheReleaseReason {
+	select {
+	case <-g.ready:
+		return g.cause
+	default:
+		return fallback
 	}
 }

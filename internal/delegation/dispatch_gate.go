@@ -14,14 +14,18 @@ func applyDispatchGate(ctx context.Context, store *CacheKeyStore, cacheKey strin
 	if store == nil {
 		return childEvents, func() {}
 	}
-	isLeader, release, wait := store.BeginDispatch(cacheKey)
+	isLeader, release, wait := store.beginDispatch(cacheKey)
 	if isLeader {
-		return newDispatchReleaseSink(childEvents, release), release
+		firstResponse := func() { release(output.DelegationCacheReleaseLeaderFirstResponse) }
+		return newDispatchReleaseSink(childEvents, firstResponse), func() { release(output.DelegationCacheReleaseLeaderExited) }
 	}
-	deadline := time.Now().Add(dispatchGateTimeout)
+	start := time.Now()
 	if parentEvents != nil {
-		parentEvents.Emit(output.NewDelegationCacheWaitingEvent(occ, deadline))
+		parentEvents.Emit(output.NewDelegationCacheWaitingEvent(occ, start.Add(dispatchGateTimeout)))
 	}
-	wait(ctx)
+	reason := wait(ctx)
+	if parentEvents != nil {
+		parentEvents.Emit(output.NewDelegationCacheReleasedEvent(occ, reason, time.Since(start).Milliseconds()))
+	}
 	return childEvents, func() {}
 }

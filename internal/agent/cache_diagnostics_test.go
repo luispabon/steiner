@@ -385,7 +385,7 @@ func TestCompactionCacheDiagnosticDoesNotPromoteBaseline(t *testing.T) {
 	if stats.messageHashes == nil || len(stats.messageHashes) != len(compactionMessages) {
 		t.Fatalf("message hashes count = %d, want %d", len(stats.messageHashes), len(compactionMessages))
 	}
-	if shared, known := store.Compare(stats.baselineKey, perMessageHashes(initial)); !known || shared != len(initial) {
+	if shared, _, known := store.Compare(stats.baselineKey, perMessageHashes(initial)); !known || shared != len(initial) {
 		t.Fatalf("baseline after compaction diagnostic = (%d, %v), want original baseline preserved", shared, known)
 	}
 	records := readCacheRecords(t, dir)
@@ -581,9 +581,54 @@ func TestCompleteModelCall_PromotesPostVisionStripMessages(t *testing.T) {
 	}
 
 	stripped := []provider.Message{{Role: provider.MessageRoleUser, Content: "look"}}
-	shared, known := store.Compare(cacheBaselineKeyForRequest(req), perMessageHashes(stripped))
+	shared, _, known := store.Compare(cacheBaselineKeyForRequest(req), perMessageHashes(stripped))
 	if !known || shared != 1 {
 		t.Fatalf("baseline after issue = (%d, %v), want the image-stripped sequence (1, true)", shared, known)
+	}
+}
+
+// TestCompleteModelCall_StreamDiagnosticsReachCacheRecord proves a streaming
+// call's terminal-chunk call diagnostics reach the emitted cache record.
+func TestCompleteModelCall_StreamDiagnosticsReachCacheRecord(t *testing.T) {
+	resetColdStart(t)
+	w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+	prov := &fakeProvider{streamFn: func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+		chunks := make(chan provider.ChatChunk, 2)
+		chunks <- provider.ChatChunk{Delta: provider.Message{Content: "hello"}}
+		chunks <- provider.ChatChunk{
+			Done:         true,
+			FinishReason: "stop",
+			Usage:        &provider.UsageStats{PromptTokens: 10, CompletionTokens: 1},
+			Diagnostics:  &provider.CallDiagnostics{Attempts: 2},
+		}
+		close(chunks)
+		return chunks, nil
+	}}
+	req := RunRequest{
+		Provider:           prov,
+		Diagnostics:        w,
+		StreamingPreferred: true,
+		ResolvedModel:      provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+		Events:             output.NoopSink{},
+	}
+	chatRequest := provider.ChatRequest{
+		Model:    "test-model",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}},
+	}
+	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, prompt.ModelTokenBudget{}, nil); err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+
+	records := readCacheRecords(t, dir)
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1", len(records))
+	}
+	var payload cachePayload
+	if err := json.Unmarshal(mustMarshal(t, records[0].Payload), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Attempts != 2 {
+		t.Fatalf("attempts = %d, want the terminal chunk's 2", payload.Attempts)
 	}
 }
 
@@ -608,7 +653,7 @@ func TestCompleteModelCall_RejectedBudgetDoesNotPromote(t *testing.T) {
 	if _, _, err := completeModelCall(context.Background(), req, 1, chatRequest, nil, budget, nil); err == nil {
 		t.Fatal("completeModelCall() error = nil, want budget rejection")
 	}
-	if _, known := store.Compare(cacheBaselineKeyForRequest(req), []string{"any"}); known {
+	if _, _, known := store.Compare(cacheBaselineKeyForRequest(req), []string{"any"}); known {
 		t.Fatal("a budget-rejected request promoted a baseline")
 	}
 }
@@ -712,5 +757,200 @@ func TestCompleteModelCall_InlineImageStripRetryComparesAgainstPreTurnBaseline(t
 	}
 	if !payload.PrefixPredecessorKnown || payload.SharedPrefixMessages != 1 {
 		t.Fatalf("payload = %+v, want prefix_predecessor_known true and shared_prefix_messages 1 (measured against the pre-turn baseline)", payload)
+	}
+}
+
+// TestEmitCacheDiagnostic_MeasurementFields proves the per-call measurement
+// fields are written when the call measured them and absent otherwise.
+func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
+	tests := []struct {
+		name              string
+		contextGeneration int
+		response          provider.ChatResponse
+		stats             requestCacheStats
+		wantPresent       []string
+		wantAbsent        []string
+	}{
+		{
+			name:              "measured call",
+			contextGeneration: 2,
+			response: provider.ChatResponse{
+				Usage: &provider.UsageStats{PromptTokens: 10},
+				Diagnostics: &provider.CallDiagnostics{
+					Attempts:             3,
+					CacheAffinityDropped: true,
+					ClaudeSub: &provider.ClaudeSubCallDiagnostics{
+						Process:           "reuse",
+						ReseedReason:      "checkpoint",
+						UsageGateMillis:   42,
+						UsageGatePolls:    2,
+						UsageProbeSpawned: true,
+					},
+				},
+			},
+			stats: requestCacheStats{
+				prefixHash:           "abcd",
+				sharedPrefixMessages: 1,
+				predecessorMessages:  2,
+				predecessorKnown:     true,
+				divergenceRole:       "user",
+				messageHashes:        []string{"a", "b"},
+				comparisonEnabled:    true,
+			},
+			wantPresent: []string{
+				`"attempts":3`,
+				`"cache_affinity_dropped":true`,
+				`"context_generation":2`,
+				`"prefix_predecessor_messages":2`,
+				`"prefix_divergence_role":"user"`,
+				`"claudesub_process":"reuse"`,
+				`"claudesub_reseed_reason":"checkpoint"`,
+				`"claudesub_usage_gate_ms":42`,
+				`"claudesub_usage_gate_polls":2`,
+				`"claudesub_usage_probe_spawned":true`,
+			},
+		},
+		{
+			name: "single attempt",
+			response: provider.ChatResponse{
+				Usage:       &provider.UsageStats{PromptTokens: 10},
+				Diagnostics: &provider.CallDiagnostics{Attempts: 1},
+			},
+			stats:       requestCacheStats{prefixHash: "abcd", messageHashes: []string{"a"}},
+			wantPresent: []string{`"attempts":1`},
+		},
+		{
+			name:     "known empty predecessor",
+			response: provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}},
+			stats:    requestCacheStats{prefixHash: "abcd", predecessorKnown: true, messageHashes: []string{"a"}},
+			wantPresent: []string{
+				`"context_generation":0`,
+				`"prefix_predecessor_messages":0`,
+			},
+			wantAbsent: []string{
+				"attempts",
+				"cache_affinity_dropped",
+				"prefix_divergence_role",
+				"claudesub_process",
+				"claudesub_reseed_reason",
+				"claudesub_usage_gate_ms",
+				"claudesub_usage_gate_polls",
+				"claudesub_usage_probe_spawned",
+			},
+		},
+		{
+			name:     "unmeasured call without a predecessor",
+			response: provider.ChatResponse{Usage: &provider.UsageStats{PromptTokens: 10}},
+			stats:    requestCacheStats{prefixHash: "abcd"},
+			wantPresent: []string{
+				`"context_generation":0`,
+			},
+			wantAbsent: []string{
+				"attempts",
+				"cache_affinity_dropped",
+				"prefix_predecessor_messages",
+				"prefix_divergence_role",
+				"claudesub_process",
+				"claudesub_reseed_reason",
+				"claudesub_usage_gate_ms",
+				"claudesub_usage_gate_polls",
+				"claudesub_usage_probe_spawned",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetColdStart(t)
+			w, dir := newTestDiagnosticsWriter(t, diagnostics.Streams{Cache: true})
+			emitCacheDiagnostic(RunRequest{Diagnostics: w, contextGeneration: tt.contextGeneration}, tt.response, "", 1, tt.stats)
+			records := readCacheRecords(t, dir)
+			if len(records) != 1 {
+				t.Fatalf("records = %d, want 1", len(records))
+			}
+			raw := string(mustMarshal(t, records[0].Payload))
+			for _, fragment := range tt.wantPresent {
+				if !strings.Contains(raw, fragment) {
+					t.Errorf("payload missing %s: %s", fragment, raw)
+				}
+			}
+			for _, key := range tt.wantAbsent {
+				if strings.Contains(raw, `"`+key+`"`) {
+					t.Errorf("payload carries %s when it was not measured: %s", key, raw)
+				}
+			}
+		})
+	}
+}
+
+// TestComputeRequestCacheStats_PrefixDivergence proves the predecessor's message
+// count and the first differing request role are measured for a rewrite and
+// absent for an append.
+func TestComputeRequestCacheStats_PrefixDivergence(t *testing.T) {
+	predecessor := []provider.Message{
+		{Role: provider.MessageRoleSystem, Content: "system prompt"},
+		{Role: provider.MessageRoleUser, Content: "first"},
+	}
+	tests := []struct {
+		name             string
+		current          []provider.Message
+		compare          bool
+		emptyPredecessor bool
+		wantShared       int
+		wantPredecessor  int
+		wantKnown        bool
+		wantRole         string
+	}{
+		{name: "no predecessor", current: predecessor},
+		{name: "empty current request", compare: true, wantPredecessor: 2, wantKnown: true},
+		{name: "empty known predecessor", compare: true, emptyPredecessor: true, current: predecessor, wantKnown: true},
+		{name: "append", compare: true, current: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system prompt"},
+			{Role: provider.MessageRoleUser, Content: "first"},
+			{Role: provider.MessageRoleUser, Content: "second"},
+		}, wantShared: 2, wantPredecessor: 2, wantKnown: true},
+		{name: "rewrite at the system message", compare: true, current: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "changed prompt"},
+			{Role: provider.MessageRoleUser, Content: "first"},
+		}, wantPredecessor: 2, wantKnown: true, wantRole: "system"},
+		{name: "rewrite at the user message", compare: true, current: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system prompt"},
+			{Role: provider.MessageRoleUser, Content: "changed"},
+		}, wantShared: 1, wantPredecessor: 2, wantKnown: true, wantRole: "user"},
+		{name: "strict prefix", compare: true, current: []provider.Message{
+			{Role: provider.MessageRoleSystem, Content: "system prompt"},
+		}, wantShared: 1, wantPredecessor: 2, wantKnown: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewCacheBaselineStore()
+			req := RunRequest{
+				CacheBaseline:  store,
+				PromptCacheKey: "key-1",
+				ResolvedModel:  provider.ResolvedModel{ProviderAlias: "p", BackendModelID: "m"},
+			}
+			if tt.compare {
+				hashes := perMessageHashes(predecessor)
+				if tt.emptyPredecessor {
+					hashes = nil
+				}
+				store.Promote(cacheBaselineKeyForRequest(req), hashes)
+			}
+			stats := computeRequestCacheStats(req, tt.current)
+			if !stats.comparisonEnabled {
+				t.Fatal("comparisonEnabled = false, want true with a store and a cache key")
+			}
+			if stats.predecessorKnown != tt.wantKnown {
+				t.Fatalf("predecessorKnown = %v, want %v", stats.predecessorKnown, tt.wantKnown)
+			}
+			if stats.sharedPrefixMessages != tt.wantShared {
+				t.Errorf("sharedPrefixMessages = %d, want %d", stats.sharedPrefixMessages, tt.wantShared)
+			}
+			if tt.wantKnown && stats.predecessorMessages != tt.wantPredecessor {
+				t.Errorf("predecessorMessages = %d, want %d", stats.predecessorMessages, tt.wantPredecessor)
+			}
+			if stats.divergenceRole != tt.wantRole {
+				t.Errorf("divergenceRole = %q, want %q", stats.divergenceRole, tt.wantRole)
+			}
+		})
 	}
 }

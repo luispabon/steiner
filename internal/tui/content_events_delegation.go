@@ -44,6 +44,8 @@ func (b *contentBuffer) appendDelegationEvent(event output.Event) {
 		b.handleDelegationQueued(event)
 	case output.EventTypeDelegationCacheWaiting:
 		b.handleDelegationCacheWaiting(event)
+	case output.EventTypeDelegationCacheReleased:
+		b.handleDelegationCacheReleased(event)
 	case output.EventTypeDelegationComplete:
 		b.handleDelegationComplete(event)
 	case output.EventTypeDelegationFailed:

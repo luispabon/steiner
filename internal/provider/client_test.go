@@ -809,8 +809,18 @@ func TestClientRetriesCodexPromptCacheRetentionRejection(t *testing.T) {
 		Messages:       []Message{{Role: MessageRoleUser, Content: "hi"}},
 		PromptCacheKey: promptCacheKey,
 	}
-	if _, err := client.ChatCompletion(context.Background(), request); err != nil {
+	response, err := client.ChatCompletion(context.Background(), request)
+	if err != nil {
 		t.Fatalf("ChatCompletion() error = %v, want the retry to recover", err)
+	}
+	if response.Diagnostics == nil {
+		t.Fatal("Diagnostics = nil, want the successful call's attempts")
+	}
+	if got := response.Diagnostics.Attempts; got != 2 {
+		t.Errorf("Attempts = %d, want 2", got)
+	}
+	if !response.Diagnostics.CacheAffinityDropped {
+		t.Error("CacheAffinityDropped = false, want true after the cache-retention retry")
 	}
 
 	if got := len(requests); got != 2 {

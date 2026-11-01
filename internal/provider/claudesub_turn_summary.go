@@ -29,7 +29,10 @@ func claudeSubSummaryTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	// No fork, or a fork that failed before any output. The live parent is
 	// untouched in both cases, so it answers in place or the request reseeds.
 	// Either way the parent's generation loses its backend state, so the final
-	// chunk clears it.
+	// chunk clears it. The failed fork described nothing about this delivery, so
+	// drop its process and reseed measurements. The reset retains usage-gate
+	// duration and poll totals.
+	claudeSubMetricsFrom(ctx).resetDelivery()
 	return claudeSubParentInPlace(ctx, pool, req, key, spec, claudeSubClearOnDone(emit))
 }
 
@@ -165,6 +168,8 @@ func claudeSubForkSummary(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	if err != nil {
 		return err
 	}
+	// The helper is a new process resumed from the stored CLI session.
+	claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessResume)
 	return claudeSubDeliver(ctx, h, req, delta, emit)
 }
 
@@ -177,6 +182,8 @@ func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		return err
 	}
 	defer pool.retireAndRelease(helperKey, h)
+	// The helper always starts from the rendered transcript.
+	claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedHelper)
 	return claudeSubDeliverNormal(ctx, h, req, true, emit)
 }
 
@@ -200,6 +207,8 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 		return err
 	}
 	defer pool.retireAndRelease(key, s)
+	// The replaced process could not take the marked request, so it reseeds.
+	claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedPlan)
 	return claudeSubDeliverTainted(ctx, s, req, claudeSubMarkedReseedDelta(req), emit)
 }
 

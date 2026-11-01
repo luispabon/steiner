@@ -67,6 +67,9 @@ func (p *ClaudeSubscriptionPool) runUsageProbe(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The probe process started, so the call it confirms is measured as having
+	// spawned one.
+	claudeSubMetricsFrom(ctx).noteUsageProbe()
 	defer p.retireAndRelease(key, h)
 
 	raw, err := h.control.getUsage(probeCtx)

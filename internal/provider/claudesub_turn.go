@@ -2,8 +2,10 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 func claudeSubSessionKey(req ChatRequest) string {
@@ -59,6 +61,9 @@ func claudeSubAdvisorTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 	}
 	delta, err := claudeSubAdvisorPlan(ctx, s, req)
 	if errors.Is(err, errClaudeSubHistoryChanged) {
+		// The advisor's held snapshot no longer carries the request history, so
+		// the replacement process reseeds from it.
+		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedPrefix)
 		pool.retireAndRelease(key, s)
 		if s, err = pool.acquire(ctx, key, spec); err != nil {
 			return err
@@ -110,15 +115,22 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 	}
 	a := claudeSubAttach{key: key, spec: spec, fingerprint: fingerprint, msgs: claudeSubMessages(req.Messages)}
 	a.stored, a.hasState = claudeSubParseState(req.BackendState)
-	a.resume, a.restorable, err = claudeSubRestoreFor(a.msgs, a.stored, a.hasState, key, fingerprint)
+	var restoreReason string
+	a.resume, a.restorable, restoreReason, err = claudeSubRestoreFor(a.msgs, a.stored, a.hasState, key, fingerprint)
 	if err != nil {
 		return err
+	}
+	if !a.restorable {
+		claudeSubMetricsFrom(ctx).noteReseed(restoreReason)
 	}
 	forceReseed := false
 	for {
 		s, reseed, err := claudeSubAttachSession(ctx, pool, req, a, forceReseed)
 		if err != nil {
 			return err
+		}
+		if !reseed {
+			claudeSubMetricsFrom(ctx).clearReseed()
 		}
 		emitted := false
 		err = claudeSubDeliverNormal(ctx, s, req, reseed, func(chunk ChatChunk) error {
@@ -136,6 +148,12 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		if !retry {
 			return err
 		}
+		// The failed attempt left no usable record, so the retry reseeds. The
+		// reset is defensive: the retry's attach sets the process again and the
+		// noteReseed below overwrites the reason, while the gate's accumulated
+		// time and polls stay.
+		claudeSubMetricsFrom(ctx).resetDelivery()
+		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
 		forceReseed = true
 	}
 }
@@ -214,6 +232,7 @@ func claudeSubClearOnDone(emit func(ChatChunk) error) func(ChatChunk) error {
 func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed bool) (*claudeSubSession, bool, error) {
 	if pool.evictDead(a.key) {
 		forceReseed = true
+		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedExited)
 	}
 	spawn := a.spec
 	if a.restorable && !forceReseed {
@@ -228,15 +247,17 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 			pool.release(s)
 			return nil, false, err
 		}
-		accepted, err := claudeSubLiveAccepts(s, req, a)
+		accepted, rejectReason, err := claudeSubLiveAccepts(s, req, a)
 		if err != nil {
 			pool.release(s)
 			return nil, false, err
 		}
 		if accepted {
+			claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessReuse)
 			return s, false, nil
 		}
 		owner := a.hasState && a.stored.TransportSession != a.key
+		claudeSubMetricsFrom(ctx).noteReseed(rejectReason)
 		pool.retireAndRelease(a.key, s)
 		return claudeSubAttachSession(ctx, pool, req, a, !owner)
 	}
@@ -244,11 +265,13 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		// An unprimed process left by an earlier attempt was started with a
 		// different resume target or prompt, so it cannot serve this request.
 		// Persist is not compared: a key always maps to one process kind.
+		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
 		pool.retireAndRelease(a.key, s)
 		return claudeSubAttachSession(ctx, pool, req, a, true)
 	}
 	s.sync.fingerprint = a.fingerprint
 	if spawn.Resume.SessionID == "" {
+		claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessSpawn)
 		return s, claudeSubHasHistory(a.msgs), nil
 	}
 	entries, ok := claudeSubResumeEntries(a.msgs, a.stored)
@@ -261,31 +284,33 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	s.sync.started = true
 	s.sync.interruptible = -1
 	s.primed = true
+	claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessResume)
 	return s, false, nil
 }
 
 // claudeSubLiveAccepts reports whether a live process can take req as an
-// append. When a state is given, the process record must equal its checkpoint
-// and the state must be owned by this key. The request must also be a valid
-// append to the record (D8, D22). A history the record cannot take is a reseed
-// trigger, not an error, so it reports false with a nil error.
-func claudeSubLiveAccepts(s *claudeSubSession, req ChatRequest, a claudeSubAttach) (bool, error) {
+// append, and the branch that refused it. When a state is given, the process
+// record must equal its checkpoint and the state must be owned by this key. The
+// request must also be a valid append to the record (D8, D22). A history the
+// record cannot take is a reseed trigger, not an error, so it reports false with
+// a nil error.
+func claudeSubLiveAccepts(s *claudeSubSession, req ChatRequest, a claudeSubAttach) (bool, string, error) {
 	if a.hasState {
 		if a.stored.TransportSession != a.key {
-			return false, nil
+			return false, claudeSubReseedOwnerFork, nil
 		}
 		live, ok, err := s.sync.checkpoint(a.key)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
 		if !ok || !claudeSubStateMatches(live, a.stored) {
-			return false, nil
+			return false, claudeSubReseedCheckpoint, nil
 		}
 	}
 	if _, err := s.sync.plan(req); err != nil {
-		return false, nil
+		return false, claudeSubReseedPlan, nil
 	}
-	return true, nil
+	return true, "", nil
 }
 
 // claudeSubDeliverNormal plans the request against a locked parent or
@@ -309,9 +334,18 @@ func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRe
 // user line is recorded right after it is written, so a cancelled call never
 // re-sends user content (D22).
 func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest, delta claudeSubDelta, emit func(ChatChunk) error) error {
+	metrics := claudeSubMetricsFrom(ctx)
+	metrics.noteProcess(s)
 	if len(delta.User) > 0 {
 		getUsage := claudeSubQuotaObservedGetUsage(s.pool, s.control.getUsage)
-		liveErr := claudeSubAwaitUsageGate(ctx, getUsage)
+		polls := 0
+		countedGetUsage := func(ctx context.Context) (json.RawMessage, error) {
+			polls++
+			return getUsage(ctx)
+		}
+		gateStart := time.Now()
+		liveErr := claudeSubAwaitUsageGate(ctx, countedGetUsage)
+		metrics.noteUsageGate(time.Since(gateStart), polls)
 		if errors.Is(liveErr, errClaudeSubUsageNotReady) {
 			// The live process may be answering from the CLI's in-process usage
 			// cache, so one fresh process confirms the state before refusing.

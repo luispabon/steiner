@@ -44,6 +44,31 @@ type cachePayload struct {
 	// false, PrefixPredecessorKnown is always false because nothing was
 	// compared. Emitted on every cache record (no omitempty).
 	PrefixComparisonEnabled bool `json:"prefix_comparison_enabled"`
+
+	// Measurement fields below describe how the call was served. A measured
+	// zero or false value is omitted, so an absent field means zero or not
+	// measured; fields without omitempty are emitted on every record.
+	Attempts             int  `json:"attempts,omitempty"`
+	CacheAffinityDropped bool `json:"cache_affinity_dropped,omitempty"`
+	// ContextGeneration is the number of compaction stages applied within the
+	// current run when the call was issued. It is emitted on every record; it
+	// restarts at 0 for each run, and 0 means no compaction has applied to this
+	// run yet.
+	ContextGeneration int `json:"context_generation"`
+	// PrefixPredecessorMessages is the message count of the predecessor request
+	// that shared_prefix_messages was measured against. It is emitted only when
+	// a predecessor is known, including a known empty one (0).
+	PrefixPredecessorMessages *int `json:"prefix_predecessor_messages,omitempty"`
+	// PrefixDivergenceRole is the role of the first request message that differs
+	// from the predecessor. It is empty for an append of the predecessor, and
+	// also when the current request is a strict prefix of the predecessor.
+	PrefixDivergenceRole string `json:"prefix_divergence_role,omitempty"`
+	// claude_subscription-only measurements.
+	ClaudeSubProcess           string `json:"claudesub_process,omitempty"`
+	ClaudeSubReseedReason      string `json:"claudesub_reseed_reason,omitempty"`
+	ClaudeSubUsageGateMillis   int64  `json:"claudesub_usage_gate_ms,omitempty"`
+	ClaudeSubUsageGatePolls    int    `json:"claudesub_usage_gate_polls,omitempty"`
+	ClaudeSubUsageProbeSpawned bool   `json:"claudesub_usage_probe_spawned,omitempty"`
 }
 
 // requestCacheStats carries the cache-prefix diagnostics computed for one
@@ -52,6 +77,8 @@ type cachePayload struct {
 type requestCacheStats struct {
 	prefixHash           string
 	sharedPrefixMessages int
+	predecessorMessages  int
+	divergenceRole       string
 	comparisonEnabled    bool
 	predecessorKnown     bool
 	baselineKey          CacheBaselineKey
@@ -72,30 +99,50 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 	// A fallback target's call is not the run's cold start, so it reports
 	// cold_start false and leaves the process-wide latch untouched.
 	coldStart := !req.compactionFallbackTarget && !coldStartRecorded.Swap(true)
+	var predecessorMessages *int
+	if stats.predecessorKnown {
+		count := stats.predecessorMessages
+		predecessorMessages = &count
+	}
+	payload := cachePayload{
+		ProviderAlias:             req.ResolvedModel.ProviderAlias,
+		BackendModelID:            req.ResolvedModel.BackendModelID,
+		UpstreamEndpoint:          response.UpstreamEndpoint,
+		MessageCount:              len(stats.messageHashes),
+		CallKind:                  callKind,
+		ProviderType:              string(req.ResolvedModel.EffectiveProviderType),
+		PromptTokens:              usage.PromptTokens,
+		CacheReadTokens:           usage.CacheReadInputTokens,
+		CacheCreateTokens:         usage.CacheCreationInputTokens,
+		CompletionTokens:          usage.CompletionTokens,
+		ColdStart:                 coldStart,
+		CacheKeyHash:              shortHash(req.PromptCacheKey),
+		PrefixHash:                stats.prefixHash,
+		SharedPrefixMessages:      stats.sharedPrefixMessages,
+		PrefixPredecessorKnown:    stats.predecessorKnown,
+		PrefixComparisonEnabled:   stats.comparisonEnabled,
+		ContextGeneration:         req.contextGeneration,
+		PrefixPredecessorMessages: predecessorMessages,
+		PrefixDivergenceRole:      stats.divergenceRole,
+	}
+	if callDiagnostics := response.Diagnostics; callDiagnostics != nil {
+		payload.Attempts = callDiagnostics.Attempts
+		payload.CacheAffinityDropped = callDiagnostics.CacheAffinityDropped
+		if claudeSub := callDiagnostics.ClaudeSub; claudeSub != nil {
+			payload.ClaudeSubProcess = claudeSub.Process
+			payload.ClaudeSubReseedReason = claudeSub.ReseedReason
+			payload.ClaudeSubUsageGateMillis = claudeSub.UsageGateMillis
+			payload.ClaudeSubUsageGatePolls = claudeSub.UsageGatePolls
+			payload.ClaudeSubUsageProbeSpawned = claudeSub.UsageProbeSpawned
+		}
+	}
 	req.Diagnostics.Write(diagnostics.Record{
 		Kind:      diagnostics.KindCache,
 		Source:    req.UsageSource.DiagnosticsSource(),
 		AgentID:   req.AgentID,
 		AgentType: req.AgentType,
 		Turn:      turn,
-		Payload: cachePayload{
-			ProviderAlias:           req.ResolvedModel.ProviderAlias,
-			BackendModelID:          req.ResolvedModel.BackendModelID,
-			UpstreamEndpoint:        response.UpstreamEndpoint,
-			MessageCount:            len(stats.messageHashes),
-			CallKind:                callKind,
-			ProviderType:            string(req.ResolvedModel.EffectiveProviderType),
-			PromptTokens:            usage.PromptTokens,
-			CacheReadTokens:         usage.CacheReadInputTokens,
-			CacheCreateTokens:       usage.CacheCreationInputTokens,
-			CompletionTokens:        usage.CompletionTokens,
-			ColdStart:               coldStart,
-			CacheKeyHash:            shortHash(req.PromptCacheKey),
-			PrefixHash:              stats.prefixHash,
-			SharedPrefixMessages:    stats.sharedPrefixMessages,
-			PrefixPredecessorKnown:  stats.predecessorKnown,
-			PrefixComparisonEnabled: stats.comparisonEnabled,
-		},
+		Payload:   payload,
 	})
 }
 
@@ -116,9 +163,21 @@ func computeRequestCacheStats(req RunRequest, messages []provider.Message) reque
 	// key; Compare is a no-op otherwise.
 	if req.CacheBaseline != nil && req.PromptCacheKey != "" {
 		stats.comparisonEnabled = true
-		stats.sharedPrefixMessages, stats.predecessorKnown = req.CacheBaseline.Compare(stats.baselineKey, hashes)
+		stats.sharedPrefixMessages, stats.predecessorMessages, stats.predecessorKnown = req.CacheBaseline.Compare(stats.baselineKey, hashes)
+		stats.divergenceRole = prefixDivergenceRole(messages, stats.sharedPrefixMessages, stats.predecessorMessages, stats.predecessorKnown)
 	}
 	return stats
+}
+
+// prefixDivergenceRole returns the role of the first request message that
+// differs from the predecessor. It is empty for an append of the predecessor
+// and for a request that is a strict prefix of it, because neither rewrites a
+// message the predecessor holds.
+func prefixDivergenceRole(messages []provider.Message, sharedPrefixMessages, predecessorMessages int, predecessorKnown bool) string {
+	if !predecessorKnown || sharedPrefixMessages >= predecessorMessages || sharedPrefixMessages >= len(messages) {
+		return ""
+	}
+	return string(messages[sharedPrefixMessages].Role)
 }
 
 // promoteRequestCacheStats advances the cache baseline to the message
