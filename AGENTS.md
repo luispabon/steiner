@@ -126,7 +126,7 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | Change | Update |
 |---|---|
 | `internal/tool`: add/remove/rename a built-in tool | `user/tools.md`; allowlist tables in `user/sub-agent-delegation.md` if the tool appears there |
-| `internal/config`: add/change/remove a field | `user/configuration.md` field entry (defaults are listed inline); compact reference in `skills/configure/SKILL.md`; prompt-injection toggles also `user/configuration.md` |
+| `internal/config`: add/change/remove a field | `user/configuration.md` field entry (defaults are listed inline); compact reference in `skills/configure/SKILL.md` |
 | `internal/config` load/merge/validation pipeline; model metadata resolution (`internal/metadata`, `internal/modelcatalog`, provider fact sources) | `internals/configuration.md`; `user/configuration.md` if user-visible precedence or behaviour changed |
 | Project trust: `internal/config/{trust_store,project_diff*,security_fields}.go`, `cmd/steiner/project_trust.go`, `internal/tui/trust_dialog*.go` | both `configuration.md` "Project trust" (user page incl. the security-relevant field list when `securityFieldPatterns` changes) |
 | `internal/delegation`: sub-agent type or tool allowlist | `user/sub-agent-delegation.md` types and allowlist tables; `internals/sub-agent-delegation.md` if architecture, bootstrapping, or tool construction changed |
