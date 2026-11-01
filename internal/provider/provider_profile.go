@@ -39,7 +39,7 @@ var providerProfiles = map[config.ProviderType]providerProfile{
 	},
 	config.ProviderTypeAnthropic: {
 		ModelsDevID:    "anthropic",
-		DefaultBaseURL: "",
+		DefaultBaseURL: "https://api.anthropic.com/v1",
 		Generic:        false,
 		FixedTransport: nil,
 		LiveProbe:      false,

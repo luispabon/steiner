@@ -99,6 +99,25 @@ func TestBuildModelCatalogService(t *testing.T) {
 	}
 }
 
+func TestBuildModelCatalogServiceAnthropicDefaultBaseURL(t *testing.T) {
+	cfg := config.Config{
+		Models: config.ModelsConfig{DiscoveryEnabled: true},
+		Providers: map[string]config.ProviderConfig{
+			"claude": {Type: config.ProviderTypeAnthropic},
+		},
+	}
+	_, endpoints, _ := buildModelCatalogService(&cfg, &http.Client{})
+	if len(endpoints) != 1 {
+		t.Fatalf("buildModelCatalogService() endpoints = %#v, want one anthropic endpoint", endpoints)
+	}
+	if got, want := endpoints[0].BaseURL, "https://api.anthropic.com/v1"; got != want {
+		t.Fatalf("endpoint base URL = %q, want %q", got, want)
+	}
+	if got := cfg.Providers["claude"].BaseURL; got != "" {
+		t.Fatalf("config provider base URL = %q, want unchanged empty value", got)
+	}
+}
+
 type catalogTestEnumerator struct {
 	wait time.Duration
 }

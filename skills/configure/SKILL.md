@@ -28,7 +28,7 @@ Compact canonical reference for safe configuration edits.
 |Path|Type|Default|Semantics|
 |-|-|-|-|
 |`providers.<name>.type`|string|unset|Required. `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unsupported at runtime.|
-|`providers.<name>.base_url`|string|per type|Required for `openai_compat`, `ollama`, `lmstudio`, `litellm`, and `anthropic`. Defaults exist for `openai`, `openrouter`, `opencode_go`, and `opencode_zen`.|
+|`providers.<name>.base_url`|string|per type|Required for `openai_compat`, `ollama`, `lmstudio`, and `litellm`. Defaults exist for `openai`, `anthropic`, `openrouter`, `opencode_go`, and `opencode_zen`.|
 |`providers.<name>.api_key`|string|unset|Credential; prefer `api_key_env`. Required for providers that need credentials.|
 |`providers.<name>.api_key_env`|string|unset|Environment variable containing the credential.|
 |`providers.<name>.headers.<key>`|string|unset|One extra header value.|
