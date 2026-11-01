@@ -39,8 +39,8 @@ You can declare several providers of the same type, such as two `openai_compat` 
 | `opencode_go` | OpenCode Go gateway | Default `https://opencode.ai/zen/go/v1` | Required API key |
 | `opencode_zen` | OpenCode Zen gateway | Default `https://opencode.ai/zen/v1` | Required API key |
 | **Subscriptions** | | | |
-| `codex` | ChatGPT backend | Optional, ignored for sign-in | OAuth login |
-| `claude_subscription` | Signed-in local `claude` CLI | Rejected | CLI sign-in |
+| [`codex`](#codex-chatgpt-sign-in) | ChatGPT backend | Optional, ignored for ChatGPT sign-in | OAuth login |
+| [`claude_subscription`](#claude-subscription) | Signed-in local `claude` CLI | Rejected | Claude Code login |
 | **Self-hosted and gateways** | | | |
 | `ollama` | Ollama's OpenAI-compatible API | Required | Optional API key |
 | `lmstudio` | LM Studio's local server | Required | Optional API key |
@@ -67,7 +67,7 @@ Validation requires `api_key` or `api_key_env` for the hosted types, but checks 
 
 Each recipe configures a provider in `.steiner/config.yaml`. Set a model separately, as in the introduction or [Profiles](#profiles).
 
-### OpenAI
+#### OpenAI
 
 ```bash
 export OPENAI_API_KEY='your-key'
@@ -82,7 +82,7 @@ providers:
 
 Reference its models as `openai/<model-id>`.
 
-### Anthropic
+#### Anthropic
 
 ```bash
 export ANTHROPIC_API_KEY='your-key'
@@ -97,7 +97,7 @@ providers:
 
 Reference its models as `anthropic/<model-id>`.
 
-### OpenRouter
+#### OpenRouter
 
 ```bash
 export OPENROUTER_API_KEY='your-key'
@@ -112,7 +112,7 @@ providers:
 
 Reference its models as `openrouter/<provider-model-id>`. OpenRouter model IDs usually contain a slash, for example `openrouter/openai/gpt-4o`.
 
-### OpenCode Go and Zen
+#### OpenCode Go and Zen
 
 Sign in at https://opencode.ai, generate an API key, and export it:
 
@@ -129,38 +129,7 @@ providers:
 
 OpenCode Zen uses the same shape with `type: opencode_zen`, for example a provider key `opencode-zen`. Model IDs come from OpenCode: run `steiner models refresh`, then pick one with `/model`. Reference models as `opencode-go/<model-id>` or `opencode-zen/<model-id>`.
 
-### Codex (ChatGPT sign-in)
-
-The `codex` type uses your OpenAI account through OAuth instead of an API key. Sign in, then check the stored login:
-
-```bash
-steiner login codex
-steiner login codex status
-```
-
-`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for the browser sign-in. `--debug-url` prints the authorisation URL before opening the browser, which helps when the browser does not open. `steiner login codex status` prints the token expiry and `valid` or `needs refresh`, or tells you to run `steiner login codex`. Steiner refreshes the token automatically when it is close to expiry; if a refresh fails, run `steiner login codex` again.
-
-```yaml
-providers:
-  codex:
-    type: codex
-```
-
-Codex ignores `api_key` and `api_key_env`; it always uses the stored sign-in. Without one, Steiner stops and tells you to run `steiner login codex`. The available model IDs depend on your account: run `steiner models refresh`, then use `/model` to see them. For the HTTP or WebSocket transport choice, see the [`providers` block](configuration.md#providers-block). Reference its models as `codex/<codex-model-id>`.
-
-### Claude subscription
-
-The `claude_subscription` type runs your signed-in `claude` CLI. See [Claude subscription](claude-subscription.md) for requirements, setup, the extra usage safety gate, privacy, and limitations.
-
-```yaml
-providers:
-  claude:
-    type: claude_subscription
-```
-
-Reference its models as `claude/<model-id>`.
-
-### Ollama
+#### Ollama
 
 Start a model in Ollama:
 
@@ -177,7 +146,7 @@ providers:
 
 Replace the model ID with one installed in your Ollama. Reference its models as `ollama/<model-id>`.
 
-### LM Studio
+#### LM Studio
 
 Start LM Studio's local server, load a model, and use the model ID the server reports:
 
@@ -190,7 +159,7 @@ providers:
 
 Reference its models as `lmstudio/<model-id>`.
 
-### LiteLLM
+#### LiteLLM
 
 ```yaml
 providers:
@@ -202,7 +171,7 @@ providers:
 
 Omit `api_key_env` when the gateway needs no key. Reference its models as `litellm/<model-id>`.
 
-### OpenAI-compatible endpoints
+#### OpenAI-compatible endpoints
 
 Use `openai_compat` for any server that exposes the OpenAI-compatible chat-completions API. Omit `api_key_env` when the endpoint needs no key.
 
@@ -215,6 +184,53 @@ providers:
 ```
 
 A Gemini-compatible endpoint works this way only if it exposes that API shape. Reference its models as `gateway/<model-id>`.
+
+### Subscription providers
+
+Unlike API-key providers, these types use an account sign-in and count usage against that subscription. You do not set a `base_url` or API key for them.
+
+#### Codex (ChatGPT sign-in)
+
+Codex uses OAuth to sign in with your ChatGPT account. For a ChatGPT sign-in, requests go to the ChatGPT backend over the OpenAI Responses API; `base_url`, `api_key`, and `api_key_env` are ignored.
+
+Sign in, then check the stored login:
+
+```bash
+steiner login codex
+steiner login codex status
+```
+
+`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for browser sign-in. Use `--debug-url` to print the authorisation URL before opening the browser. The status command prints token expiry and `valid` or `needs refresh`, or tells you to sign in. Steiner refreshes the token automatically when it is close to expiry. If refresh fails or there is no login, run `steiner login codex` again.
+
+Configure the provider:
+
+```yaml
+providers:
+  codex:
+    type: codex
+```
+
+Optional `codex.transport` is `http` by default; `websocket` is experimental and does not fall back to HTTP on failure. `codex.min_request_interval` sets the minimum gap between requests and defaults to `0s` (disabled). `compaction_fallback_after` defaults to `30m`. See the [`providers` block](configuration.md#providers-block) for details.
+
+Available model IDs depend on your account. Run `steiner models refresh`, then use `/model` to see them. Reference models as `codex/<codex-model-id>`.
+
+See the [usage dashboard](usage.md#usage-dashboard) for Codex quota information.
+
+#### Claude subscription
+
+Steiner runs your signed-in `claude` CLI as a subprocess, using your Claude Code login rather than an API key. Install Claude Code with `claude` version `2.1.294` or later on `PATH`, and sign in with `claude auth login --claudeai`. Steiner accepts a first-party claude.ai login.
+
+Configure the provider:
+
+```yaml
+providers:
+  claude:
+    type: claude_subscription
+```
+
+Configuration rejects `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout`. `compaction_fallback_after` defaults to `60m`. Model discovery asks the signed-in CLI for available models, with a built-in fallback list if the CLI is missing, signed out, or returns no usable models within 20 seconds. Reference models as `claude/<model-id>` using a full model ID reported by the CLI.
+
+See [Claude subscription](claude-subscription.md) for the extra usage safety gate, privacy, and limitations.
 
 ### Check a provider works
 
