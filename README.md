@@ -2,11 +2,14 @@
 
 ![Steiner screenshot](docs/screenshot.png)
 
-Steiner is a local-first Go coding agent with bounded context, sandboxed commands and structured tools. It helps you inspect and change a project while keeping execution and approvals under your control.
+Steiner is a lean, opinionated coding agent built with bounded context, sandboxed commands and structured tools. It helps you inspect and change a project while keeping execution and approvals under your control.
 
 ## Capabilities
 
-- Connect [local and cloud providers and models](docs/user/provider-and-model-setup.md).
+- Connect [local and cloud providers and models](docs/user/provider-and-model-setup.md), including:
+  - Codex (subscription and API)
+  - Claude Code (subscription and API)
+  - Opencode Go
 - Delegate work to [sub-agents in worktrees](docs/user/sub-agent-delegation.md).
 - Use reusable [skills](docs/user/skills.md).
 - Switch between [plan and build modes](docs/user/execution-modes.md).
