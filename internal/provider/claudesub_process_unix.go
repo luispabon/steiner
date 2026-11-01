@@ -118,11 +118,9 @@ func claudeSubExecRunner(ctx context.Context, path string, args ...string) ([]by
 	cmd.Stdout = out
 	cmd.Stderr = errOut
 
-	if err := cmd.Run(); err != nil {
-		return nil, err
-	}
+	runErr := cmd.Run()
 	if out.overflowed() {
 		return nil, fmt.Errorf("claude CLI %s produced more than %d bytes of output", path, claudeSubLocatorOutputMaxBytes)
 	}
-	return out.bytes(), nil
+	return out.bytes(), runErr
 }

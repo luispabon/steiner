@@ -137,6 +137,40 @@ func claudeSubEnvValue(env []string, key string) (string, bool) {
 	return "", false
 }
 
+func TestClaudeSubPoolRetriesSignedOutLocatorOnLaterAcquire(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	var lookups atomic.Int32
+	pool.lookPath = func(string) (string, error) {
+		lookups.Add(1)
+		return "/fake/claude", nil
+	}
+	pool.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.acquire(context.Background(), "retry", claudeSubTestSpec()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("first acquire = %v, want signed-out error", err)
+	}
+	signedIn.Store(true)
+	s, err := pool.acquire(context.Background(), "retry", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("later acquire after login = %v", err)
+	}
+	pool.release(s)
+	if got := lookups.Load(); got != 2 {
+		t.Fatalf("lookups = %d, want one initial and one synchronized retry", got)
+	}
+	if got := spawner.callCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want one fresh session after login", got)
+	}
+}
+
 func TestClaudeSubPoolLocatesCLIOnce(t *testing.T) {
 	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	var lookups atomic.Int32

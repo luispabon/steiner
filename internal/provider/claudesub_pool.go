@@ -205,9 +205,10 @@ type ClaudeSubscriptionPool struct {
 	// acquire. It is tracked like every cleanup job so shutdown awaits it only to
 	// the stored deadline and reports the pool incomplete (retaining the lookup)
 	// when an injected lookup ignores cancellation.
-	cliJob *claudeSubJob
-	cli    claudeSubCLI
-	cliErr error
+	cliJob        *claudeSubJob
+	cli           claudeSubCLI
+	cliErr        error
+	cliNeedsRetry bool
 
 	// Seams, defaulted in NewClaudeSubscriptionPool and overridden in tests so
 	// no test locates or starts a real claude CLI or relies on filesystem
@@ -315,21 +316,64 @@ func (p *ClaudeSubscriptionPool) isRunning() bool {
 // transient caller cancellation never poisons the cache; only pool shutdown
 // cancels the lookup, and shutdown awaits the job to the stored deadline.
 func (p *ClaudeSubscriptionPool) locateCLI(ctx context.Context) (claudeSubCLI, error) {
-	p.cliJob.start(func() error {
+	p.mu.Lock()
+	if p.cliNeedsRetry && p.cliJob.started {
+		select {
+		case <-p.cliJob.done:
+			p.cliJob = p.newTrackedJob()
+			p.cli = claudeSubCLI{}
+			p.cliErr = nil
+			p.cliNeedsRetry = false
+		default:
+		}
+	}
+	job := p.cliJob
+	p.mu.Unlock()
+
+	job.start(func() error {
 		cli, err := locateClaudeSubCLI(p.ctx, p.lookPath, p.run)
 		p.mu.Lock()
 		p.cli, p.cliErr = cli, err
+		if errors.Is(err, errClaudeSubSignedOut) {
+			p.cliNeedsRetry = true
+		}
 		p.mu.Unlock()
 		return err
 	})
 	select {
-	case <-p.cliJob.done:
+	case <-job.done:
 	case <-ctx.Done():
 		return claudeSubCLI{}, ctx.Err()
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.cli, p.cliErr
+}
+
+// confirmAuthFresh checks auth status without consulting the cached locator job.
+// It is used only after a fresh usage process also reports an unconfirmable
+// state, and therefore cannot turn a usage refusal into authorization.
+func (p *ClaudeSubscriptionPool) confirmAuthFresh(ctx context.Context) error {
+	p.mu.Lock()
+	cli, cliErr := p.cli, p.cliErr
+	p.mu.Unlock()
+	if cliErr != nil {
+		return cliErr
+	}
+	if cli.Path == "" {
+		return errors.New("claude CLI path is unavailable for fresh auth status")
+	}
+	out, err := p.run(ctx, cli.Path, "auth", "status")
+	return claudeSubFreshAuthStatus(out, err)
+}
+
+// retryCLILookup marks a signed-out cached locator for one synchronized retry.
+// The next acquire replaces the completed tracked job; it never closes or
+// mutates a job that another caller may still be waiting on.
+func (p *ClaudeSubscriptionPool) retryCLILookup() {
+	p.mu.Lock()
+	p.cliNeedsRetry = true
+	p.mu.Unlock()
 }
 
 // acquire returns the session for key, starting it from spec on first use. The

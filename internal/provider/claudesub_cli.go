@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -51,28 +52,91 @@ func locateClaudeSubCLI(ctx context.Context, lookPath func(string) (string, erro
 	}
 
 	authOut, err := run(ctx, path, "auth", "status")
+	status, statusErr := claudeSubParseAuthStatus(authOut)
+	if statusErr != nil {
+		if err != nil {
+			return claudeSubCLI{}, fmt.Errorf("run claude auth status: %w", err)
+		}
+		return claudeSubCLI{}, fmt.Errorf("parse claude auth status: %w", statusErr)
+	}
+	if !*status.LoggedIn && claudeSubExitCode(err) == 1 {
+		return claudeSubCLI{}, errClaudeSubSignedOut
+	}
 	if err != nil {
 		return claudeSubCLI{}, fmt.Errorf("run claude auth status: %w", err)
 	}
-	var status claudeSubAuthStatus
-	if err := json.Unmarshal(authOut, &status); err != nil {
-		return claudeSubCLI{}, fmt.Errorf("parse claude auth status: %w", err)
-	}
-	if !status.LoggedIn {
-		return claudeSubCLI{}, errors.New("claude CLI is not signed in: run `claude auth login` in a terminal")
-	}
 	if status.AuthMethod != "claude.ai" || status.APIProvider != "firstParty" {
-		return claudeSubCLI{}, fmt.Errorf("claude CLI is signed in with %s/%s, not a Claude subscription: use the anthropic provider with an API key instead, or run `claude auth login`", status.AuthMethod, status.APIProvider)
+		return claudeSubCLI{}, fmt.Errorf("claude CLI is signed in with %s/%s, not a Claude subscription: use the anthropic provider with an API key instead, or run `claude auth login --claudeai`", status.AuthMethod, status.APIProvider)
 	}
 	return claudeSubCLI{Path: path, Version: version}, nil
 }
 
+// errClaudeSubSignedOut is returned only when auth status explicitly reports
+// loggedIn=false. It is safe to expose because it contains no auth response data.
+var errClaudeSubSignedOut = errors.New("claude CLI is signed out: run `claude auth login --claudeai` in a terminal")
+
 // claudeSubAuthStatus is the JSON shape of `claude auth status` (D3).
 type claudeSubAuthStatus struct {
-	LoggedIn         bool   `json:"loggedIn"`
+	LoggedIn         *bool  `json:"loggedIn"`
 	AuthMethod       string `json:"authMethod"`
 	APIProvider      string `json:"apiProvider"`
 	SubscriptionType string `json:"subscriptionType"`
+}
+
+// claudeSubParseAuthStatus requires the loggedIn field to be present. A missing
+// or malformed boolean is unknown, never a signed-out result.
+func claudeSubParseAuthStatus(raw []byte) (claudeSubAuthStatus, error) {
+	var status claudeSubAuthStatus
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return claudeSubAuthStatus{}, err
+	}
+	if status.LoggedIn == nil {
+		return claudeSubAuthStatus{}, errors.New("loggedIn missing")
+	}
+	return status, nil
+}
+
+// claudeSubFreshAuthStatus interprets one uncached auth status command. Only an
+// explicit loggedIn=false is actionable; every other result remains unknown.
+func claudeSubFreshAuthStatus(out []byte, runErr error) error {
+	status, parseErr := claudeSubParseAuthStatus(out)
+	if parseErr != nil {
+		if runErr != nil {
+			return fmt.Errorf("run claude auth status: %w", runErr)
+		}
+		return fmt.Errorf("parse claude auth status: %w", parseErr)
+	}
+	if !*status.LoggedIn && claudeSubExitCode(runErr) == 1 {
+		return errClaudeSubSignedOut
+	}
+	if runErr != nil {
+		return fmt.Errorf("run claude auth status: %w", runErr)
+	}
+	return errors.New("claude auth status did not confirm a signed-out account")
+}
+
+// claudeSubExitStatusError preserves a short-lived runner's exit code while
+// keeping its human-readable error bounded.
+type claudeSubExitStatusError struct{ code int }
+
+func (e claudeSubExitStatusError) Error() string {
+	return fmt.Sprintf("claude CLI exited with status %d", e.code)
+}
+func (e claudeSubExitStatusError) ExitCode() int { return e.code }
+
+// claudeSubExitCode returns a command's exit code when the runner preserved it.
+// The custom Windows error implements the same small interface as the standard
+// exec error path.
+func claudeSubExitCode(err error) int {
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		return coded.ExitCode()
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ProcessState != nil {
+		return exitErr.ProcessState.ExitCode()
+	}
+	return -1
 }
 
 // claudeSubVersionLess reports whether version a is older than b by comparing
