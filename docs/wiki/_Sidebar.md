@@ -1,52 +1,37 @@
-**Getting Started**
+**Get started**
 - [Home](Home)
-- [Documentation](docs-index)
+- [Manual index](docs-index)
 - [Installation](user-installation)
-- [Getting started](user-getting-started)
+- [Quickstart](user-quickstart)
 - [Provider and model setup](user-provider-and-model-setup)
-- [Updates](user-updates)
-- [CLI reference](user-cli)
-- [Configuration](user-configuration)
 - [Claude subscription](user-claude-subscription)
 
-**Core Concepts**
-- [Context management](user-context-management)
+**Using Steiner**
+- [Interactive mode](user-interactive)
+- [CLI reference](user-cli)
 - [Execution modes](user-execution-modes)
-- [Sandboxing](user-sandboxing)
+- [Skills](user-skills)
 - [Sub-agent delegation](user-sub-agent-delegation)
-- [Built-in tools](user-tools)
-
-**Features**
 - [Oneshot](user-oneshot)
-- [Model enumeration](user-model-enumeration)
-- [MCP](user-mcp)
-- [LSP](user-lsp)
+- [Context management](user-context-management)
 - [Advisor](user-advisor)
 - [Security audit](user-security-audit)
-- [Cache stats](user-cache-stats)
+
+**Tools and integrations**
+- [Built-in tools](user-tools)
+- [MCP](user-mcp)
+- [LSP](user-lsp)
 - [Desktop notifications](user-desktop-notifications)
-- [Images](user-images)
-- [Optional features](user-optional-features)
-- [Subscription usage dashboard](user-usage-dashboard)
-- [TUI background](user-tui-background)
 
-**Internals**
-- [Internals index](internals-index)
-- [Architecture](internals-architecture)
-- [Context management](internals-context-management)
-- [Prompt caching](internals-prompt-caching)
-- [Sub-agent delegation](internals-sub-agent-delegation)
-- [Execution modes](internals-execution-modes)
-- [Sandboxing](internals-sandboxing)
-- [Configuration](internals-configuration)
-- [Diagnostics](internals-diagnostics)
-- [Oneshot](internals-oneshot)
-- [Advisor](internals-advisor)
-- [MCP](internals-mcp)
-- [LSP](internals-lsp)
-- [Claude subscription](internals-claude-subscription)
-- [Usage dashboard](internals-usage-dashboard)
-- [Desktop notifications](internals-desktop-notifications)
+**Safety**
+- [Sandboxing](user-sandboxing)
 
-**Maintenance**
+**Usage and cost**
+- [Usage and cache statistics](user-usage)
+
+**Reference**
+- [Configuration](user-configuration)
+
+**Internals and maintenance**
+- [Internals](internals-index)
 - [Canon drift checks](maintenance-canon-drift-checks)

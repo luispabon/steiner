@@ -1,6 +1,6 @@
 # Prompt caching internals
 
-User guide: [Cache Hit Rate Tracking](../user/cache-stats.md).
+User guide: [Usage and cache statistics](../user/usage.md#cache-hit-rate).
 
 ## Cache identity
 
@@ -34,7 +34,7 @@ Codex rejects `prompt_cache_retention`, so `responsesWire` never sends it. A Cod
 
 ## Codex transport
 
-Transport selection and fallback are in [Codex transport and pacing](../user/cache-stats.md#codex-transport-and-pacing). The WebSocket endpoint and beta header are marked unconfirmed in `codex_ws_protocol.go`, so WebSocket stays opt-in. Validation rejects `auto` and other unknown values.
+Transport selection and fallback are in [Codex settings](../user/configuration.md#providers-block). The WebSocket endpoint and beta header are marked unconfirmed in `codex_ws_protocol.go`, so WebSocket stays opt-in. Validation rejects `auto` and other unknown values.
 
 ## Codex conversation replay
 

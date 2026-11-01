@@ -2,43 +2,92 @@
 
 ## Prerequisites
 
-- Linux sandboxing needs `bubblewrap` (`bwrap`) on `PATH`. Without it, steiner runs tools unsandboxed and reports the sandbox as `unavailable`. See [Sandboxing](sandboxing.md).
+- On Linux, the sandbox needs `bubblewrap` (`bwrap`) on `PATH`. Without it, tools run unsandboxed and the sandbox is reported as `unavailable`. See [Sandboxing](sandboxing.md).
 - `git` is needed for sub-agent delegation worktrees and oneshot runs.
 
-macOS and Windows run the binary but do not support the sandbox; tools run without it. The release binary has no other required dependencies.
+The sandbox is Linux-only. On macOS and Windows, tools run without it. The release binary has no other dependencies.
 
 ## Download a release binary
 
-The supported user path is a binary from [GitHub Releases](https://github.com/luispabon/steiner/releases). Download the asset matching your operating system and CPU architecture:
+Download the binary for your operating system and CPU from [GitHub Releases](https://github.com/luispabon/steiner/releases):
 
-- `steiner-linux-amd64`
-- `steiner-linux-arm64`
-- `steiner-darwin-amd64`
-- `steiner-darwin-arm64`
-- `steiner-windows-amd64.exe`
+| Platform | Asset |
+|----------|-------|
+| Linux x86-64 | `steiner-linux-amd64` |
+| Linux ARM64 | `steiner-linux-arm64` |
+| macOS Intel | `steiner-darwin-amd64` |
+| macOS Apple silicon | `steiner-darwin-arm64` |
+| Windows x86-64 | `steiner-windows-amd64.exe` |
 
-Choose the OS and architecture for the machine where you will run Steiner. Download the matching `steiner_<version>_checksums.txt` file from the same release. Verify that the checksum of the binary matches the line for the downloaded asset, using the checksum tool provided by your operating system. Do not use a checksum file from another version.
+Each release also has a `steiner_<version>_checksums.txt` file with SHA-256 sums. Download it from the same release and check the line for your asset, for example:
 
-On Unix systems, mark the downloaded file executable. Put it in any directory already on your `PATH`, or add its directory to `PATH` using the normal mechanism for your shell. Steiner does not require a package manager or a particular installation directory.
+```bash
+sha256sum --check --ignore-missing steiner_<version>_checksums.txt
+```
 
-Check the installation:
+On Linux and macOS, make the file executable, rename it to `steiner` if you like, and put it in a directory on your `PATH`. No package manager or fixed install location is needed. Check the installation:
 
-```text
+```bash
 steiner version
 ```
 
-See [Updates](updates.md) for the built-in release updater and [Getting started](getting-started.md) for the first run.
+Next, configure a provider and start a session: see [Quickstart](quickstart.md).
+
+## Install with Go
+
+With the Go version named in [`go.mod`](https://github.com/luispabon/steiner/blob/main/go.mod) or newer:
+
+```bash
+go install github.com/luispabon/steiner/cmd/steiner@latest
+```
+
+This builds from source. The binary reports its version as `dev`.
 
 ## Build from source
 
-Build from source only when contributing or when no release asset supports your platform. The repository requires Go `1.26.6`.
-
-Check out the repository, then build the local source binary `bin/steiner` with `make build-binaries`, or run the program directly:
+Clone the repository, then build `bin/steiner` with `make build-binaries`, or build or run it directly with Go:
 
 ```bash
 make build-binaries
-
+go build ./cmd/steiner
 go run ./cmd/steiner
 ```
 
-Source checkouts should be rebuilt when you want a newer version. The release updater is for installed release binaries, not a source-build workflow.
+## Updating
+
+`steiner update` (alias `steiner upgrade`) updates the binary that is running:
+
+```bash
+steiner update            # latest stable release
+steiner update v1.2.0     # a specific release; 1.2.0 also works
+steiner update --dev      # latest dev build
+```
+
+Steiner downloads the release asset for the current platform, verifies it against the release checksums file, and replaces the running executable. If the replacement fails, the previous binary is restored. The directory holding the executable must be writable by your user.
+
+If the running version is already the latest stable release, `steiner update` reports `Up to date` and changes nothing.
+
+The updater always installs a release binary over whatever is running; it does not know about source checkouts. A binary built with `go install` or `go build` reports version `dev`, and `steiner update` replaces it with the latest stable release. To stay on a source build, rebuild it instead.
+
+### Release channels
+
+- **stable** (default): tagged releases.
+- **dev**: the `dev` prerelease, rebuilt from every push to `main`. `steiner update --dev` (or `steiner --dev update`) always reinstalls the current dev build.
+
+`--dev` cannot be combined with a version. When the requested channel differs from the running build's channel, Steiner warns that the current build will be replaced.
+
+### GitHub token
+
+Update checks use the GitHub API, which applies rate limits to anonymous requests. Set `STEINER_GITHUB_TOKEN` to use a token:
+
+```bash
+export STEINER_GITHUB_TOKEN=ghp_...
+```
+
+### Network timeouts
+
+Update requests fail instead of hanging: release lookups time out after 30 seconds, the checksums file after 60 seconds and the binary after 15 minutes. A request that makes no progress for 30 seconds is abandoned.
+
+### Update notices
+
+The interactive TUI checks for a newer release in the background at startup and shows a notice in the sidebar when one is available. `steiner --exec` and other commands do not check. Configure or disable the check with the [`update_check` block](configuration.md#update_check-block).

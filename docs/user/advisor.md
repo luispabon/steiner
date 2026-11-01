@@ -1,99 +1,59 @@
-# Advisor sub-agent
+# Advisor
 
-`advisor` is Steiner's optional stronger-model steering tool. It lets the main agent ask a configured advisor model for planning and risk guidance without handing work to a child agent.
+The advisor lets the agent ask a stronger model for strategic guidance mid-task. It is one model call over the live conversation: no tools, no child loop, no file changes. It is not a sub-agent; for delegated work see [Sub-agent delegation](sub-agent-delegation.md).
 
-Despite the filename, the advisor is not a sub-agent in the delegation sense. It does not run a child loop, receive tools, mutate files, or maintain its own session. It is one read-only model call over the parent conversation.
-
-## Purpose
-
-Use the advisor when a stronger model can improve the main loop's judgment:
+## When it helps
 
 - before committing to an implementation or review approach
 - when requirements are ambiguous or tradeoffs matter
-- after verification failures when the next fix path is unclear
+- after a failed check when the next fix is unclear
 - before declaring a plan, implementation, or review complete
 
-The advisor is for strategic steering. It is not a code or documentation executor, verifier, reviewer of hidden child-agent work, or replacement for local tests.
+The advisor steers; it does not replace tests, reviews, or local evidence. The agent decides what to do with its answer.
 
-## Configuration
+## Enabling it
 
-The advisor is disabled by default.
+The advisor is off by default in interactive and `--exec` runs:
 
 ```yaml
 advisor:
   enabled: true
-  max_uses_per_run: 2
-  max_tokens: 256
-  timeout: 5m
-
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434/v1
 
 models:
   profiles:
     default:
-      default_model: local/<default-model-id>
-      advisor: local/advisor-model
+      default_model: openai/<default-model-id>
+      advisor: anthropic/<stronger-model-id>
 ```
 
-Fields:
+The profile's `advisor` model falls back to its `default_model`. Oneshot phases always have the advisor available, whatever `advisor.enabled` says. Caps, output-token limit, and timeout are listed under [Configuration](configuration.md#advisor-block).
 
-| Field | Default | Description |
-|-------|---------|-------------|
-| `enabled` | `false` | Enables the advisor tool and advisor prompt steering. |
-| `max_uses_per_run` | `3` | Per-session call cap, enforced across every turn in the process. Required to be at least `1` when enabled. |
-| `max_tokens` | `nil` | Optional output-token limit forwarded to the advisor provider request. |
-| `timeout` | `180s` | Optional HTTP timeout override applied only to advisor calls. It applies to each attempt; retries can repeat it up to the advisor model's `retry.max_attempts`, plus the backoff waits between attempts. A deadline-shaped timeout after visible stream output is not retried. |
+## Who can call it
 
-The advisor model is assigned in the selected profile's `models.profiles.<name>.advisor` field. When omitted or empty, it falls back to that profile's `default_model`. Model references use the same model configuration and provider discovery path as other runtime models.
+- The main agent.
+- `code`, `documentor`, `review`, and `evaluate` sub-agents. `explore`, `research`, `sanity_check`, and `vision` cannot.
 
-## Tool behavior
+The agent can pass a `question` and a list of `files` to include verbatim, since the advisor cannot read files itself. Both are optional; a bare call asks for guidance on the conversation as it stands.
 
-The model-facing tool is named `advisor`. Its schema accepts two optional properties: `question` (free text describing what to judge) and `files` (an array of workspace paths to include verbatim, since the advisor has no tool access and cannot read files itself). Both are optional. A bare call with neither is a pure timing signal over the live conversation.
+## Usage caps
 
-The cap is per session, not per turn. Calls within `max_uses_per_run` invoke the advisor model. Calls after the cap return:
+- `advisor.max_uses_per_run` caps calls by the main agent across the whole session (default `3`).
+- `advisor.max_uses_per_sub_agent` caps calls by each sub-agent over its lifetime, including after `follow_up` (default `1`).
+
+Once a cap is reached, further calls do not reach the model. The agent gets:
 
 ```text
 advisor budget exhausted for this session (N/N); proceed on your own judgment
 ```
 
-The tool definition stays registered for the whole run, including after the cap is reached. This keeps provider-visible tool schemas stable.
+The tool stays listed after the cap, so the available tools do not change mid-session.
 
-## Relationship to delegation
+## In the TUI
 
-Advisor and delegation solve different problems.
+Each advisor call shows as a collapsible advisor panel with the model and the use count.
 
-| Capability | Advisor | Delegation |
-|------------|---------|------------|
-| Execution shape | One model call | Child agent loop |
-| Context | Live parent conversation | Explicitly passed task and context |
-| Tools | None | Per-agent allowlist |
-| Mutation | Never | Only for mutation-capable agents such as `code` and `documentor`; `documentor` is limited to documentation files |
-| Parent transcript impact | Advisor result is appended | Only bounded child result summary is appended |
-| Best use | Steering, tradeoffs, residual risk | Exploration, implementation, verification, research |
+## Cost and safety
 
-The advisor cannot see a delegate's private internal transcript unless the delegate result summary is already present in the parent conversation.
-
-## Events and UI
-
-Advisor calls emit structured lifecycle events:
-
-| Event | Meaning |
-|-------|---------|
-| `advisor_started` | Advisor model call is starting. |
-| `advisor_complete` | Advisor model call completed or failed. |
-| `advisor_budget_exhausted` | The per-run cap was reached and no provider call was made. |
-
-The TUI renders advisor activity as a collapsible advisor panel with model and use-count metadata.
-
-## Safety and limits
-
-- Advisor is opt-in and disabled by default.
-- Advisor has no tool access and cannot mutate local state.
-- Advisor guidance is advisory only; the main agent must adapt it to local evidence.
-- The per-run cap limits cost and latency.
-- Provider credentials are those configured for the selected advisor model; do not hardcode secrets in config.
-
-For payload shaping, cache behavior, and package ownership, see [Advisor internals](../internals/advisor.md).
+- Each call sends the caller's conversation to the advisor model, so calls late in a long session can be large and slow. The caps bound cost and latency; `advisor.timeout` applies to each attempt.
+- The advisor has no tools and cannot change local state.
+- It uses the credentials of the provider configured for the advisor model.

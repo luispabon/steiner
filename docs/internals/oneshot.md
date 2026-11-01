@@ -2,7 +2,7 @@
 
 User guide: [Oneshot](../user/oneshot.md).
 
-Phase behaviour comes from the prompts [`plan.md`](../../internal/oneshot/prompts/plan.md), [`implement.md`](../../internal/oneshot/prompts/implement.md), and [`review.md`](../../internal/oneshot/prompts/review.md). This page covers only what the engine enforces.
+Phase behaviour comes from the prompts [`plan.md`](https://github.com/luispabon/steiner/blob/main/internal/oneshot/prompts/plan.md), [`implement.md`](https://github.com/luispabon/steiner/blob/main/internal/oneshot/prompts/implement.md), and [`review.md`](https://github.com/luispabon/steiner/blob/main/internal/oneshot/prompts/review.md). This page covers only what the engine enforces.
 
 Code: `internal/oneshot` (orchestration), `cmd/steiner` (`cmd_oneshot.go`, `phase_driver.go`, `runtime_build.go`), and `internal/interactive` (`phase_control.go`). Model configuration is in [configuration](../user/configuration.md).
 

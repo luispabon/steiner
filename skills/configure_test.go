@@ -3,6 +3,7 @@ package skills_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -61,6 +62,28 @@ func TestConfigureSkillIsEmbeddedAndCoversCanonicalConfig(t *testing.T) {
 	missing := missingPaths(canonicalConfigPaths(), referencePaths)
 	if len(missing) != 0 {
 		t.Fatalf("canonical reference omits config paths: %#v", missing)
+	}
+}
+
+func TestUserConfigurationDocCoversCanonicalConfig(t *testing.T) {
+	content, err := os.ReadFile("../docs/user/configuration.md")
+	if err != nil {
+		t.Fatalf("read user configuration doc: %v", err)
+	}
+	docPaths := extractReferencePaths(string(content))
+	if len(docPaths) == 0 {
+		t.Fatal("docs/user/configuration.md contains no path rows")
+	}
+	if missing := missingPaths(canonicalConfigPaths(), docPaths); len(missing) != 0 {
+		t.Fatalf("docs/user/configuration.md omits config paths: %#v", missing)
+	}
+}
+
+func TestMissingPathsReportsUndocumentedPath(t *testing.T) {
+	doc := "| Path | Type |\n| `a.<name>.b` | int |\n| not a path | int |\n"
+	got := missingPaths([]string{"a.<name>.b", "a.<name>.c"}, extractReferencePaths(doc))
+	if want := []string{"a.<name>.c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("missingPaths() = %#v, want %#v", got, want)
 	}
 }
 

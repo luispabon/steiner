@@ -1,83 +1,63 @@
 # Configuration reference
 
-`steiner` is configured through a YAML file. This document covers every field
-in the `Config` struct, their types, defaults, and valid values.
+Steiner is configured with YAML files, a small set of environment variables, and command-line flags. This page is the reference for every config field, its type, default and constraints, plus file locations, precedence, environment variables, expansion syntax and project trust.
 
-For copy-paste provider, raw model reference, profile, and runtime selection recipes, see the [Provider and model setup guide](provider-and-model-setup.md). Aliases are optional and are useful when they persist model settings.
+For provider and model recipes (aliases, profiles, selection), see [Provider and model setup](provider-and-model-setup.md). Command-line flags are listed in [CLI](cli.md).
 
-## File locations and loading order
+## File locations and precedence
 
-Configuration is loaded and merged in the following precedence order (later
-entries win):
+Sources are applied in this order; later sources win:
 
-1. Compiled defaults
-2. `~/.config/steiner/config.yaml` — user-level config
-3. `.steiner/config.yaml` — project-level config (checked in or gitignored); applied only once the project is trusted, see [Project trust](#project-trust)
-4. Environment variables with the `STEINER_` prefix
-5. CLI flags (`--profile`, `--model`, `--verbose`, `--unsafe`)
+1. Compiled defaults.
+2. Global config: `~/.config/steiner/config.yaml` (under `$HOME`).
+3. Project config: `<project>/.steiner/config.yaml`, applied only once the project is trusted (see [Project trust](#project-trust)).
+4. [Environment variables](#environment-variables).
+5. Command-line flags that override config: `--profile`, `--model`, `--verbose` (sets `logging.level` to `debug`) and `--unsafe` (sets `sandbox.enabled` to `false`).
 
-`--unsafe` is applied as a config override that forces `sandbox.enabled=false`
-after config files and environment variables have been merged.
+Both files are optional and neither is created for you. `--config <path>` replaces the project config path (the global file is still read); unlike the default path, that file must exist. With no providers, models or profiles configured, starting a session fails with `no model configured`; inspection commands such as `steiner config` still work.
 
-Neither config file is created for you, and there is no `init` command; create
-`.steiner/config.yaml` yourself. The project file is relative to the project
-root: `<project>/.steiner/config.yaml`. With no config at all, steiner has no
-providers, model definitions, or profiles, and starting a session fails with
-`no model configured`. Inspection commands such as `steiner config` still work.
-If you relied on the old built-in local setup, declare it explicitly:
+Maps merge by key across files (providers, model definitions, profiles, tools, MCP and LSP servers, `limits.tool_timeouts`, and the string maps inside them). Scalars and lists are replaced by the later file.
 
-```yaml
-providers:
-  local:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-models:
-  definitions:
-    default:
-      provider: local
-      id: qwen3-35b-a3b
-  profiles:
-    default:
-      default_model: default
-```
+Unknown keys are rejected. Durations are Go duration strings such as `250ms`, `30s`, `5m` or `1h`. A leading `~/` is expanded to your home directory in these path fields: `logging.file`, `logging.compaction_log_file`, `diagnostics.dir`, `lsp.cache_dir`, `paths.writable_paths`, `paths.blocked_paths`, `paths.exclude_paths`, `sandbox.host_mounts.<index>.path`, `tools.<name>.exec`, `project_context.extra_files` and `project_context.ignore_files`.
 
-See [Getting started](getting-started.md) for a worked first run.
+`steiner config` prints the resolved configuration. It includes secrets in the output, so redact before sharing.
 
-Key environment variables:
+## Environment variables
 
-| Variable                          | Maps to                            |
-| --------------------------------- | ---------------------------------- |
-| `STEINER_MODEL`                   | active orchestrator model override |
-| `STEINER_SUB_AGENTS_MAX_PARALLEL` | `sub_agent.max_parallel`           |
-| `STEINER_MAX_TURNS`               | `limits.max_turns`                 |
-| `STEINER_MAX_TOKENS`              | `limits.max_tokens`                |
-| `STEINER_LOG_LEVEL`               | `logging.level`                    |
-| `STEINER_LOG_FILE`                | `logging.file`                     |
-| `STEINER_TOOL_OUTPUT_MAX_BYTES`   | `limits.tool_output_max_bytes`     |
-| `STEINER_MAX_PARALLEL_TOOLS`      | `limits.max_parallel_tools`        |
-| `STEINER_TUI_FPS`                 | `tui.fps`                          |
-| `STEINER_TRUST_PROJECT_CONFIG`    | trusts the current project's config for this run only, skipping the trust dialog (see [Project trust](#project-trust)) |
+Only the variables below override configuration; there is no generic `STEINER_` prefix mapping. Integer variables that do not parse make config loading fail. Steiner reads a few other variables outside config loading: `STEINER_GITHUB_TOKEN` for update checks (see [Installation](installation.md)), `STEINER_USAGE_TELEMETRY` and `STEINER_USAGE_TELEMETRY_RUN` for usage telemetry (see [Usage and cache statistics](usage.md)), the variable named by `providers.<name>.api_key_env`, and any variable referenced by `${VAR}` expansion below.
 
-### Environment variable expansion in config values
+| Variable | Effect |
+| --- | --- |
+| `STEINER_MODEL` | Active orchestrator model: a `models.definitions` alias or `provider/model-id`. An invalid value is silently ignored. `--model` wins over it; an invalid `--model` is also silently ignored. |
+| `STEINER_SUB_AGENTS_MAX_PARALLEL` | Sets `sub_agent.max_parallel`. |
+| `STEINER_TUI_FPS` | Sets `tui.fps`. |
+| `STEINER_MAX_TURNS` | Sets `limits.max_turns`. |
+| `STEINER_MAX_TOKENS` | Sets `limits.max_tokens`. |
+| `STEINER_TOOL_OUTPUT_MAX_BYTES` | Sets `limits.tool_output_max_bytes`. |
+| `STEINER_MAX_PARALLEL_TOOLS` | Sets `limits.max_parallel_tools`. |
+| `STEINER_LOG_LEVEL` | Sets `logging.level`. |
+| `STEINER_LOG_FILE` | Sets `logging.file`. |
+| `STEINER_COMPACTION_LOG_FILE` | Sets `logging.compaction_log_file`. |
+| `GOOGLE_SEARCH_CX` | Fills `search.google_cx` when it is empty. |
+| `GOOGLE_SEARCH_API_KEY` | Fills `search.google_api_key` when it is empty. |
+| `KAGI_API_KEY` | Fills `search.kagi_api_key` when it is empty. |
+| `BRAVE_API_KEY` | Fills `search.brave_api_key` when it is empty. |
+| `STEINER_TRUST_PROJECT_CONFIG` | `1` or `true` trusts the current project's config for this run without prompting. Nothing is persisted. See [Project trust](#project-trust). |
 
-Configuration values support shell-style environment variable expansion. The expansion applies to scalar values only—keys and comments are never expanded. An undefined variable reference is a hard error that names the file, line number, YAML path, and variable name.
+## Environment variable expansion in config values
 
-**Recognized forms:**
+Scalar values in config files can reference environment variables. Keys and comments are never expanded.
 
-- `${VAR}` — replaced with the value of `VAR`. If `VAR` is undefined, loading fails. If `VAR` is defined but empty, it expands to nothing (empty string).
-- `${VAR:-default}` — replaced with the value of `VAR` if defined and non-empty. If `VAR` is undefined or empty, `default` is used instead (and recursively expanded). Use `${VAR:-}` to allow an empty value and opt out of the error.
-- `$VAR` — bare form, replaced with the value of `VAR`. If `VAR` is undefined, loading fails. No defaults; bare form has no `:-default` syntax.
-- `$$` — escape sequence for a literal `$` character.
+| Form | Result |
+| --- | --- |
+| `${VAR}` | Value of `VAR`. Loading fails if `VAR` is unset. A set but empty `VAR` expands to an empty string. |
+| `${VAR:-default}` | Value of `VAR` if set and non-empty, otherwise `default` (itself expanded). `${VAR:-}` allows an empty value. |
+| `$VAR` | Same as `${VAR}`; has no default syntax. |
+| `$$` | A literal `$`. |
 
-**Behavior details:**
+Backslash is not an escape character. An unquoted expansion is re-typed after substitution, so `max_attempts: ${RETRIES:-5}` and `enabled: ${FLAG:-true}` work; quoted values stay strings.
 
-- Backslash is **not** an escape character; write `\\` to mean a backslash.
-- Undefined references are not silently dropped; every undefined variable in every config file is reported together in a single error listing the file, line, YAML path, and variable name.
-- `${VAR:-}` with an empty default is valid and does not error even if `VAR` is undefined.
-- Expanded values round-trip through YAML correctly, including those that look numeric (e.g. `PORT: "${PORT}"` remains a string after expansion).
-- An unquoted expansion is re-typed after substitution, so it can set numeric and boolean fields (e.g. `max_attempts: ${RETRIES:-5}`, `enabled: ${FLAG:-true}`).
-
-**Example:**
+An undefined variable aborts loading at the first file that references one. The error lists every undefined variable in that file with its line, YAML path and name.
 
 ```yaml
 providers:
@@ -85,1352 +65,388 @@ providers:
     type: openai
     base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
     api_key: ${OPENAI_API_KEY}
-logging:
-  file: ~/.local/share/steiner/${STEINER_LOG_FILE:-steiner.log}
 ```
-
-If `OPENAI_API_KEY` is not set, configuration loading fails. If `OPENAI_BASE_URL` is not set, it defaults to the URL shown.
-
----
 
 ## Project trust
 
-The first time steiner runs in a project directory it hasn't seen before, it shows a trust dialog before applying that project's `.steiner/config.yaml` — whether or not the project actually has one. The trust key is the symlink-resolved absolute working directory, not a discovered git or project root, so running steiner from a subdirectory of an already-trusted project prompts again.
+The first time Steiner runs in a directory it has not seen, it asks whether to trust that project before applying `.steiner/config.yaml`. The prompt appears whether or not the project has a config file. The trust key is the symlink-resolved absolute working directory, not a discovered git root, so a subdirectory of a trusted project prompts again.
 
-When the project has a config file, the dialog lists every leaf setting it overrides versus the global config, one line per field. Security-relevant fields are marked with a leading `!` and shown with warning styling: `sandbox`, `permissions`, `paths.writable_paths`/`blocked_paths`/`project_root_only`, most of `mcp.servers.*` (all fields except a few benign ones), `lsp.servers.*.command`/`args`/`env`, `tools.*.exec`/`subcommand`, and `providers.*.base_url`/`headers`/`api_key`/`api_key_env`. Secret-shaped values on the global side (`api_key` fields, anything under `headers` or `env`) are masked as `(set)`; the project's own values are always shown in full and unexpanded, so a `${VAR}` reference shows which environment variable would be used, not its value. If the project YAML fails to parse, the dialog still appears with a parse-error message in place of the diff.
+When the project has a config, the dialog lists each leaf setting it overrides, compared against your global config (or the compiled defaults where the global file does not set it). Security-relevant fields are flagged with a leading `!`: `sandbox`, `permissions`, `paths.writable_paths`, `paths.blocked_paths`, `paths.project_root_only`, `mcp.servers.<name>.transport`, `command`, `args`, `env`, `url`, `headers`, `approval` and `trust_annotations`, `lsp.servers.<name>.command`, `args` and `env`, `tools.<name>.exec` and `subcommand`, and `providers.<name>.base_url`, `headers`, `api_key` and `api_key_env`. Existing values of `api_key` fields and anything under `headers` or `env` are shown as `(set)`. Project values are shown unexpanded, so `${VAR}` shows which variable would be used. If the project YAML fails to parse, the dialog shows the parse error instead of the diff.
 
-Three choices:
+Choices:
 
-- **[a] Always trust** — persists the decision; later changes to that project's config never re-prompt.
-- **[s] This session only** — trusts for this run; nothing is written to disk.
-- **[d] Deny and exit** — the default, and what `Esc`/`Ctrl-C` chooses; the process exits non-zero.
+- `a` Always trust: recorded in `~/.config/steiner/trusted_projects.json`; later config changes do not prompt again.
+- `s` This session only: nothing is written.
+- `d` Deny and exit: the default; `Esc` and `Ctrl-C` choose it. The process exits non-zero.
 
-"Always trust" decisions are recorded in `~/.config/steiner/trusted_projects.json`. There is no revoke or list command; edit or delete that file directly to revoke trust for a project. A corrupt or unrecognized-version file is deleted automatically, and you'll see a one-time notice; a plain read/permission error is a hard error instead, and the file is left untouched.
+There is no revoke command: edit or delete `trusted_projects.json`. A corrupt or unrecognised-version file is deleted with a one-time notice; a read or permission error is fatal and leaves the file untouched.
 
-The dialog needs a terminal: with `--exec`, or with no TTY, steiner can't show it. An untrusted project then makes the process exit non-zero with an error naming the fix. `steiner oneshot` follows the same plain-TTY rule as any other command.
+The dialog needs an interactive terminal. With `--exec` or without a TTY, an untrusted project makes Steiner exit non-zero unless you pass `--trust-project-config` or set `STEINER_TRUST_PROJECT_CONFIG=1` (or `true`). Both trust the project for that run only. `steiner oneshot` follows the same rule.
 
-For scripted or CI use, pass `--trust-project-config` or set `STEINER_TRUST_PROJECT_CONFIG=1` (or `true`, case-insensitive) to trust the current project for that run only, skipping the dialog; neither persists anything.
+`steiner config` never prompts: it prints the resolved config including the project layer, prefixed with `# project <root> is NOT trusted` when the project is not in the trust store.
 
-`steiner config` is an exception: it loads and prints the project's config values without prompting or persisting trust, prepending a `# project <root> is NOT trusted` header line when the project isn't in the trust store.
+`--unsafe` and project trust are independent of each other.
 
-`--unsafe` is independent of project trust in both directions: it never affects the trust dialog, and trusting a project never affects `--unsafe`.
+## Top-level keys
 
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `providers` | map | empty | Model API connections. See [`providers` block](#providers-block). |
+| `models` | block | see section | Model definitions, discovery and profiles. See [`models` block](#models-block). |
+| `limits` | block | see section | Turn, token, timeout and concurrency limits. See [`limits` block](#limits-block). |
+| `sandbox` | block | enabled | Bubblewrap sandbox. See [`sandbox` block](#sandbox-block). |
+| `permissions` | block | see section | Host capabilities granted to the sandbox. See [`permissions` block](#permissions-block). |
+| `sub_agent` | block | enabled | Delegated child agents. See [`sub_agent` block](#sub_agent-block). |
+| `advisor` | block | disabled | Stronger-model advisor. See [`advisor` block](#advisor-block). |
+| `oneshot` | block | see section | Oneshot closeout. See [`oneshot` block](#oneshot-block). |
+| `desktop_notifications` | block | disabled | Desktop notifications. See [`desktop_notifications` block](#desktop_notifications-block). |
+| `update_check` | block | enabled | Startup update check. See [`update_check` block](#update_check-block). |
+| `tools` | map | empty | Custom subprocess tools. See [`tools` block](#tools-block). |
+| `project_context` | block | see section | Extra files added to the prompt. See [`project_context` block](#project_context-block). |
+| `paths` | block | see section | Filesystem access limits. See [`paths` block](#paths-block). |
+| `logging` | block | see section | Session log files. See [`logging` block](#logging-block). |
+| `diagnostics` | block | disabled | Structured diagnostics capture. See [`diagnostics` block](#diagnostics-block). |
+| `context_management` | block | see section | Context management baseline. See [`context_management` block](#context_management-block). |
+| `search` | block | unset | Web search backend. See [`search` block](#search-block). |
+| `mcp` | block | enabled | MCP servers. See [`mcp` block](#mcp-block). |
+| `lsp` | block | disabled | Language servers. See [`lsp` block](#lsp-block). |
+| `modes` | block | see section | Execution mode default. See [`modes` block](#modes-block). |
+| `tui` | block | see section | Interactive UI settings. See [`tui` block](#tui-block). |
 
-## Top-level fields
-
-| Field                   | Type  | Default   | Description                                                                                                                                                                                                          |
-| ----------------------- | ----- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `models`                | block | see below | Consolidated model configuration: shared model definitions and named execution profiles.                                                                                                                             |
-| `modes`                 | block | see below | Execution mode configuration.                                                                                                                                                                                        |
-| `advisor`               | block | see below | Optional stronger-model steering config. When enabled, the advisor tool is available to the main loop and its per-run cap is enforced in handler state so the tool registry stays static for prompt-cache integrity. |
-| `oneshot`               | block | see below | Closeout settings for autonomous oneshot runs. Per-phase model assignments live in the selected model profile.                                                                                                       |
-| `desktop_notifications` | block | see below | Desktop notification settings for run completion and events.                                                                                                                                                         |
-| `update_check`          | block | see below | Passive startup version-upgrade check settings.                                                                                                                                                                      |
-| `mcp`                   | block | see below | Model Context Protocol server configuration.                                                                                                                                                                         |
-| `lsp`                   | block | see below | Language server protocol configuration for code intelligence (definitions, references, diagnostics).                                                                                                               |
-| `tui`                   | block | see below | Interactive terminal UI settings.                                                                                                                                                                                    |
-
-## `advisor` block
-
-Controls the optional advisor reasoning pass. The advisor is disabled by default.
-When enabled, it uses a stronger model to review the live parent conversation and
-return concise strategic guidance. The tool definition stays stable for the whole
-session; the `max_uses_per_run` cap is enforced in shared handler state, persisted
-for the life of the process rather than reset each turn, rather than by removing
-or mutating the tool mid-conversation.
-
-| Field                    | Type      | Default | Description                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------ | --------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `enabled`                | bool      | `false` | Master switch. Set to `true` to enable the advisor tool and prompt steering.                                                                                                                                                                                                                                                                                 |
-| `max_uses_per_run`       | int       | `3`     | Per-session use cap enforced in shared handler state. When the cap is exhausted, the handler returns a budget-exhausted result instead of calling the advisor model.                                                                                                                                                                                         |
-| `max_uses_per_sub_agent` | int       | `1`     | Per-child use cap for the advisor tool, separate from `max_uses_per_run`. Applies only to `code`, `documentor`, `review`, and `evaluate` children; caps advisor calls for that child's whole lifetime, surviving `follow_up` resumption of the same agent ID.                                                                                                              |
-| `max_tokens`             | *int      | `nil`   | Optional output-token ceiling for advisor calls. When set, the value is forwarded to the provider request.                                                                                                                                                                                                                                                   |
-| `timeout`                | *Duration | `180s`  | Optional HTTP timeout override applied only to advisor calls. When set, it overrides `providers.<name>.timeout` for the advisor model only; the main chat model and other models using the same provider are unaffected. Useful because advisor calls send a large parent-conversation prompt and frequently hit the provider's default header-read timeout. The timeout applies to each attempt; retries can repeat it up to the advisor model's `retry.max_attempts`, plus the backoff waits between attempts. A deadline-shaped timeout after visible stream output is not retried. |
-
-The model reference used for advisor calls is configured in the selected profile's `advisor` field (see the [`models` block](#models-block)), not under `advisor` itself. Use a raw `provider/model-id` reference unless the advisor needs a configured alias for persistent `ModelConfig` settings. See [Configuration internals](../internals/configuration.md) for handler and prompt-cache mechanics.
-
-```yaml
-advisor:
-  enabled: true
-  max_uses_per_run: 2
-  max_tokens: 256
-  timeout: 5m
-
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434/v1
-
-models:
-  profiles:
-    default:
-      default_model: local/qwen2.5-coder:14b
-      advisor: local/<advisor-model-id>
-```
-
----
-
-## `oneshot` block
-
-Controls the optional closeout PR flow for the autonomous `oneshot` mode.
-Per-phase model assignments live in the selected profile's `oneshot` map (see the
-[`models` block](#models-block)) and are sparse: omit a phase to let runtime use
-that profile's `default_model` when the phase is resolved.
-
-| Field     | Type | Default | Description                                                                                |
-| --------- | ---- | ------- | ------------------------------------------------------------------------------------------ |
-| `auto_pr` | bool | `false` | When `true`, oneshot closeout may push the branch and open a PR/MR after a passing review. |
-
-```yaml
-oneshot:
-  auto_pr: false
-
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434/v1
-
-models:
-  profiles:
-    default:
-      default_model: local/<coder-model-id>
-      oneshot:
-        plan: local/<planner-model-id>
-        implement: local/<coder-model-id>
-        review: local/<reviewer-model-id>
-```
-
----
-
-## `desktop_notifications` block
-
-Controls desktop notification behavior for run completion and events. All fields are optional and default to disabled (no notifications).
-
-| Field      | Type | Default | Description                                                                                                                                                                                         |
-| ---------- | ---- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`  | bool | `false` | Master switch. Set to `true` to enable desktop notifications.                                                                                                                                       |
-| `duration` | int  | `0`     | Notification display duration in seconds. Set to `0` for persistent/sticky notifications that do not auto-dismiss. Set to a positive integer to auto-dismiss after that many seconds. Must be >= 0. |
-
-```yaml
-desktop_notifications:
-  enabled: true
-  duration: 5
-```
-
-Setting `duration: 0` creates permanent notifications that the user must manually dismiss:
-
-```yaml
-desktop_notifications:
-  enabled: true
-  duration: 0
-```
-
----
-
-## `update_check` block
-
-Controls the passive startup version-upgrade check. This check runs asynchronously at startup and notifies the user if a newer version is available. All fields are optional and default to enabled with a 6-hour interval.
-
-| Field            | Type | Default | Description                                                                                                                          |
-| ---------------- | ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `enabled`        | bool | `true`  | Master switch. Set to `false` to disable the startup version-upgrade check.                                                         |
-| `interval_hours` | int  | `6`     | Minimum hours between consecutive update checks. Set to a non-negative integer. Must be >= 0. When set to `0`, every startup checks. |
-
-```yaml
-update_check:
-  enabled: true
-  interval_hours: 6
-```
-
-To disable the check entirely:
-
-```yaml
-update_check:
-  enabled: false
-```
-
----
-
-## `tui` block
-
-Interactive terminal UI settings. Ignored outside interactive mode.
-
-| Field | Type | Default | Description                                                                                                                                                                                                                                   |
-| ----- | ---- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fps` | int  | `60`    | Renderer frame rate. Bubble Tea flushes the terminal on this ticker, so it bounds how long a processed keystroke waits before it becomes visible - the average wait is half a frame (~8.3ms at 60, ~4.2ms at 120). Must be between 1 and 120. |
-| `quota_refresh_interval` | duration | `5m` | Snapshot age after which a finished run refetches the subscription accounts it used. Zero disables only this post-run refresh. Negative values are rejected. See [Subscription usage dashboard](usage-dashboard.md#when-snapshots-refresh). |
-
-Raising `fps` reduces input latency and increases CPU proportionally: renderer
-flush is roughly three quarters of TUI CPU cost, so moving from 60 to 120
-roughly doubles the flush work (measured at +61% process CPU during a
-150 token/s stream at 220x60). Raise it if input feels sluggish and you have
-CPU headroom; leave it at 60 on battery or on a constrained machine.
-
-```yaml
-tui:
-  fps: 60
-  quota_refresh_interval: 5m
-```
-
-Opening the [usage dashboard](usage-dashboard.md) and pressing `r` still refetch every account when `quota_refresh_interval` is zero. Zero disables only the post-run refresh.
-
----
+TUI appearance preferences (accent, sidebar, backgrounds) are not config keys; they live in `~/.config/steiner/prefs.yaml`. See [Interactive mode](interactive.md).
 
 ## `providers` block
 
-A map of named provider configurations. Each entry describes how steiner
-connects to a model API. The key is an arbitrary name referenced by
-`models.definitions.*.provider`.
+A map of named provider connections. The key is an arbitrary name that `models.definitions.<alias>.provider` and `provider/model-id` references use. Setup recipes are in [Provider and model setup](provider-and-model-setup.md).
 
-```yaml
-providers:
-  <name>:
-    type: <provider_type>
-    ...
-```
-
-### `ProviderConfig` fields
-
-| Field         | Type                  | Default                                                           | Description                                                                |
-| ------------- | --------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `type`        | string (ProviderType) | —                                                                 | The provider type. See [Provider types](#provider-types) below.            |
-| `base_url`    | string                | none (required unless the provider type has a default)             | Base URL for the API endpoint.                                             |
-| `api_key`     | string                | —                                                                 | API key value. Prefer `api_key_env` to avoid committing secrets.           |
-| `api_key_env` | string                | —                                                                 | Name of an environment variable containing the API key. Loaded at startup. |
-| `headers`     | map[string]string     | —                                                                 | Additional HTTP headers sent with every request to this provider.          |
-| `timeout`     | duration string       | none (no per-request timeout)                                     | Per-request HTTP timeout, applied to each attempt. Accepts Go duration strings: `30s`, `2m`, etc. Retries replay the request, so one call can spend up to `retry.max_attempts` times this timeout plus the backoff waits between attempts. A deadline-shaped timeout after visible stream output is not retried; pre-content timeouts stay retryable. |
-| `compaction_fallback_after` | duration string | `5m` for `anthropic`, `60m` for `claude_subscription`, `30m` for `openai` and `codex`, `0` for other types | Idle time since the start of the last successful main request of the same logical conversation, read from the main model's provider, after which compaction may use `models.profiles.<name>.compaction_fallback`. The fallback applies only when this delay is positive and that ref is set. Explicit `0` disables it. Negative values are invalid. The defaults are typical observed values, not guarantees. See [Compaction fallback](context-management.md#compaction-fallback). |
-| `codex`       | block                 | see below                                                         | Codex-specific configuration (provider type `codex` only).                 |
-
-Provider and model-catalog HTTP requests honour `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`.
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `providers.<name>.type` | string | none | Required. One of `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`. See [Provider types](#provider-types). |
+| `providers.<name>.base_url` | string | per type | API endpoint. Required for `openai_compat`, `ollama`, `lmstudio`, `litellm` and `anthropic`. |
+| `providers.<name>.api_key` | string | none | API key. Prefer `api_key_env` or `${VAR}` to keep secrets out of files. |
+| `providers.<name>.api_key_env` | string | none | Name of an environment variable holding the API key, read at startup. `api_key` wins when both are set. |
+| `providers.<name>.headers.<header>` | string | none | Extra HTTP header sent with every request to this provider. |
+| `providers.<name>.timeout` | duration | unset | Timeout for each request attempt, covering headers, body and streaming. Unset means no overall request timeout, and a 30s response-header timeout applies instead. Setting a timeout bounds the whole request, including headers, and replaces the header timeout. Retries replay the request, so one call can take up to `retry.max_attempts` times `timeout` plus backoff. |
+| `providers.<name>.compaction_fallback_after` | duration | `5m` anthropic, `60m` claude_subscription, `30m` openai and codex, `0` otherwise | Idle time after which compaction may use `models.profiles.<profile>.compaction_fallback`. `0` disables; negative is invalid. See [Context management](context-management.md). |
+| `providers.<name>.codex.min_request_interval` | duration | `0s` | `codex` only. Minimum gap between consecutive requests; `0` disables pacing. |
+| `providers.<name>.codex.transport` | string | `http` | `codex` only. `http`, or `websocket` (experimental; failures return an error with no HTTP fallback). |
 
 ### Provider types
 
-| Type            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `openai_compat` | Generic OpenAI-compatible HTTP API. Works with any server that follows the OpenAI chat completions shape.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `ollama`        | Ollama server through its OpenAI-compatible API. `base_url` defaults to `http://localhost:11434/v1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `lmstudio`      | LM Studio's built-in OpenAI-compatible server. Typically at `http://127.0.0.1:1234/v1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `openrouter`    | OpenRouter cloud gateway. Requires `api_key` or `api_key_env`. No `base_url` needed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `openai`        | Native OpenAI API. Requires `api_key` or `api_key_env`. No `base_url` needed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `anthropic`     | Native Anthropic API. Requires `api_key` or `api_key_env`. No `base_url` needed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `gemini`        | **Not implemented by the runtime provider factory.** Native Gemini is not a runtime-supported provider type. If a user has a Gemini-compatible endpoint that exposes the supported OpenAI-compatible shape, configure that endpoint with `type: openai_compat` instead.                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `litellm`       | LiteLLM gateway endpoint. Works like `openai_compat` but with LiteLLM-specific retry handling: when a 429 response lacks a `Retry-After` header, steiner parses the delay from the response body (e.g. "Try again in N seconds"). Budget-exhaustion 429s are detected and treated as non-retryable (reported as a usage limit; see [Retry](#retryconfig-fields)). Set `base_url` to your LiteLLM server.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `codex`         | OpenAI Codex subscription via OAuth. Authenticates using your OpenAI account instead of an API key and uses the Responses wire format. Run `steiner login codex` before use. When login can exchange the ChatGPT ID token for an API-key style credential, Steiner sends requests to `https://api.openai.com/v1/responses`; otherwise it uses `https://chatgpt.com/backend-api/codex/responses` with the saved OAuth access token and `ChatGPT-Account-ID`. `api_key` and `api_key_env` are not used - authentication is managed by the OAuth token stored at `~/.config/steiner/codex_auth.json`. Older token files still load, but re-running `steiner login codex` refreshes stored ChatGPT account metadata and the optional exchanged API credential used for direct OpenAI Responses API calls. The stored token is cached in-process and refreshed when it is expired or within five minutes of expiry; on Unix, `codex_auth.json.lock` serializes refreshes between Steiner processes. |
-| `opencode_go`   | opencode.ai's OpenCode Go gateway. `base_url` defaults to `https://opencode.ai/zen/go/v1`. Requires `api_key` or `api_key_env` (generated in your account on the OpenCode website — no OAuth/login flow in steiner). Requests carry an `X-Opencode-Session` header: the parent uses its stable session ID, children use `<parent>-<agentID>`, the advisor uses `<parent>-advisor`, and sub-agent advisors use `<parent>-subagent-advisor`. Child and advisor requests also send the parent session ID in the parent header.                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `opencode_zen`  | opencode.ai's OpenCode Zen gateway. `base_url` defaults to `https://opencode.ai/zen/v1`. Requires `api_key` or `api_key_env`, same as `opencode_go`. Claude-family models served through Zen automatically dispatch over the Anthropic-native transport (via the existing models.dev-driven transport fallback) while still carrying the `X-Opencode-Session` header.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `claude_subscription` | Unofficial provider that runs the user's signed-in `claude` CLI. See [Claude subscription](claude-subscription.md). It uses the Claude subscription login and full CLI model IDs; it does not use an API endpoint or API key. |
+| Type | `base_url` | Credentials | Notes |
+| --- | --- | --- | --- |
+| `openai_compat` | required | `api_key` or `api_key_env` optional | Any OpenAI chat-completions compatible server. |
+| `ollama` | required, e.g. `http://localhost:11434/v1` | optional | Ollama through its OpenAI-compatible API. |
+| `lmstudio` | required, typically `http://127.0.0.1:1234/v1` | optional | LM Studio's local server. |
+| `litellm` | required | optional | LiteLLM gateway. A 429 without `Retry-After` has its delay parsed from the body; budget-exhaustion 429s are not retried. |
+| `openrouter` | default `https://openrouter.ai/api/v1` | required | OpenRouter gateway. |
+| `openai` | default `https://api.openai.com/v1` | required | Native OpenAI API. |
+| `anthropic` | required: `https://api.anthropic.com/v1` | required | Native Anthropic API. Steiner appends `/messages` to `base_url`, so the `/v1` suffix is part of the value. Config validation accepts a missing `base_url`, but the provider then fails to start with `base URL is required`. |
+| `opencode_go` | default `https://opencode.ai/zen/go/v1` | required | OpenCode Go gateway. Create the key in your OpenCode account. |
+| `opencode_zen` | default `https://opencode.ai/zen/v1` | required | OpenCode Zen gateway. |
+| `codex` | optional | ignored | OpenAI Codex subscription. Sign in with `steiner login codex`; authentication uses that OAuth login, not `api_key`. |
+| `claude_subscription` | rejected | rejected | Runs your signed-in `claude` CLI. `base_url`, `api_key`, `api_key_env`, `headers` and `timeout` are rejected. See [Claude subscription](claude-subscription.md). |
+| `gemini` | none | required | Accepted by validation but not supported at runtime; do not use. |
 
-**Field applicability by provider type:**
-
-| Field         | openai_compat |  ollama  | lmstudio | openrouter | openai | anthropic | gemini¹ | litellm  |  codex   | opencode_go | opencode_zen | claude_subscription |
-| ------------- | :-----------: | :------: | :------: | :--------: | :----: | :-------: | :-----: | :------: | :------: | :---------: | :----------: | :-----------------: |
-| `base_url`    |   required    | optional | required |     —      |   —    |     —     |    —    | required | optional |  optional   |   optional   |         —           |
-| `api_key`     |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |         —           |
-| `api_key_env` |   optional    |    —     |    —     |     ✓      |   ✓    |     ✓     |    ✓    | optional |    —     |      ✓      |      ✓       |         —           |
-| `headers`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         —           |
-| `timeout`     |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         —           |
-| `compaction_fallback_after` |       ✓       |    ✓     |    ✓     |     ✓      |   ✓    |     ✓     |    ✓    |    ✓     |    ✓     |      ✓      |      ✓       |         ✓           |
-| `codex`       |       —       |    —     |    —     |     —      |   —    |     —     |    —    |    —     |    ✓     |      —      |      —       |         —           |
-
-¹ Native `gemini` is not a runtime-supported provider type. A user-provided endpoint may use `openai_compat` only when it exposes the supported OpenAI-compatible shape.
-
-For `claude_subscription`, `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout` are not applicable. Authentication comes from the signed-in Claude CLI session.
-
-### `codex` sub-block
-
-Codex-specific configuration. Applies only when `type: codex`.
-
-| Field                  | Type            | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `min_request_interval` | duration string | `"0"`    | Minimum interval enforced between consecutive Codex requests. Defaults to `0` (disabled). When set to a positive duration (e.g., `4s`), enforces a minimum gap between requests and serialises them. Affects only bursts; has no effect on interactive use where think-time already far exceeds any sensible interval. Has no effect on cache hit rate (see [prompt caching internals](../internals/prompt-caching.md#request-pacing)). |
-| `transport`            | string          | `"http"` | Transport used for Codex requests. Valid values: `http` (default), `websocket`. `http`: use HTTP-only transport. `websocket`: use the WebSocket transport, with no HTTP fallback — failures return an error rather than silently degrading. Opt-in and experimental; see [prompt caching internals](../internals/prompt-caching.md#request-pacing) for why it is not the default.                                                       |
-
----
+"Required" credentials mean one of `api_key` or `api_key_env` must be set, or validation fails.
 
 ## `models` block
 
-Consolidates all model configuration: the shared model definition registry and
-named execution profiles. No profile is required. Every declared profile is
-independent and must define `default_model`; profiles do not inherit from each
-other. With no profile selected and no profile named `default`, role assignments
-are unselected; `--model` or `STEINER_MODEL` still sets the orchestrator model,
-and `--profile` naming a missing profile is an error. A named profile without `default_model` fails config
-load. Within a profile, omitted role assignments (`advisor`, `sub_agents` entries,
-`oneshot` phases, and `workflow_handoff` destinations) fall back to that profile's
-`default_model`. Config files still merge by profile name.
+Model definitions, discovery and named profiles. A profile assigns models to roles; a definition (alias) persists settings for one model. Every selection accepts a raw `provider/model-id` reference, so an alias is only needed to persist settings or give a model a short name. Selection order, aliases and profile usage are in [Provider and model setup](provider-and-model-setup.md).
 
-| Field               | Type                    | Default   | Description                                                                                                                                                               |
-| ------------------- | ----------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `definitions`       | map[string]ModelConfig  | empty     | Shared named model definitions. Each entry binds a provider to a specific model ID and sets request-level parameters.                                                     |
-| `discovery_enabled` | bool                    | `true`    | When `true`, discover available models from configured providers. When `false`, skip provider enumeration and network refresh; the chooser shows configured entries only. |
-| `profiles`          | map[string]ModelProfile | empty     | Named model-assignment profiles. No profile is required; every declared profile must define `default_model`, and profiles do not inherit from each other.        |
+No profile is required. Every declared profile must set `default_model`, and profiles never inherit from each other. Without `--profile`, the profile named `default` is used; if there is none, role assignments are unselected and `--model` or `STEINER_MODEL` still sets the orchestrator model.
 
-Each profile supports these fields:
-
-| Field              | Type              | Description                                                                                                                                                              |
-| ------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `default_model`    | string            | Raw `provider/model-id` reference used by default, or an optional configured alias. It is also the fallback for roles without a more specific assignment in the same profile. Required in every profile. |
-| `advisor`          | string            | Model reference used for advisor calls when `advisor.enabled` is `true`.                                                                                                 |
-| `compaction_fallback` | string | Model reference used for compaction when the main prompt cache is presumed cold. Accepts the same references as `advisor`. Unset disables the fallback. It also needs a positive `compaction_fallback_after` on the main model's provider. Unlike `advisor`, it does not fall back to `default_model`. See [Compaction fallback](context-management.md#compaction-fallback). |
-| `sub_agents`       | map[string]string | Per-agent-type model references, keyed by agent type.                                                                                                                    |
-| `oneshot`          | map[string]string | Per-phase model references, keyed by `plan`, `implement`, and `review`. Missing phases fall back to the selected profile's `default_model`.                              |
-| `workflow_handoff` | map[string]string | Persistent handoff model references, keyed by `implement`, `review`, and `build`. Missing destinations use the selected profile's `default_model`.                       |
-
-```yaml
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434/v1
-  cloud:
-    type: anthropic
-    api_key_env: ANTHROPIC_API_KEY
-
-models:
-  discovery_enabled: true
-  profiles:
-    default:
-      default_model: local/qwen2.5-coder:14b
-      advisor: cloud/<advisor-model-id>
-      sub_agents:
-        code: cloud/<code-model-id>
-        documentor: cloud/<documentation-model-id>
-        evaluate: cloud/<evaluate-model-id>
-        sanity_check: local/<sanity-check-model-id>
-      oneshot:
-        plan: local/<planner-model-id>
-        implement: cloud/<implementer-model-id>
-        review: cloud/<reviewer-model-id>
-      workflow_handoff:
-        implement: cloud/<implementer-model-id>
-        review: cloud/<reviewer-model-id>
-    fast:
-      default_model: local/qwen2.5-coder:14b
-      sub_agents:
-        code: local/<code-model-id>
-```
-
-`workflow_handoff` supports destination keys `implement`, `review`, and `build`. If a
-destination has no entry, handoff uses the selected profile's `default_model`. The
-interactive handoff picker can still override the pending model for one
-handoff without changing configuration.
-
-### Model references and selection
-
-Every model selection accepts a raw `provider/model-id` reference. A configured alias is an optional alternate when it provides a shorter or stable name or persists `ModelConfig` settings:
-
-```text
-alias | provider/model-id
-```
-
-This applies to profile assignments, the `--model` flag, `STEINER_MODEL`, and the
-`/model` command. For example, `openrouter/openai/gpt-4o` selects model ID
-`openai/gpt-4o` from the configured `openrouter` provider.
-
-At startup, configuration is resolved in this order:
-
-1. Config files are merged, then the selected profile is resolved. `--profile <name>` selects a named profile; with no flag, `default` is selected.
-2. `STEINER_MODEL` overrides the active orchestrator model.
-3. `--model` overrides `STEINER_MODEL` and the profile's active orchestrator model.
-
-The env and CLI model overrides affect only the active orchestrator selection.
-They do not replace the selected profile's role assignments or its
-`default_model` fallback, so advisor, sub-agent, oneshot, and workflow-handoff
-roles continue to resolve from the profile.
-
-In interactive mode, `/model` changes only the active orchestrator selection.
-`/profile <name>` changes future advisor, sub-agent, oneshot, and workflow-handoff
-assignments and the selected `default_model` fallback, but preserves the current
-active orchestrator model, any current `/model` override, conversation, and
-prompt-cache identity. A bare `/profile` opens the profile picker, and `alt+p` does the same; `/profile <name>` selects by name.
-An unknown or invalid profile reports an error and leaves the current selection
-unchanged.
-
-Implementation details about role resolution, cache identity, and provider transport selection are in [Configuration internals](../internals/configuration.md).
-
-An exact configured alias takes precedence over provider-prefix parsing. Otherwise,
-steiner uses the longest matching configured provider prefix, so provider and model
-IDs may contain additional slashes.
-
-For recommended model tiers per sub-agent type, see [Recommended model tiers](sub-agent-delegation.md#recommended-model-tiers) in the delegation documentation.
-
-### `definitions` entries
-
-Each key under `models.definitions` is an arbitrary model alias name. Each
-entry binds a provider to a specific model ID and sets request-level
-parameters.
-
-```yaml
-models:
-  definitions:
-    <name>:
-      provider: <provider_name>
-      id: <model_id>
-      ...
-```
-
-### Metadata precedence
-
-For each model fact, explicit model configuration wins. Otherwise the catalog is
-checked before models.dev. For generic providers, models.dev uses the provider's
-model alias when available and then merges matching provider entries; Ollama
-probes the live server for context before using merged models.dev data. Codex
-always uses its fixed OAuth Responses transport, regardless of configured URL.
-Unresolved limits use the conservative fallback values.
-
-### `ModelConfig` fields
-
-| Field           | Type           | Default                | Description                                                                                                                                                                                                                         |
-| --------------- | -------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`      | string         | none (required)        | Name of the provider (key in `providers`) to use for this model.                                                                                                                                                                    |
-| `id`            | string         | none (required)        | The model identifier as expected by the provider API (e.g. `claude-sonnet-4-5`, `gpt-4o`, `llama3:8b`).                                                                                                                             |
-| `params`        | map[string]any | —                      | Standard request parameters sent in the request body. Common keys: `temperature`, `top_p`, `top_k`.                                                                                                                                 |
-| `extra_params`  | map[string]any | —                      | Additional provider-specific parameters merged into the request body. Use for fields not covered by `params`.                                                                                                                       |
-| `prompt_suffix` | string         | —                      | Text appended to every user message before sending to the model. Useful for model-specific control tokens (e.g. `<                                                                                                                  | think_off | >`). |
-| `retry`         | RetryConfig    | see below              | Retry policy for failed or rate-limited requests.                                                                                                                                                                                   |
-| `prompts`       | ModelPrompts   | —                      | Per-model system and compaction prompt overrides.                                                                                                                                                                                   |
-| `advanced`      | AdvancedConfig | see below              | Token limit and inference-level settings.                                                                                                                                                                                           |
-| `vision`        | bool or null   | null (assumed capable) | When set to `false`, image attachments are stripped from requests to this model and a diagnostic warning is emitted. When `null` or unset, vision capability is assumed. Set to `false` for older models that reject image content. |
-
-### `RetryConfig` fields
-
-| Field             | Type            | Default   | Description                                                     |
-| ----------------- | --------------- | --------- | --------------------------------------------------------------- |
-| `enabled`         | bool            | `true`    | Whether to retry on transient errors.                           |
-| `max_attempts`    | int             | `3`       | Maximum number of total attempts (initial + retries).           |
-| `initial_backoff` | duration string | `"250ms"` | Wait time before the first retry.                               |
-| `max_backoff`     | duration string | `"5s"`    | Upper cap on exponential backoff wait time.                     |
-| `retry_after_max` | duration string | `"30s"`   | Maximum time to honour a `Retry-After` header before giving up. |
-
-Provider usage and quota limits are never retried regardless of `retry` settings. These include: Codex `usage_limit_reached` and `usage_not_included`, OpenAI `insufficient_quota` and billing codes (`credit_balance_exhausted`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded`, `organization_usage_limit_exceeded`), and LiteLLM budget exhaustion. The run stops with reason `usage_limit`, and the error message names the provider-qualified model (e.g., `codex/luna/high`) and, when the provider reports a reset time, the reset time in local time plus relative duration. Other 429 responses (e.g., rate limits, slow-down) keep the normal retry policy.
-
-### `ModelPrompts` fields
-
-| Field           | Type   | Default | Description                                                                                                                                                              |
-| --------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `system`        | string | —       | Overrides the embedded default system prompt for this model.                                                                                                             |
-| `system_suffix` | string | —       | Text appended after all default preamble content, including the built-in output voice. Enables per-model system prompt steering without replacing the default preamble. |
-| `compaction`    | string | —       | Overrides the embedded compaction (context summarisation) prompt for this model.                                                                                         |
-
-### `AdvancedConfig` fields
-
-| Field                 | Type                 | Default   | Description                                                                                                                                                                                         |
-| --------------------- | -------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `limits`              | AdvancedLimitsConfig | see below | Token budget settings for this model.                                                                                                                                                               |
-| `reasoning_echo_back` | *bool                | —         | When set, controls whether reasoning tokens are echoed back in the response. Provider-dependent.                                                                                                    |
-| `transport`           | string               | `"auto"`  | Transport override for request formatting. Supported values: `auto`, `openai_compat`, `anthropic`. `auto` uses models.dev metadata when available and otherwise keeps the configured provider type. |
-| `reasoning`           | ReasoningConfig      | see below | Reasoning effort configuration for this model. Only meaningful for providers that support configurable reasoning effort (currently OpenAI and Codex); unsupported providers ignore it.              |
-| `codex`               | ModelCodexConfig     | see below | Codex-only model metadata selection. `use_max_context_window: true` selects catalog `max_context_window` when positive; otherwise catalog `context_window` is used. |
-
-#### Automatic transport resolution
-
-When `transport` is `auto` (the default), request formatting uses the configured provider unless a supported model transport is available. An explicit `openai_compat` or `anthropic` override takes precedence. See [Configuration internals](../internals/configuration.md) for models.dev metadata and provider-selection mechanics.
-
-### `ReasoningConfig` fields
-
-| Field               | Type     | Default | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `effort`            | string   | —       | Reasoning effort to request for this model. This is a provider/model-native string, not a Steiner-owned enum — the accepted values depend entirely on the provider and model. For OpenAI/Codex models the accepted values are model-specific (e.g. `none`, `low`, `medium`, `high`, `xhigh` for gpt-5.4 variants) and are discovered from the models.dev metadata cache when `supported_efforts` is not set. When unset, no `effort` is applied and no request-level reasoning field is sent at all, so the provider's own default behavior applies.                                                                                                                                      |
-| `supported_efforts` | []string | —       | The set of provider/model-native effort values this model accepts, used to validate `effort` and to populate the `/model` reasoning-effort picker in the TUI. When unset, Steiner discovers per-model efforts from the models.dev metadata cache (the same source used for context limits), falling back to a conservative built-in list (`minimal`, `low`, `medium`, `high`) only for recognized OpenAI/Codex model families (model IDs containing `gpt-5`, `o1`, `o3`, `o4`, or `codex`) not found in models.dev. For all other providers and model families, unset means Steiner has no known valid efforts and the `/model` reasoning-effort picker offers no options for that model. |
-
-Wire shape differs by transport: Codex (OpenAI Responses API) sends the resolved effort as a `reasoning: {"effort": "...", "summary": "auto"}` object — `summary: "auto"` is always included alongside a resolved effort so the API returns reasoning summaries, which Steiner parses and replays as thinking blocks; OpenAI-compatible chat-completions providers (`type: openai`) send it as a flat `reasoning_effort` string field. Both are omitted entirely when no effort is resolved.
-
-Example (OpenAI/Codex-style values — other providers may use a different vocabulary, or may not support configurable reasoning effort at all):
-
-```yaml
-providers:
-  codex:
-    type: codex
-
-models:
-  definitions:
-    codex-high:
-      provider: codex
-      id: <codex-model-id>
-      advanced:
-        reasoning:
-          effort: high
-          supported_efforts: [minimal, low, medium, high]
-  profiles:
-    default:
-      default_model: codex-high
-```
-
-`codex-high` is retained as an alias because it persists the reasoning configuration; a raw `codex/<codex-model-id>` reference cannot do that.
-
-Reasoning effort can also be changed at runtime for the current session via the `/model` command in the interactive TUI (select a model, then a reasoning effort from `supported_efforts`, or "provider default" to omit the field). Runtime `/model` reasoning selections are session-only and never write back to the config file. Use `steiner model inspect <alias>` to see the resolved `supported_efforts`, `provider_default_effort`, `configured_effort`, and `effective_effort` for a model, and its `facts:` block for the per-fact source and confidence behind each resolved value.
-
-### `ModelCodexConfig` fields
-
-| Field | Type | Default | Description |
+| Path | Type | Default | Description |
 | --- | --- | --- | --- |
-| `use_max_context_window` | bool | `false` | For Codex models, opt into the catalog's positive `max_context_window`; without this flag, or when max is unavailable, use catalog `context_window`. |
+| `models.discovery_enabled` | bool | `true` | Discover models from configured providers. `false` skips provider enumeration and network refresh; the chooser lists configured entries only. |
+| `models.definitions.<alias>.provider` | string | none | Required. Name of a key in `providers`. |
+| `models.definitions.<alias>.id` | string | none | Required. Model ID as the provider's API expects it. |
+| `models.definitions.<alias>.params` | map[string]any | none | Request parameters sent in the request body, such as `temperature`, `top_p`, `top_k`. |
+| `models.definitions.<alias>.extra_params` | map[string]any | none | Additional provider-specific body parameters. |
+| `models.definitions.<alias>.prompt_suffix` | string | none | Text appended to the last user message of each request. |
+| `models.definitions.<alias>.vision` | bool or null | null | `false` strips image attachments from requests to this model with a warning. Unset assumes vision support. |
+| `models.definitions.<alias>.retry.enabled` | bool | `true` | Retry transient and rate-limit errors. Usage and quota limit errors are never retried. |
+| `models.definitions.<alias>.retry.max_attempts` | int | `5` | Total attempts including the first; at least 1. |
+| `models.definitions.<alias>.retry.initial_backoff` | duration | `250ms` | Wait before the first retry; greater than zero. |
+| `models.definitions.<alias>.retry.max_backoff` | duration | `5s` | Cap on exponential backoff; at least `initial_backoff`. |
+| `models.definitions.<alias>.retry.retry_after_max` | duration | `60s` | Longest `Retry-After` wait honoured; at least `initial_backoff`. |
+| `models.definitions.<alias>.prompts.system` | string | none | Replaces the default system prompt for this model. |
+| `models.definitions.<alias>.prompts.system_suffix` | string | none | Appended after the default preamble. |
+| `models.definitions.<alias>.prompts.compaction` | string | none | Replaces the compaction prompt for this model. |
+| `models.definitions.<alias>.advanced.limits.context_window` | int | resolved from metadata | Context window in tokens. An explicit value wins over discovered metadata. If nothing resolves, `32768` is used. |
+| `models.definitions.<alias>.advanced.limits.max_output_tokens` | int | resolved from metadata | Maximum tokens per response. If nothing resolves, `4096` is used. |
+| `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` | int | 70% of the context window | Prompt-token count that triggers compaction; greater than zero and below the resolved context window. |
+| `models.definitions.<alias>.advanced.reasoning_echo_back` | bool or null | resolved from metadata | Whether the model's reasoning content is echoed back in later requests. |
+| `models.definitions.<alias>.advanced.transport` | string | `auto` | `auto`, `openai_compat` or `anthropic`. `auto` follows models.dev metadata when available, otherwise the provider type. An explicit value overrides metadata. |
+| `models.definitions.<alias>.advanced.reasoning.effort` | string | unset | Reasoning effort to request, as the provider names it (for example `low`, `high`). Unset sends no reasoning field. Must not be blank and must appear in `supported_efforts` when that is set. |
+| `models.definitions.<alias>.advanced.reasoning.supported_efforts` | []string | discovered | Efforts this model accepts, used to validate `effort` and fill the `/model` picker. No blank or duplicate values. Unset uses models.dev data. |
+| `models.definitions.<alias>.advanced.codex.use_max_context_window` | bool | `false` | `codex` providers only (rejected otherwise). Use the catalogue's `max_context_window` when positive, else its `context_window`. |
+| `models.profiles.<profile>.default_model` | string | none | Required in every declared profile. A model reference, also the fallback for roles without their own assignment. |
+| `models.profiles.<profile>.advisor` | string | unset | Model for advisor calls; falls back to `default_model`. |
+| `models.profiles.<profile>.compaction_fallback` | string | unset | Model for compaction when the prompt cache is presumed cold. Needs a positive `compaction_fallback_after` on the main model's provider. Unset disables it; it does not fall back to `default_model`. |
+| `models.profiles.<profile>.sub_agents.<type>` | string | unset | Model per agent type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. An empty string disables an optional type. Unset types use `default_model`. |
+| `models.profiles.<profile>.oneshot.<phase>` | string | unset | Model per oneshot phase: `plan`, `implement`, `review`. Unset phases use `default_model`. |
+| `models.profiles.<profile>.workflow_handoff.<destination>` | string | unset | Model per handoff destination: `implement`, `review`, `build`. Unset destinations use `default_model`. |
 
-Context limit precedence is explicit numeric `advanced.limits.context_window`, selected Codex catalog context, existing discovery/models.dev metadata, then the built-in fallback. The flag is valid only for Codex model definitions.
-
-### `AdvancedLimitsConfig` fields
-
-| Field               | Type | Default | Description                                                                            |
-| ------------------- | ---- | ------- | -------------------------------------------------------------------------------------- |
-| `context_window`              | int  | unset (resolved from discovery/metadata) | Maximum context window size in tokens. Used by the prompt assembler to budget context. |
-| `max_output_tokens`           | int  | unset (resolved from discovery/metadata) | Maximum tokens the model may generate per response.                                |
-| `compaction_threshold_tokens` | int  | —       | Optional positive soft compaction trigger in prompt tokens. If absent, uses 70% of the effective context window. Native providers use estimated prompt tokens; `claude_subscription` uses reported prompt usage with its existing hysteresis and cap safety behavior. The value must be below the final resolved context window and does not replace hard request fitting. |
-
----
-
-## `modes` block
-
-Controls execution mode configuration.
-
-| Field     | Type   | Default   | Description                                                                                                                                                               |
-| --------- | ------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default` | string | `"build"` | Execution mode for interactive sessions. Allowed values: `"plan"` or `"build"`. `plan` restricts project edits to `.steiner/plans/` and `.steiner/security/`; `build` is normal workspace editing. |
-
-```yaml
-modes:
-  default: build
-```
-
----
-
-## `sandbox` block
-
-Controls bubblewrap sandbox behavior.
-
-The runtime sandbox status (`active`, `unavailable`, or `bypassed`) is computed at startup
-and surfaced only in the TUI (sidebar/badge) and startup warnings; it is not part of `steiner
-config` output and is not user-configurable.
-
-| Field                             | Type     | Default | Description                                                                                                                                                                                                          |
-| --------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`                         | bool     | `true`  | Enable bubblewrap sandboxing. `--unsafe` applies a CLI override that forces this to `false` at load time.                                                                                                            |
-| `warning_on_unsupported_platform` | bool     | `true`  | When enabled, shows a warning in the TUI when sandbox is unavailable or bypassed.                                                                                                                                    |
-| `env_passthrough`                 | []string | `[]`    | Additional host environment variable names (beyond the built-in allowlist) passed through to sandboxed processes. Entries may end in `*` to match by prefix (e.g. `MYAPP_*`); no other wildcard forms are supported. |
-| `env_passthrough_all`             | bool     | `false` | When `true`, disables environment filtering entirely and passes the full host environment through, including credentials.                                                                                            |
-| `bind_host_cache`                 | bool     | `false` | When `true`, binds the real `~/.cache` read-write into the sandbox. By default the cache location is backed by a sandbox-private directory (`.steiner/home/cache/`), so sandboxed tools cannot poison host caches (go-build, pip, uv). |
-| `host_mounts`                     | []object | `[]`    | Additional host paths to bind-mount into the sandbox. Use `mode: rw` to grant writable access to paths outside the workspace (all host paths are already readable through the root bind).                            |
-
-Each entry has:
-
-| Field  | Type   | Description                                                                          |
-| ------ | ------ | ------------------------------------------------------------------------------------ |
-| `path` | string | Host path to mount (supports `~` expansion).                                         |
-| `mode` | string | Mount mode: `rw` for writable access (host is already read-only by default) or `ro`. |
-
-```yaml
-sandbox:
-  enabled: true                       # default; --unsafe overrides this to false at runtime
-  warning_on_unsupported_platform: true # default; warns when sandbox is unavailable/bypassed
-  env_passthrough: []                 # default; extra allowlisted env var names, "*" suffix allowed for prefix match
-  env_passthrough_all: false          # default; true disables env filtering entirely
-  bind_host_cache: false              # default; true binds the real ~/.cache read-write
-  host_mounts:
-    - path: ~/.kube
-      mode: rw
-    - path: /opt/tools
-      mode: rw
-```
-
----
-
-## `permissions` block
-
-Opt-in permissions for additional capabilities.
-
-| Field    | Type | Default | Description                                                                                                                                                                                                                                                                         |
-| -------- | ---- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docker` | bool | `false` | Gates Docker socket access inside the sandbox. `false` (default) masks any reachable Docker socket and unsets `DOCKER_HOST`, denying sandboxed tools access to the host daemon. `true` leaves the socket reachable. See [sandboxing.md](sandboxing.md#docker-permission). |
-
-```yaml
-permissions:
-  docker: false
-```
-
----
+The `vision` sub-agent type needs a vision-capable model; the `vision` tool is not registered unless `sub_agents.vision` is set. See [Sub-agent delegation](sub-agent-delegation.md).
 
 ## `limits` block
 
-Runtime limits for turns, tokens, and tool execution.
+Runtime limits for turns, tokens, timeouts and tool concurrency. The caps apply to the parent run; `tool_output_max_bytes`, `max_parallel_tools` and the tool timeouts also apply to each sub-agent. See [Tools](tools.md) for tool behaviour.
 
-| Field                   | Type                       | Default   | Description                                                                                                                                                                                                                                                                                                                                                                                       |
-| ----------------------- | -------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `max_turns`             | int                        | `50`      | Maximum agent loop turns before the run is stopped.                                                                                                                                                                                                                                                                                                                                               |
-| `max_tokens`            | int                        | `500000`  | Maximum total tokens (input + output) consumed before the run is stopped.                                                                                                                                                                                                                                                                                                                         |
-| `tool_timeout_default`  | duration string            | `"30s"`   | Default timeout applied to any tool not listed in `tool_timeouts`.                                                                                                                                                                                                                                                                                                                                |
-| `tool_timeouts`         | map[string]duration string | see below | Per-tool timeout overrides. `bash` caps the built-in Bash tool and must be a positive whole number of seconds, at most `600s`; see below.                                                                                                                                                                                                                                                                                                                                                                       |
-| `tool_output_max_bytes` | int                        | `65536`   | Maximum bytes of output captured from a single tool call. Output is truncated to this limit. Applies to both the parent run and each child sub-agent's own tool executor.                                                                                                                                                                                                                         |
-| `max_parallel_tools`    | int                        | `4`       | Maximum number of ordinary parallel-safe tool calls (`read`, `glob`, `grep`, `ls`, `fetch_url`, `web_search`) executed concurrently within a single turn. Must be at least `1`; `1` forces serial execution for these tools. Distinct from `sub_agent.max_parallel`, which caps concurrently running sub-agents session-wide, independently. Applies to both the parent run and each child sub-agent's own turns. |
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `limits.max_turns` | int | `50` | Maximum agent-loop turns before the run stops. `0` removes the limit; negative is invalid. |
+| `limits.max_tokens` | int | `500000` | Maximum output (completion) tokens generated across a run before it stops; at least 1. Input tokens are not counted. |
+| `limits.model_call_timeout` | duration | `10m` | Longest a single provider call may take. `0` disables it. Tool work and sub-agent calls inside a turn are not covered. |
+| `limits.tool_timeout_default` | duration | `30s` | Timeout for any tool without an entry in `tool_timeouts`; greater than zero. Also bounds MCP calls. |
+| `limits.tool_timeouts.<tool>` | duration | see below | Per-tool timeout; greater than zero. Defaults: `bash` `600s`, `read` `5s`, `grep` `30s`, `ls` `5s`. For an MCP tool the key is its registered name `mcp__<server>__<tool>`, as shown by `steiner tools`. The `bash` entry caps the built-in Bash tool: whole seconds, at most `600s`. |
+| `limits.tool_output_max_bytes` | int | `65536` | Output kept from one tool call; the rest is truncated. At least 1. |
+| `limits.max_parallel_tools` | int | `4` | Parallel-safe tool calls run concurrently in one turn, including built-in read-only tools, LSP tools and MCP tools with a read-only hint. At least 1; `1` is serial. Separate from `sub_agent.max_parallel`. |
 
-> **Breaking change**: `max_parallel_tools: 0` previously meant unbounded concurrency; it is now rejected at startup. Set it to `1` for the equivalent serial behaviour, or a positive number for bounded concurrency. `sub_agent.max_parallel: 0` previously had no runtime effect at all (the field was dead); it is likewise now rejected — set it to `1` or higher.
+## `sandbox` block
 
-Default `tool_timeouts`:
+Bubblewrap sandbox for `bash` and subprocess tools. What the sandbox isolates, how approvals interact with it and platform limits are in [Sandboxing](sandboxing.md).
 
-| Tool   | Timeout |
-| ------ | ------- |
-| `bash` | `600s`  |
-| `read` | `5s`    |
-| `grep` | `30s`   |
-| `ls`   | `5s`    |
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sandbox.enabled` | bool | `true` | Enable the sandbox. `--unsafe` forces `false`. |
+| `sandbox.warning_on_unsupported_platform` | bool | `true` | Warn when the sandbox is unavailable or bypassed. |
+| `sandbox.env_passthrough` | []string | `[]` | Extra host environment variable names passed to sandboxed processes. A trailing `*` matches a prefix (`MYAPP_*`). Entries must be non-empty, contain no `=`, and `*` may only be the last character. A bare `*` is rejected; use `env_passthrough_all`. |
+| `sandbox.env_passthrough_all` | bool | `false` | Pass the full host environment, credentials included, with no filtering. Always prints a warning while the sandbox is enabled, regardless of `warning_on_unsupported_platform`. |
+| `sandbox.bind_host_cache` | bool | `false` | Bind the real `~/.cache` read-write instead of a sandbox-private cache directory. |
+| `sandbox.host_mounts.<index>.path` | string | none | Host path to mount; `~/` expands. |
+| `sandbox.host_mounts.<index>.mode` | string | read-only | `rw` for writable access; anything else mounts read-only. |
 
-```yaml
-limits:
-  max_turns: 50
-  max_tokens: 500000
-  tool_timeout_default: 30s
-  tool_timeouts:
-    bash: 600s
-    read: 5s
-    grep: 30s
-    ls: 5s
-  tool_output_max_bytes: 65536
-  max_parallel_tools: 4
-```
+## `permissions` block
 
-`limits.tool_timeouts.bash` caps the built-in Bash tool: it is the maximum
-wall-clock duration of a Bash call and must be a positive whole number of
-seconds, at most `600s` (`500ms`, `1.5s`, `0s`, negative values, and values
-above `600s` are rejected at load). The model's requested `timeout_seconds`
-(120 seconds by default, or the cap when the cap is lower) is clamped to this
-value, so a longer configured timeout is honoured rather than ignored, and the
-timeout cannot be disabled. If the tool is constructed programmatically, a
-non-positive cap or one that is not a whole number of seconds falls back to
-`120s`, while a cap above `600s` clamps to `600s`. This cap applies to the
-built-in Bash tool only: MCP tools keep the timeout behaviour described below,
-and config-defined subprocess tools keep their `tools.<tool>.timeout` setting.
+Opt-in host capabilities for the sandbox. See [Sandboxing](sandboxing.md).
 
-`tool_timeout_default` and `tool_timeouts` also apply to MCP tools: every MCP call is
-bounded by `tool_timeout_default` (the `30s` default), unless the tool's full registered
-name has an entry in `tool_timeouts`. That key is the registry name shown by
-`steiner tools` — `mcp__<server>__<tool>`, or the hashed form when the name needed
-sanitisation or exceeded the length limit.
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `permissions.docker` | bool | `false` | `true` leaves the Docker socket reachable inside the sandbox. `false` masks it and unsets `DOCKER_HOST`. |
 
 ## `sub_agent` block
 
-Controls delegated child-agent execution. For details on what sub-agents can
-do and tool allowlists for each specialised agent type, see
-[Sub-agent Delegation](sub-agent-delegation.md).
+Delegated child agents. Behaviour, agent types and worktrees are in [Sub-agent delegation](sub-agent-delegation.md). Per-type models are set in `models.profiles.<profile>.sub_agents`.
 
-| Field                 | Type   | Default    | Description                                                                                                                                                                                                                                                                                                                                                                     |
-| --------------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`             | bool   | `true`     | Master switch. Set to `false` to remove all delegation tools from the model.                                                                                                                                                                                                                                                                                                    |
-| `orchestration_level` | string | `standard` | How strongly the system preamble steers the orchestrator to delegate. `standard` sends the full delegation guidance; `low` omits the "Your role" and "Delegation vs direct work" sections and leaves delegation to the model's judgement. Ignored when `enabled` is `false`. Switchable at runtime with `/orchestration` (not persisted).                                       |
-| `max_turns`           | int    | `120`      | Hard cap on turns for each child run; when enabled, must be at least 15. Values from 1 through 14 are rejected in configuration.                                                                                                                                                                                                                                                 |
-| `max_tokens`          | int    | `400000`  | Maximum completion (output) tokens generated by each child run.                                                                                                                                                                                                                                                                                                           |
-| `max_parallel`        | int    | `3`        | Session-wide cap on concurrently running sub-agents (specialized sub-agent spawns, `follow_up`), shared across parent turns. Spawns beyond the cap wait in a first-in-first-out queue; at most twice this many may be outstanding (running plus queued), and further spawns fail with a tool error. Must be at least `1`; `1` runs sub-agents one at a time. Independent of `limits.max_parallel_tools`, which bounds ordinary tool-call concurrency — a mixed batch never lets the two compete for the same semaphore slots. |
-| `max_follow_ups`      | int    | `5`        | Maximum number of follow-up resumes allowed per delegated child agent. When a child reaches this ceiling, new follow-ups are refused and must be redelegated fresh. With `max_turns: 120` and `max_follow_ups: 5`, worst-case accumulated turn budget is `120 + 5×120 = 720` turns for a single child across its full resume lifetime.                                                             |
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sub_agent.enabled` | bool | `true` | `false` removes all delegation tools. The constraints below apply only when enabled. |
+| `sub_agent.orchestration_level` | string | `standard` | `standard` or `low`. `low` omits the delegation-steering sections of the system prompt. |
+| `sub_agent.max_turns` | int | `120` | Turn cap for each child run; at least 15. |
+| `sub_agent.max_tokens` | int | `400000` | Maximum output (completion) tokens per child run; at least 1. |
+| `sub_agent.max_parallel` | int | `3` | Session-wide cap on running children. Extra spawns queue; more than twice this many outstanding (running plus queued) fail. At least 1. |
+| `sub_agent.max_follow_ups` | int | `5` | Follow-up resumes allowed per child; at least 1. Each resume extends the child's turn budget. |
 
-Each specialised agent type (`explore`, `research`, `code`, `documentor`,
-`evaluate`, `sanity_check`, `review`, `vision`) has its own hardcoded tool allowlist; there is no
-user-configurable tool allowlist field.
+## `advisor` block
 
-Per-agent-type model overrides live in the selected profile's `sub_agents` map
-(see the [`models` block](#models-block)), keyed by agent type (e.g. `code`,
-`documentor`, `evaluate`, `sanity_check`, `explore`, `vision`). If an agent type has no entry, the
-sub-agent uses the profile's default assignment.
+Optional advisor tool: a stronger model reviews the conversation and returns guidance. The model is chosen by `models.profiles.<profile>.advisor`. See [Advisor](advisor.md).
 
-```yaml
-sub_agent:
-  enabled: true
-  orchestration_level: standard
-  max_parallel: 3
-  max_turns: 120
-  max_tokens: 400000
-  max_follow_ups: 5
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `advisor.enabled` | bool | `false` | Enable the advisor tool. |
+| `advisor.max_uses_per_run` | int | `3` | Advisor calls allowed per session; at least 1 when enabled. |
+| `advisor.max_uses_per_sub_agent` | int | `1` | Advisor calls allowed per child agent; at least 1 when enabled. |
+| `advisor.max_tokens` | int | unset | Output-token ceiling for advisor calls; greater than zero when set. |
+| `advisor.timeout` | duration | `180s` | Timeout for each advisor request attempt. Overrides `providers.<name>.timeout` for advisor calls only; greater than zero when set. |
 
-providers:
-  openai:
-    type: openai
-  anthropic:
-    type: anthropic
+## `oneshot` block
 
-models:
-  profiles:
-    default:
-      default_model: openai/<orchestrator-model-id>
-      sub_agents:
-        code: openai/<code-model-id>
-        documentor: openai/<documentation-model-id>
-        research: anthropic/<research-model-id>
-        vision: anthropic/<vision-model-id>   # required to enable the vision tool
-```
+Closeout settings for autonomous `steiner oneshot` runs. Per-phase models are set in `models.profiles.<profile>.oneshot`. See [Oneshot](oneshot.md).
 
-The `vision` agent type requires a vision-capable model. When the selected profile's
-`sub_agents.vision` is empty or unset, the `vision` tool is not registered.
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `oneshot.auto_pr` | bool | `false` | Let closeout push the branch and open a PR or MR after a passing review. |
 
----
+## `desktop_notifications` block
+
+Desktop notifications from the interactive TUI. They fire when a tool approval is required and when a workflow handoff is requested; there is no run-completion notification. See [Desktop notifications](desktop-notifications.md).
+
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `desktop_notifications.enabled` | bool | `false` | Enable notifications. |
+| `desktop_notifications.duration` | int | `0` | Display time in seconds. `0` leaves the notification until dismissed; negative is invalid. |
+
+## `update_check` block
+
+Background check for a newer Steiner release at startup. It runs in the interactive TUI only. See [Installation](installation.md).
+
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `update_check.enabled` | bool | `true` | Enable the startup check. |
+| `update_check.interval_hours` | int | `6` | Minimum hours between checks; `0` checks on every startup; negative is invalid. |
 
 ## `tools` block
 
-A map of externally configured tools registered alongside the built-in tools.
-Each key becomes the tool name the model uses.
-Tool names that collide with a built-in (`read`, `glob`, `grep`, `ls`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected at config load.
+Custom subprocess tools registered next to the built-ins. The map key is the tool name the model sees. Names reserved by built-ins (`read`, `glob`, `grep`, `ls`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected. The stdin/stdout contract a tool must follow is in [Tools](tools.md).
 
-```yaml
-tools:
-  <tool_name>:
-    exec: <binary_path>
-    ...
-```
-
-### `ToolConfig` fields
-
-| Field         | Type            | Default | Description                                                               |
-| ------------- | --------------- | ------- | ------------------------------------------------------------------------- |
-| `exec`        | string          | —       | Path to the executable to run when this tool is called.                   |
-| `subcommand`  | string          | —       | Subcommand or argument passed as the first positional argument to `exec`. |
-| `description` | string          | —       | Human-readable description shown to the model in the tool schema.         |
-| `parameters`  | map[string]any  | —       | JSON Schema fragment describing the tool's input parameters.              |
-| `timeout`     | duration string | —       | Per-tool timeout. Overrides `limits.tool_timeout_default` for this tool.  |
-
-### Tool contract
-
-steiner invokes `exec` (with `subcommand` as its first argument, if set) as a
-subprocess for each call. The contract is fixed and not configurable per tool:
-
-- **stdin**: the model's validated input arguments, as a single JSON object,
-  written once and then closed.
-- **stdout**: a single JSON object on completion:
-  - Success: `{"ok": true, "result": <any JSON value>}`. `result` is what the
-    model sees, verbatim.
-  - Failure: `{"ok": false, "error": {"kind": "<short slug>", "message": "<human-readable>", "details": <optional any>}}`.
-    `kind` and `message` are model-visible; `details` is host-side only (shown
-    in logs/TUI, not sent to the model).
-  - Optionally, alongside `result`: `"model_result": <any JSON value>`. When
-    present, `model_result` — not `result` — is what the model sees;
-    `result` is then retained host-side only (session history, TUI). Use
-    this when your tool's full result is large, includes raw
-    logs/diagnostics, or otherwise carries more than the model needs to act
-    on. Omit it to keep sending `result` to the model directly (default,
-    unchanged behavior).
-- **exit code**: a nonzero exit code is always treated as a failure,
-  regardless of what stdout contains — even a well-formed
-  `{"ok": true, ...}` response is discarded and reported to the model as an
-  error if the process exits nonzero. Exit `0` on every successful call; use
-  the `ok: false` envelope, not a nonzero exit code, to signal a specific
-  failure.
-- stdout/stderr raw bytes are captured host-side (bounded by
-  `limits.tool_output_max_bytes`) and are never sent to the model on
-  success; they surface only inside a failure's `details` when stdout
-  wasn't valid JSON or the process itself failed to run.
-
-```yaml
-tools:
-  fmt:
-    exec: gofmt
-    subcommand: -w
-    description: Format Go source files in place.
-    timeout: 10s
-```
-
-A minimal conforming tool, reading arguments from stdin and writing the
-envelope to stdout:
-
-```json
-// stdin
-{"path": "main.go"}
-
-// stdout (success, no model_result — result goes straight to the model)
-{"ok": true, "result": {"formatted": true}}
-
-// stdout (success, with model_result — result is host-only)
-{"ok": true, "result": {"formatted": true, "diff": "...200 lines..."}, "model_result": {"formatted": true}}
-
-// stdout (failure)
-{"ok": false, "error": {"kind": "invalid_input", "message": "path not found"}}
-```
-
----
-
-## `mcp` block
-
-Configures Model Context Protocol (MCP) servers. MCP is enabled by default.
-Individual servers must still be enabled explicitly via `servers.<name>.enabled`. See
-[MCP](mcp.md) for the TUI surfaces and approval behavior.
-
-| Field     | Type | Default | Description                                          |
-| --------- | ---- | ------- | ---------------------------------------------------- |
-| `enabled` | bool | `true`  | Master switch for the MCP client.                    |
-| `servers` | map  | —       | Per-server configuration under `mcp.servers.<name>`. |
-
-Each server entry (`MCPServerConfig`) supports:
-
-| Field               | Type              | Default   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ------------------- | ----------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`           | bool              | `false`   | Whether this server is started.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `transport`         | string            | `"stdio"` | Transport used to reach the server. One of `stdio` (starts a subprocess) or `http` (connects via HTTP).                                                                                                                                                                                                                                                                                                                                                                                             |
-| `command`           | string            | —         | Executable that starts the server. Required for `stdio` transport; must be empty for `http`.                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `args`              | []string          | —         | Arguments passed to the command. Used only with `stdio` transport; must be empty for `http`.                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `env`               | map[string]string | —         | Extra environment variables for the server process. Used only with `stdio` transport; must be empty for `http`.                                                                                                                                                                                                                                                                                                                                                                                     |
-| `url`               | string            | —         | HTTP endpoint (http or https). Required for `http` transport; must be empty for `stdio`.                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `headers`           | map[string]string | —         | HTTP headers sent with every request. Used only with `http` transport; must be empty for `stdio`. Header names cannot collide with SDK-reserved names (case-insensitive): `Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, or names with the `Mcp-Param-` prefix. `Authorization` is allowed for static bearer tokens sourced from `${VAR}` (see [environment variable expansion](#environment-variable-expansion-in-config-values)). |
-| `approval`          | string            | `"ask"`   | Approval mode for the server's tools. One of `ask` (prompt per tool call), `allow` (run without prompting in build mode, downgraded to `ask` in plan mode), or `deny` (register no tools).                                                                                                                                                                                                                                                                                                          |
-| `trust_annotations` | bool              | `false`   | When `true`, tools advertised with `readOnlyHint: true` skip approval; `destructiveHint` and `openWorldHint` tools still prompt.                                                                                                                                                                                                                                                                                                                                                                    |
-| `connect_timeout`   | duration          | `"15s"`   | Maximum time to wait for the MCP connection to be established. Absent or `0` falls back to `15s` (mirrors crush's default, range 5-30s); negative values are rejected.                                                                                                                                                                                                                                                                                                                              |
-| `allowed_tools`     | []string          | —         | Optional allowlist of MCP-native tool names for this server. Only listed names are registered; registered names like `mcp__<server>__<tool>` are not accepted as entries. Missing means no allowlist restriction; an explicit empty list (`allowed_tools: []`) registers no tools (denies all).                                                                                                                                                                                                     |
-| `blocked_tools`     | []string          | —         | Optional denylist of MCP-native tool names. Applied after `allowed_tools`: a tool that survives the allowlist is removed if its name appears here.                                                                                                                                                                                                                                                                                                                                                  |
-| `sub_agents`        | []string          | —         | Agent types allowed to use this server's tools. Defaults to closed: missing or `[]` grants no MCP tools to any child. Valid values: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`.                                                                                                                                                                                                                                                                                  |
-
-```yaml
-mcp:
-  enabled: true
-  servers:
-    my-stdio-server:
-      enabled: true
-      command: "npx"
-      args: ["-y", "@some/mcp-server"]
-      approval: ask
-      trust_annotations: false
-    my-http-server:
-      enabled: true
-      transport: http
-      url: "http://localhost:3000/mcp"
-      headers:
-        Authorization: "Bearer ${MCP_AUTH_TOKEN}"
-      approval: ask
-```
-
-When using `http` transport with an `Authorization` header, use the strict env expansion syntax (e.g. `${VAR}`) to inject environment variables. See the [environment variable expansion](#environment-variable-expansion-in-config-values) section for details.
-
-See [MCP](mcp.md) for user-facing behavior and approval rules.
-
----
-
-## `lsp` block
-
-Configures optional language server connections for code intelligence (definitions, references, diagnostics). LSP is disabled by default. When enabled, servers must be configured explicitly under `servers.<name>`. See [LSP](lsp.md) for lifecycle, caching, and graceful degradation details.
-
-| Field                  | Type                           | Default | Description                                                                                                                                                                             |
-| ---------------------- | ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`              | bool                           | `false` | Master switch. Set to `true` to enable LSP code intelligence tools.                                                                                                                    |
-| `idle_timeout`         | duration                       | `5m`    | Server idle timeout before shutdown.                                                                                                                                                  |
-| `request_timeout`      | duration                       | `10s`   | Per-request timeout; hung servers and still-indexing servers must answer within this window.                                                                                          |
-| `ready_timeout`        | duration                       | `30s`   | Timeout for server readiness (initialization and first workspace load). If exceeded, requests proceed anyway with `incomplete` flag.                                                   |
-| `ready_grace_period`   | duration                       | `2s`    | Grace period for servers that never send progress events; without this, silent servers look failed.                                                                                   |
-| `diagnostics_window`   | duration                       | `2s`    | Time window to collect published diagnostics after file open; unconditional latency on every diagnostics query.                                                                       |
-| `max_results`          | int                            | `200`   | Maximum results returned per navigation query (definitions, references).                                                                                                               |
-| `cache_dir`            | string                         | —       | Optional persistent cache directory for server state. When unset, defaults to system user cache dir. See [LSP](lsp.md) for cache layout and cleanup.                          |
-| `servers`              | map[string]LSPServerConfig     | —       | Per-server configuration under `lsp.servers.<name>`.                                                                                                                                  |
-
-Each server entry (`LSPServerConfig`) supports:
-
-| Field                    | Type              | Default | Description                                                                                                                                                        |
-| ------------------------ | ----------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `enabled`                | bool              | `false` | Whether this server is started on first use.                                                                                                                      |
-| `command`                | string            | —       | Executable that starts the server. Required.                                                                                                                     |
-| `args`                   | []string          | —       | Arguments passed to the server executable.                                                                                                                       |
-| `env`                    | map[string]string | —       | Extra environment variables for the server process (inherit PATH, HOME, etc. from host). Consider setting `GOCACHE`, `GOPRIVATE`, or language-specific variables. |
-| `file_extensions`        | []string          | —       | File extensions this server handles (e.g. `.go`, `.ts`, `.py`). Must include the dot. Required.                                                                 |
-| `root_markers`           | []string          | —       | Files or directories (e.g. `go.mod`, `package.json`) that identify workspace root. Required.                                                                    |
-| `initialization_options` | map[string]any    | —       | Server-specific initialization options passed during handshake.                                                                                                  |
-
-```yaml
-lsp:
-  enabled: true
-  cache_dir: ~/.cache/steiner/lsp
-  servers:
-    gopls:
-      enabled: true
-      command: gopls
-      file_extensions: [".go"]
-      root_markers: ["go.mod", ".git"]
-      initialization_options:
-        analyses:
-          fillstruct: true
-    tsserver:
-      enabled: true
-      command: typescript-language-server
-      args: ["--stdio"]
-      file_extensions: [".ts", ".tsx", ".js"]
-      root_markers: ["package.json", "tsconfig.json"]
-```
-
-A language server is never installed by steiner — users must install servers separately (e.g. `go install github.com/golang/tools/gopls@latest`). See [LSP](lsp.md) for copy-paste examples for gopls, typescript-language-server, pyright, and rust-analyzer.
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `tools.<name>.exec` | string | none | Required. Executable to run; `~/` expands. |
+| `tools.<name>.subcommand` | string | none | Passed to `exec` as its first argument. |
+| `tools.<name>.description` | string | none | Description shown to the model. |
+| `tools.<name>.parameters` | map[string]any | none | JSON Schema fragment for the tool's input. |
+| `tools.<name>.timeout` | duration | none | Required; greater than zero. |
 
 ## `project_context` block
 
-Configures extra files and a byte budget for project-level context injected
-into the system prompt.
+Extra files added to the system prompt, under a byte budget. See [Context management](context-management.md).
 
-| Field          | Type     | Default | Description                                                                                                                                                                                                                                                                                           |
-| -------------- | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `max_bytes`    | int      | `8000`  | Byte budget for extra project context files. The prompt assembler will truncate or skip files to stay within this budget.                                                                                                                                                                             |
-| `max_tokens`   | int      | —       | **Deprecated** alias for `max_bytes`. When `max_bytes` is unset, converted to bytes as `max_tokens * 4` at load time; `max_bytes` wins when both are set. When used, a deprecation warning is shown in the interactive TUI at startup and emitted as a `config_warning` event on the `--exec` stream. |
-| `extra_files`  | []string | —       | Additional files to include in project context. Paths are relative to the project root.                                                                                                                                                                                                               |
-| `ignore_files` | []string | —       | Files to exclude from `extra_files`. There is no automatic project-context discovery.                                                                                                                                                                                                                 |
-
-```yaml
-project_context:
-  max_bytes: 8000
-  extra_files:
-    - docs/internals/architecture.md
-    - .steiner/skills/project.md
-  ignore_files:
-    - vendor/
-    - generated/
-```
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `project_context.max_bytes` | int | `8000` | Byte budget for extra context files; files are truncated or skipped to fit. At least 1. |
+| `project_context.max_tokens` | int | none | Deprecated alias of `max_bytes` (multiplied by 4); `max_bytes` wins when both are set. |
+| `project_context.extra_files` | []string | none | Files to include, relative to the project root. A path resolving outside the root is an error; missing files and directories are skipped. |
+| `project_context.ignore_files` | []string | none | Entries of `extra_files` to skip. An ignore entry matches a file by exact path, by base name, or as a trailing path suffix. Globs and directories do not match. |
 
 ## `paths` block
 
-Constrains filesystem access for tools that read or write files.
+Filesystem access limits for file tools, including each sub-agent's tools. Exclusion semantics are in [Tools](tools.md).
 
-| Field               | Type     | Default | Description                                                                  |
-| ------------------- | -------- | ------- | ---------------------------------------------------------------------------- |
-| `project_root_only` | bool     | `true`  | When `true`, tools are restricted to paths within the detected project root. |
-| `writable_paths`    | []string | `[]`    | Additional paths outside the project root that mutation tools may write to.  |
-| `blocked_paths`     | []string | `[]`    | Paths that are always denied, even if they fall within the project root.     |
-| `exclude_paths`     | []string | —       | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; absolute entries also apply outside the workspace. |
-| `exclude_patterns`  | []string | —       | Globs excluded from searches and directory walks. A pattern containing a slash matches workspace-relative paths; a pattern without a slash matches any path component. |
-
-Note: the TUI file picker shows `.steiner/` contents except `.steiner/tmp` and `.steiner/worktrees`, which are always hidden to keep the picker fast.
-
-`exclude_paths` and `exclude_patterns` apply to `glob`, `grep`, and directory walks, including recursive `ls`. A matching directory hides everything beneath it. Relative `exclude_paths` entries are anchored to the workspace root; absolute entries are used as written and also apply to roots outside the workspace. An `exclude_patterns` entry containing a slash matches the workspace-relative path, and a `**/` inside it also matches zero directories; an entry without a slash matches any path component at any depth. Built-in directory names such as `.git`, `node_modules`, `.steiner`, `vendor`, `dist`, `build`, and `target` are excluded from walks. They match directory components relative to the walk root, so a file that shares one of those names stays visible, and a search whose `path` is inside one of those directories still runs. Configured exclusions are not overridden that way inside the workspace: a search rooted inside an `exclude_paths` entry or beneath a matching `exclude_patterns` entry returns nothing.
-
-Exclusions are filters, not access controls. `read` still opens an excluded file, and only `blocked_paths` denies access.
-
-Sandboxed `/tmp` is stored under `.steiner/tmp/sandbox-tmp/<id>/`, inside the workspace. A search that asks for `/tmp` keeps the virtual `/tmp` path for exclusions, so workspace-relative `exclude_paths` and `exclude_patterns` entries do not hide it; an absolute entry such as `/tmp` does. A search that names the storage directory itself, relative or absolute, is filtered as a workspace path, so a `.steiner/tmp` entry excludes it. See [Sandboxing](sandboxing.md).
-
-This block also applies to each child sub-agent's own tool executor, not just the parent's.
-
-```yaml
-paths:
-  project_root_only: true
-  writable_paths:
-    - /tmp/steiner-scratch
-  blocked_paths:
-    - .env
-    - secrets/
-  exclude_paths:
-    - vendor/
-    - node_modules/
-  exclude_patterns:
-    - "**/*.secret"
-    - "**/.env*"
-```
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `paths.project_root_only` | bool | `true` | Restrict tools to paths inside the project root. |
+| `paths.writable_paths` | []string | `[]` | When set, an allowlist that restricts mutation tools to these paths, including inside the project root. Outside the root it only adds to what `project_root_only` permits once that restriction is lifted by approval. May be inside or outside the project root; `~/` expands. |
+| `paths.blocked_paths` | []string | `[]` | Paths always denied, even inside the project root; `~/` expands. |
+| `paths.exclude_paths` | []string | none | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; `~/` expands. |
+| `paths.exclude_patterns` | []string | none | Globs excluded from searches and directory walks. |
 
 ## `logging` block
 
-Controls diagnostic log output.
+Session log files. Treat log files as sensitive: they can contain prompts and tool output. The `--log-file` flag overrides `logging.file` and enables logging for the run.
 
-| Field                 | Type   | Default                                | Description                                                                                                      |
-| --------------------- | ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `enabled`             | bool   | `false`                                | Whether file logging is active.                                                                                  |
-| `level`               | string | `"info"`                               | Minimum log level. One of `debug`, `info`, `warn`, `error`. |
-| `file`                | string | `"~/.local/share/steiner/steiner.log"` | Path to the log file. Tilde expansion is supported. Treat as sensitive — it may capture prompts and tool output. The session log is JSONL (one JSON object per line), appended across runs, capped in size and rotated (`<file>.1`, `<file>.2`, ...). Its first line each run is a `log_started` record carrying `run_id`, `build_sha`, `dirty` and the steiner version. |
-| `thinking_chunk`      | bool   | `false`                                | When `true`, reasoning/thinking tokens from the model are included in the log.                                   |
-| `assistant_chunk`     | bool   | `false`                                | When `true`, streamed assistant content chunks are included in the log. Off by default because each chunk duplicates content already captured in the completed `assistant_message` record. |
-| `compaction_log_file` | string | —                                      | Separate log file for context compaction events. Useful for debugging compaction behaviour.                      |
-
-```yaml
-logging:
-  enabled: true
-  level: debug
-  file: ~/.local/share/steiner/steiner.log
-  thinking_chunk: false
-  assistant_chunk: false
-  compaction_log_file: ~/.local/share/steiner/compaction.log
-```
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `logging.enabled` | bool | `false` | Write the session log to `logging.file`. |
+| `logging.level` | string | `info` | `trace`, `debug`, `info`, `warn` or `error`. |
+| `logging.file` | string | `~/.local/share/steiner/steiner.log` | Log path; required, `~/` expands. JSONL, appended across runs and rotated by size. |
+| `logging.thinking_chunk` | bool | `false` | Include reasoning chunks in the log. |
+| `logging.assistant_chunk` | bool | `false` | Include streamed assistant chunks, which duplicate the completed assistant message record. |
+| `logging.compaction_log_file` | string | none | Separate log of compaction events; `~/` expands. |
 
 ## `diagnostics` block
 
-Structured instrumentation capture. Disabled by default, and gated entirely
-independently of `logging` — the diagnostics directory is never derived from
-`logging.file`, so a week-long measurement never also captures prompts.
+Structured JSONL capture for measuring cache hit rates, provider calls, tool runs and TUI cost. Disabled by default and independent of `logging`: the directory is never derived from `logging.file`. Each record carries `run_id`, `build_sha` and `dirty`. Streams that write to disk are listed below; see [Usage](usage.md) for cache statistics.
 
-Records are written as JSONL, one file per stream (`cache.jsonl`,
-`provider.jsonl`, `tool.jsonl`, `tui.jsonl`, `internal.jsonl`). Every record carries `run_id`, `build_sha`,
-and `dirty`, so a before/after comparison can be scoped to a build rather than
-to a time window. See [Configuration internals](../internals/configuration.md)
-for file permissions, rotation, retention, and writer details.
-
-| Field             | Type   | Default                                    | Description                                                                                                                                    |
-| ----------------- | ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`         | bool   | `false`                                    | Master switch. When `false` nothing is constructed and no directory is created.                                                                |
-| `dir`             | string | `$XDG_STATE_HOME/steiner/diagnostics`, else `~/.local/state/steiner/diagnostics` | Directory holding the per-stream files. Tilde expansion is supported. Must not resolve inside the project root — diagnostics are user state, not repo content. |
-| `retention_days`  | int    | `30`                                       | Records older than this are dropped when the writer opens. Must be greater than zero when enabled.                                             |
-| `streams.cache`   | bool   | `false`                                    | Prompt-cache observations.                                                                                                                     |
-| `streams.provider`| bool   | `false`                                    | One record per model call, whatever the outcome. Subsumes the stream-error log, which otherwise writes next to `logging.file`.                  |
-| `streams.tool`    | bool   | `false`                                    | Tool execution and delegation traces. Subsumes the delegation trace log, which otherwise writes next to `logging.file`.                         |
-| `streams.tui`     | bool   | `false`                                    | Interactive TUI cost: per message type, Update and View count, total and max time and a latency histogram per 10 s window, plus overlay-open time, peak running sub-agents, transcript length and terminal size. Timings, counts and dimensions only; never content. Analyse with `node scripts/diagnostics.mjs tui`. |
-| `streams.internal`| bool   | `false`                                    | TUI developer error log entries, written to `internal.jsonl` as they are recorded. Message text is sanitised and capped at 8 KiB, but may still carry prompt or tool content. Shown in the TUI with `alt+e` or `/errors` whether or not this stream is enabled. |
-| `capture_bodies`  | bool   | `false`                                    | Allow full message, tool and block content instead of bounded scalar fields. Also unbounds the session log's `api_request` records, and makes failed mutate replaces record the attempted `old_string` and a bounded file region, at most 3 per call and 4 KiB each. Expensive, and captures prompts. |
-
-```yaml
-diagnostics:
-  enabled: true
-  dir: ~/.local/state/steiner/diagnostics
-  retention_days: 30
-  streams:
-    cache: true
-    provider: true
-    tool: false
-    tui: false
-    internal: false
-  capture_bodies: false
-```
-
-With `capture_bodies`, delegation traces are routed into the `tool` stream in
-full. The `tool` stream rotates at 20 MB with 3 generations kept, so a long
-collection window overwrites its oldest records; snapshot the diagnostics
-directory when the window matters.
-
-### Provider diagnostics fields
-
-Provider records (`provider.jsonl`) carry `call_kind` for `claude_subscription` turns: `advisor`, `summary`, `sub_agent`, or `normal`, with advisor taking precedence over summary and summary over sub-agent. Their `transport` is `cli`, and they never carry a request URL, headers, or body. The field is omitted for HTTP and WebSocket providers. Each `claude_subscription` model call writes one record, including calls refused before the CLI starts (`outcome` `exhausted`). The exception is a nil or uninitialized provider, which writes none. `attempts` is always `1`: a resumed process reseeded internally is not counted. Records never carry CLI result text, stderr output, or control-response error text in `error`.
-
-### Cache diagnostics fields
-
-Usage-bearing responses produce `cache.jsonl` records when `streams.cache` is enabled. Cache payloads include `upstream_endpoint` when reported by the gateway, `message_count` for the exact outbound request, and `call_kind` (`compaction` for compaction escalation; omitted for normal calls). Compaction diagnostics report usage but do not advance the prefix-comparison baseline. These records never contain prompt content or the prompt cache key.
-
-See [Diagnostics internals](../internals/diagnostics.md#analyzing-diagnostics)
-for analysis modes and script checks.
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `diagnostics.enabled` | bool | `false` | Master switch. When `false` nothing is created. |
+| `diagnostics.dir` | string | `$XDG_STATE_HOME/steiner/diagnostics`, else `~/.local/state/steiner/diagnostics` | Directory with one file per stream. Required when enabled; must not resolve inside the project root; `~/` expands. |
+| `diagnostics.retention_days` | int | `30` | Records older than this are dropped when the writer opens; greater than zero when enabled. |
+| `diagnostics.streams.cache` | bool | `false` | Prompt-cache observations (`cache.jsonl`). |
+| `diagnostics.streams.provider` | bool | `false` | One record per model call, whatever the outcome (`provider.jsonl`). |
+| `diagnostics.streams.tool` | bool | `false` | Tool execution and delegation traces (`tool.jsonl`). |
+| `diagnostics.streams.tui` | bool | `false` | Interactive TUI timings, counts and sizes, never content (`tui.jsonl`). |
+| `diagnostics.streams.internal` | bool | `false` | TUI developer error entries (`internal.jsonl`); sanitised and capped, but may still carry prompt or tool content. |
+| `diagnostics.capture_bodies` | bool | `false` | Capture full message, tool and block content instead of bounded fields. Expensive, and captures prompts. |
 
 ## `context_management` block
 
-Baseline context management settings.
+Baseline context management. Applies to the parent and to each sub-agent. See [Context management](context-management.md).
 
-| Field              | Type | Default | Description                                                                                                                                                                                      |
-| ------------------ | ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read_annotations` | bool | `true`  | When `true`, a read is annotated only if an earlier identical full read with the same tool-result `file_hash` and range exists in carried conversation. Disable to keep full read results. |
-
-```yaml
-context_management:
-  read_annotations: true
-```
-
-This block also applies to each child sub-agent's own context manager, not just the parent's.
-
----
-
-## TUI preferences
-
-TUI preferences are stored separately from the main config in `~/.config/steiner/prefs.yaml`. Accent, thinking, and sidebar position are updated by slash commands in the interactive TUI. Edit background fields directly in this preferences file.
-
-| Field              | Type   | Default | Description                                                                                                                                                                                                                                                                                                      |
-| ------------------ | ------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `accent`           | string | `amber` | Accent colour preset for the TUI. Valid values: `amber`, `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`, `red`, `pink`, `sky`, `lavender`, `terracotta`, `yellow`, `purple`, or `random`. `random` selects a different concrete preset on each startup. |
-| `show_thinking`    | bool   | `true`  | When `true`, model reasoning/thinking tokens are rendered in the TUI transcript.                                                                                                                                                                                                                                 |
-| `sidebar_position` | string | `left`  | Position of the sidebar panel: `left` or `right`. |
-| `sidebar_bg`      | string | `#050505` | Sidebar seamless background. Quote YAML `#RRGGBB`; empty or missing uses default. |
-| `content_bg`      | string | `#000000` | Main content seamless background. Quote YAML `#RRGGBB`; empty or missing uses default. |
-
-Use `/accent` in the TUI to open a colour picker (all 20 presets with colour swatches, listed in chromatic order), or `/accent <preset>` to set directly. Use `/thinking` to toggle thinking display. Use `/sidebar` to move the sidebar. Invalid non-empty background colors are rejected.
-
----
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `context_management.read_annotations` | bool | `true` | Annotate a read when an identical full read (same `file_hash` and range) is already in the carried conversation. `false` keeps full read results. |
 
 ## `search` block
 
-Configures web search integration.
+Backend for the `web_search` tool. Setup is in [Tools](tools.md). The key fields can be filled from the unprefixed environment variables in [Environment variables](#environment-variables) when empty.
 
-| Field            | Type   | Default | Description                                                                                                              |
-| ---------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `backend`        | string | —       | Search backend to use. One of `searxng`, `google`, `kagi`, `brave`.                                                      |
-| `searxng_url`    | string | —       | Base URL of the SearXNG instance. Required when `backend: searxng`.                                                      |
-| `google_cx`      | string | —       | Google Custom Search Engine ID. Required when `backend: google`.                                                         |
-| `google_api_key` | string | —       | Google API key for Custom Search. Required when `backend: google`. Prefer an environment variable via `STEINER_` prefix. |
-| `kagi_api_key`   | string | —       | Kagi API key. Required when `backend: kagi`.                                                                             |
-| `brave_api_key`  | string | —       | Brave Search API key. Required when `backend: brave`.                                                                    |
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `search.backend` | string | unset | `searxng`, `google`, `kagi` or `brave`. Selects which fields below are required. |
+| `search.searxng_url` | string | none | SearXNG base URL. Required for `searxng`. |
+| `search.google_cx` | string | none | Google Custom Search engine ID. Required for `google`. |
+| `search.google_api_key` | string | none | Google API key. Required for `google`. |
+| `search.kagi_api_key` | string | none | Kagi API key. Required for `kagi`. |
+| `search.brave_api_key` | string | none | Brave Search API key. Required for `brave`. |
 
-**Per-backend required fields:**
+## `mcp` block
 
-| Backend   | Required fields               |
-| --------- | ----------------------------- |
-| `searxng` | `searxng_url`                 |
-| `google`  | `google_cx`, `google_api_key` |
-| `kagi`    | `kagi_api_key`                |
-| `brave`   | `brave_api_key`               |
+Model Context Protocol servers. MCP is on by default, but each server must be enabled individually. Approval behaviour and TUI surfaces are in [MCP](mcp.md).
 
-```yaml
-search:
-  backend: searxng
-  searxng_url: http://localhost:8080
-```
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mcp.enabled` | bool | `true` | Master switch for the MCP client. |
+| `mcp.servers.<server>.enabled` | bool | `false` | Start this server. The name must not contain `__`. |
+| `mcp.servers.<server>.transport` | string | `stdio` | `stdio` (subprocess) or `http`. |
+| `mcp.servers.<server>.command` | string | none | Executable. Required for `stdio`; must be empty for `http`. |
+| `mcp.servers.<server>.args` | []string | none | Command arguments; must be empty for `http`. |
+| `mcp.servers.<server>.env.<key>` | string | none | Extra environment variable for the server process; must be empty for `http`. |
+| `mcp.servers.<server>.url` | string | none | `http` or `https` endpoint. Required for `http`; must be empty for `stdio`. |
+| `mcp.servers.<server>.headers.<header>` | string | none | Header sent with every request; must be empty for `stdio`. Names reserved by the MCP SDK (`Content-Type`, `Accept`, `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Last-Event-Id`, `Mcp-Method`, `Mcp-Name`, and the `Mcp-Param-` prefix) are rejected. Use `${VAR}` for bearer tokens. |
+| `mcp.servers.<server>.approval` | string | `ask` | `ask`, `allow` or `deny`. `deny` registers no tools. |
+| `mcp.servers.<server>.trust_annotations` | bool | `false` | Honour a tool's `readOnlyHint` annotation to skip approval. |
+| `mcp.servers.<server>.connect_timeout` | duration | `15s` | Time allowed to connect. Unset or `0` uses `15s`; negative is invalid. |
+| `mcp.servers.<server>.allowed_tools` | []string | none | Allowlist of the server's native tool names. Unset means no restriction; `[]` registers nothing. |
+| `mcp.servers.<server>.blocked_tools` | []string | none | Native tool names to drop, applied after `allowed_tools`. |
+| `mcp.servers.<server>.sub_agents` | []string | none | Agent types allowed to use this server's tools. Unset or `[]` grants none. Valid types: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. |
 
----
+## `lsp` block
+
+Optional language servers for code intelligence tools. Disabled by default; servers are never installed by Steiner. Validation runs only when `lsp.enabled` is `true`. Server setup is in [LSP](lsp.md).
+
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `lsp.enabled` | bool | `false` | Enable LSP tools. |
+| `lsp.idle_timeout` | duration | `5m` | Stop an idle server after this long; greater than zero. |
+| `lsp.request_timeout` | duration | `10s` | Timeout for one request; greater than zero. |
+| `lsp.ready_timeout` | duration | `30s` | Wait for a server to finish indexing before answering anyway; greater than zero. |
+| `lsp.ready_grace_period` | duration | `2s` | Grace period for servers that never report progress; greater than zero. |
+| `lsp.diagnostics_window` | duration | `2s` | Time to collect published diagnostics after opening a file; greater than zero. |
+| `lsp.max_results` | int | `200` | Maximum results per navigation query; greater than zero. |
+| `lsp.cache_dir` | string | user cache directory | Base directory for server state; `~/` expands. |
+| `lsp.servers.<name>.enabled` | bool | `false` | Enable this server. The fields below are validated only for enabled servers. |
+| `lsp.servers.<name>.command` | string | none | Required. Server executable. |
+| `lsp.servers.<name>.args` | []string | none | Command arguments. |
+| `lsp.servers.<name>.env.<key>` | string | none | Extra environment variable for the server process. |
+| `lsp.servers.<name>.file_extensions` | []string | none | Required, non-empty, each starting with `.`. Two enabled servers cannot claim the same extension (case-insensitive). |
+| `lsp.servers.<name>.root_markers` | []string | none | Required, non-empty. Files or directories that identify a workspace root. |
+| `lsp.servers.<name>.initialization_options` | map[string]any | none | Options passed to the server in the initialize handshake. |
+
+## `modes` block
+
+Execution mode at startup. Mode behaviour and switching are in [Execution modes](execution-modes.md).
+
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `modes.default` | string | `build` | `plan` or `build`. `plan` limits project edits to `.steiner/plans` and `.steiner/security`. |
+
+## `tui` block
+
+Interactive terminal UI settings; ignored outside the TUI. See [Interactive mode](interactive.md).
+
+| Path | Type | Default | Description |
+| --- | --- | --- | --- |
+| `tui.fps` | int | `60` | Renderer frame rate, 1 to 120. Higher values reduce input latency at the cost of CPU. |
+| `tui.quota_refresh_interval` | duration | `5m` | Age after which a finished run refetches subscription usage for accounts it used. `0` disables only this refresh; negative is invalid. See [Usage](usage.md). |
 
 ## Examples
 
-### Example 1: minimal local LLM (Ollama or LM Studio)
-
-```yaml
-providers:
-  local:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-
-models:
-  profiles:
-    default:
-      default_model: local/qwen3:14b
-```
-
-Use `http://127.0.0.1:1234/v1` as `base_url` for LM Studio. For Ollama, use
-`type: ollama` with `base_url: http://localhost:11434/v1`.
-
----
-
-### Example 2: cloud provider (Anthropic)
-
-```yaml
-providers:
-  anthropic:
-    type: anthropic
-    api_key_env: ANTHROPIC_API_KEY
-
-models:
-  profiles:
-    default:
-      default_model: anthropic/<model-id>
-```
-
-For OpenAI, replace `type: anthropic` with `type: openai` and set
-`api_key_env: OPENAI_API_KEY`.
-
----
-
-### Example 3: multi-provider with fallback model selection
+Minimal local setup with Ollama:
 
 ```yaml
 providers:
   local:
     type: ollama
     base_url: http://localhost:11434/v1
-  router:
-    type: openrouter
-    api_key_env: OPENROUTER_API_KEY
-
 models:
   profiles:
     default:
-      default_model: local/qwen3:14b
+      default_model: local/qwen2.5-coder:14b
 ```
 
-Switch models at runtime with `--model router/openai/gpt-4o` without changing config. Raw references are enough for ordinary model selection; define an alias only when you need a stable name or persistent model settings.
-
----
-
-### Example 4: advanced limits with per-tool timeouts
+Cloud provider (Anthropic):
 
 ```yaml
 providers:
-  local:
-    type: openai_compat
-    base_url: http://localhost:11434/v1
-    timeout: 60s
-
-models:
-  definitions:
-    local:
-      provider: local
-      id: qwen3-35b-a3b
-      advanced:
-        limits:
-          context_window: 65536
-          max_output_tokens: 16384
-      retry:
-        enabled: true
-        max_attempts: 5
-        initial_backoff: 500ms
-        max_backoff: 10s
-  profiles:
-    default:
-      default_model: local
-
-limits:
-  max_turns: 80
-  max_tokens: 800000
-  tool_timeout_default: 45s
-  tool_timeouts:
-    bash: 300s
-    read: 10s
-    grep: 60s
-    ls: 10s
-  tool_output_max_bytes: 131072
-```
-
-`local` is retained as an alias here because the example demonstrates custom context, output, and retry settings; ordinary selection should use `local/<model-id>`.
-
----
-
-### Example 5: kitchen-sink — every block populated
-
-The aliases in this example are intentional: each definition demonstrates persistent request, prompt, retry, limit, or other `ModelConfig` settings. Use raw references when those settings are not needed.
-
-```yaml
-tui:
-  fps: 60
-
-providers:
-  local:
-    type: ollama
-    base_url: http://localhost:11434/v1
-    timeout: 45s
   cloud:
     type: anthropic
+    base_url: https://api.anthropic.com/v1
     api_key_env: ANTHROPIC_API_KEY
-    timeout: 120s
-  router:
-    type: openrouter
-    api_key_env: OPENROUTER_API_KEY
-    headers:
-      X-Title: steiner
-
 models:
-  definitions:
-    local-fast:
-      provider: local
-      id: qwen3:14b
-      params:
-        temperature: 0.2
-        top_p: 0.95
-      retry:
-        enabled: true
-        max_attempts: 3
-        initial_backoff: 250ms
-        max_backoff: 5s
-        retry_after_max: 30s
-      advanced:
-        limits:
-          context_window: 32768
-          max_output_tokens: 8192
-        reasoning_echo_back: false
-    sonnet:
-      provider: cloud
-      id: claude-sonnet-4-5
-      extra_params:
-        metadata:
-          user_id: dev
-      advanced:
-        limits:
-          context_window: 200000
-          max_output_tokens: 64000
-    mini:
-      provider: router
-      id: openai/gpt-4o-mini
-      prompt_suffix: " Answer concisely."
-      prompts:
-        system: "You are a concise coding assistant."
-        system_suffix: "Always respond in structured JSON when possible."
   profiles:
     default:
-      default_model: local/<fast-model-id>
-      advisor: cloud/<advisor-model-id>
-      sub_agents:
-        code: cloud/<code-model-id>
-        evaluate: cloud/<evaluate-model-id>
-        sanity_check: router/<sanity-check-model-id>
-        review: cloud/<review-model-id>
-      oneshot:
-        plan: local/<planner-model-id>
-        implement: cloud/<implementer-model-id>
-        review: cloud/<reviewer-model-id>
-      workflow_handoff:
-        implement: cloud/<implementer-model-id>
-        review: cloud/<reviewer-model-id>
-
-limits:
-  max_turns: 60
-  max_tokens: 600000
-  tool_timeout_default: 30s
-  tool_timeouts:
-    bash: 180s
-    read: 5s
-    grep: 30s
-    ls: 5s
-  tool_output_max_bytes: 65536
-
-sandbox:
-  enabled: true
-
-permissions:
-  docker: false
-
-sub_agent:
-  enabled: true
-  max_turns: 25
-  max_tokens: 80000
-
-advisor:
-  enabled: true
-  max_uses_per_run: 3
-
-oneshot:
-  auto_pr: false
-
-tools:
-  fmt:
-    exec: gofmt
-    subcommand: -w
-    description: Format Go source files in place.
-    timeout: 10s
-  lint:
-    exec: golangci-lint
-    subcommand: run
-    description: Run golangci-lint on the project.
-    timeout: 60s
-    parameters:
-      path:
-        type: string
-        description: Directory to lint. Defaults to ./...
-
-project_context:
-  max_bytes: 8000
-  extra_files:
-    - docs/internals/architecture.md
-    - .steiner/skills/project.md
-  ignore_files:
-    - vendor/
-    - testdata/
-
-paths:
-  project_root_only: true
-  writable_paths:
-    - /tmp/steiner-scratch
-  blocked_paths:
-    - .env
-    - .env.local
-  exclude_paths:
-    - vendor/
-    - node_modules/
-  exclude_patterns:
-    - "**/*.secret"
-
-sandbox:
-  enabled: true
-  host_mounts:
-    - path: ~/.kube
-      mode: rw
-    - path: /opt/tools
-      mode: rw
-
-permissions:
-  docker: false
-
-logging:
-  enabled: true
-  level: info
-  file: ~/.local/share/steiner/steiner.log
-  thinking_chunk: false
-  assistant_chunk: false
-  compaction_log_file: ~/.local/share/steiner/compaction.log
-
-context_management:
-  read_annotations: true
-
-search:
-  backend: searxng
-  searxng_url: http://localhost:8080
-
+      default_model: cloud/claude-sonnet-4-5
 ```

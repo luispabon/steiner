@@ -23,152 +23,149 @@ Compact canonical reference for safe configuration edits.
 
 **Environment.** `STEINER_MODEL` -> model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> `limits`; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> `logging`. Search keys `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty fields. Integer overrides parse.
 
-**Path notation.** `<name>` is a map key; `<index>` is a list index. `—` means unset/required.
+**Path notation.** `<name>` is a map key; `<index>` is a list index. `unset` means no value.
 
 |Path|Type|Default|Semantics|
-|-|-|-|-
-| `providers.<name>.type`|string|—|`openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unimplemented. `claude_subscription` uses the signed-in Claude CLI and does not use `base_url`, `api_key`, `api_key_env`, `headers`, or `timeout`. |
-| `providers.<name>.base_url`|string|none|API endpoint; required for `openai_compat`, `ollama`, `lmstudio`, `litellm`. |
-| `providers.<name>.api_key`|string|—|Credential; prefer `api_key_env`, required if unset. |
-| `providers.<name>.api_key_env`|string|—|Environment variable containing credential. |
-| `providers.<name>.headers.<key>`|string|—|One extra header value. |
-| `providers.<name>.timeout`|duration|none|Request timeout. |
-| `providers.<name>.compaction_fallback_after`|duration|`5m` anthropic, `60m` claude_subscription, `30m` openai/codex, else `0`|Cold-cache delay for runs whose main model uses this provider; `0` disables. |
-| `providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests. |
-| `providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback. |
-| `models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only. |
-| `models.definitions.<alias>.provider`|string|none|Provider name. |
-| `models.definitions.<alias>.id`|string|none|Model ID. |
-| `models.definitions.<alias>.params`|map[string]any|—|Request params. |
-| `models.definitions.<alias>.extra_params`|map[string]any|—|Provider params. |
-| `models.definitions.<alias>.prompt_suffix`|string|—|Appended to each user message. |
-| `models.definitions.<alias>.retry.enabled`|bool|`true`|Retry transient/rate-limit errors. |
-| `models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; >=1. |
-| `models.definitions.<alias>.retry.initial_backoff`|duration|`250ms`|First retry wait. |
-| `models.definitions.<alias>.retry.max_backoff`|duration|`5s`|Exponential cap; >= initial. |
-| `models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Max `Retry-After`; >= initial. |
-| `models.definitions.<alias>.prompts.system`|string|—|Replaces default system prompt. |
-| `models.definitions.<alias>.prompts.system_suffix`|string|—|Appends to default system prompt. |
-| `models.definitions.<alias>.prompts.compaction`|string|—|Replaces compaction prompt. |
-| `models.definitions.<alias>.advanced.limits.context_window`|int|none|Context window in tokens; explicit value wins over metadata. Unset resolves from metadata. |
-|`models.definitions.<alias>.advanced.limits.compaction_threshold_tokens`|int|—70%
-| `models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex: use catalog `max_context_window` if positive, else `context_window`. |
-| `models.definitions.<alias>.advanced.limits.max_output_tokens`|int|none|Output-token ceiling per response. Unset resolves from metadata. |
-| `models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|—|Provider reasoning echo control. |
-| `models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, `anthropic`; explicit overrides metadata. |
-| `models.definitions.<alias>.advanced.reasoning.effort`|string|—|Native effort. |
-| `models.definitions.<alias>.advanced.reasoning.supported_efforts`|[]string|—|Native efforts for validation/selection. |
-| `models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images. |
-| `models.profiles.<profile>.default_model`|string|none|Model and role fallback; required in every declared profile. |
-| `models.profiles.<profile>.advisor`|string|—|Advisor model. |
-| `models.profiles.<profile>.compaction_fallback`|string|none|Cold-cache compaction model; needs a positive `compaction_fallback_after` on the main model's provider; not inherited. |
-| `models.profiles.<profile>.sub_agents.<key>`|string|—|Model by `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, or `vision`. |
-| `models.profiles.<profile>.oneshot.<key>`|string|—|Model by `plan`, `implement`, or `review`; missing uses profile default. |
-| `models.profiles.<profile>.workflow_handoff.<key>`|string|—|Model by `implement`, `review`, or `build`; missing uses profile default. |
-| `limits.max_turns`|int|`50`|Maximum turns; non-negative. |
-| `limits.max_tokens`|int|`500000`|Input plus output tokens; at least 1. |
-| `limits.model_call_timeout`|duration|`10m`|Model-call limit. |
-| `limits.tool_timeout_default`|duration|`30s`|Default tool and MCP timeout; positive. |
-| `limits.tool_timeouts.<tool>`|duration|—|Per-tool override; `bash` (built-in only) default `600s`, at most `600s`, positive whole seconds, cannot be disabled. |
-| `limits.tool_output_max_bytes`|int|`65536`|Captured output limit per tool call; at least 1. |
-| `limits.max_parallel_tools`|int|`4`|Concurrent ordinary tools; >=1. |
-| `sandbox`|block|see fields below|Bubblewrap sandbox settings. |
-| `sandbox.enabled`|bool|`true`|Enable bubblewrap; `--unsafe` forces false. |
-| `sandbox.warning_on_unsupported_platform`|bool|`true`|Warn if unavailable/bypassed. |
-| `sandbox.env_passthrough`|[]string|`[]`|Extra env names; trailing `*` = prefix. |
-| `sandbox.env_passthrough_all`|bool|`false`|Disable env filtering (incl. credentials). |
-| `sandbox.bind_host_cache`|bool|`false`|Bind real `~/.cache` rw, not a private one. |
-| `sandbox.host_mounts.<index>.path`|string|—|Host path; `~` expands. |
-| `sandbox.host_mounts.<index>.mode`|string|—|`ro` or `rw`; default read-only. |
-| `permissions.docker`|bool|`false`|Allow Docker socket access; else masked. |
-| `sub_agent.enabled`|bool|`true`|Enable child agents. |
-| `sub_agent.orchestration_level`|string|`standard`|`low` or `standard` delegation steering. |
-| `sub_agent.max_turns`|int|`120`|Enabled values 1-14 are rejected; effective cap is at least 15. |
-| `sub_agent.max_tokens`|int|`400000`|Max completion tokens per child run. |
-| `sub_agent.max_parallel`|int|`3`|Session-wide running cap; extras queue (2x max).|
-| `sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; default budget max: `120 + 5×120 = 720`. |
-| `advisor.enabled`|bool|`false`|Enable advisor. |
-| `advisor.max_uses_per_run`|int|`3`|Session advisor cap (min 1). |
-| `advisor.max_uses_per_sub_agent`|int|`1`|Child advisor cap (min 1). |
-| `advisor.max_tokens`|int or null|nil|Optional positive advisor output-token ceiling. |
-| `advisor.timeout`|duration or null|`180s`|Optional positive advisor HTTP timeout. |
-| `oneshot.auto_pr`|bool|`false`|Allow oneshot closeout to push and open a PR/MR. |
-| `desktop_notifications.enabled`|bool|`false`|Enable desktop notifications. |
-| `desktop_notifications.duration`|int|`0`|0 persists; positive auto-dismisses; negative invalid. |
-| `update_check.enabled`|bool|`true`|Enable startup update check. |
-| `update_check.interval_hours`|int|`6`|Hours between checks; non-negative. |
-| `tools.<tool>.exec`|string|—|Executable; required. |
-| `tools.<tool>.subcommand`|string|—|First executable argument. |
-| `tools.<tool>.description`|string|—|Description shown to model. |
-| `tools.<tool>.parameters`|map[string]any|—|JSON Schema input data. |
-| `tools.<tool>.timeout`|duration|—|Tool timeout overriding default; positive. |
-| `project_context.max_bytes`|int|`8000`|Extra-context byte budget; at least 1. |
-| `project_context.max_tokens`|int|—|Deprecated alias; if max_bytes is unset, becomes `max_tokens * 4`. |
-| `project_context.extra_files`|[]string|—|Project-root-relative context files. |
-| `project_context.ignore_files`|[]string|—|Exclude extra_files entries. |
-| `paths.project_root_only`|bool|`true`|Confine tool paths to project root. |
-| `paths.writable_paths`|[]string|`[]`|Extra paths mutation tools may write. |
-| `paths.blocked_paths`|[]string|`[]`|Always-denied paths. |
-| `paths.exclude_paths`|[]string|—|Excluded from walks and searches. |
-| `paths.exclude_patterns`|[]string|—|Excluded glob patterns. |
-| `logging.enabled`|bool|`false`|Enable file logging. |
-| `logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`. |
-| `logging.file`|string|`~/.local/share/steiner/steiner.log`|Log path; may contain prompts/tool output. |
-| `logging.thinking_chunk`|bool|`false`|Include reasoning tokens in logs. |
-| `logging.assistant_chunk`|bool|`false`|—|
-| `logging.compaction_log_file`|string|—|Separate compaction log. |
-| `diagnostics.enabled`|bool|`false`|Structured diagnostics capture; nothing created when false. |
-| `diagnostics.dir`|string|`$XDG_STATE_HOME/steiner/diagnostics`|JSONL dir, independent of `logging.file`; rejected inside project root. |
-| `diagnostics.retention_days`|int|`30`|Drop older records on open; must be > 0 when enabled. |
-| `diagnostics.streams.cache`|bool|`false`|Prompt-cache stream; never prompt content or cache key. |
-| `diagnostics.streams.provider`|bool|`false`|Per-call stream; subsumes stream-error log. |
-| `diagnostics.streams.tool`|bool|`false`|Tool/delegation stream; subsumes delegation log. |
-| `diagnostics.streams.tui`|bool|`false`|TUI frame timings. |
-| `diagnostics.streams.internal`|bool|`false`|TUI developer error log entries (`internal.jsonl`). Error text may carry prompt or tool content. |
-| `diagnostics.capture_bodies`|bool|`false`|Capture full message/tool/block content, mutate failures, and prompts. |
-| `context_management.read_annotations`|bool|`true`|Annotate reads only after an identical full read with the same `file_hash` and range. |
-| `search.backend`|string|—|`searxng`, `google`, `kagi`, or `brave`; selects requirements. |
-| `search.searxng_url`|string|—|Required for `searxng`. |
-| `search.google_cx`|string|—|Required for `google`. |
-| `search.google_api_key`|string|—|Required for `google`; prefer env storage. |
-| `search.kagi_api_key`|string|—|Required for `kagi`; prefer env storage. |
-| `search.brave_api_key`|string|—|Required for `brave`; prefer env storage. |
-| `mcp.enabled`|bool|`true`|Enable MCP client. |
-| `mcp.servers.<server>.enabled`|bool|`false`|Start server. |
-| `mcp.servers.<server>.transport`|string|`stdio`|`stdio` or `http`. |
-| `mcp.servers.<server>.command`|string|—|Required for stdio; empty for http. |
-| `mcp.servers.<server>.args`|[]string|—|Stdio arguments; empty for http. |
-| `mcp.servers.<server>.env`|map[string]string|—|Stdio process environment; empty for http. |
-| `mcp.servers.<server>.env.<key>`|string|—|One environment variable. |
-| `mcp.servers.<server>.url`|string|—|HTTP(S) endpoint required for http; empty for stdio. |
-| `mcp.servers.<server>.headers`|map[string]string|—|HTTP headers for http; empty for stdio. |
-| `mcp.servers.<server>.headers.<key>`|string|—|One HTTP header. |
-| `mcp.servers.<server>.approval`|string|`ask`|`ask`, `allow`, or `deny`; allow becomes ask in plan mode. |
-| `mcp.servers.<server>.trust_annotations`|bool|`false`|Read-only annotated tools may skip approval. |
-| `mcp.servers.<server>.connect_timeout`|duration|`15s`|Zero uses 15s; negatives invalid. |
-| `mcp.servers.<server>.allowed_tools`|[]string|—|Native-name allowlist; `[]` denies all. |
-| `mcp.servers.<server>.blocked_tools`|[]string|—|Native-name denylist, applied after allowlist. |
-| `mcp.servers.<server>.sub_agents`|[]string|closed|Allowed types: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. |
-| `lsp.enabled`|bool|`false`|—|
-| `lsp.idle_timeout`|duration|`5m`|—|
-| `lsp.request_timeout`|duration|`10s`|—|
-| `lsp.ready_timeout`|duration|`30s`|—|
-| `lsp.ready_grace_period`|duration|`2s`|—|
-| `lsp.diagnostics_window`|duration|`2s`|—|
-| `lsp.max_results`|int|`200`|—|
-| `lsp.cache_dir`|string|—|—|
-| `lsp.servers.<name>.enabled`|bool|`false`|—|
-| `lsp.servers.<name>.command`|string|—|—|
-| `lsp.servers.<name>.args`|[]string|—|—|
-| `lsp.servers.<name>.env.<name>`|string|—|—|
-| `lsp.servers.<name>.file_extensions`|[]string|—|—|
-| `lsp.servers.<name>.root_markers`|[]string|—|—|
-| `lsp.servers.<name>.initialization_options`|map[string]any|—|—|
-| `modes.default`|string|`build`|`plan`/`build`; plan edits only `.steiner/plans/`. |
-| `tui.fps`|int|`60`|Interactive renderer rate, 1 through 120. |
-| `tui.quota_refresh_interval`|duration|`5m`|Post-run refetch age; zero disables. |
+|-|-|-|-|
+|`providers.<name>.type`|string|unset|Required. `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unsupported at runtime.|
+|`providers.<name>.base_url`|string|per type|Required for `openai_compat`, `ollama`, `lmstudio`, `litellm`, and `anthropic`. Defaults exist for `openai`, `openrouter`, `opencode_go`, and `opencode_zen`.|
+|`providers.<name>.api_key`|string|unset|Credential; prefer `api_key_env`. Required for providers that need credentials.|
+|`providers.<name>.api_key_env`|string|unset|Environment variable containing the credential.|
+|`providers.<name>.headers.<key>`|string|unset|One extra header value.|
+|`providers.<name>.timeout`|duration|unset|Overall request timeout; unset has no overall limit. The default transport has a separate 30s response-header timeout.|
+|`providers.<name>.compaction_fallback_after`|duration|type default|Cold-cache delay; `0` disables.|
+|`providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests.|
+|`providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback.|
+|`models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only.|
+|`models.definitions.<alias>.provider`|string|unset|Provider name.|
+|`models.definitions.<alias>.id`|string|unset|Model ID.|
+|`models.definitions.<alias>.params`|map[string]any|unset|Request params.|
+|`models.definitions.<alias>.extra_params`|map[string]any|unset|Provider params.|
+|`models.definitions.<alias>.prompt_suffix`|string|unset|Appended to each user message.|
+|`models.definitions.<alias>.retry.enabled`|bool|`true`|Retry transient and rate-limit errors.|
+|`models.definitions.<alias>.retry.max_attempts`|int|`5`|Total attempts; at least 1.|
+|`models.definitions.<alias>.retry.initial_backoff`|duration|`250ms`|First retry wait.|
+|`models.definitions.<alias>.retry.max_backoff`|duration|`5s`|Exponential cap; at least initial.|
+|`models.definitions.<alias>.retry.retry_after_max`|duration|`60s`|Maximum Retry-After wait.|
+|`models.definitions.<alias>.prompts.system`|string|unset|Replaces the default system prompt.|
+|`models.definitions.<alias>.prompts.system_suffix`|string|unset|Appends to the default system prompt.|
+|`models.definitions.<alias>.prompts.compaction`|string|unset|Replaces the compaction prompt.|
+|`models.definitions.<alias>.advanced.limits.context_window`|int|metadata|Context window; explicit value wins.|
+|`models.definitions.<alias>.advanced.limits.compaction_threshold_tokens`|int|70% of context window|Compaction trigger; positive and below the resolved window.|
+|`models.definitions.<alias>.advanced.codex.use_max_context_window`|bool|`false`|Codex only; use catalog max context when positive.|
+|`models.definitions.<alias>.advanced.limits.max_output_tokens`|int|metadata|Output-token ceiling.|
+|`models.definitions.<alias>.advanced.reasoning_echo_back`|bool or null|unset|Provider reasoning echo control.|
+|`models.definitions.<alias>.advanced.transport`|string|`auto`|`auto`, `openai_compat`, or `anthropic`.|
+|`models.definitions.<alias>.advanced.reasoning.effort`|string|unset|Native reasoning effort.|
+|`models.definitions.<alias>.advanced.reasoning.supported_efforts`|[]string|unset|Native efforts for validation and selection.|
+|`models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images.|
+|`models.profiles.<profile>.default_model`|string|unset|Required in every declared profile.|
+|`models.profiles.<profile>.advisor`|string|unset|Advisor model.|
+|`models.profiles.<profile>.compaction_fallback`|string|unset|Cold-cache compaction model; needs a positive provider fallback delay.|
+|`models.profiles.<profile>.sub_agents.<key>`|string|unset|Model by supported sub-agent type.|
+|`models.profiles.<profile>.oneshot.<key>`|string|unset|Model by `plan`, `implement`, or `review`.|
+|`models.profiles.<profile>.workflow_handoff.<key>`|string|unset|Model by `implement`, `review`, or `build`.|
+|`limits.max_turns`|int|`50`|Maximum turns; non-negative.|
+|`limits.max_tokens`|int|`500000`|Output (completion) tokens only; at least 1.|
+|`limits.model_call_timeout`|duration|`10m`|Single model-call limit; `0` disables it.|
+|`limits.tool_timeout_default`|duration|`30s`|Default tool and MCP timeout; positive.|
+|`limits.tool_timeouts.<tool>`|duration|per tool|Per-tool override; positive. Built-in `bash` allows at most `600s`.|
+|`limits.tool_output_max_bytes`|int|`65536`|Captured output per tool call; at least 1.|
+|`limits.max_parallel_tools`|int|`4`|Parallel-safe built-in, LSP, and MCP read-only-hint tools; at least 1.|
+|`sandbox`|block|see fields|Bubblewrap settings.|
+|`sandbox.enabled`|bool|`true`|Enable bubblewrap; `--unsafe` forces false.|
+|`sandbox.warning_on_unsupported_platform`|bool|`true`|Warn when unavailable or bypassed.|
+|`sandbox.env_passthrough`|[]string|`[]`|Extra env names; trailing `*` is a prefix.|
+|`sandbox.env_passthrough_all`|bool|`false`|Pass all host env, including credentials; always warns.|
+|`sandbox.bind_host_cache`|bool|`false`|Bind real `~/.cache` read-write.|
+|`sandbox.host_mounts.<index>.path`|string|unset|Host path; `~` expands.|
+|`sandbox.host_mounts.<index>.mode`|string|unset|`ro` or `rw`; default is read-only.|
+|`permissions.docker`|bool|`false`|Allow Docker socket access.|
+|`sub_agent.enabled`|bool|`true`|Enable child agents.|
+|`sub_agent.orchestration_level`|string|`standard`|`low` or `standard`.|
+|`sub_agent.max_turns`|int|`120`|Child turn cap; at least 15 when enabled.|
+|`sub_agent.max_tokens`|int|`400000`|Child output-token cap; at least 1.|
+|`sub_agent.max_parallel`|int|`3`|Session-wide running cap; at least 1.|
+|`sub_agent.max_follow_ups`|int|`5`|Follow-up resumes per child; at least 1.|
+|`advisor.enabled`|bool|`false`|Enable advisor.|
+|`advisor.max_uses_per_run`|int|`3`|Run cap; at least 1 when enabled.|
+|`advisor.max_uses_per_sub_agent`|int|`1`|Child cap; at least 1 when enabled.|
+|`advisor.max_tokens`|int or null|nil|Optional positive output-token ceiling.|
+|`advisor.timeout`|duration or null|`180s`|Optional positive HTTP timeout.|
+|`oneshot.auto_pr`|bool|`false`|Allow closeout to push and open a PR or MR.|
+|`desktop_notifications.enabled`|bool|`false`|Interactive TUI only. Notifications are for approval required and workflow handoff requested.|
+|`desktop_notifications.duration`|int|`0`|0 persists; positive auto-dismisses; negative invalid.|
+|`update_check.enabled`|bool|`true`|Interactive TUI startup check only.|
+|`update_check.interval_hours`|int|`6`|Hours between checks; non-negative.|
+|`tools.<tool>.exec`|string|unset|Executable; required.|
+|`tools.<tool>.subcommand`|string|unset|First executable argument.|
+|`tools.<tool>.description`|string|unset|Description shown to the model.|
+|`tools.<tool>.parameters`|map[string]any|unset|JSON Schema input data.|
+|`tools.<tool>.timeout`|duration|unset|Required custom-tool timeout; positive. Script contract: [Tools](../../docs/user/tools.md).|
+|`project_context.max_bytes`|int|`8000`|Extra-context byte budget; at least 1.|
+|`project_context.max_tokens`|int|unset|Deprecated alias; converts to bytes when max_bytes is unset.|
+|`project_context.extra_files`|[]string|unset|Root-relative context files; directories are skipped; `~` expands.|
+|`project_context.ignore_files`|[]string|unset|Exact path, basename, or path-suffix match; directories do not match; `~` expands.|
+|`paths.project_root_only`|bool|`true`|Confine tool paths to the project root.|
+|`paths.writable_paths`|[]string|`[]`|Extra writable paths, inside or outside root; `~` expands.|
+|`paths.blocked_paths`|[]string|`[]`|Always-denied paths; `~` expands.|
+|`paths.exclude_paths`|[]string|unset|Excluded from walks and searches. See [Tools](../../docs/user/tools.md).|
+|`paths.exclude_patterns`|[]string|unset|Excluded glob patterns. See [Tools](../../docs/user/tools.md).|
+|`logging.enabled`|bool|`false`|Enable file logging.|
+|`logging.level`|string|`info`|`trace`, `debug`, `info`, `warn`, or `error`.|
+|`logging.file`|string|default path|Log path; may contain prompts and tool output.|
+|`logging.thinking_chunk`|bool|`false`|Include reasoning chunks.|
+|`logging.assistant_chunk`|bool|`false`|Include streamed assistant chunks.|
+|`logging.compaction_log_file`|string|unset|Separate compaction log.|
+|`diagnostics.enabled`|bool|`false`|Enable structured diagnostics.|
+|`diagnostics.dir`|string|XDG state path|JSONL directory; rejected inside project root.|
+|`diagnostics.retention_days`|int|`30`|Drop older records; positive when enabled.|
+|`diagnostics.streams.cache`|bool|`false`|Prompt-cache stream.|
+|`diagnostics.streams.provider`|bool|`false`|Provider-call stream.|
+|`diagnostics.streams.tool`|bool|`false`|Tool and delegation stream.|
+|`diagnostics.streams.tui`|bool|`false`|TUI timing stream.|
+|`diagnostics.streams.internal`|bool|`false`|TUI internal error stream.|
+|`diagnostics.capture_bodies`|bool|`false`|Capture full message, tool, block, and prompt content.|
+|`context_management.read_annotations`|bool|`true`|Annotate identical full reads in carried context.|
+|`search.backend`|string|unset|`searxng`, `google`, `kagi`, or `brave`.|
+|`search.searxng_url`|string|unset|Required for `searxng`.|
+|`search.google_cx`|string|unset|Required for `google`.|
+|`search.google_api_key`|string|unset|Required for `google`; prefer env storage.|
+|`search.kagi_api_key`|string|unset|Required for `kagi`; prefer env storage.|
+|`search.brave_api_key`|string|unset|Required for `brave`; prefer env storage.|
+|`mcp.enabled`|bool|`true`|Enable MCP client.|
+|`mcp.servers.<server>.enabled`|bool|`false`|Start server.|
+|`mcp.servers.<server>.transport`|string|`stdio`|`stdio` or `http`.|
+|`mcp.servers.<server>.command`|string|unset|Required for stdio; empty for http.|
+|`mcp.servers.<server>.args`|[]string|unset|Stdio arguments; empty for http.|
+|`mcp.servers.<server>.env`|map[string]string|unset|Stdio process environment; empty for http.|
+|`mcp.servers.<server>.env.<key>`|string|unset|One environment variable.|
+|`mcp.servers.<server>.url`|string|unset|Required for http; empty for stdio.|
+|`mcp.servers.<server>.headers`|map[string]string|unset|HTTP headers for http; empty for stdio.|
+|`mcp.servers.<server>.headers.<key>`|string|unset|One HTTP header.|
+|`mcp.servers.<server>.approval`|string|`ask`|`ask`, `allow`, or `deny`; allow becomes ask in plan mode.|
+|`mcp.servers.<server>.trust_annotations`|bool|`false`|Read-only annotated tools may skip approval.|
+|`mcp.servers.<server>.connect_timeout`|duration|`15s`|Zero uses 15s; only negative values are invalid.|
+|`mcp.servers.<server>.allowed_tools`|[]string|unset|Native-name allowlist; `[]` denies all.|
+|`mcp.servers.<server>.blocked_tools`|[]string|unset|Native-name denylist after allowlist.|
+|`mcp.servers.<server>.sub_agents`|[]string|closed|Allowed sub-agent types.|
+|`lsp.enabled`|bool|`false`|Enable LSP tools.|
+|`lsp.idle_timeout`|duration|`5m`|Stop idle server; positive.|
+|`lsp.request_timeout`|duration|`10s`|One request timeout; positive.|
+|`lsp.ready_timeout`|duration|`30s`|Server readiness wait; positive.|
+|`lsp.ready_grace_period`|duration|`2s`|Readiness grace period; positive.|
+|`lsp.diagnostics_window`|duration|`2s`|Diagnostics collection window; positive.|
+|`lsp.max_results`|int|`200`|Maximum navigation results; positive.|
+|`lsp.cache_dir`|string|unset|Server state directory; `~` expands.|
+|`lsp.servers.<name>.enabled`|bool|`false`|Enable this server.|
+|`lsp.servers.<name>.command`|string|unset|Required server executable.|
+|`lsp.servers.<name>.args`|[]string|unset|Command arguments.|
+|`lsp.servers.<name>.env.<name>`|string|unset|Extra server environment variable.|
+|`lsp.servers.<name>.file_extensions`|[]string|unset|Required non-empty extensions.|
+|`lsp.servers.<name>.root_markers`|[]string|unset|Required non-empty workspace markers.|
+|`lsp.servers.<name>.initialization_options`|map[string]any|unset|Server initialise options.|
+|`modes.default`|string|`build`|`plan` or `build`; plan writes only `.steiner/plans` and `.steiner/security`. See [Execution modes](../../docs/user/execution-modes.md).|
+|`tui.fps`|int|`60`|Interactive renderer rate, 1 through 120.|
+|`tui.quota_refresh_interval`|duration|`5m`|Post-run usage refetch age; zero disables.|
 
-`steiner config` validates and prints resolved configuration; `/config` opens the TUI compiled-config modal. Resolved output can contain credentials: obtain consent before a full secret-bearing read, redact by default, and never echo secrets.
-
-When editing, preserve unrelated YAML and make the smallest mutation. Use `mutate`, never `bash`. Changes require a `steiner` restart.
-
+`steiner config` validates and prints resolved configuration. Resolved output can contain credentials. Changes require a restart.

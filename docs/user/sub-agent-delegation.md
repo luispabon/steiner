@@ -1,292 +1,179 @@
 # Sub-agent delegation
 
-`steiner` exposes a unified `sub_agent` tool that dispatches bounded tasks to isolated child agents, with a `type` parameter selecting the specialist type. When delegation is enabled, the parent orchestrates sub-agents and verifies and integrates their output.
+Steiner can hand bounded tasks to isolated child agents. The main agent acts as orchestrator: it writes a brief, dispatches a specialist, then checks and integrates the result. Only the child's compact result returns to the main conversation, which keeps its context small.
 
-The detailed orchestration prompt, workflow, and direct-work exception are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#canon-and-workflow).
+Delegation is enabled by default. Turn it off with `sub_agent.enabled: false`; limits such as `max_turns`, `max_tokens`, `max_parallel`, and `max_follow_ups` are listed under [Configuration](configuration.md#sub_agent-block).
 
+The [advisor](advisor.md) is separate: it is a single stronger-model call with no tools, not a child agent.
 
-`advisor` is separate from delegation: it is a stronger-model steering pass over the live parent conversation, with no tools and no child loop. It is not a child agent.
+## Tools
 
----
+With delegation enabled the main agent gets two tools:
 
-## Available tools
+- **`sub_agent`** dispatches a specialist. Its `type` picks the specialist; the brief has `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`. `vision` also needs `image_id`. An optional `group` delivers results from the same batch together.
+- **`follow_up`** sends a new message to an existing child by `agent_id`, keeping its conversation history.
 
-Sub-agent delegation is **enabled by default**. When it is, the model sees two additional tools alongside the built-in ones:
+## Sub-agent types
 
-| Tool        | What it does                                                                     | Parameters                                                                           | Can mutate?            |
-|-------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|------------------------|
-| `sub_agent` | Dispatch a specialized sub-agent by type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, or `vision` | `type` enum + `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, `checks`, and optionally `image_id` (required for type `vision`) and optionally `group` for calls in the same tool batch | Depends on type; only `code` and `documentor` can mutate |
-| `follow_up` | Resume an existing sub-agent session by agent ID with a new user message         | `agent_id`, `message`, and optionally `group` for calls in the same tool batch                        | No (resumes existing)  |
+| Type | Use it to | Edits files |
+|---|---|---|
+| `explore` | Search the codebase and report files, symbols, and patterns | No |
+| `research` | Gather external docs, API details, and examples | No |
+| `code` | Implement a scoped change in its own worktree | Yes |
+| `documentor` | Write or update documentation in its own worktree | Documentation files only |
+| `evaluate` | Analyse a focused sub-problem or compare approaches | No |
+| `sanity_check` | Run checks and verify a result | Not intended to |
+| `review` | Review implemented changes for bugs, regressions, and missing tests | Not intended to |
+| `vision` | Describe or answer questions about a pasted image | No |
 
-The `sub_agent` tool routes to type-specific handlers with purpose-built system prompts and tool allowlists. Delegation results sent to the provider use a compact envelope with exact `output`, optional `status` and `reason` (the real error on failure, or the cancellation explanation), and optional persisted-session continuation. On usage-limit failures, the reason also includes fixed guidance: the parent is told to delegate a fresh sub-agent to continue or stop delegating and inform the user. The `follow_up` tool resumes a previously delegated child agent while preserving its conversation history. The parent-only `workflow_handoff` tool creates a handoff request for the current session; it is not exposed to child agents yet.
+`evaluate` is for scoped analysis, not overall task planning. `review` examines changes; it does not plan or implement.
 
-### Advisor
+### Tool allowlists
 
-The `advisor` tool is a pure reasoning pass for the parent agent. It reads the live parent conversation, calls a stronger model, and returns concise strategic guidance. It does **not** expose any tools, does **not** start a child loop, and does **not** mutate state. Its per-run cap is enforced in handler state so the tool definition stays stable for prompt-cache integrity.
+| Type | Tools |
+|---|---|
+| `explore` | `read`, `glob`, `grep`, `ls`, `bash`, LSP tools† |
+| `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url` |
+| `code` | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, LSP tools† |
+| `documentor` | Same as `code`; `mutate` limited to documentation files |
+| `evaluate` | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, LSP tools† |
+| `sanity_check` | `read`, `glob`, `grep`, `ls`, `bash` |
+| `review` | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, LSP tools† |
+| `vision` | `read` |
 
-### When to use each
+\* `web_search` needs a configured search backend (`search.backend`). Without one, the `research` type is not offered to the model.
 
-| Situation                                              | Tool                                                                                                                             |
-|--------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
-| Find DRY/refactoring opportunities across the codebase | `sub_agent` type `explore` — report files, repeated patterns, risks, next steps                                                                   |
-| Fix a bug but location is unknown                      | `sub_agent` type `explore` — search likely areas and report exact files/code                                                                      |
-| Need to understand an external API or library          | `sub_agent` type `research` — gather docs, usage examples, and constraints                                                                        |
-| Implement a small known change in one package          | `sub_agent` type `code` — implement if ownership and tests are clear                                                                              |
-| Write or update documentation only                     | `sub_agent` type `documentor`: update docs, READMEs, or user and internals pages in an isolated worktree                                          |
-| Understand how a feature works across multiple files   | `sub_agent` type `explore` — trace the call chain, then reassess before editing                                                                   |
-| Evaluate two approaches to a design problem            | `sub_agent` type `evaluate` — analyse tradeoffs, then type `code` the chosen approach                                                                  |
-| Close out a free-form implementation phase             | type `review` the cumulative change, use eligible `follow_up` for same-scope amendments or narrow re-review, otherwise cold-dispatch type `code` or a fresh independent type `review`, then type `sanity_check` |
-| Review implemented changes before merge                | `sub_agent` type `review` — examine code for bugs, regressions, missing tests                                                                     |
-| Describe or query a pasted image                       | `sub_agent` type `vision` — the sub-agent receives the image and answers                                                                          |
+† `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, and `lsp_symbols`. They need `lsp.enabled` and a configured server; see [LSP](lsp.md).
 
-`evaluate` is for focused sub-problem analysis, **not** overall task planning.
+`advisor` is present only when the advisor is enabled. MCP tools reach a child only when the server's `sub_agents` list names that type; see [MCP](mcp.md).
 
-`review` is for examining implemented changes — it does not plan, implement, or verify.
+Every type except `vision` receives `AGENTS.md`. Project context `extra_files` go only to `code`, `documentor`, `evaluate`, and `review`.
 
-### Context delivery per agent type
+## Safety
 
-Every sub-agent receives AGENTS.md (global + project) except `vision`, which cannot read the repo. Project context `extra_files` are delivered only to `code`, `documentor`, `review`, and `evaluate`; the remaining types skip them to keep the child prompt focused.
+- Children cannot delegate: `sub_agent`, `follow_up`, and `workflow_handoff` are never available to them.
+- `code` and `documentor` are the only types with `mutate`, and each runs in its own git worktree (see [Worktrees](#worktrees)).
+- With the sandbox active, `explore` and `evaluate` run `bash` with the project mounted read-only. `sanity_check` and `review` run `bash` with a writable project in `build` mode; their prompts tell them not to modify files, but that is an instruction, not enforcement. In `plan` mode every child's `bash` gets the read-only project. See [Sandboxing](sandboxing.md).
+- In `plan` mode, `code` and `documentor` are denied, and so is `follow_up` to them. See [Execution modes](execution-modes.md).
+- The child's full transcript is not copied into the main session; only the result is kept.
 
-| Agent          | AGENTS.md | Project context `extra_files` |
-|----------------|-----------|-------------------------------|
-| `explore`      | Yes       | No                            |
-| `research`     | Yes       | No                            |
-| `code`         | Yes       | Yes                           |
-| `documentor`   | Yes       | Yes                           |
-| `evaluate`     | Yes       | Yes                           |
-| `sanity_check` | Yes       | No                            |
-| `review`       | Yes       | Yes                           |
-| `vision`       | No        | No                            |
+## Results and follow-ups
 
-### Async delegation
+A child returns its `output`, a `status`, and a `reason` on failure or cancellation. `code` and `documentor` results also carry `worktree_path`, a project-relative path such as `.steiner/worktrees/<process>/<branch>/<agent-id>`, so the orchestrator can read the worktree directly.
 
-In async sessions `sub_agent` (every type, including `vision`) and `follow_up` return an ack immediately instead of blocking: status `running`, or `queued` when `sub_agent.max_parallel` children are already running, plus the `agent_id` in `continuation`. The result arrives later as a separate message. Interactive sessions and oneshot phases are async; non-interactive `exec` runs stay blocking.
+`follow_up` is for continuing the same deliverable in the same live workspace: a related correction by the implementing child, or a narrow re-review by the same reviewer. Use a fresh `sub_agent` when the scope changes, the worktree is gone, or the work needs an independent view.
 
-`sub_agent` and `follow_up` accept an optional `group` name. Group calls when the next useful action needs the complete result set; omit it when early results can drive useful work. In async sessions, calls sharing one nonempty name in the same assistant response deliver together after all members finish, failures included. Ungrouped results can arrive independently. Grouping changes delivery, not execution or result content. Blocking calls return individually without joint delivery.
+- Each follow-up runs with a fresh `max_turns` and token budget.
+- A single child accepts at most `sub_agent.max_follow_ups` follow-ups.
+- A follow-up to a `code` or `documentor` child fails if its worktree has been removed or is on a different branch.
+- A follow-up fails while the target is running, queued, or has an undelivered result, and for a child from an earlier Steiner process.
+- Each follow-up to a `vision` child re-sends the image, so it costs a full image request.
 
-Names are trimmed, case-sensitive, and reserved for the runtime conversation after accepted admission. Reusing a reserved name in a later response is an error, including after completion, compaction, or reopening a session. Interactive sessions preserve the saved group ledger, including an explicit empty ledger; forks get an independent copy. Older sessions without a saved ledger reserve names from recorded delegation calls, except those with recorded rejected admission.
+### Turn budget
 
-Running plus queued sub-agents are capped at twice `max_parallel`; a spawn over the cap fails with a tool error. `follow_up` fails with a tool error while the target agent is running, queued, or finished with a result not yet delivered. Following up on an agent from a previous process also fails, with an error telling the model to dispatch a fresh `sub_agent`. `workflow_handoff` fails while any sub-agent is still outstanding.
+`max_turns` is a hard cap per run. The child is reminded at 50%, 75%, and 90% of its budget so it can wrap up; reminders do not extend the budget.
 
-#### Async UX in the TUI
+## Background sub-agents
 
-- **Delegate boxes.** Cards share a frame when runtime admission accepted them with the same nonempty group name in the same tool batch. Specialist cards with no accepted group name also share an unnamed frame when they sit next to each other with nothing between them. That frame has dividers and per-card state but no name footer. Any other item between them (thinking, text, status, separators, or an advisor card) breaks the frame, and advisor cards never join one. Members keep their original card order and appear together at the first member's position; intervening transcript items keep their relative order. A current-call provisional card is removed only when its finished tool event explicitly reports rejection and the card was never accepted. Accepted runs and unknown admission outcomes stay visible; rejection errors and policy notices remain in the transcript, except denials that only tell the model how to recover (for example a `follow_up` to an agent whose worktree is gone, an unknown session, a spent follow-up budget, an invalid brief or type, or a reused group name). Those leave no trace in the transcript; the model still receives the full error and acts on it. Plan-mode denials stay visible.
-- **Delivery rows.** Each delivery adds a "sub-agent(s) finished" row to the conversation: a single line for one agent, a header plus one line per member for several. Each shows its outcome (`✓` complete, `✗` failed, `?` lost when the session restarted), with a failure reason clipped.
-- **Sidebar.** The SUB-AGENTS section lists running, queued and finished agents, grouped. Finished entries stay until their result has been delivered and the next prompt is submitted, or until `/clear` discards them. The list collapses past about 8 rows.
-- **Finding sub-agents.** Click a sidebar roster row, running or finished, to jump to its card; rows underline on hover, and terminals that support hyperlinks (VTE-based terminals such as GNOME Terminal and Terminator, kitty, WezTerm, Ghostty, foot) show a hand pointer. Rows are `steiner://agent/<id>` hyperlinks, so a terminal's open-link gesture (e.g. ctrl+click) tries to open that URI instead of jumping; Terminator's `link_single_click` option makes plain clicks do that too. `alt+.` / `alt+,` cycle through running and queued sub-agents, newest first, wrapping. `/agents` or `alt+a` opens a filterable picker of every sub-agent card: running first, then completed, newest first, groups kept together. The filter matches type, ID, group name and task. A jump puts the card at the top of the viewport, turns off follow-to-bottom and flashes the card header. `alt+/` expands or collapses the jumped-to card for 10 seconds after the jump. On macOS the terminal must send Option as Meta/Alt for the `alt` shortcuts.
-- **Status bar chip.** `sub-agents finished/total` shows progress, with the queued count and `✗` on failures. It sits right after the sandbox badge; when space is tight, truncation from the right drops it only after ctx, `Ctrl+F1 help` and `^B sidebar`.
-- **Stranded results.** If the orchestrator's turn fails after results were delivered, or on resume, a `⚠` row and an activity-row warning say results are waiting. Send a message to continue.
-- **Resume** shows real durations and labelled follow-up boxes, and no stale "running tool" footer.
+In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return immediately with status `running` (or `queued`) and the `agent_id`. The result arrives later as a separate message, so the main agent can keep working. `--exec` runs wait for each child.
 
-### `follow_up`
+- At most `sub_agent.max_parallel` children run at once (default `3`); further ones queue in order. More than twice that many running plus queued is an error.
+- Calls in one response that share a `group` name are delivered together once all have finished. A group name cannot be reused later in the same conversation.
+- A failing child does not stop its siblings.
+- `workflow_handoff` fails while any child is outstanding.
 
-The `follow_up` tool lets the parent model send a new user message to an existing child session identified by `agent_id`. This is useful when a sub-agent's initial response leads to follow-up questions or iterative refinement.
+### In the TUI
 
-Reuse `follow_up` before cold delegation only when all conditions hold: the session is resumable, work remains within the same bounded deliverable and scope, and the original workspace is still live. `session_resumable` alone does not validate the workspace. Cold-dispatch after deleted worktree or isolated cleanup, a workspace or branch change, a material lane or scope change, plan/build incompatibility, or workflow handoff. Follow-ups are sequential, never concurrent. Use the implementing owner for related corrections and the original review agent only for narrow re-review; use fresh agents for new implementation steps and widened or high-risk independent review.
+- Each child has a card in the transcript; grouped cards share a frame. A "sub-agent(s) finished" row marks each delivery: `✓` complete, `✗` failed, `?` lost on restart.
+- The sidebar lists running, queued, and finished children. Click a row to jump to its card.
+- `/agents` or `alt+a` opens a filterable picker of all sub-agent cards. `alt+.` and `alt+,` cycle through running children. `alt+/` expands or collapses the card you jumped to for 10 seconds. On macOS, the terminal must send Option as Alt.
+- The status bar shows finished and total children, the queued count, and failures.
+- A child with no activity for 5 minutes shows `stalled Nm`. This is display-only.
+- While waiting, the activity row shows `waiting on N sub-agents`. If results arrive after the main turn failed, a `⚠` row says results are waiting; send a message to continue.
 
-Key behaviours:
+While results are pending, session switching, forking, and `/clear` are refused. The exception: after **Stop current turn**, once every child has finished, `/clear` discards the held results. Model, profile, and mode switches and `/compact` still work.
 
-- **Preserves conversation** — the child's prior message history is retained and the new message is appended.
-- **Resets budget** — each follow-up resets the child's turn and token budgets to the configured defaults (not the remaining budget from the prior run).
-- **Tracks follow-ups** — the returned result includes a `follow_up_count` field so the parent can see how many follow-ups have occurred.
-- **Auto-approved** — the `follow_up` tool is approval mode `auto` (no user gate).
-- **No nesting** — `follow_up` is stripped from child agent registries, so sub-agents cannot follow-up on other sub-agents.
-- **Enforces live worktree for code and documentor agents**: `follow_up` against such a session checks up front that its worktree still exists on disk and is on the expected branch. If the worktree was deleted, pruned, or repointed since the session was created, `follow_up` fails immediately with an error instead of running the child; delegate a fresh sub-agent instead of resuming.
-- **Includes worktree_path for worktree-isolated results**: For code and documentor sessions, the result envelope includes `worktree_path`, a project-relative path (e.g., `.steiner/worktrees/processHash/branchName/agentID`) to the agent's isolated worktree. This path is relative to the parent project root and contains process, branch-derived, and agent-identifying components (not a fully opaque handle). The path allows parent agents to inspect the worktree content via `read`, `bash`, `grep`, `glob`, or `ls` without needing a `follow_up` call. The field is omitted when no valid worktree exists or for sessions that do not use one. It appears on worktree-isolated results where the worktree was provisioned, regardless of outcome (complete, partial, cancelled, or failed); the worktree remains on disk for inspection even after a failed run.
+### Stopping sub-agents
 
-### Parallel fan-out
+With at least one child active, **Esc**, **Ctrl-C**, or **Ctrl-D** opens the stop dialog instead of interrupting or exiting. It lists each active child by type, ID, and task, and offers:
 
-Multiple delegation calls made in one turn execute concurrently. The number of sub-agents running at once is capped session-wide by `sub_agent.max_parallel` (default `3`, minimum `1`); further spawns queue in order, and at most twice that many may be outstanding (running plus queued) before a spawn fails with a tool error. This is separate from ordinary parallel-safe tool calls (read/grep/glob/ls/fetch_url/web_search/lsp_definitions/lsp_implementations/lsp_type_definitions/lsp_references/lsp_diagnostics/lsp_hover/lsp_symbols), which are bounded by `limits.max_parallel_tools` (default `4`, minimum `1`) — see [Configuration](configuration.md#limits-block). A value of `1` runs sub-agents one at a time. Results are applied to conversation state in the original call order, so completion timing does not change the parent's history. A failing child does not abort its siblings.
+- **Stop current turn**: shown only while the main agent is generating. Stops the main turn, leaves children running, and holds their results until you send a message.
+- **Stop one** (select a child): for `code` and `documentor`, choose **Stop and keep worktree** (default) or **Stop and discard worktree**; for other types, **Stop**.
+- **Stop all delegates**: stops every child and keeps all worktrees.
+- **Stop entire run**: stops every child and the main turn.
+- **Dismiss**: closes the dialog. **Keep working** on a confirmation returns to the list.
 
-### Stopping active delegates
+Discarding a worktree deletes its directory and branch, including uncommitted and unmerged work, and the child cannot be resumed with `follow_up` afterwards.
 
-When at least one delegate is active, pressing **Esc**, **Ctrl-C**, or **Ctrl-D** opens the stop dialog. This applies while viewing the conversation, an approval prompt, or another input mode where the shortcut is applicable. If no delegate is active, existing behavior is unchanged: during an active parent run these shortcuts interrupt the whole run, and outside a run they keep their existing exit behavior.
+## Worktrees
 
-The selector lists each active delegate as **bold, tool-box-coloured type · agent ID · truncated task preview**. It offers these choices:
+Each `code` and `documentor` child works in its own git worktree, so parallel children never edit the same files. Delegation with these types requires the project to be a git repository.
 
-- **Stop one**: confirm stopping the selected delegate. For a code or documentor delegate, the default is **stop and keep worktree**; the confirmation also offers **stop and discard worktree** or **keep working**. For other delegate types, choose **stop** or **keep working**.
-- **Stop all delegates**: confirm stopping every active delegate. All delegate worktrees are retained.
-- **Stop current turn** — shown first, and only while the parent is generating. Stops the parent's current turn but leaves delegates running; the conversation then pauses (see below).
-- **Stop entire run** — confirm stopping every delegate (running and queued) and the current turn.
-- **Dismiss** — close the dialog without stopping anything. **Keep working** on a confirmation screen returns to the selector.
+- **Location**: `.steiner/worktrees/<process-hash>/<branch>/<agent-id>/`, on a branch named `delegate/<process-hash>/<branch>/<agent-id>`.
+- **Starting point**: the worktree branches from the project's current `HEAD`. Uncommitted changes in your working tree are not visible to the child; the result includes a warning listing them.
+- **Commits**: the child must commit its work in the worktree. The orchestrator then reads the result and integrates it into your branch.
+- **Retention**: worktrees stay on disk after the child finishes, fails, or is stopped, so you can inspect them. They are removed only when you ask.
 
-While delegates run in the background, the activity row shows `waiting on N sub-agents` with the ordinary model-waiting spinner. After **Stop current turn** it shows `paused — N results waiting; send a message to continue` with a static indicator: results are held until you send a message or `/clear` discards them. If the token budget is reached with sub-agents still running, the row shows `token budget reached — N sub-agents still running` with a static indicator. Queued delegates appear as queued rows and count as active for the stop dialog. A delegate with no activity for 5 minutes is shown as `stalled Nm` in its row and in the dialog; this is display-only and the model is not told. While results are pending, `/new`, session switching and forking are refused. `/clear` is also refused, except while the conversation is paused with results held after **Stop current turn**, when every outstanding sub-agent has finished in the current session. In that case `/clear` proceeds and discards the held results; they are removed from the saved ledger of the session being replaced. `/clear` also discards parked steers owned by the interactive conversation. A running, queued, or cancelling sub-agent, or an outstanding result from another session, still blocks it. Model, profile and mode switches and manual `/compact` are still allowed while waiting.
+### Cleaning up
 
-Stopping a delegate does not automatically remove its worktree. A targeted code or documentor stop keeps its worktree by default, and stop-all keeps every delegate worktree. Discard is available only through the explicit targeted discard choice. Discarding a worktree-isolated session makes it non-resumable with `follow_up` and removes its delegation worktree and branch; it is not an automatic cleanup path. A code or documentor delegate stopped while waiting for cache warm-up never started, so it has no follow-up session; its empty worktree is retained by default and can be discarded from the stop dialog or removed later.
+When you exit an idle interactive session that created worktrees, Steiner offers `Clean up N worktrees?`. **Exit without cleaning** is the default. **Clean up on exit** removes only this process's worktrees, after the run has stopped; if that takes too long, cleanup is skipped with a warning. **Esc** cancels the exit.
 
-Every `code` or `documentor` sub-agent automatically runs in its own isolated, runtime-provisioned and verified git worktree under `.steiner/worktrees/`. You do not need to arrange isolation manually anymore. Concurrent child agents are now safe from file-edit collisions.
+From the command line, run in the project root:
 
-### Exit-time worktree cleanup
+```bash
+steiner worktrees --list           # ID, branch, and path of every delegation worktree
+steiner worktrees --prune <id>     # remove one worktree by the ID from --list
+steiner worktrees --prune-all      # remove every delegation worktree
+```
 
-When an interactive TUI session is idle and this process has delegate worktrees, exiting through the exit modal, Ctrl-C, Ctrl-D, or `/exit` opens a `Clean up N worktrees?` offer. `Exit without cleaning` is the default; `Clean up on exit` records cleanup intent. The actual prune runs during session teardown, after the agent run has stopped; if a run is still finishing, cleanup waits only briefly, then is skipped with a non-blocking warning so exiting is never blocked. It only targets this process's worktrees under `.steiner/worktrees/<processhash>/...` (branch prefix `delegate/<processhash>/`), never worktrees from another process. A successful cleanup prints `Cleaned up N worktree(s).` to stderr; failures produce a non-blocking warning. Esc cancels the exit. No offer appears during an active run or when no worktrees exist.
+Pass exactly one flag. Pruning force-removes the worktree and deletes its `delegate/...` branch, so uncommitted and unmerged work is lost. Only worktrees on `delegate/` branches are touched; oneshot worktrees are not.
 
-### Safety
+## `documentor` type
 
-- A sub-agent **cannot delegate further** — `follow_up` and `workflow_handoff` tools are always stripped from child registries.
-- The parent-only `workflow_handoff` tool is not included in child allowlists yet.
-- Only the `code` and `documentor` sub-agents have access to file-mutation tools (`mutate`). `documentor` writes are limited to documentation files; see [`documentor` type](#documentor-type).
-- `explore`, `research`, `evaluate`, and `vision` are read-only.
-- `explore` and `evaluate` can run commands via `bash` (for `git diff`, `git log`, `git show`, `grep`, `find`, etc.); when sandboxing is enabled, `bash` runs with the project mounted read-only, so writes to the workspace fail.
-- `sanity_check` and `review` can run commands via `bash` (for tests, `git diff`, `git log`, etc.) but must not modify files.
-- MCP tools are registered from third-party servers and are only exposed to sub-agents when the server's `sub_agents` list explicitly includes the agent type. Approval is per-server and controlled by the parent's configuration.
-- All sub-agent tools are automatically approval-gated as `auto` — no manual prompt is needed to use them.
-- The child's full conversation transcript is not copied into the parent session; only the structured result and its retention metadata persist.
-- The result the parent model sees excludes absolute worktree paths, `worktree_branch`, traces, tool-call counts, session metadata, and diagnostic counters. Host-side trace fields and locations are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#host-side-diagnostics-vs-the-model-facing-result), never sent to the provider. The project-relative `worktree_path` (`.steiner/worktrees/...`) is included for worktree-isolated agents with valid provisioned worktrees, allowing parent agents to inspect worktrees via `read`/`bash`/`grep`/`glob`/`ls` without needing a `follow_up` call.
-- While the parent interactive session is in `plan` execution mode, the `code` and `documentor` sub-agent tools are denied outright, and `follow_up` is denied when it targets a session spawned by `code` or `documentor`; both can mutate files, which plan mode disallows. See [Execution modes](execution-modes.md) for the full enforcement matrix.
-- The system-prompt canon and deliberate skill/oneshot workflow differences are documented in [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md#canon-and-workflow).
+`documentor` follows the `code` lifecycle (worktree, commit, `worktree_path`, stop and cleanup options) but its `mutate` writes are limited to:
 
-### Default tool allowlists
+- files ending in `.md`, `.mdx`, `.markdown`, `.rst`, or `.adoc`
+- extensionless files named `README`, `CHANGELOG`, or `CONTRIBUTING`
 
-| Agent      | Tools available                                             |
-|------------|-------------------------------------------------------------|
-| `explore`  | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
-| `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url`\* |
-| `code`     | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
-| `documentor` | Same tools as `code`; `mutate` is limited to documentation files |
-| `evaluate`    | `read`, `glob`, `grep`, `ls`, `bash` (read-only project sandbox), `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
-| `sanity_check`| `read`, `glob`, `grep`, `ls`, `bash`                        |
-| `vision`   | `read`                                                      |
-| `review`      | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`†, `lsp_symbols`† |
+Matching is case-sensitive on the file name, so `Guide.MD` is denied. The check applies to the path and its symlink target, and a `move` needs both ends in scope. `mutate` does not create parent directories, so the child uses `mkdir -p` first.
 
-\* `fetch_url` is always available. `web_search` requires a configured search backend (Google, Kagi, Brave, or SearXNG). When no backend is configured, the `research` sub-agent is not exposed to the model.
+The scope covers `mutate` only and is not a security boundary: `bash` and MCP tools are not filtered by it. The child's prompt limits `bash` to read-only inspection, `mkdir -p`, and the git commands `status`, `diff`, `log`, `show`, `add`, `commit`, and `rev-parse`.
 
-† `lsp_definitions`, `lsp_implementations`, `lsp_type_definitions`, `lsp_references`, `lsp_diagnostics`, `lsp_hover`, and `lsp_symbols` require `lsp.enabled` and a configured language server for the file's extension (`lsp_symbols` in workspace-search mode requires at least one configured, enabled server, not necessarily one for a specific extension). When `lsp.enabled: false`, these tools are not registered and agents cannot access them.
+Documentation that must ship in the same commit as a code change belongs with the `code` task.
 
-### Extra tools per agent type
+## `vision` type
 
-Delegation accepts a generic per-agent-type projection of extra allowed tool names, `ExtraAllowedTools`, supplied when the delegate registry is assembled. It is a narrow seam: the delegation package only receives registered tool names, never their origin. Nil or empty projections grant no extra tools, so the built-in allowlists above remain the effective default. Extras merge with the built-in allowlist into a sorted, deduplicated set before child registry construction.
+`vision` is offered only when the selected profile sets `sub_agents.vision` to a vision-capable model. When you paste an image, the TUI shows its ID (for example `img-1`) below your message; the main agent passes it as `image_id`.
 
-The MCP integration consumes this seam. An MCP server entry's `sub_agents` list names the agent types that may use that server's tools; those tool names are projected into `ExtraAllowedTools` for the listed types. MCP access for children defaults to closed — a server without a matching `sub_agents` entry grants no tools to any sub-agent. When a server is granted to an agent type, the server's tools appear in the child's registry with their `mcp__<server>__<tool>` names. Per-server tool filtering (`allowed_tools` and `blocked_tools`) applies to sub-agents exactly as it does to the parent: a tool excluded by filtering is not exposed to child agents. See [configuration.md](configuration.md) for the MCP config block and [MCP](mcp.md) for the full MCP reference.
+Children can also read image files with `read`. The image is visible only on the next model request, so a child re-reads the file if it needs the image again.
 
-### Configuration
+## Models
 
-Sub-agents are configured under the `sub_agent` key in `config.yaml`. Their
-model assignments belong to the selected profile:
+Each type uses the selected profile's `sub_agents.<type>` model, falling back to the profile's `default_model`. See [Provider and model setup](provider-and-model-setup.md).
 
 ```yaml
-sub_agent:
-  # Master switch — set to false to remove all sub-agent tools from the model.
-  enabled: true
-
-  # Default limits for all sub-agents.
-  max_turns: 120
-  max_tokens: 400000
-
 models:
   profiles:
     default:
       default_model: openai/<orchestrator-model-id>
       sub_agents:
         code: openai/<code-model-id>
-        documentor: openai/<documentation-model-id>
         evaluate: anthropic/<evaluate-model-id>
-        sanity_check: openai/<sanity-check-model-id>
-```
-
-Each entry under the selected profile's `sub_agents` map, keyed by agent type
-name, can set a raw `provider/model-id` reference. An alias is an optional
-alternate when it provides a stable name or persistent `ModelConfig` settings. If
-no override is set, the sub-agent uses the selected profile's `default_model`.
-
-`sub_agent.orchestration_level` controls how strongly the system preamble
-steers the orchestrator toward delegating. `standard` (the default) renders
-the full delegation canon, including the "you are the orchestrator" framing
-and the "delegate by default" guidance. `low` omits those two sections while
-keeping the sub-agent roster, `follow_up` guidance, and briefing template —
-the orchestrator still knows how to delegate, it just isn't pushed to prefer
-it. Available tools, skills, and oneshot prompts are unaffected by this
-setting. Switch it at runtime with `/orchestration`; the change lasts until
-the session exits, and switching mid-conversation shows a confirmation
-because it invalidates the cached system prompt prefix.
-
-In the interactive TUI, `/orchestration` with no argument opens a picker
-listing both levels with a radio marker on the active one; `/orchestration
-low` or `/orchestration standard` sets the level directly. Either path
-switches immediately when the conversation is empty and no oneshot run is in
-progress; otherwise it asks for confirmation first. The sidebar shows an
-ORCHESTRATION row whenever sub-agents are enabled.
-
-### Turn budget
-
-Each child runs once. `max_turns` is a hard cap for that run; reaching it ends
-the child, even if its last message has pending tool calls. The child receives
-append-only checkpoints in its own conversation when it reaches 50%, 75%, and
-90% of its turn budget, so it can focus on finishing before the cap. Checkpoints
-do not extend the budget or restart the child. A follow-up run gets its own
-fresh turn budget and places checkpoints at 50/75/90% of that budget, counted
-from where the follow-up run started rather than from the child's original
-turn count.
-
-### Recommended model tiers
-
-Model tier recommendations help choose which model to assign to each agent type.
-These are **recommendations, not enforcement** — users configure the selected
-profile's `sub_agents.<type>` assignments freely.
-
-| Tier          | Agent types                             | Rationale                                                                 |
-|---------------|-----------------------------------------|---------------------------------------------------------------------------|
-| **Flash**     | `explore`, `code`, `sanity_check`       | Mechanical tasks — search, implement scoped changes, run checks. Speed matters more than depth. A flash-tier model also works well for the initial `explore` that pre-digests the design during implementation. |
-| **Balanced**  | `research`, `documentor`, `review`, `vision` | Requires synthesis or judgment: gathering information, reviewing code changes, analyzing images. Needs a model that can weigh context and produce nuanced output. |
-| **Top-thinker** | `evaluate`                           | Deep reasoning on scoped sub-problems — analysing tradeoffs, evaluating approaches. Benefits most from a stronger model's deliberation capacity. |
-
-The table is a starting point, not an exhaustive assignment; any agent type can be routed to any model.
-
-### `documentor` type
-
-`sub_agent` with type `documentor` writes or updates documentation. It follows the same lifecycle as `code`: the runtime provisions an isolated git worktree under `.steiner/worktrees/`, requires the child to commit its changes there, and returns `worktree_path` in the result. The targeted stop dialog, discard option, and exit-time cleanup treat it like a `code` delegate.
-
-It receives the same tool allowlist as `code`, but `mutate` is restricted to documentation files:
-
-- Extensions `.md`, `.mdx`, `.markdown`, `.rst`, and `.adoc`.
-- Extensionless files named `README`, `CHANGELOG`, or `CONTRIBUTING`.
-
-Matching is case-sensitive and uses the final path component, so `docs/Guide.MD` is denied. Files may sit anywhere under the child worktree. The check applies to both the lexical path and its symlink-resolved target, an existing directory is never eligible even when its name matches, and a `move` must have both its source and destination in scope.
-
-`mutate` does not create missing parent directories for workspace paths, so create them with `bash mkdir -p` before writing a documentation file into a new directory.
-
-The scope governs `mutate` only and is not a security boundary. `bash` and MCP tools, including servers that list `documentor` in `mcp.servers.<name>.sub_agents`, are not filtered by it; the worktree shares git metadata with the parent repository, and hardlinks or races can bypass name checks. The child prompt allows files to be created or changed only through `mutate`: `bash` is for read-only inspection and `mkdir -p` for directories that will hold documentation, while git is limited to `status`, `diff`, `log`, `show`, `add`, `commit`, and `rev-parse`. Git commands that change working-tree files are forbidden.
-
-A `documentor` is denied in `plan` mode, like `code`, and `follow_up` is denied when it targets a documentor child. Model fallback is unchanged: configure `sub_agents.documentor`; if that entry is unset, it uses the profile's `default_model`, then the parent model. There is no vision-style capability requirement.
-
-Documentation that must ship in the same commit as a code change stays with the `code` deliverable, not a separate `documentor`.
-
-### `vision` type
-
-The `sub_agent` with type `vision` requires the six standard task fields plus `image_id`:
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `type` | string | `vision` |
-| `objective` | string | What to analyze or describe about the image. |
-| `context` | string | Background and any relevant constraints. |
-| `deliverable` | string | The shape of the answer expected. |
-| `constraints` | array | Boundaries and scope. |
-| `success_criteria` | array | Observable completion conditions. |
-| `checks` | array | Validations to run. |
-| `image_id` | string | The image ID shown in the placeholder (e.g. `img-1`). Required for type `vision`. |
-
-When you paste an image, the TUI displays its assigned ID below the submitted message. Pass that ID to `sub_agent` with type `vision` to examine the image.
-
-After the initial type `vision` call, use the `agent_id` inside the returned `continuation` object with `follow_up` to ask additional questions about the same image. Each follow-up re-sends the image with the request, so a follow-up costs a full image request.
-
-Sub-agents can also read image files with the `read` tool. A child sees a read-returned image on the model request that immediately follows the read; the image payload is stripped from later requests, so re-read the file if the child needs it again.
-
-The `vision` type is only available when the selected profile's `sub_agents.vision`
-is configured. It requires a vision-capable model:
-
-```yaml
-models:
-  profiles:
-    default:
-      default_model: anthropic/<vision-model-id>
-      sub_agents:
         vision: anthropic/<vision-model-id>
 ```
 
-## Downgrading
+### Recommended model tiers
 
-Sessions that contain async sub-agent history (result envelopes delivered as separate messages) are not guarded against being opened by an older binary. An older version shows those `<steiner-sub-agent-result>` envelopes as ordinary user text.
+These are suggestions; any type can use any model.
 
----
+| Tier | Types | Why |
+|---|---|---|
+| Fast | `explore`, `code`, `sanity_check` | Search, scoped changes, and checks; speed matters more than depth. |
+| Balanced | `research`, `documentor`, `review`, `vision` | Synthesis and judgement. |
+| Strongest | `evaluate` | Deep reasoning on scoped sub-problems. |
 
-For architecture and implementation details, see [Sub-agent Delegation Internals](../internals/sub-agent-delegation.md).
+## Orchestration level
+
+`sub_agent.orchestration_level` sets how strongly the main agent is steered towards delegating. `standard` (default) tells it to act as orchestrator and delegate by default. `low` drops that steering but keeps the sub-agent roster and briefing guidance, so delegation is at the model's discretion. Tools are the same at both levels.
+
+Change it for the current session with `/orchestration` (picker) or `/orchestration low|standard`. Mid-conversation, Steiner asks for confirmation first because the change invalidates the cached prompt prefix.

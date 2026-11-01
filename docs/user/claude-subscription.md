@@ -1,99 +1,74 @@
 # Claude subscription
 
-`claude_subscription` runs the user's signed-in `claude` CLI and uses the Claude subscription available to that login. It is an unofficial Steiner integration and is not affiliated with Anthropic.
+The `claude_subscription` provider type runs your signed-in `claude` CLI and uses the Claude subscription attached to that login. It is an unofficial Steiner integration and is not affiliated with Anthropic.
 
-Anthropic can change the CLI, subscription terms, or supported behavior. Before enabling this provider, read Anthropic's current compliance guidance:
+Anthropic can change the CLI, subscription terms, or supported behaviour at any time. Before using this provider, read Anthropic's current guidance:
 
 - [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
 - [Claude legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)
 
-## Requirements and setup
+## Requirements
 
-1. Install Claude Code and make sure the `claude` command is on `PATH`.
-2. Sign in as the account that should pay for and own the subscription usage:
+- Claude Code installed, with the `claude` command on `PATH`.
+- Claude CLI version `2.1.294` or newer. An older CLI is refused with a prompt to run `claude update`.
+- A Claude subscription login through claude.ai. Steiner checks `claude auth status` and accepts only a claude.ai, first-party login. API-key, Bedrock, Vertex, and Foundry logins are refused; use the `anthropic` provider with API credentials for those.
+
+## Setup
+
+1. Sign in with the account whose subscription should be used:
 
    ```bash
-   claude auth login
+   claude auth login --claudeai
    ```
 
-3. Use a full model ID reported by the signed-in CLI. Do not use a display name or a short alias supplied by another provider.
-4. Configure a provider with `type: claude_subscription`. Do not add `base_url`, `api_key`, `api_key_env`, or provider headers.
+2. Add a provider with `type: claude_subscription`. It takes no `base_url`, `api_key`, `api_key_env`, `headers`, or `timeout`; config validation rejects them.
 
-```yaml
-providers:
-  claude:
-    type: claude_subscription
+   ```yaml
+   providers:
+     claude:
+       type: claude_subscription
 
-models:
-  profiles:
-    default:
-      default_model: claude/<full-model-id>
-```
+   models:
+     profiles:
+       default:
+         default_model: claude/<full-model-id>
+   ```
 
-The provider requires Claude CLI version `2.1.294` or newer. The login must be a `claude.ai` first-party subscription login. If `claude auth status --json` explicitly reports `{"loggedIn":false}` with exit status 0 or 1, Steiner reports that the CLI is signed out and tells you to run `claude auth login --claudeai` in a terminal. Missing or malformed status fields, timeouts, and unrelated command failures remain generic failures.
+3. Use a full model ID reported by the signed-in CLI, not a display name or another provider's short alias. Start `steiner` and open `/model` to see the IDs available to your account.
 
-After an external login, retry the same request explicitly. Steiner does not replay a refused request automatically. The stale CLI process and cached signed-out lookup are retired safely before the retry can start a fresh process. Pro, Max, Team, and Enterprise plans are accepted when the signed-in account exposes them through the CLI.
+For model references, profiles, and the model picker, see [Provider and model setup](provider-and-model-setup.md).
 
-An API-key login, Bedrock, Vertex, or Foundry is not a Claude subscription login for this provider. Steiner refuses those identities. Use the `anthropic` provider with the matching API credentials instead. A oneshot run also refuses to use this provider: configure another provider for oneshot roles and runs.
+If the CLI reports that it is signed out, Steiner tells you to run `claude auth login --claudeai` in a terminal. After signing in, retry the request yourself; Steiner does not replay a refused request.
 
 ## Extra usage safety gate
 
-Before sending a user turn, Steiner checks the account's usage state. The check passes only when rate-limit information is available and extra usage, also called usage credits, is explicitly disabled. Usage state that cannot be confirmed yet, such as missing, null, or malformed fields, is checked again for about 15 seconds, since a fresh session can report it before its metadata loads. Each usage request still has the 30-second CLI control timeout. If the live CLI process still cannot confirm the state, Steiner re-checks it once with a brand-new CLI process, which reads the state directly instead of reusing the CLI's cached answer; that process's startup and usage read are bounded to 8 seconds, and its teardown uses the normal session close timeout. For advisor calls only, if that fresh usage check also remains definitively not-ready, Steiner performs a pool-owned fresh `auth status` check. The check is single-flight, bounded, and canceled and joined when the pool shuts down. A signed-out result is actionable, while all other auth outcomes keep the usage refusal. Cancellation, a deadline, or shutdown during auth overrides the earlier usage refusal. This check never bypasses the credits-enabled refusal. If the state still cannot be confirmed, Steiner fails closed; a refusal based on an unconfirmable usage reply names the missing state in parentheses. If extra usage is enabled, Steiner refuses the turn at once rather than allowing paid usage.
+Claude accounts can turn on extra usage (also called usage credits), which bills usage beyond the subscription. Steiner refuses to use an account that could incur those charges:
 
-Turn off extra usage in Claude at **Settings -> Usage**, then retry. This gate is strict because Anthropic may change the account response or subscription behavior. It is separate from the ordinary subscription limit: a normal limit can still stop a turn and report its reset time.
+- Before each turn, Steiner checks the account's usage state through the CLI. The turn goes ahead only when the CLI confirms that extra usage is turned off.
+- If extra usage is turned on, Steiner refuses the turn at once.
+- If Steiner cannot confirm the state, it waits briefly and checks again, then refuses (fails closed). The error names what could not be confirmed.
+- If the CLI reports during a turn that paid extra usage has started, Steiner stops the response.
 
-## What Steiner controls
+To use this provider, turn off extra usage in Claude at **Settings -> Usage**, then retry. The ordinary subscription limit is separate: when you reach it, the turn stops and Steiner reports when the limit resets.
 
-Steiner owns the model request, system prompt, tool definitions, tool approval policy, sandbox policy, output limits, and session lifecycle. The `claude` process performs the subscription-backed model request. Steiner does not grant the CLI access to tools beyond the MCP tools it publishes for that session, and the CLI is started with settings that disable its own tool prompts for these published tools.
+## Model discovery
 
-Steiner starts the CLI with a private temporary session directory and a private system-prompt file. Tool calls return through a loopback MCP endpoint owned by Steiner. Steiner keeps tool output within its configured output budget and does not forward API credential environment variables to the child process.
+Model discovery asks the signed-in CLI for the models your account can use, without making a model call. If the CLI is missing, signed out, or returns no usable models within 20 seconds, the picker shows a built-in fallback list so the provider stays selectable. See [Provider and model setup](provider-and-model-setup.md) for discovery settings and cache commands.
 
-Preflight fitting for `claude_subscription` uses the same token estimate as other providers, so the local ctok count for the three exact Claude IDs applies here too. The count is still approximate and omits CLI and tool framing; see [Token estimation](context-management.md#token-estimation). Authoritative CLI-reported prompt usage and the existing stateful compaction policy are unchanged.
+You can switch model and reasoning effort during a session.
 
-## Context the CLI adds
+## Privacy
 
-Steiner turns off these CLI context sources in every `claude_subscription` request: auto-memory, `CLAUDE.md` files (project, local, and user), the skills listing, token-count and todo reminders, "user hasn't heard from you" nudges, and git instructions.
-
-The CLI still sends the following to the model. Steiner cannot turn them off:
-
-- Account email: the email address of the signed-in account, in a system reminder on every request. Only bare or simple mode and `ANTHROPIC_UNIX_SOCKET` remove it, and both disable subscription login.
-- Environment: working directory, whether it is a git repository, platform, shell, OS version, and the model name and knowledge cutoff.
-- Date: a "Today's date" line that duplicates Steiner's own.
-- An SDK identity line before Steiner's system prompt.
-- Account, project, or git context, re-announced if it changes during a session.
-
-## Session continuity
-
-Only parent normal calls persist CLI session state. Steiner stores that state as opaque backend data with the parent conversation. Advisor, sub-agent, and compaction helper processes never persist CLI state.
-
-For each parent turn, Steiner either:
-
-- appends the new messages to the live CLI session, when it matches the Steiner transcript. A live session keeps the system prompt and tool set it started with, even if they have since changed;
-- resumes the stored CLI session after a restart, when it matches the session owner and transcript;
-- forks the stored CLI session, when the session owner changed, such as after a Steiner Fork;
-- reseeds a CLI session from the Steiner transcript, when the restored stored state is missing, dead, mismatched, or was built for a different system prompt or tool set. A session that is still live is not reseeded for a changed prompt or tool set.
-
-A reseed sends the non-system history as one transcript message. Prompt cache reuse is not expected for a reseeded turn. Images still held in memory are included. Image data stripped after it was consumed cannot return. Earlier tool calls appear as text.
-
-A compaction summary that Steiner appends in place rewrites that CLI session, so Steiner retires it and drops the stored state for the generation the summary replaced. The clear also applies when the summary fails or is cancelled. In that case the conversation and its generation stay as they were, and the next request reseeds from the preserved Steiner transcript. A forked summary leaves the live session and its stored state alone, and a compaction fallback never clears the main session state. With no live session, a helper builds the summary, and a successful helper summary also carries the clear for the replaced generation. Stored state is saved with the session, so a crash during a compaction can leave the older saved state in place. That saved checkpoint may be out of date, and how resume behaves after such a crash is unverified.
-
-## Privacy and telemetry
-
-Prompts, system instructions, images that are accepted by the provider, tool calls, and tool results are sent to the local `claude` process. The process then handles the network request under the signed-in Claude account. Claude's own data handling, telemetry, retention, and account controls apply; see Anthropic's legal and compliance documentation linked above. The email address of the signed-in account is also sent to the model on every request, and Steiner cannot prevent it. See [Context the CLI adds](#context-the-cli-adds).
-
-Steiner does not read the Claude credential file or copy its token into provider configuration. It checks `claude auth status`, starts the CLI, and removes the credential and CLI entrypoint variables from the child environment. Steiner's own logging and diagnostics settings still apply. Logs and diagnostics can contain prompts or tool output when enabled, so review `logging` and `diagnostics` settings before using this provider.
-
-## Model selection
-
-Model discovery uses the signed-in CLI's `initialize` control response and lists the full resolved model IDs available to that account. If discovery fails or returns no usable models, Steiner uses a static fallback catalog so the provider remains selectable. See [Model enumeration](model-enumeration.md#claude-subscription) for the timeout and fallback behavior.
-
-You can select a discovered model with `/model`, or use a raw reference such as `claude/<full-model-id>`. The provider can switch model and reasoning effort during a live session. The model switch is sent to the existing CLI process, not implemented by adding a model name to the pool key.
+- Prompts, system instructions, accepted images, tool calls, and tool results go to the local `claude` process, which sends them to Anthropic under your Claude account. Claude's own data handling, telemetry, retention, and account controls apply.
+- The CLI adds some context Steiner cannot turn off, including the signed-in account's email address and environment details such as the working directory, platform, and date. Steiner turns off the CLI's auto-memory, `CLAUDE.md` loading, and git instructions.
+- Steiner does not read the Claude credential file or copy its token into Steiner configuration. It removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and `CLAUDE_CODE_OAUTH_TOKEN` from the CLI's environment.
+- The CLI's built-in tools are disabled. The model can use only the tools Steiner publishes, and Steiner's approval and sandbox policies apply to them.
+- Steiner's own logs and diagnostics can contain prompts and tool output when enabled. Review the [`logging` block](configuration.md#logging-block) and [`diagnostics` block](configuration.md#diagnostics-block) before using this provider.
 
 ## Limitations
 
-- Previously sent history is not rewritten in the CLI. Changes to sent messages, other than removal of consumed image data, are not patched into the live session. Steiner reseeds instead, as described in Session continuity. In an interactive conversation, `/clear` starts a new empty Steiner and Claude CLI session; it does not rewrite the prior transcript. There is no user-facing rewind.
-- Support for changing already-sent history is tracked in [#895](https://github.com/luispabon/steiner/issues/895).
-- The CLI owns its process identity and transcript. Its identity or reminders can change as the CLI changes, and switching models can reset model-specific cache state. Do not treat those details as stable Steiner storage. The CLI also adds context that Steiner cannot disable; see [Context the CLI adds](#context-the-cli-adds).
-- The provider is not a replacement for the native `anthropic` API provider. It uses the signed-in CLI and the subscription's account controls.
-- If the Claude CLI ends a response and then starts a second response within the same turn, possibly after its safety safeguards refused the request, Steiner reports that the CLI began another response and stops the affected response.
-- Claude CLI and Anthropic can change these behaviors without a corresponding Steiner release. Recheck the compliance links and CLI version when an account or model stops working.
+- Oneshot runs refuse this provider. Assign another provider to oneshot roles; see [Oneshot](oneshot.md).
+- Steiner cannot rewrite history the CLI has already received. When the CLI session cannot continue from Steiner's conversation, for example after a restart or a changed system prompt or tool set, Steiner starts a new CLI session and sends the earlier conversation as one transcript message. Prompt cache reuse is not expected for that turn, and earlier tool calls appear as text.
+- If the CLI starts a second response after the first one ended in the same turn, possibly after its safety safeguards refused the request, Steiner stops that response and reports it.
+- This provider does not replace the `anthropic` API provider. It depends on the CLI and on your subscription's account controls.
+- The CLI and Anthropic can change behaviour without a Steiner release. When an account or model stops working, check the CLI version and the compliance links above.
