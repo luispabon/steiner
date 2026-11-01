@@ -125,6 +125,8 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	cancel := p.shutdownCancel
 	cliJob := p.cliJob
 	cliStarted := cliJob.started
+	authJob := p.authJob
+	authStarted := authJob != nil && authJob.started
 	p.mu.Unlock()
 	defer cancel()
 
@@ -183,6 +185,9 @@ func (p *ClaudeSubscriptionPool) shutdown() {
 	// incomplete and keeps the job (and its one lookup) tracked.
 	if cliStarted {
 		join(cliJob.done)
+	}
+	if authStarted {
+		join(authJob.done)
 	}
 	p.waitDeadline(ctx, &wg)
 

@@ -21,8 +21,9 @@ type claudeSubJob struct {
 	once    sync.Once
 	done    chan struct{}
 	err     error
-	started bool // guarded by pool.mu; set when the job is registered
-	record  bool // record err in the pool's cleanup ledger on completion
+	cli     claudeSubCLI // result for a locator job; published before done closes
+	started bool         // guarded by pool.mu; set when the job is registered
+	record  bool         // record err in the pool's cleanup ledger on completion
 }
 
 // newCleanupJob returns a job whose error is recorded in the pool's cleanup
@@ -44,6 +45,16 @@ func (p *ClaudeSubscriptionPool) newTrackedJob() *claudeSubJob {
 func (j *claudeSubJob) start(fn func() error) {
 	j.once.Do(func() {
 		j.pool.trackJob(j)
+		go func() { j.finish(fn()) }()
+	})
+}
+
+// startLocked starts a job while its pool is already locked. It is used when
+// shutdown must not race the publication of a pool-owned job.
+func (j *claudeSubJob) startLocked(fn func() error) {
+	j.once.Do(func() {
+		j.started = true
+		j.pool.cleanupJobs = append(j.pool.cleanupJobs, j)
 		go func() { j.finish(fn()) }()
 	})
 }

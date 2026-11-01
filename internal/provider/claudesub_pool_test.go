@@ -24,6 +24,129 @@ func claudeSubTestRun(_ context.Context, path string, args ...string) ([]byte, e
 	return nil, fmt.Errorf("unexpected claude args %v for %s", args, path)
 }
 
+func TestClaudeSubPoolFreshAuthOwnTimeoutOverridesRunnerError(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	oldTimeout := claudeSubFreshAuthTimeout
+	claudeSubFreshAuthTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { claudeSubFreshAuthTimeout = oldTimeout })
+	started := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			close(started)
+			<-ctx.Done()
+			return []byte(`{"loggedIn":false}`), errors.New("signal: killed")
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	result := make(chan error, 1)
+	go func() { result <- pool.confirmAuthFresh(context.Background()) }()
+	<-started
+	if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("confirmAuthFresh() = %v, want context deadline", err)
+	}
+}
+
+func TestClaudeSubPoolFreshAuthShutdownCancelsAndJoins(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	started := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	result := make(chan error, 1)
+	go func() { result <- pool.confirmAuthFresh(context.Background()) }()
+	<-started
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- pool.Close() }()
+	if err := <-closeResult; err != nil {
+		t.Fatalf("pool Close() = %v", err)
+	}
+	if err := <-result; !errors.Is(err, errClaudeSubPoolClosed) {
+		t.Fatalf("confirmAuthFresh() = %v, want pool closed", err)
+	}
+	if pool.authJob == nil || !claudeSubJobDone(pool.authJob) {
+		t.Fatal("fresh auth job was not joined by pool shutdown")
+	}
+}
+
+func TestClaudeSubPoolFreshAuthConcurrentCallsShareJob(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	var calls atomic.Int32
+	started := make(chan struct{})
+	entered := make(chan struct{}, 2)
+	release := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			if calls.Add(1) == 1 {
+				close(started)
+			}
+			entered <- struct{}{}
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			return []byte(`{"loggedIn":false}`), nil
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- pool.confirmAuthFresh(context.Background()) }()
+	}
+	<-started
+	<-entered
+	select {
+	case <-entered:
+		t.Fatal("concurrent fresh auth started a second runner")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	for range 2 {
+		if err := <-results; !errors.Is(err, errClaudeSubSignedOut) {
+			t.Fatalf("confirmAuthFresh() = %v, want signed-out result", err)
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("fresh auth calls = %d, want one shared job", got)
+	}
+}
+
+func TestClaudeSubPoolFreshAuthCancellationIsTracked(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	pool.cli = claudeSubCLI{Path: "/fake/claude"}
+	started := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 2 && args[0] == "auth" {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return claudeSubTestRun(ctx, "/fake/claude", args...)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() { result <- pool.confirmAuthFresh(ctx) }()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("confirmAuthFresh() = %v, want context.Canceled", err)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("pool Close() = %v", err)
+	}
+	if pool.authJob == nil || !claudeSubJobDone(pool.authJob) {
+		t.Fatal("fresh auth job was not joined by pool shutdown")
+	}
+}
+
 // claudeSubTestSpec is a minimal settled startup specification.
 func claudeSubTestSpec() claudeSubStartSpec {
 	return claudeSubStartSpec{
@@ -137,6 +260,165 @@ func claudeSubEnvValue(env []string, key string) (string, bool) {
 	return "", false
 }
 
+func TestClaudeSubPoolRetriesSignedOutLocatorOnLaterAcquire(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	var lookups atomic.Int32
+	pool.lookPath = func(string) (string, error) {
+		lookups.Add(1)
+		return "/fake/claude", nil
+	}
+	pool.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.acquire(context.Background(), "retry", claudeSubTestSpec()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("first acquire = %v, want signed-out error", err)
+	}
+	signedIn.Store(true)
+	other, err := pool.acquire(context.Background(), "other", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("unrelated acquire after login = %v", err)
+	}
+	s, err := pool.acquire(context.Background(), "retry", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("later acquire after login = %v", err)
+	}
+	pool.release(s)
+	pool.mu.Lock()
+	_, otherPresent := pool.sessions["other"]
+	otherActive := other.active
+	pool.mu.Unlock()
+	if !otherPresent || otherActive != 1 {
+		t.Fatalf("unrelated lease = present:%v active:%d, want held pooled lease", otherPresent, otherActive)
+	}
+	pool.release(other)
+	if got := lookups.Load(); got != 2 {
+		t.Fatalf("lookups = %d, want one initial and one synchronized retry", got)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawn count = %d, want unrelated and recovered sessions", got)
+	}
+}
+
+func TestClaudeSubPoolConcurrentLocatorRetryUsesOneTrackedJob(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	var calls atomic.Int32
+	retryStarted := make(chan struct{})
+	releaseRetry := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		calls.Add(1)
+		if args[0] == "--version" {
+			if signedIn.Load() {
+				select {
+				case <-retryStarted:
+				default:
+					close(retryStarted)
+				}
+				select {
+				case <-releaseRetry:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.locateCLI(context.Background()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("initial locate = %v, want signed-out error", err)
+	}
+	signedIn.Store(true)
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := pool.locateCLI(context.Background())
+			results <- err
+		}()
+	}
+	select {
+	case <-retryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent retry did not start")
+	}
+	close(releaseRetry)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Errorf("concurrent retry error = %v, want nil", err)
+		}
+	}
+	if got := calls.Load(); got != 4 {
+		t.Fatalf("locator command calls = %d, want 4 (two commands per tracked lookup)", got)
+	}
+}
+
+func TestClaudeSubPoolLocatorRetryShutdownIsTracked(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	retryStarted := make(chan struct{})
+	releaseRetry := make(chan struct{})
+	pool.run = func(ctx context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "--version" && signedIn.Load() {
+			select {
+			case <-retryStarted:
+			default:
+				close(retryStarted)
+			}
+			select {
+			case <-releaseRetry:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.locateCLI(context.Background()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("initial locate = %v, want signed-out error", err)
+	}
+	signedIn.Store(true)
+	result := make(chan error, 1)
+	go func() {
+		_, err := pool.locateCLI(context.Background())
+		result <- err
+	}()
+	select {
+	case <-retryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("retry did not start")
+	}
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- pool.Close() }()
+	close(releaseRetry)
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("pool close = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("pool shutdown did not settle the tracked locator retry")
+	}
+	select {
+	case <-result:
+	case <-time.After(2 * time.Second):
+		t.Fatal("locator waiter did not return after shutdown")
+	}
+}
+
 func TestClaudeSubPoolLocatesCLIOnce(t *testing.T) {
 	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	var lookups atomic.Int32
@@ -154,6 +436,40 @@ func TestClaudeSubPoolLocatesCLIOnce(t *testing.T) {
 	}
 	if got := lookups.Load(); got != 1 {
 		t.Fatalf("lookPath called %d times, want 1 (cached for the pool's life)", got)
+	}
+}
+
+func TestClaudeSubPoolRetriedLocatorLeavesOtherSession(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var signedIn atomic.Bool
+	pool.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if !signedIn.Load() {
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}
+		return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+	}
+	if _, err := pool.acquire(context.Background(), "signed-out", claudeSubTestSpec()); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("signed-out acquire = %v, want signed-out error", err)
+	}
+	// The successful locator result is cached by the pool, so this session proves
+	// a retry does not sweep or retire unrelated pooled sessions.
+	signedIn.Store(true)
+	other, err := pool.acquire(context.Background(), "other", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("other acquire = %v", err)
+	}
+	pool.release(other)
+	pool.mu.Lock()
+	_, present := pool.sessions["other"]
+	pool.mu.Unlock()
+	if !present {
+		t.Fatal("unrelated active session was removed")
+	}
+	if got := spawner.callCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want one unrelated session", got)
 	}
 }
 

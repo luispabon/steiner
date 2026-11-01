@@ -228,7 +228,7 @@ func (c *claudeSubWindowsChild) wait() error {
 			return
 		}
 		if code != 0 {
-			c.waitErr = fmt.Errorf("claude CLI process exited: exit status 0x%x", code)
+			c.waitErr = claudeSubExitStatusError{code: int(code)}
 		}
 	})
 	return c.waitErr
@@ -439,13 +439,10 @@ func claudeSubExecRunner(ctx context.Context, path string, args ...string) ([]by
 		return nil, cleanupErr
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-	if waitErr != nil {
-		return nil, waitErr
+		return out.bytes(), ctxErr
 	}
 	if out.overflowed() {
 		return nil, fmt.Errorf("claude CLI %s produced more than %d bytes of output", path, claudeSubLocatorOutputMaxBytes)
 	}
-	return out.bytes(), nil
+	return out.bytes(), waitErr
 }

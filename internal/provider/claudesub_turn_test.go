@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -815,6 +816,120 @@ func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
 	}
 	if got := claudeSubUsageProbeCount(retry, `"type":"user"`); got != 1 {
 		t.Errorf("retry user writes = %d, want 1", got)
+	}
+}
+
+// TestClaudeSubSignedOutUsageRefusalIsNotRetried proves confirmed external logout
+// retires only the leased advisor session and preserves the usage-gate wrapper, so
+// a resumed-call retry cannot replay the request.
+func TestClaudeSubSignedOutUsageRefusalIsNotRetried(t *testing.T) {
+	claudeSubUsageGateFast(t, 5*time.Millisecond, time.Millisecond)
+	claudeSubUsageProbeFast(t, time.Second)
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	var loggedIn atomic.Bool
+	loggedIn.Store(true)
+	pool.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("2.1.300"), nil
+		}
+		if loggedIn.Load() {
+			return []byte(`{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}`), nil
+		}
+		return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+	}
+	spawns := 0
+	sessions := make([]*claudeSubFakeConn, 0, 4)
+	spawner.onSpawn = func(conn *claudeSubFakeConn) {
+		index := spawns
+		spawns++
+		sessions = append(sessions, conn)
+		conn.mu.Lock()
+		switch index {
+		case 0:
+			conn.responder = claudeSubQuotaUsageResponder(json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))
+		case 1, 2:
+			conn.responder = claudeSubQuotaUsageResponder(json.RawMessage(`{"rate_limits_available":false}`))
+		case 3:
+			script := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")}}
+			conn.responder = script.respond
+		default:
+			t.Fatalf("unexpected session spawn %d", index)
+		}
+		conn.mu.Unlock()
+	}
+	other, err := pool.acquire(context.Background(), "other", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("other acquire: %v", err)
+	}
+	loggedIn.Store(false)
+	req := ChatRequest{ParentTransportSession: "logout", AdvisorCacheProfile: true, Model: claudeSubTestSpec().Model, Messages: []Message{claudeSubUserText("check this")}}
+	err = claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubTurn() = %v, want signed-out error", err)
+	}
+	var gateErr *claudeSubUsageGateError
+	if !errors.As(err, &gateErr) {
+		t.Fatalf("claudeSubTurn() = %T, want claudeSubUsageGateError wrapper", err)
+	}
+	if claudeSubShouldRetryTurn(err, false, nil, "stored-session") {
+		t.Fatal("confirmed logout would be automatically retried")
+	}
+	if spawns != 3 {
+		t.Fatalf("spawn count = %d, want unrelated session, advisor session, and fresh usage probe", spawns)
+	}
+	if !sessions[1].isClosed() {
+		t.Fatal("signed-out advisor session was not retired")
+	}
+	if sessions[0].isClosed() {
+		t.Fatal("unrelated active session was affected by logout retirement")
+	}
+	if len(claudeSubUserLines(sessions[1])) != 0 {
+		t.Fatal("signed-out session wrote a user message")
+	}
+	pool.mu.Lock()
+	_, present := pool.sessions[claudeSubAdvisorSessionKey("logout")]
+	_, otherPresent := pool.sessions["other"]
+	pool.mu.Unlock()
+	if present {
+		t.Fatal("retired signed-out session remains pooled")
+	}
+	if !otherPresent {
+		t.Fatal("unrelated session was removed from the pool")
+	}
+
+	// Login is an explicit recovery action. Retrying the same request must use a
+	// fresh advisor process and deliver normally, while the unrelated lease stays
+	// held throughout.
+	loggedIn.Store(true)
+	var retryChunks []ChatChunk
+	if err := claudeSubTurn(context.Background(), pool, req, func(chunk ChatChunk) error {
+		retryChunks = append(retryChunks, chunk)
+		return nil
+	}); err != nil {
+		t.Fatalf("explicit retry after login: %v", err)
+	}
+	if spawns != 4 {
+		t.Fatalf("spawn count after explicit retry = %d, want 4", spawns)
+	}
+	if sessions[3].isClosed() {
+		t.Fatal("explicit retry session was closed after successful delivery")
+	}
+	if len(claudeSubUserLines(sessions[3])) == 0 || len(retryChunks) == 0 {
+		t.Fatal("explicit retry did not deliver the advisor request")
+	}
+
+	// The unrelated session still owns its original lease and remains usable.
+	if raw, err := other.control.getUsage(context.Background()); err != nil {
+		t.Fatalf("unrelated held lease usage check: %v", err)
+	} else if err := claudeSubUsageGate(raw); err != nil {
+		t.Fatalf("unrelated held lease usage result: %v", err)
+	}
+	pool.mu.Lock()
+	_, otherPresent = pool.sessions["other"]
+	otherActive := other.active
+	pool.mu.Unlock()
+	if !otherPresent || otherActive != 1 {
+		t.Fatalf("unrelated lease after retry = present:%v active:%d, want held usable lease", otherPresent, otherActive)
 	}
 }
 

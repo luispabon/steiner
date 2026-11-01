@@ -47,9 +47,14 @@ func TestClaudeSubLocateCLI(t *testing.T) {
 			}
 			return nil, errors.New("auth boom")
 		}, wantErr: "run claude auth status"},
-		{name: "not signed in", version: "2.1.294", auth: `{"loggedIn":false}`, wantErr: "claude CLI is not signed in: run `claude auth login` in a terminal"},
-		{name: "API key auth", version: "2.1.294", auth: `{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, wantErr: "claude CLI is signed in with api_key/firstParty, not a Claude subscription: use the anthropic provider with an API key instead, or run `claude auth login`"},
-		{name: "bedrock api provider", version: "2.1.294", auth: `{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"bedrock"}`, wantErr: "claude CLI is signed in with claude.ai/bedrock, not a Claude subscription: use the anthropic provider with an API key instead, or run `claude auth login`"},
+		{name: "not signed in", version: "2.1.294", run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			if args[0] == "--version" {
+				return []byte("2.1.294"), nil
+			}
+			return []byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}
+		}, wantErr: "claude CLI is signed out: run `claude auth login --claudeai` in a terminal"},
+		{name: "API key auth", version: "2.1.294", auth: `{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, wantErr: "claude CLI is signed in with api_key/firstParty, not a Claude subscription: use the anthropic provider with an API key instead, or run `claude auth login --claudeai`"},
+		{name: "bedrock api provider", version: "2.1.294", auth: `{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"bedrock"}`, wantErr: "claude CLI is signed in with claude.ai/bedrock, not a Claude subscription: use the anthropic provider with an API key instead, or run `claude auth login --claudeai`"},
 		{name: "auth status not json", version: "2.1.294", auth: "not json", wantErr: "parse claude auth status"},
 		{name: "valid claude.ai firstParty login", version: "2.3.10", auth: authOK, wantPath: "/usr/local/bin/claude", wantVer: "2.3.10"},
 	}
@@ -80,6 +85,60 @@ func TestClaudeSubLocateCLI(t *testing.T) {
 				t.Errorf("locateClaudeSubCLI() error = %q, want substring %q", err.Error(), tc.wantErr)
 			}
 		})
+	}
+}
+
+type claudeSubTestExitError struct{ code int }
+
+func (e claudeSubTestExitError) Error() string { return "exit status" }
+func (e claudeSubTestExitError) ExitCode() int { return e.code }
+
+func TestClaudeSubSignedOutExitOneKeepsStdout(t *testing.T) {
+	const signedOut = `{"loggedIn":false}`
+	run := func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 1 {
+			return []byte("2.1.294"), nil
+		}
+		return []byte(signedOut), claudeSubTestExitError{code: 1}
+	}
+	_, err := locateClaudeSubCLI(context.Background(), claudeSubLookPathOK, run)
+	if !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("locateClaudeSubCLI() = %v, want signed-out error", err)
+	}
+	if err.Error() != errClaudeSubSignedOut.Error() {
+		t.Fatalf("signed-out error = %q, want bounded actionable message", err)
+	}
+}
+
+func TestClaudeSubAuthStatusDoesNotGuessSignedOut(t *testing.T) {
+	tests := []struct {
+		name string
+		out  []byte
+		err  error
+	}{
+		{name: "missing boolean", out: []byte(`{}`)},
+		{name: "malformed boolean", out: []byte(`{"loggedIn":"false"}`)},
+		{name: "timeout", out: []byte(`{"loggedIn":false}`), err: context.DeadlineExceeded},
+		{name: "unrelated error", out: []byte(`{"loggedIn":false}`), err: errors.New("permission denied")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := claudeSubFreshAuthStatus(tc.out, tc.err); errors.Is(err, errClaudeSubSignedOut) {
+				t.Fatalf("claudeSubFreshAuthStatus() = %v, must not classify signed out", err)
+			}
+		})
+	}
+}
+
+func TestClaudeSubFreshAuthStatusAcceptsExitOneSignedOut(t *testing.T) {
+	if err := claudeSubFreshAuthStatus([]byte(`{"loggedIn":false}`), claudeSubTestExitError{code: 1}); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubFreshAuthStatus() = %v, want signed-out error", err)
+	}
+}
+
+func TestClaudeSubFreshAuthStatusExitZeroFalseIsSignedOut(t *testing.T) {
+	if err := claudeSubFreshAuthStatus([]byte(`{"loggedIn":false}`), nil); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubFreshAuthStatus() = %v, want signed-out error", err)
 	}
 }
 

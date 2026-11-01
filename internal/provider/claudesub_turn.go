@@ -349,8 +349,27 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 		if errors.Is(liveErr, errClaudeSubUsageNotReady) {
 			// The live process may be answering from the CLI's in-process usage
 			// cache, so one fresh process confirms the state before refusing.
-			liveErr = claudeSubUsageProbeOutcome(liveErr, s.pool.confirmUsageFresh(ctx))
+			probeErr := s.pool.confirmUsageFresh(ctx)
+			liveErr = claudeSubUsageProbeOutcome(liveErr, probeErr)
 			if liveErr != nil {
+				// An advisor can otherwise hide a signed-out account behind the
+				// usage refusal. Only a fresh, definite not-ready result may trigger
+				// the independent auth check; cancellation, shutdown, and credits
+				// enabled retain precedence.
+				if req.AdvisorCacheProfile && errors.Is(probeErr, errClaudeSubUsageNotReady) && errors.Is(liveErr, errClaudeSubUsageNotReady) &&
+					!errors.Is(liveErr, context.Canceled) && !errors.Is(liveErr, context.DeadlineExceeded) &&
+					!errors.Is(liveErr, errClaudeSubPoolClosed) && !errors.Is(liveErr, errClaudeSubUsageCreditsEnabled) {
+					if authErr := s.pool.confirmAuthFresh(ctx); errors.Is(authErr, errClaudeSubSignedOut) {
+						// The current process was authenticated before the external
+						// logout. Retire it under the active lease; the caller must issue
+						// an explicit retry after logging in, never an automatic replay.
+						s.pool.retryCLILookup()
+						s.pool.retire(s.key, s)
+						return &claudeSubUsageGateError{err: authErr}
+					} else if errors.Is(authErr, context.Canceled) || errors.Is(authErr, context.DeadlineExceeded) || errors.Is(authErr, errClaudeSubPoolClosed) {
+						return authErr
+					}
+				}
 				// The poll budget, and possibly the fresh confirmation, is already
 				// spent, so the generic pre-output retry must not repeat it.
 				return &claudeSubUsageGateError{err: liveErr}

@@ -205,9 +205,13 @@ type ClaudeSubscriptionPool struct {
 	// acquire. It is tracked like every cleanup job so shutdown awaits it only to
 	// the stored deadline and reports the pool incomplete (retaining the lookup)
 	// when an injected lookup ignores cancellation.
-	cliJob *claudeSubJob
-	cli    claudeSubCLI
-	cliErr error
+	cliJob        *claudeSubJob
+	cli           claudeSubCLI
+	cliErr        error
+	cliNeedsRetry bool
+	// authJob is the pool-owned single-flight fresh auth check. It is bounded by
+	// the pool lifetime and tracked so shutdown cancels and joins it.
+	authJob *claudeSubJob
 
 	// Seams, defaulted in NewClaudeSubscriptionPool and overridden in tests so
 	// no test locates or starts a real claude CLI or relies on filesystem
@@ -315,21 +319,116 @@ func (p *ClaudeSubscriptionPool) isRunning() bool {
 // transient caller cancellation never poisons the cache; only pool shutdown
 // cancels the lookup, and shutdown awaits the job to the stored deadline.
 func (p *ClaudeSubscriptionPool) locateCLI(ctx context.Context) (claudeSubCLI, error) {
-	p.cliJob.start(func() error {
+	p.mu.Lock()
+	if p.state == claudeSubPoolRunning && p.cliNeedsRetry && p.cliJob.started {
+		select {
+		case <-p.cliJob.done:
+			p.cliJob = p.newTrackedJob()
+			p.cli = claudeSubCLI{}
+			p.cliErr = nil
+			p.cliNeedsRetry = false
+		default:
+		}
+	}
+	job := p.cliJob
+	p.mu.Unlock()
+
+	job.start(func() error {
 		cli, err := locateClaudeSubCLI(p.ctx, p.lookPath, p.run)
 		p.mu.Lock()
+		job.cli = cli
 		p.cli, p.cliErr = cli, err
+		if errors.Is(err, errClaudeSubSignedOut) {
+			p.cliNeedsRetry = true
+		}
 		p.mu.Unlock()
 		return err
 	})
 	select {
-	case <-p.cliJob.done:
+	case <-job.done:
 	case <-ctx.Done():
 		return claudeSubCLI{}, ctx.Err()
 	}
+	return job.cli, job.err
+}
+
+// confirmAuthFresh checks auth status without consulting the cached locator job.
+// It is used only after a fresh usage process also reports an unconfirmable
+// state, and therefore cannot turn a usage refusal into authorization. The
+// check is a pool-owned single-flight job: callers can stop waiting, but the
+// bounded operation remains tracked until it finishes or pool shutdown cancels
+// it.
+var claudeSubFreshAuthTimeout = 8 * time.Second
+
+func (p *ClaudeSubscriptionPool) confirmAuthFresh(ctx context.Context) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.cli, p.cliErr
+	if p.state != claudeSubPoolRunning {
+		p.mu.Unlock()
+		return errClaudeSubPoolClosed
+	}
+	cli, cliErr := p.cli, p.cliErr
+	if cliErr != nil {
+		p.mu.Unlock()
+		return cliErr
+	}
+	if cli.Path == "" {
+		p.mu.Unlock()
+		return errors.New("claude CLI path is unavailable for fresh auth status")
+	}
+	job := p.authJob
+	if job == nil || (job.started && claudeSubJobDone(job)) {
+		job = p.newTrackedJob()
+		p.authJob = job
+	}
+	job.startLocked(func() error {
+		authCtx, cancel := context.WithTimeout(p.ctx, claudeSubFreshAuthTimeout)
+		defer cancel()
+		out, err := p.run(authCtx, cli.Path, "auth", "status")
+		if p.ctx.Err() != nil {
+			return errClaudeSubPoolClosed
+		}
+		if authCtxErr := authCtx.Err(); authCtxErr != nil {
+			return authCtxErr
+		}
+		return claudeSubFreshAuthStatus(out, err)
+	})
+	p.mu.Unlock()
+	select {
+	case <-job.done:
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		p.mu.Lock()
+		closed := p.state != claudeSubPoolRunning
+		err := job.err
+		p.mu.Unlock()
+		if closed {
+			return errClaudeSubPoolClosed
+		}
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.ctx.Done():
+		return errClaudeSubPoolClosed
+	}
+}
+
+func claudeSubJobDone(job *claudeSubJob) bool {
+	select {
+	case <-job.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// retryCLILookup marks a signed-out cached locator for one synchronized retry.
+// The next acquire replaces the completed tracked job; it never closes or
+// mutates a job that another caller may still be waiting on.
+func (p *ClaudeSubscriptionPool) retryCLILookup() {
+	p.mu.Lock()
+	p.cliNeedsRetry = true
+	p.mu.Unlock()
 }
 
 // acquire returns the session for key, starting it from spec on first use. The

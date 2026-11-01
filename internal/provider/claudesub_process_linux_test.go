@@ -52,6 +52,14 @@ func TestClaudeSubLinuxHelperProcess(t *testing.T) {
 		pid := spawnClaudeSubHelperChild(t, "hold-open", true)
 		writeClaudeSubHelperFile(strconv.Itoa(pid))
 		os.Exit(0)
+	case "auth-false":
+		_, _ = os.Stdout.WriteString(`{"loggedIn":false}`)
+		os.Exit(0)
+	case "auth-exit-one":
+		_, _ = os.Stdout.WriteString(`{"loggedIn":false}`)
+		os.Exit(1)
+	case "auth-block":
+		blockClaudeSubHelper()
 	case "locator-env":
 		// Record which credential variables the locator child inherited.
 		var seen []string
@@ -151,6 +159,40 @@ var claudeSubLocatorCredentialVars = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AU
 // TestClaudeSubLocatorDropsCredentialEnv proves the locator child never inherits
 // the credential variables, so claude --version and claude auth status cannot
 // see or report an API key from steiner's environment.
+func TestClaudeSubRealRunnerPreservesExitOneAuthStdout(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	t.Setenv(claudeSubHelperModeEnv, "auth-exit-one")
+	out, err := claudeSubExecRunner(context.Background(), os.Args[0], "-test.run=TestClaudeSubLinuxHelperProcess")
+	if err == nil || claudeSubExitCode(err) != 1 {
+		t.Fatalf("claudeSubExecRunner() error = %v, want exit code 1", err)
+	}
+	if got := string(out); got != `{"loggedIn":false}` {
+		t.Fatalf("runner stdout = %q, want explicit auth status", got)
+	}
+	if err := claudeSubFreshAuthStatus(out, err); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubFreshAuthStatus() = %v, want signed-out error", err)
+	}
+}
+
+func TestClaudeSubRealRunnerPreservesExitZeroAuthStdout(t *testing.T) {
+	if os.Getenv(claudeSubHelperModeEnv) != "" {
+		t.Skip("helper process")
+	}
+	t.Setenv(claudeSubHelperModeEnv, "auth-false")
+	out, err := claudeSubExecRunner(context.Background(), os.Args[0], "-test.run=TestClaudeSubLinuxHelperProcess")
+	if err != nil {
+		t.Fatalf("claudeSubExecRunner() error = %v, want exit zero", err)
+	}
+	if got := string(out); got != `{"loggedIn":false}` {
+		t.Fatalf("runner stdout = %q, want explicit auth status", got)
+	}
+	if err := claudeSubFreshAuthStatus(out, err); !errors.Is(err, errClaudeSubSignedOut) {
+		t.Fatalf("claudeSubFreshAuthStatus() = %v, want signed-out error", err)
+	}
+}
+
 func TestClaudeSubLocatorDropsCredentialEnv(t *testing.T) {
 	if os.Getenv(claudeSubHelperModeEnv) != "" {
 		t.Skip("helper process")
