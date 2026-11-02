@@ -63,8 +63,6 @@ func applyEnvSearchOverrides(cfg *Config, lookup func(string) (string, bool)) {
 		dst *string
 		env string
 	}{
-		{&cfg.Search.GoogleCx, "GOOGLE_SEARCH_CX"},
-		{&cfg.Search.GoogleAPIKey, "GOOGLE_SEARCH_API_KEY"},
 		{&cfg.Search.KagiAPIKey, "KAGI_API_KEY"},
 		{&cfg.Search.BraveAPIKey, "BRAVE_API_KEY"},
 	}

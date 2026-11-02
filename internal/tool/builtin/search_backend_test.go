@@ -20,7 +20,6 @@ func TestNewSearchBackend(t *testing.T) {
 	tests := []struct {
 		name       string
 		config     config.SearchConfig
-		envSetup   map[string]string
 		wantType   reflect.Type
 		wantErrMsg string
 	}{
@@ -32,11 +31,6 @@ func TestNewSearchBackend(t *testing.T) {
 			name:       "unknown backend returns error",
 			config:     config.SearchConfig{Backend: "unknown"},
 			wantErrMsg: `search backend: unsupported backend "unknown"`,
-		},
-		{
-			name:       "google backend requires credentials",
-			config:     config.SearchConfig{Backend: "google"},
-			wantErrMsg: "missing google search cx",
 		},
 		{
 			name:       "kagi backend requires credentials",
@@ -67,10 +61,6 @@ func TestNewSearchBackend(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for key, val := range tt.envSetup {
-				t.Setenv(key, val)
-			}
-
 			searcher, err := NewSearchBackend(tt.config)
 
 			if tt.wantErrMsg != "" {

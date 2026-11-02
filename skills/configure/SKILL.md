@@ -21,7 +21,7 @@ Compact canonical reference for safe configuration edits.
 
 **Targets/precedence.** Project: `.steiner/config.yaml` or `--config <path>`; global: `~/.config/steiner/config.yaml`. Precedence: defaults, global, project, env, CLI; later wins; project needs trust. `--profile <name>` selects a profile; `STEINER_MODEL`, then `--model <ref>`, select the model; `--verbose` enables verbose logging; `--unsafe` disables `sandbox.enabled`. Expansion: `${VAR}`, `${VAR:-default}`, `$VAR`, `$$`; undefined fails except `${VAR:-}`.
 
-**Environment.** `STEINER_MODEL` -> model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> `limits`; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> `logging`. Search keys `GOOGLE_SEARCH_CX`, `GOOGLE_SEARCH_API_KEY`, `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty fields. Integer overrides parse.
+**Environment.** `STEINER_MODEL` -> model; `STEINER_SUB_AGENTS_MAX_PARALLEL` -> `sub_agent.max_parallel`; `STEINER_TUI_FPS` -> `tui.fps`; `STEINER_MAX_TURNS`, `STEINER_MAX_TOKENS`, `STEINER_TOOL_OUTPUT_MAX_BYTES`, `STEINER_MAX_PARALLEL_TOOLS` -> `limits`; `STEINER_LOG_LEVEL`, `STEINER_LOG_FILE`, `STEINER_COMPACTION_LOG_FILE` -> `logging`. Search keys `KAGI_API_KEY`, `BRAVE_API_KEY` fill empty fields. Integer overrides parse.
 
 **Path notation.** `<name>` is a map key; `<index>` is a list index. `unset` means no value.
 
@@ -127,10 +127,8 @@ Compact canonical reference for safe configuration edits.
 |`diagnostics.streams.internal`|bool|`false`|TUI internal error stream.|
 |`diagnostics.capture_bodies`|bool|`false`|Capture full message, tool, block, and prompt content.|
 |`context_management.read_annotations`|bool|`true`|Annotate identical full reads in carried context.|
-|`search.backend`|string|unset|`searxng`, `google`, `kagi`, or `brave`.|
+|`search.backend`|string|unset|`searxng`, `kagi`, or `brave`.|
 |`search.searxng_url`|string|unset|Required for `searxng`.|
-|`search.google_cx`|string|unset|Required for `google`.|
-|`search.google_api_key`|string|unset|Required for `google`; prefer env storage.|
 |`search.kagi_api_key`|string|unset|Required for `kagi`; prefer env storage.|
 |`search.brave_api_key`|string|unset|Required for `brave`; prefer env storage.|
 |`mcp.enabled`|bool|`true`|Enable MCP client.|

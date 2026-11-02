@@ -740,7 +740,6 @@ func TestCLIRunnerAcceptsConfiguredSearchCredentials(t *testing.T) {
 		name string
 		cfg  config.SearchConfig
 	}{
-		{name: "google", cfg: config.SearchConfig{Backend: "google", GoogleCx: "cx", GoogleAPIKey: "key"}},
 		{name: "kagi", cfg: config.SearchConfig{Backend: "kagi", KagiAPIKey: "key"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

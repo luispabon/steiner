@@ -38,8 +38,6 @@ Only the variables below override configuration; there is no generic `STEINER_` 
 | `STEINER_LOG_LEVEL` | Sets `logging.level`. |
 | `STEINER_LOG_FILE` | Sets `logging.file`. |
 | `STEINER_COMPACTION_LOG_FILE` | Sets `logging.compaction_log_file`. |
-| `GOOGLE_SEARCH_CX` | Fills `search.google_cx` when it is empty. |
-| `GOOGLE_SEARCH_API_KEY` | Fills `search.google_api_key` when it is empty. |
 | `KAGI_API_KEY` | Fills `search.kagi_api_key` when it is empty. |
 | `BRAVE_API_KEY` | Fills `search.brave_api_key` when it is empty. |
 | `STEINER_TRUST_PROJECT_CONFIG` | `1` or `true` trusts the current project's config for this run without prompting. Nothing is persisted. See [Project trust](#project-trust). |
@@ -355,10 +353,8 @@ Backend for the `web_search` tool. Setup is in [Web search](web-search.md). The 
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |
-| `search.backend` | string | unset | `searxng`, `google`, `kagi` or `brave`. Selects which fields below are required. |
+| `search.backend` | string | unset | `searxng`, `kagi` or `brave`. Selects which fields below are required. |
 | `search.searxng_url` | string | none | SearXNG base URL. Required for `searxng`. |
-| `search.google_cx` | string | none | Google Custom Search engine ID. Required for `google`. |
-| `search.google_api_key` | string | none | Google API key. Required for `google`. |
 | `search.kagi_api_key` | string | none | Kagi API key. Required for `kagi`. |
 | `search.brave_api_key` | string | none | Brave Search API key. Required for `brave`. |
 
