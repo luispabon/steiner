@@ -10,7 +10,7 @@ A skill is a Markdown instruction file that gives the agent a workflow for a spe
 | `plan` | Writes a planning bundle (`overview.md`, `plan.yaml`) under `.steiner/plans/YYYY-MM-DD_FEATURE_NAME/`. Plans only; never edits code. | Before implementing a feature, refactor, or migration. |
 | `implement` | Executes an approved plan folder step by step, delegating work to isolated sub-agents. | Planning is complete and approved. |
 | `review` | Reviews changes against the approved plan, runs approved fix passes, then offers planning-doc cleanup and PR creation. | Implementation is complete. |
-| `simplify` | Runs four parallel `explore` sub-agents (reuse, simplification, efficiency, altitude) over the branch's changes against a base branch (default `main`), then offers a fix and review loop. Does not hunt for bugs. | Cleaning up a feature branch before review. |
+| `simplify` | Runs four parallel `explore` sub-agents (reuse, simplification, efficiency, altitude) over the branch's changes against a base branch (default `main`), then offers a fix and review loop. Does not hunt for bugs. | A code-quality pass on any branch; after `/review` when using the plan, implement, review flow. |
 | `pull-request` | Detects the Git host, picks a target branch, writes a title and body from the branch commits, and opens a pull or merge request. | The branch is ready to publish. |
 | `security-audit` | Static, read-only security audit of a diff or the repository. See [Security audit](security-audit.md). | Before shipping a change, or when assessing unfamiliar code. |
 
@@ -22,7 +22,7 @@ Every skill starts disabled in a new interactive session.
 
 | Command | Effect |
 |---|---|
-| `/<skill> [args]` | Enables the skill and submits `/<skill> [args]` as your message. Also switches execution mode: `/plan` switches to `plan`, `/security-audit` keeps the current mode, and every other skill switches to `build`. See [Execution modes](execution-modes.md). |
+| `/<skill> [args]` | Enables the skill and submits `/<skill> [args]` as your message. Also switches execution mode: `/plan` switches to `plan`, `/security-audit` keeps the current mode, and every other skill switches to `build`. See [Execution modes](workflows.md#plan-and-build-modes). |
 | `/skill <name>` or `/skill +<name>` | Enables a skill without sending a message. |
 | `/skill -<name>` | Disables a skill. |
 | `/skills` | Lists available skills. |

@@ -54,7 +54,7 @@ Every type except `vision` receives `AGENTS.md`. Project context `extra_files` g
 - Children cannot delegate: `sub_agent`, `follow_up`, and `workflow_handoff` are never available to them.
 - `code` and `documentor` are the only types with `mutate`, and each runs in its own git worktree (see [Worktrees](#worktrees)).
 - With the sandbox active, `explore` and `evaluate` run `bash` with the project mounted read-only. `sanity_check` and `review` run `bash` with a writable project in `build` mode; their prompts tell them not to modify files, but that is an instruction, not enforcement. In `plan` mode every child's `bash` gets the read-only project. See [Sandboxing](sandboxing.md).
-- In `plan` mode, `code` and `documentor` are denied, and so is `follow_up` to them. See [Execution modes](execution-modes.md).
+- In `plan` mode, `code` and `documentor` are denied, and so is `follow_up` to them. See [Execution modes](workflows.md#what-each-mode-allows).
 - The child's full transcript is not copied into the main session; only the result is kept.
 
 ## Results and follow-ups

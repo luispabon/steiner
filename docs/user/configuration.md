@@ -407,7 +407,7 @@ Optional language servers for code intelligence tools. Disabled by default; serv
 
 ## `modes` block
 
-Execution mode at startup. Mode behaviour and switching are in [Execution modes](execution-modes.md).
+Execution mode at startup. Mode behaviour and switching are in [Execution modes](workflows.md#plan-and-build-modes).
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |

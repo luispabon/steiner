@@ -49,7 +49,7 @@ While a run started with `/oneshot` is active, the composer sends your input to 
 
 ## Pull request closeout
 
-With `oneshot.auto_pr: true` and a passing review, Steiner pushes the branch and opens a pull or merge request on GitHub, GitLab, or Azure DevOps, using your existing git credentials. GitHub needs the `gh` CLI and Azure DevOps needs `az`. It is off by default. See [Configuration](configuration.md#oneshot-block).
+With `oneshot.auto_pr: true` and a completed review phase, regardless of the review verdict, Steiner pushes the branch and opens a pull or merge request on GitHub, GitLab, or Azure DevOps, using your existing git credentials. GitHub needs the `gh` CLI and Azure DevOps needs `az`. It is off by default. See [Configuration](configuration.md#oneshot-block).
 
 The title is the first line of `overview.md` when that line is an H1 heading; otherwise the task summary, then the run slug, then `oneshot closeout`. The body is `overview.md` without its H1, followed by the review outcome after a `---` separator when there is one.
 

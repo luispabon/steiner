@@ -134,7 +134,7 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | `internal/provider`: cache hints, `PromptCacheKey` assignment, cache identity | `internals/prompt-caching.md`; `user/usage.md` if user-visible |
 | `internal/usagestats`: recorder, bucketing, persistence, retention, windows, surfacing | `user/usage.md`; `internals/prompt-caching.md` |
 | `internal/oneshot`: engine, phases, manifest, lock/resume, closeout, reports | both `oneshot.md`; config fields also `user/configuration.md` |
-| Execution modes: plan/build enforcement, mode switching, `modes.default` | both `execution-modes.md`; `user/sub-agent-delegation.md` "Safety" if the `code`/`follow_up` denial scope changed |
+| Execution modes: plan/build enforcement, mode switching, `modes.default` | `user/workflows.md`; `internals/execution-modes.md`; `user/sub-agent-delegation.md` "Safety" if the `code`/`follow_up` denial scope changed |
 | `internal/mcp`: manager, transport, naming, approval, tooldefs | both `mcp.md`; config fields also `user/configuration.md` |
 | `internal/lsp`: server types, config, tools, server lifecycle | both `lsp.md` (user page holds server setup examples); config fields also `user/configuration.md`; tool availability also `user/sub-agent-delegation.md` allowlists |
 | `internal/diagnostics`: envelope, streams, writer/rotation/retention | `user/configuration.md` "`diagnostics` block"; `internals/diagnostics.md`; `skills/configure/SKILL.md` |

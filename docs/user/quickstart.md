@@ -50,5 +50,5 @@ See [interactive mode](interactive.md) for controls and approval details.
 
 - Run one non-interactive request with `steiner --exec "summarise this repository"`.
 - Press `ctrl+f1` for help.
-- Press `shift+tab` to switch between plan and build modes. See [execution modes](execution-modes.md).
+- Press `shift+tab` to switch between plan and build modes. See [execution modes](workflows.md#plan-and-build-modes).
 - Type `/` in an empty composer to browse commands and [skills](skills.md).
