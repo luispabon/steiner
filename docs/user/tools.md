@@ -79,14 +79,12 @@ The per-call `bash` timeout is capped by `limits.tool_timeouts.bash` (600s by de
 
 `web_search` returns URL, title, and description results. It is off until you set `search.backend`, and it is registered only while sub-agent delegation is enabled (the default). When available, the `research` sub-agent gets it too.
 
-Set `search.backend` to `google`, `kagi`, `brave`, or `searxng`. Google accepts `GOOGLE_SEARCH_CX` and `GOOGLE_SEARCH_API_KEY`; Kagi accepts `KAGI_API_KEY`; Brave accepts `BRAVE_API_KEY`. You can set the corresponding keys in config instead. SearXNG needs `search.searxng_url` rather than an API key.
-
 ```yaml
 search:
   backend: brave
 ```
 
-The environment variables fill a key only when the config leaves it empty. Config validation fails if the selected backend has no credentials. See the [`search` block](configuration.md#search-block).
+Set `search.backend` to `google`, `kagi`, `brave`, or `searxng` and supply that backend's credentials. The unprefixed environment variables fill a key only when the config leaves it empty, and config validation fails if the selected backend has no credentials. Setup for each backend, a local SearXNG example, and troubleshooting are in [Web search](web-search.md); the field reference is the [`search` block](configuration.md#search-block).
 
 ## Custom tools
 

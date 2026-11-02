@@ -19,6 +19,7 @@
 
 **Tools and integrations**
 - [Built-in tools](user-tools)
+- [Web search](user-web-search)
 - [MCP](user-mcp)
 - [LSP](user-lsp)
 - [Desktop notifications](user-desktop-notifications)

@@ -140,7 +140,7 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | `internal/diagnostics`: envelope, streams, writer/rotation/retention | `user/configuration.md` "`diagnostics` block"; `internals/diagnostics.md`; `skills/configure/SKILL.md` |
 | `internal/notify`: platform driver or Service behaviour | both `desktop-notifications.md` (internals if driver interface, extension points, lifecycle, or error handling changed) |
 | `internal/oauth`: flow, token store, refresh, PKCE | `user/provider-and-model-setup.md` "Codex (ChatGPT sign-in)" if setup or token storage changed; `user/configuration.md` "Provider types" if auth behaviour changed |
-| Optional features: accent colour, web search, image paste, conversation forking, code simplification | `user/interactive.md` for accent colour, image paste and conversation forking; `user/tools.md` for web search; `user/skills.md` for code simplification |
+| Optional features: accent colour, web search, image paste, conversation forking, code simplification | `user/interactive.md` for accent colour, image paste and conversation forking; `user/web-search.md` for web search; `user/skills.md` for code simplification |
 | `claude_subscription` provider | both `claude-subscription.md`; `user/provider-and-model-setup.md`, `user/configuration.md` references; `index.md` links |
 | `internal/quota`, provider `quota_*` fetchers | `user/usage.md`; `internals/usage-dashboard.md` |
 | `internal/sandbox`: mounts, env, wrapper resolution | both `sandboxing.md` |
