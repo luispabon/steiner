@@ -164,7 +164,7 @@ Compact canonical reference for safe configuration edits.
 |`lsp.servers.<name>.file_extensions`|[]string|unset|Required non-empty extensions.|
 |`lsp.servers.<name>.root_markers`|[]string|unset|Required non-empty workspace markers.|
 |`lsp.servers.<name>.initialization_options`|map[string]any|unset|Server initialise options.|
-|`modes.default`|string|`build`|`plan` or `build`; plan writes only `.steiner/plans` and `.steiner/security`. See [Execution modes](../../docs/user/workflows.md#plan-and-build-modes).|
+|`modes.default`|string|`build`|`plan` or `build`; plan writes only `.steiner/plans` and `.steiner/security`. See [Execution modes](../../docs/user/working-with-steiner.md#plan-and-build-modes).|
 |`tui.fps`|int|`60`|Interactive renderer rate, 1 through 120.|
 |`tui.quota_refresh_interval`|duration|`5m`|Post-run usage refetch age; zero disables.|
 

@@ -7,7 +7,7 @@
 - [Claude subscription](user-claude-subscription)
 
 **Using Steiner**
-- [How to work with steiner](user-workflows)
+- [How to work with steiner](user-working-with-steiner)
 - [Interactive mode](user-interactive)
 - [CLI reference](user-cli)
 - [Skills](user-skills)

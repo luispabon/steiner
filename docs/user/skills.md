@@ -22,7 +22,7 @@ Every skill starts disabled in a new interactive session.
 
 | Command | Effect |
 |---|---|
-| `/<skill> [args]` | Enables the skill and submits `/<skill> [args]` as your message. Also switches execution mode: `/plan` switches to `plan`, `/security-audit` keeps the current mode, and every other skill switches to `build`. See [Execution modes](workflows.md#plan-and-build-modes). |
+| `/<skill> [args]` | Enables the skill and submits `/<skill> [args]` as your message. Also switches execution mode: `/plan` switches to `plan`, `/security-audit` keeps the current mode, and every other skill switches to `build`. See [Execution modes](working-with-steiner.md#plan-and-build-modes). |
 | `/skill <name>` or `/skill +<name>` | Enables a skill without sending a message. |
 | `/skill -<name>` | Disables a skill. |
 | `/skills` | Lists available skills. |

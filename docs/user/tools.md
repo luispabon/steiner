@@ -22,7 +22,7 @@ The model works through tools. Steiner owns each tool's input schema and result 
 | `mcp__<server>__<tool>` | Tools advertised by MCP servers | `mcp.enabled` and the server is enabled | Yes, except in build mode when the server's `approval` is `allow`, or when trusted annotations mark the tool safe |
 | Custom tools | Your own executables declared under `tools:` | Declared in config | No |
 
-See [Sandboxing](sandboxing.md) for what triggers an approval prompt and what approving does, [LSP](lsp.md), [MCP](mcp.md), [Advisor](advisor.md), and [Sub-agent delegation](sub-agent-delegation.md) for the conditional tools, and [Execution modes](workflows.md#what-each-mode-allows) for plan-mode restrictions.
+See [Sandboxing](sandboxing.md) for what triggers an approval prompt and what approving does, [LSP](lsp.md), [MCP](mcp.md), [Advisor](advisor.md), and [Sub-agent delegation](sub-agent-delegation.md) for the conditional tools, and [Execution modes](working-with-steiner.md#what-each-mode-allows) for plan-mode restrictions.
 
 Sub-agents get a per-type subset of these tools. MCP tools reach children only through `mcp.servers.<name>.sub_agents`.
 

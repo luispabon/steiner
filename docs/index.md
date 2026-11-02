@@ -9,7 +9,7 @@
 
 ## Using Steiner
 
-- [How to work with steiner](user/workflows.md)
+- [How to work with steiner](user/working-with-steiner.md)
 - [Interactive mode](user/interactive.md)
 - [CLI reference](user/cli.md)
 - [Skills](user/skills.md)

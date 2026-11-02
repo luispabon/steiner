@@ -74,7 +74,7 @@ In plan mode, sandboxed `bash` and custom tools see the project read-only, excep
 
 A symlinked `.steiner`, sandbox home, or sandbox `/tmp` is rejected rather than mounted writable. Steiner still writes saved bash output under `.steiner/tmp/bash-output/` itself, but sandboxed commands cannot write there in plan mode.
 
-Without a working sandbox, plan-mode `bash` and custom tools can write anywhere your user can, so plan mode is not a filesystem guarantee in that state. See [Execution modes](workflows.md#what-each-mode-allows).
+Without a working sandbox, plan-mode `bash` and custom tools can write anywhere your user can, so plan mode is not a filesystem guarantee in that state. See [Execution modes](working-with-steiner.md#what-each-mode-allows).
 
 ## Environment variables
 

@@ -40,7 +40,7 @@ Open the help overlay with `ctrl+f1` for a short list of key bindings.
 | `ctrl+o` | Open or close the usage dashboard (`r` refreshes; see [Usage](usage.md)) |
 | `ctrl+x` | Expand or collapse the latest delegation output |
 | `ctrl+g` | Take queued steers back into the composer |
-| `shift+tab` | Toggle between plan and build mode (see [Execution modes](workflows.md#plan-and-build-modes)) |
+| `shift+tab` | Toggle between plan and build mode (see [Execution modes](working-with-steiner.md#plan-and-build-modes)) |
 | `alt+m` | Open the model picker |
 | `alt+p` | Open the profile picker |
 | `alt+e` | Open or close the error log |
@@ -85,7 +85,7 @@ Type `/` in an empty composer to open the overlay of commands and skills. While 
 | `/usage` | Show provider subscription usage (same as `ctrl+o`) | [Usage](usage.md) |
 | `/model [ref]` | Switch the orchestrator model; no argument opens the picker | [Provider and model setup](provider-and-model-setup.md) |
 | `/profile [name]` | Switch the profile for future role assignments; no argument opens the picker | [Provider and model setup](provider-and-model-setup.md) |
-| `/mode [plan\|build]` | Set the execution mode; no argument toggles it | [Execution modes](workflows.md#plan-and-build-modes) |
+| `/mode [plan\|build]` | Set the execution mode; no argument toggles it | [Execution modes](working-with-steiner.md#plan-and-build-modes) |
 | `/orchestration [low\|standard]` | Set the sub-agent orchestration level; no argument opens the picker | [Sub-agent delegation](sub-agent-delegation.md) |
 | `/oneshot <task>` | Run an autonomous oneshot task; `/oneshot --resume <id>` resumes one | [Oneshot](oneshot.md) |
 | `/oneshot-resume` | Pick a oneshot run to resume | [Oneshot](oneshot.md) |

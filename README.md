@@ -20,7 +20,7 @@ Sub-agents are asynchronous by nature - a bunch can be spawned at the same time,
 
 ## Working on changes
 
-Work conversationally, use structured planning and review skills, or run a well-specified task unattended. See [How to work with steiner](docs/user/workflows.md).
+Work conversationally, use structured planning and review skills, or run a well-specified task unattended. See [How to work with steiner](docs/user/working-with-steiner.md).
 
 Agent skills are supported, and only injected when invoked (many agents bloat their context with skill slugs and descriptions to allow models to invoke them by themselves). Bundled [skills](docs/user/skills.md) cover implementation, review, simplification and security audits.
 
