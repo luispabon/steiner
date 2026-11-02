@@ -329,3 +329,22 @@ jobs:
             ${{ steps.go-cache.outputs.GOMODCACHE }}
             ${{ steps.go-cache.outputs.GOCACHE }}
           key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+
+  # scripts/ holds stdlib-only Node tooling (session log and diagnostics
+  # mining) plus the Python wiki renderer, which the Node tests drive through
+  # python3. None of it needs a Go toolchain, so this runs as its own job
+  # rather than a step in the Go jobs above; python3 comes from ubuntu-latest.
+  scripts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Test scripts
+        run: make test-scripts

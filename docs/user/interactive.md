@@ -9,7 +9,7 @@ Run `steiner` with no arguments to start the interactive terminal UI (TUI). For 
 - **Status bar**: below the composer. It shows the execution mode, context usage and key hints.
 - **Sidebar**: model and profile, context gauge, sandbox status, orchestration level, active skill, MCP and LSP server counts, sub-agents, performance and cache hit rate, repository branch and modified files. When a newer release is available, the sidebar shows `↑ <version> · upgrade` (see [Installation](installation.md)). Press `ctrl+b` to show or hide it. It is hidden when the terminal is narrower than 100 columns.
 
-![Steiner screenshot](../tui.png)
+![Steiner screenshot](../images/tui.png)
 
 ## Key bindings
 
