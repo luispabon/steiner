@@ -100,7 +100,7 @@ Requirements for a usable instance:
 
 This example runs a private instance on `http://localhost:8888`, reachable only from the local machine. It is a starting point, not a production deployment. For public or shared instances, use the upstream [container installation guide](https://docs.searxng.org/admin/installation-docker.html), which covers the full Compose template, Valkey for the limiter, and reverse proxy and TLS setup.
 
-Create the directory and generate a secret. The command refuses to overwrite an existing `.env` file:
+Run these commands in Bash, not fish, to create the directory and generate a secret. The command refuses to overwrite an existing `.env` file:
 
 ```bash
 mkdir -p searxng-local/searxng
