@@ -12,24 +12,24 @@ This page covers the four backends, their setup, a local SearXNG example, and ch
 - Exactly one backend selected in `search.backend`.
 - The credentials that backend needs, in config or in the environment.
 
-The unprefixed environment variables below fill a config field only when that field is empty, so config wins over the environment. The backend and SearXNG URL have no environment override. Config validation fails when the selected backend is missing a required field.
+The unprefixed environment variables below fill a config field only when that field is empty, so config wins over the environment. The backend and SearXNG URL have no environment override. Config validation fails when the selected backend is missing a required field. Restart Steiner after changing the config or its environment.
 
 ## Choose a backend
 
 | `search.backend` | Credentials | Notes |
 |------------------|-------------|-------|
-| `brave` | `search.brave_api_key` or `BRAVE_API_KEY` | Official API, paid, with monthly free credits. |
+| `brave` | `search.brave_api_key` or `BRAVE_API_KEY` | Official API; see [pricing](https://api-dashboard.search.brave.com/documentation/pricing). |
 | `google` | `search.google_cx` and `search.google_api_key`, or `GOOGLE_SEARCH_CX` and `GOOGLE_SEARCH_API_KEY` | Custom Search JSON API. Closed to new customers; existing customers only. |
 | `kagi` | `search.kagi_api_key` or `KAGI_API_KEY` | Paid API, billed separately from a Kagi subscription. |
 | `searxng` | `search.searxng_url` | Self-hosted metasearch. No API key. |
 
 ## Brave Search API
 
-Brave runs its own index and offers a prepaid API with free monthly credits.
+Brave offers a search API.
 
 1. Create an account and API key at [api-dashboard.search.brave.com/register](https://api-dashboard.search.brave.com/register).
 2. Create a key in the dashboard and copy it.
-3. Read the [Web Search getting started guide](https://api-dashboard.search.brave.com/app/documentation/web-search/get-started) and the [pricing page](https://api-dashboard.search.brave.com/documentation/pricing) for current limits. At the time of writing the price is $5 per 1,000 requests, with $5 of free credits applied each month.
+3. Read the [Web Search getting started guide](https://api-dashboard.search.brave.com/app/documentation/web-search/get-started) and the [pricing page](https://api-dashboard.search.brave.com/documentation/pricing) for current terms and limits.
 
 Configure the backend and export the key:
 
@@ -65,7 +65,7 @@ export GOOGLE_SEARCH_CX=your-search-engine-id
 export GOOGLE_SEARCH_API_KEY=your-api-key
 ```
 
-The API allows 100 queries per day for free, then $5 per 1,000 queries up to 10,000 per day, for existing customers. Google returns 10 results per request, and Steiner requests one page per 10 results, so `limit: 10` costs one query and `limit: 30` costs three. Keep the default limit when the daily quota is tight.
+See Google's [overview](https://developers.google.com/custom-search/v1/overview) for current pricing and usage limits. Steiner requests one page per 10 results, so `limit: 10` needs one page and `limit: 30` needs three. Failed requests may be retried.
 
 ## Kagi Search API
 
@@ -84,7 +84,7 @@ search:
 export KAGI_API_KEY=your-key
 ```
 
-Steiner's Kagi backend calls the legacy v0 endpoint, `https://kagi.com/api/v0/search`, with an `Authorization: Bot <key>` header. Kagi marks v0 as deprecated in favour of v1 (see [Search API (Legacy)](https://help.kagi.com/kagi/api/search-legacy.html)). Keys are issued from the same API portal, so no separate credential is needed, but if Kagi retires v0 the backend will need updating. The legacy page lists $25 per 1,000 queries.
+Steiner's Kagi backend calls the legacy v0 endpoint, `https://kagi.com/api/v0/search`, with an `Authorization: Bot <key>` header. Kagi marks v0 as deprecated in favour of v1 (see [Search API (Legacy)](https://help.kagi.com/kagi/api/search-legacy.html)). Keys are issued from the same API portal, so no separate credential is needed, but if Kagi retires v0 the backend will need updating. See the legacy page for current pricing and usage terms.
 
 ## SearXNG
 
@@ -153,7 +153,7 @@ docker compose up -d
 curl -sS 'http://localhost:8888/search?q=steiner&format=json' | head -c 300
 ```
 
-A 200 response with a JSON body containing a `results` array means the instance is usable.
+A JSON body containing a `results` array shows the JSON endpoint is responding. This preview does not show the HTTP status; check the full response if it is truncated.
 
 Configure Steiner:
 
@@ -165,7 +165,7 @@ search:
 
 ### Public instances
 
-Many public SearXNG instances disable JSON, and some block automated clients, so a public instance is often not usable for `web_search`. A 403 from an instance is the usual sign that JSON is disabled. Self-hosting avoids the problem and keeps your queries on your own machine, but the instance still depends on the upstream engines it queries.
+Many public SearXNG instances disable JSON, and some block automated clients, so a public instance may not be usable for `web_search`. A 403 can mean JSON is disabled, but can also have other causes, such as access controls or blocking automated clients. Self-hosting lets you configure the instance, but queries still leave your machine and are sent to upstream search engines.
 
 ## Verify
 
@@ -192,13 +192,13 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
   'http://localhost:8888/search?q=steiner&format=json'
 ```
 
-All four should return 200. A 403 from SearXNG almost always means the JSON format is not enabled.
+All four should return 200. A SearXNG 403 can have multiple causes, including disabled JSON or access controls.
 
 3. Start `steiner` and ask something that needs current information, such as "Search the web for the current Go release and summarise the changes". The `web_search` call appears in the transcript. `steiner tools` does not list `web_search` even when it is available, because `web_search` is added per run when a backend is configured.
 
 ## Troubleshooting
 
-The tool returns backend errors as `web_search: search: ...` and includes at most the first 100 bytes of an error response body. Use the `curl` call above when you need the full message.
+The tool returns backend errors prefixed with `web_search:`. Brave and SearXNG include at most the first 100 bytes of an error response body; Google and Kagi report the HTTP status without the body. The `curl` commands above discard the body. To inspect it, repeat the relevant command without `-o /dev/null` and handle the output as potentially sensitive.
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
@@ -210,12 +210,12 @@ The tool returns backend errors as `web_search: search: ...` and includes at mos
 | Google returns 403 | API not enabled in the key's project, key restricted to another API, or daily quota used | Enable the API, relax the key restriction or wait for the quota reset. |
 | Google returns 400 | Bad or missing `cx` | Re-copy the Programmable Search Engine ID. |
 | Kagi returns 401 or 403 | Key rejected or no API balance | Check the API portal and billing. |
-| SearXNG returns 403 | JSON format not enabled | Add `json` to `search.formats` and restart the container. |
+| SearXNG returns 403 | JSON format not enabled, access controls or automated-client blocking | Check the instance settings and logs. If JSON is disabled, add `json` to `search.formats` and restart the instance. |
 | SearXNG connection refused or times out | Container not running, port mismatch, or wrong host | `docker compose ps`, `docker compose logs searxng`, and check `search.searxng_url`. |
 | SearXNG returns an empty result list | Upstream engines blocking or throttling the instance | Run the same query in the instance's web UI and check its logs; try another instance. |
 
 ## Secrets and networking
 
 - Prefer environment variables or `${VAR}` references in config over literal keys in a file. The [environment variables](configuration.md#environment-variables) section lists the recognised names.
-- `steiner config` prints resolved values, including API keys and the SearXNG URL. Do not paste its output into bug reports or logs.
+- `steiner config` prints resolved values, including API keys and the SearXNG URL. Google search errors can also contain the request URL and API key. Do not paste these into bug reports or logs.
 - `web_search` honours `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`. `fetch_url` deliberately does not; see [Tools](tools.md#fetching-urls).
