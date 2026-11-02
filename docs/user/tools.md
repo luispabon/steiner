@@ -84,7 +84,7 @@ search:
   backend: brave
 ```
 
-Set `search.backend` to `google`, `kagi`, `brave`, or `searxng` and supply that backend's credentials. The unprefixed environment variables fill a key only when the config leaves it empty, and config validation fails if the selected backend has no credentials. Setup for each backend, a local SearXNG example, and troubleshooting are in [Web search](web-search.md); the field reference is the [`search` block](configuration.md#search-block).
+Set `search.backend` to `brave`, `kagi`, or `searxng` and supply that backend's credentials. The unprefixed environment variables fill a key only when the config leaves it empty, and config validation fails if the selected backend has no credentials. Setup for each backend, a local SearXNG example, and troubleshooting are in [Web search](web-search.md); the field reference is the [`search` block](configuration.md#search-block).
 
 ## Custom tools
 

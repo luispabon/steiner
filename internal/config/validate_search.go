@@ -10,7 +10,6 @@ func validateSearchConfig(problems *[]string, cfg SearchConfig) {
 	}
 
 	validBackends := map[string]bool{
-		"google":  true,
 		"kagi":    true,
 		"brave":   true,
 		"searxng": true,
@@ -21,13 +20,6 @@ func validateSearchConfig(problems *[]string, cfg SearchConfig) {
 	}
 
 	switch cfg.Backend {
-	case "google":
-		if cfg.GoogleCx == "" {
-			*problems = append(*problems, "search.backend is \"google\" but google_cx is not set")
-		}
-		if cfg.GoogleAPIKey == "" {
-			*problems = append(*problems, "search.backend is \"google\" but google_api_key is not set")
-		}
 	case "kagi":
 		if cfg.KagiAPIKey == "" {
 			*problems = append(*problems, "search.backend is \"kagi\" but kagi_api_key is not set")

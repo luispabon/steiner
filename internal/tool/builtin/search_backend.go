@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/deepnoodle-ai/dive/experimental/toolkit/google"
 	"github.com/deepnoodle-ai/dive/experimental/toolkit/kagi"
 	"github.com/deepnoodle-ai/wonton/web"
 
@@ -27,8 +26,6 @@ func NewSearchBackend(cfg config.SearchConfig) (web.Searcher, error) {
 	switch cfg.Backend {
 	case "":
 		return nil, nil
-	case "google":
-		return google.New(google.WithCredentials(cfg.GoogleCx, cfg.GoogleAPIKey))
 	case "kagi":
 		return kagi.New(kagi.WithKagiAPIKey(cfg.KagiAPIKey))
 	case "brave":

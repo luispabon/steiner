@@ -1086,33 +1086,17 @@ func TestValidateAdvisorConfig(t *testing.T) {
 
 func TestSearchConfigValidation(t *testing.T) {
 	tests := []struct {
-		name         string
-		backend      string
-		url          string
-		googleCx     string
-		googleAPIKey string
-		kagiAPIKey   string
-		braveAPIKey  string
-		wantErr      string
+		name        string
+		backend     string
+		url         string
+		kagiAPIKey  string
+		braveAPIKey string
+		wantErr     string
 	}{
 		{
-			name:         "google with env vars",
-			backend:      "google",
-			googleCx:     "test-cx",
-			googleAPIKey: "test-key",
-			wantErr:      "",
-		},
-		{
-			name:         "google missing google_cx",
-			backend:      "google",
-			googleAPIKey: "test-key",
-			wantErr:      "google_cx is not set",
-		},
-		{
-			name:     "google missing google_api_key",
-			backend:  "google",
-			googleCx: "test-cx",
-			wantErr:  "google_api_key is not set",
+			name:    "google backend is not supported",
+			backend: "google",
+			wantErr: `search.backend "google" is not supported`,
 		},
 		{
 			name:       "kagi with env var",
@@ -1203,12 +1187,10 @@ func TestSearchConfigValidation(t *testing.T) {
 					ReadAnnotations: true,
 				},
 				Search: SearchConfig{
-					Backend:      tt.backend,
-					SearxngURL:   tt.url,
-					GoogleCx:     tt.googleCx,
-					GoogleAPIKey: tt.googleAPIKey,
-					KagiAPIKey:   tt.kagiAPIKey,
-					BraveAPIKey:  tt.braveAPIKey,
+					Backend:     tt.backend,
+					SearxngURL:  tt.url,
+					KagiAPIKey:  tt.kagiAPIKey,
+					BraveAPIKey: tt.braveAPIKey,
 				},
 				Modes: ModesConfig{
 					Default: ExecutionModeBuild,
