@@ -16,7 +16,7 @@ To switch modes:
 - Press **Shift+Tab** to toggle. Open overlays take the key first.
 - Enter **`/mode`** to toggle, or **`/mode plan`** or **`/mode build`** to set a mode. Other arguments report an error and leave the mode unchanged.
 - Invoke **`/plan`** to switch to plan mode. Invoking any other skill, including a custom skill, switches to build mode, except `/security-audit`, which leaves the mode unchanged. See [Skills](skills.md).
-- Accept a workflow handoff to switch to build mode. It clears the conversation, can switch models, and starts the next step.
+- Accept a [workflow handoff](#structured-workflow) to switch to build mode.
 
 The footer badge and sidebar show the current mode, and a status line confirms switches. Restored sessions keep their saved mode. Set the startup mode with [`modes.default`](configuration.md#modes-block), which defaults to `build`.
 
@@ -37,11 +37,9 @@ The `documentor` sub-agent is denied in plan mode because it has `mutate`, even 
 
 ## Default workflow
 
-For everyday work, describe the task in the conversation without invoking a skill. Steiner checks whether you want a plan or an implementation, investigates, then summarizes its understanding and recommends an approach. Discuss and refine it until you approve; Steiner asks before editing.
+For everyday work, describe the task in the conversation without invoking a skill. Steiner investigates, proposes an approach, and agrees it with you before changing code; it then implements, verifies, and reports what changed. When sub-agents are enabled, Steiner may delegate implementation to `code` sub-agents in isolated worktrees, in parallel where work is independent. The `sub_agent.enabled` and `sub_agent.orchestration_level` settings affect how much work is delegated; see [Sub-agent delegation](sub-agent-delegation.md). You can ask for a plan only or discuss the task in plan mode first.
 
-For implementation, Steiner delegates work to sub-agents in isolated worktrees, in parallel where tasks are independent. It runs checks and a review, then reports what changed. The `sub_agent.enabled` and `sub_agent.orchestration_level` settings affect how much work is delegated. See [Sub-agent delegation](sub-agent-delegation.md).
-
-You can ask for a plan only, or use plan mode while discussing the work. In plan mode, once the requirements settle and you are ready to hand off, Steiner writes `.steiner/plans/<slug>/plan.md` and offers a handoff. Accepting clears the conversation, switches to build mode, and starts a fresh session to implement that file directly.
+In plan mode, Steiner can write the agreed plan to `.steiner/plans/<slug>/plan.md` and offer a [handoff](#structured-workflow) to a fresh build session.
 
 ## Structured workflow
 
@@ -51,7 +49,7 @@ For larger work that needs substantive planning and orchestration, use `/plan`, 
 2. **`/implement`** carries out the approved steps, delegating work to sub-agents in worktrees and checking changes as they land. It records progress and verification in `execution.md`. Steps marked `no_delegate` can be done directly.
 3. **`/review`** checks the result against the plan and for correctness. If there are blocking findings, it presents a consolidated fix plan for your approval. After a passing review, it offers closeout: stop, delete the planning folder, create a PR or MR, or both delete the folder and create a PR or MR. Deletion, pushing, and PR or MR creation require confirmation.
 
-At the end of `/plan` and `/implement`, a handoff modal offers **Accept**, **Change Model**, or **Dismiss**. Accept clears the conversation and starts the next skill on the same folder. Dismiss leaves you to start it yourself, for example with `/clear` followed by `/implement <folder>`. The handoff requires all sub-agents to have finished or been cancelled. Configure per-destination models with [`models.profiles.<profile>.workflow_handoff.<destination>`](configuration.md#models-block).
+At the end of `/plan` and `/implement`, a handoff modal offers **Accept: Clear + Implement** or **Accept: Clear + Review**, respectively, alongside **Change Model** and **Dismiss**. The default workflow's build handoff offers **Accept** instead. Accept clears the conversation, can switch models, and starts the next skill on the same folder, or implements `plan.md` directly for a build handoff. Dismiss leaves you to start it yourself, for example with `/clear` followed by `/implement <folder>`. The handoff requires all sub-agents to have finished or been cancelled. Configure per-destination models with [`models.profiles.<profile>.workflow_handoff.<destination>`](configuration.md#models-block).
 
 To resume, select `/implement` or `/review` without an argument to open a picker of plan folders.
 

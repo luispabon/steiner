@@ -7,9 +7,9 @@
 - [Claude subscription](user-claude-subscription)
 
 **Using Steiner**
+- [How to work with steiner](user-workflows)
 - [Interactive mode](user-interactive)
 - [CLI reference](user-cli)
-- [Execution modes](user-execution-modes)
 - [Skills](user-skills)
 - [Sub-agent delegation](user-sub-agent-delegation)
 - [Oneshot](user-oneshot)

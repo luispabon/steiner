@@ -191,4 +191,4 @@ Skip only if the advisor is disabled or unavailable. Include the advisor's note 
 
 ## Completion
 
-Report final status (`pass`/`pass_with_notes`/`fail`) and summary of changes made. No closeout actions (no planning-doc cleanup or PR creation). Use `/pull-request` to open or update a PR afterwards.
+Report final status (`pass`/`pass_with_notes`/`fail`) and summary of changes made. No closeout actions (no planning-doc cleanup or PR creation). Use `/pull-request` to open a PR afterwards, or push the commits to a PR that is already open.
