@@ -331,8 +331,9 @@ jobs:
           key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
 
   # scripts/ holds stdlib-only Node tooling (session log and diagnostics
-  # mining) whose tests need no Go toolchain, so they run as their own job
-  # rather than a step in the Go jobs above.
+  # mining) plus the Python wiki renderer, which the Node tests drive through
+  # python3. None of it needs a Go toolchain, so this runs as its own job
+  # rather than a step in the Go jobs above; python3 comes from ubuntu-latest.
   scripts:
     runs-on: ubuntu-latest
 
