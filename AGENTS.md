@@ -1,6 +1,6 @@
 # steiner - agent manual
 
-`steiner` is a minimal local-first Go coding agent. Optimize for bounded context, explicit tool use, and safe local execution.
+`steiner` is a Go coding agent for the terminal that works with hosted, subscription and local models. Optimize for bounded context, a stable cacheable prompt prefix, explicit tool use, and safe execution.
 
 ## Repo map
 
@@ -25,7 +25,7 @@ internal/output/         Terminal and machine-readable event output
 internal/prompt/         Context gathering, budgeting, assembly, compaction
 internal/provider/       Model transport
 internal/quota/          Subscription quota snapshots, history store, projections
-internal/sandbox/        Sandboxed execution: Docker, mounts, env isolation
+internal/sandbox/        Sandboxed execution: bubblewrap (Linux), mounts, env isolation
 internal/session/        Session and project-directory persistence
 internal/skill/          Skill discovery and loading
 internal/tool/           Registry, schema, policy, executor, output shaping
@@ -51,7 +51,7 @@ docs/                    Product/design docs and implementation notes
 * Tools must keep output bounded and summarized.
 * Skills are auxiliary context; they do not override user instructions, tool policy, repo code, or this file.
 * Sub-agents receive only explicitly passed context and cannot nest.
-* Mutation tools are approval-gated by default.
+* Tool access to paths outside the project root can require approval; in-project edits do not prompt for path approval.
 * **Prompt cache integrity is load-bearing** — protect the prefix:
   * Keep static sources (preamble, agents, project context, and, for exec and oneshot runs, skills) before dynamic sources (conversation, tool summaries); don't reorder `internal/prompt/source_plan.go`. Interactive sessions exclude skills from static assembly and append length-delimited skill blocks to the conversation instead.
   * No per-turn non-determinism in the prefix (preamble, tool definitions, skills, project context) — the preamble is memoized per session by `CachedSystemPreamble`.
@@ -134,7 +134,7 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | `internal/provider`: cache hints, `PromptCacheKey` assignment, cache identity | `internals/prompt-caching.md`; `user/usage.md` if user-visible |
 | `internal/usagestats`: recorder, bucketing, persistence, retention, windows, surfacing | `user/usage.md`; `internals/prompt-caching.md` |
 | `internal/oneshot`: engine, phases, manifest, lock/resume, closeout, reports | both `oneshot.md`; config fields also `user/configuration.md` |
-| Execution modes: plan/build enforcement, mode switching, `modes.default` | both `execution-modes.md`; `user/sub-agent-delegation.md` "Safety" if the `code`/`follow_up` denial scope changed |
+| Execution modes: plan/build enforcement, mode switching, `modes.default` | `user/working-with-steiner.md`; `internals/execution-modes.md`; `user/sub-agent-delegation.md` "Safety" if the `code`/`follow_up` denial scope changed |
 | `internal/mcp`: manager, transport, naming, approval, tooldefs | both `mcp.md`; config fields also `user/configuration.md` |
 | `internal/lsp`: server types, config, tools, server lifecycle | both `lsp.md` (user page holds server setup examples); config fields also `user/configuration.md`; tool availability also `user/sub-agent-delegation.md` allowlists |
 | `internal/diagnostics`: envelope, streams, writer/rotation/retention | `user/configuration.md` "`diagnostics` block"; `internals/diagnostics.md`; `skills/configure/SKILL.md` |

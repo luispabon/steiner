@@ -1,6 +1,6 @@
 # Execution modes internals
 
-User guide: [Execution modes](../user/execution-modes.md).
+User guide: [Execution modes](../user/working-with-steiner.md#plan-and-build-modes).
 
 ## Prompt and cache mechanics
 

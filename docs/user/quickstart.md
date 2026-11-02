@@ -42,7 +42,7 @@ steiner
 
 If prompted to trust the project, review its configuration changes before accepting. This trust prompt is interactive only.
 
-Describe a small task, such as updating a project README, and press `enter`. When a file change needs approval, press `y` to approve once, `a` to allow the tool for the session, or `n` to deny it. Review the resulting edit in your project. To exit, use `/exit` or press `ctrl+c` while idle.
+Describe a small task, such as updating a project README, and press `enter`. When a tool accesses a path outside the project or a sandboxed command is denied, you may be asked for approval: press `y` to approve once, `a` to allow the tool for the session, or `n` to deny it. Review the resulting edit in your project. To exit, use `/exit` or press `ctrl+c` while idle.
 
 See [interactive mode](interactive.md) for controls and approval details.
 
@@ -50,5 +50,5 @@ See [interactive mode](interactive.md) for controls and approval details.
 
 - Run one non-interactive request with `steiner --exec "summarise this repository"`.
 - Press `ctrl+f1` for help.
-- Press `shift+tab` to switch between plan and build modes. See [execution modes](execution-modes.md).
+- Press `shift+tab` to switch between plan and build modes. See [execution modes](working-with-steiner.md#plan-and-build-modes).
 - Type `/` in an empty composer to browse commands and [skills](skills.md).

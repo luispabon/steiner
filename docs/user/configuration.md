@@ -122,7 +122,7 @@ A map of named provider connections. The key is an arbitrary name that `models.d
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |
 | `providers.<name>.type` | string | none | Required. One of `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`. See [Provider types](#provider-types). |
-| `providers.<name>.base_url` | string | per type | API endpoint. Required for `openai_compat`, `ollama`, `lmstudio`, `litellm` and `anthropic`. |
+| `providers.<name>.base_url` | string | per type | API endpoint. Required for `openai_compat`, `ollama`, `lmstudio` and `litellm`. |
 | `providers.<name>.api_key` | string | none | API key. Prefer `api_key_env` or `${VAR}` to keep secrets out of files. |
 | `providers.<name>.api_key_env` | string | none | Name of an environment variable holding the API key, read at startup. `api_key` wins when both are set. |
 | `providers.<name>.headers.<header>` | string | none | Extra HTTP header sent with every request to this provider. |
@@ -141,7 +141,7 @@ A map of named provider connections. The key is an arbitrary name that `models.d
 | `litellm` | required | optional | LiteLLM gateway. A 429 without `Retry-After` has its delay parsed from the body; budget-exhaustion 429s are not retried. |
 | `openrouter` | default `https://openrouter.ai/api/v1` | required | OpenRouter gateway. |
 | `openai` | default `https://api.openai.com/v1` | required | Native OpenAI API. |
-| `anthropic` | required: `https://api.anthropic.com/v1` | required | Native Anthropic API. Steiner appends `/messages` to `base_url`, so the `/v1` suffix is part of the value. Config validation accepts a missing `base_url`, but the provider then fails to start with `base URL is required`. |
+| `anthropic` | default `https://api.anthropic.com/v1` | required | Native Anthropic API. Steiner appends `/messages` to `base_url`, so a custom `base_url` must include the `/v1` suffix. |
 | `opencode_go` | default `https://opencode.ai/zen/go/v1` | required | OpenCode Go gateway. Create the key in your OpenCode account. |
 | `opencode_zen` | default `https://opencode.ai/zen/v1` | required | OpenCode Zen gateway. |
 | `codex` | optional | ignored | OpenAI Codex subscription. Sign in with `steiner login codex`; authentication uses that OAuth login, not `api_key`. |
@@ -184,7 +184,7 @@ No profile is required. Every declared profile must set `default_model`, and pro
 | `models.profiles.<profile>.default_model` | string | none | Required in every declared profile. A model reference, also the fallback for roles without their own assignment. |
 | `models.profiles.<profile>.advisor` | string | unset | Model for advisor calls; falls back to `default_model`. |
 | `models.profiles.<profile>.compaction_fallback` | string | unset | Model for compaction when the prompt cache is presumed cold. Needs a positive `compaction_fallback_after` on the main model's provider. Unset disables it; it does not fall back to `default_model`. |
-| `models.profiles.<profile>.sub_agents.<type>` | string | unset | Model per agent type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. An empty string disables an optional type. Unset types use `default_model`. |
+| `models.profiles.<profile>.sub_agents.<type>` | string | unset | Model per agent type: `explore`, `research`, `code`, `documentor`, `evaluate`, `sanity_check`, `review`, `vision`. Empty or unset assignments use `default_model`, except `vision`, which requires an explicit assignment. |
 | `models.profiles.<profile>.oneshot.<phase>` | string | unset | Model per oneshot phase: `plan`, `implement`, `review`. Unset phases use `default_model`. |
 | `models.profiles.<profile>.workflow_handoff.<destination>` | string | unset | Model per handoff destination: `implement`, `review`, `build`. Unset destinations use `default_model`. |
 
@@ -407,7 +407,7 @@ Optional language servers for code intelligence tools. Disabled by default; serv
 
 ## `modes` block
 
-Execution mode at startup. Mode behaviour and switching are in [Execution modes](execution-modes.md).
+Execution mode at startup. Mode behaviour and switching are in [Execution modes](working-with-steiner.md#plan-and-build-modes).
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |

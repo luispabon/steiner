@@ -28,7 +28,7 @@ Compact canonical reference for safe configuration edits.
 |Path|Type|Default|Semantics|
 |-|-|-|-|
 |`providers.<name>.type`|string|unset|Required. `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`; `gemini` validates but is unsupported at runtime.|
-|`providers.<name>.base_url`|string|per type|Required for `openai_compat`, `ollama`, `lmstudio`, `litellm`, and `anthropic`. Defaults exist for `openai`, `openrouter`, `opencode_go`, and `opencode_zen`.|
+|`providers.<name>.base_url`|string|per type|Required for `openai_compat`, `ollama`, `lmstudio`, and `litellm`. Defaults exist for `openai`, `anthropic`, `openrouter`, `opencode_go`, and `opencode_zen`.|
 |`providers.<name>.api_key`|string|unset|Credential; prefer `api_key_env`. Required for providers that need credentials.|
 |`providers.<name>.api_key_env`|string|unset|Environment variable containing the credential.|
 |`providers.<name>.headers.<key>`|string|unset|One extra header value.|
@@ -164,7 +164,7 @@ Compact canonical reference for safe configuration edits.
 |`lsp.servers.<name>.file_extensions`|[]string|unset|Required non-empty extensions.|
 |`lsp.servers.<name>.root_markers`|[]string|unset|Required non-empty workspace markers.|
 |`lsp.servers.<name>.initialization_options`|map[string]any|unset|Server initialise options.|
-|`modes.default`|string|`build`|`plan` or `build`; plan writes only `.steiner/plans` and `.steiner/security`. See [Execution modes](../../docs/user/execution-modes.md).|
+|`modes.default`|string|`build`|`plan` or `build`; plan writes only `.steiner/plans` and `.steiner/security`. See [Execution modes](../../docs/user/working-with-steiner.md#plan-and-build-modes).|
 |`tui.fps`|int|`60`|Interactive renderer rate, 1 through 120.|
 |`tui.quota_refresh_interval`|duration|`5m`|Post-run usage refetch age; zero disables.|
 

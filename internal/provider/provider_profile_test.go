@@ -77,7 +77,7 @@ func TestProviderProfileTable(t *testing.T) {
 			name:               "anthropic",
 			typ:                config.ProviderTypeAnthropic,
 			wantModelsDevID:    "anthropic",
-			wantBaseURL:        "",
+			wantBaseURL:        "https://api.anthropic.com/v1",
 			wantGeneric:        false,
 			wantFixedTransport: nil,
 			wantLiveProbe:      false,

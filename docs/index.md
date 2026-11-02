@@ -9,9 +9,9 @@
 
 ## Using Steiner
 
+- [How to work with steiner](user/working-with-steiner.md)
 - [Interactive mode](user/interactive.md)
 - [CLI reference](user/cli.md)
-- [Execution modes](user/execution-modes.md)
 - [Skills](user/skills.md)
 - [Sub-agent delegation](user/sub-agent-delegation.md)
 - [Oneshot](user/oneshot.md)

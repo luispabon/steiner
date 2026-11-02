@@ -16,7 +16,7 @@ It is not a scanner. It does not build, test, install, use the network, run expl
 
 With no mode or an unclear argument, Steiner asks which scope to audit before doing any work.
 
-Invoking `/security-audit` does not change the [execution mode](execution-modes.md). Plan mode allows writes to `.steiner/security/`, so the audit works in either mode.
+Invoking `/security-audit` does not change the [execution mode](working-with-steiner.md#plan-and-build-modes). Plan mode allows writes to `.steiner/security/`, so the audit works in either mode.
 
 ## Requirements
 

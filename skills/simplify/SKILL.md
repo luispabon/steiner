@@ -1,6 +1,6 @@
 ---
 name: simplify
-description: Analyze branch changes for code quality improvements across reuse, simplification, efficiency, and altitude categories using parallel sub-agents. Produces a report and fix plan, then runs an approved fix/review loop. Use on a feature branch to clean up before review.
+description: Analyze branch changes for code quality improvements across reuse, simplification, efficiency, and altitude categories using parallel sub-agents. Produces a report and fix plan, then runs an approved fix/review loop. Use on any branch independently of the planning flow; in the /plan, /implement, /review flow, run it after /review.
 ---
 
 # Code Simplification Analysis
@@ -191,4 +191,4 @@ Skip only if the advisor is disabled or unavailable. Include the advisor's note 
 
 ## Completion
 
-Report final status (`pass`/`pass_with_notes`/`fail`) and summary of changes made. No closeout actions (no planning-doc cleanup or PR creation — that is the review skill's domain).
+Report final status (`pass`/`pass_with_notes`/`fail`) and summary of changes made. No closeout actions (no planning-doc cleanup or PR creation). Use `/pull-request` to open a PR afterwards, or push the commits to a PR that is already open.

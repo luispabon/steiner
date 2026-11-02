@@ -351,6 +351,48 @@ func TestResolveProviderConfigAppliesOpencodeZenDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveProviderConfigAppliesAnthropicDefaults(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"claude": {Type: config.ProviderTypeAnthropic},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"claude-model": {Provider: "claude", ID: "claude-sonnet-4-5"},
+			},
+		},
+	}
+
+	rm, err := resolveReference(&cfg, "claude-model", false, nil)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.ProviderConfig.BaseURL, "https://api.anthropic.com/v1"; got != want {
+		t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveProviderConfigPreservesExplicitAnthropicBaseURL(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"claude": {Type: config.ProviderTypeAnthropic, BaseURL: "https://anthropic-proxy.example/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"claude-model": {Provider: "claude", ID: "claude-sonnet-4-5"},
+			},
+		},
+	}
+
+	rm, err := resolveReference(&cfg, "claude-model", false, nil)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.ProviderConfig.BaseURL, "https://anthropic-proxy.example/v1"; got != want {
+		t.Fatalf("ProviderConfig.BaseURL = %q, want %q (explicit value preserved)", got, want)
+	}
+}
+
 // TestResolveEffectiveLimits tests derivation logic for missing token limits.
 func TestResolveEffectiveLimits(t *testing.T) {
 	tests := []struct {
