@@ -1,17 +1,38 @@
 # Sub-agent delegation
 
-Steiner can hand bounded tasks to isolated child agents. The main agent acts as orchestrator: it writes a brief, dispatches a specialist, then checks and integrates the result. Only the child's compact result returns to the main conversation, which keeps its context small.
+Steiner can hand bounded tasks to isolated sub-agents. Only each sub-agent's compact result returns to the main conversation, which keeps its context small.
 
-Delegation is enabled by default. Turn it off with `sub_agent.enabled: false`; limits such as `max_turns`, `max_tokens`, `max_parallel`, and `max_follow_ups` are listed under [Configuration](configuration.md#sub_agent-block).
+Terms used on this page: the **orchestrator** is the agent you talk to. The **sub-agents** it dispatches are also called **children**.
 
-The [advisor](advisor.md) is separate: it is a single stronger-model call with no tools, not a child agent.
+Delegation is enabled by default. Turn it off with `sub_agent.enabled: false`. Limits such as `max_turns`, `max_tokens`, `max_parallel`, and `max_follow_ups` are listed under [Configuration](configuration.md#sub_agent-block).
 
-## Tools
+The [advisor](advisor.md) is separate: it is a single stronger-model call with no tools, not a sub-agent.
 
-With delegation enabled the main agent gets two tools:
+## Using delegation
 
-- **`sub_agent`** dispatches a specialist. Its `type` picks the specialist; the brief has `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`. `vision` also needs `image_id`. An optional `group` delivers results from the same batch together.
-- **`follow_up`** sends a new message to an existing child by `agent_id`, keeping its conversation history.
+You never call sub-agents yourself. Describe the task as usual and the orchestrator decides what to delegate. A typical run:
+
+1. You ask for a change, for example "Add a `--json` flag to `steiner worktrees --list`, with tests".
+2. The orchestrator sends `explore` sub-agents to find the relevant code, and may use `evaluate` or the advisor to settle the design.
+3. It dispatches `code` sub-agents, each in its own [worktree](#worktrees). Each one gets a card in the transcript and a row in the sidebar (see [In the TUI](#in-the-tui)).
+4. As results arrive, the orchestrator checks them, often with `review` and `sanity_check` sub-agents, integrates the work into your branch, and reports back.
+
+To steer it:
+
+- Say what you want in the prompt, for example "do this yourself, no sub-agents" or "use a separate sub-agent for the tests".
+- Use `/orchestration low` when you want the orchestrator to do most of the work itself and delegate only when it sees fit. See [Orchestration levels](#orchestration-levels).
+- Stop a sub-agent that is going the wrong way. See [Stopping sub-agents](#stopping-sub-agents).
+- Remove leftover worktrees when you are done. See [Cleaning up](#cleaning-up).
+
+## The orchestrator
+
+The orchestrator reads your request, investigates and plans, then splits the work into tasks for specialist sub-agents. It reviews their results and integrates them. How strongly it is pushed to delegate depends on the [orchestration level](#orchestration-levels). For which model to use, see [Choosing the orchestrator model](#choosing-the-orchestrator-model).
+
+## Orchestration levels
+
+`sub_agent.orchestration_level` sets how strongly the orchestrator is steered towards delegating. `standard` (default) tells it to delegate by default. `low` drops that steering but keeps the sub-agent roster and briefing guidance, so delegation is at the model's discretion. Tools are the same at both levels.
+
+Change it for the current session with `/orchestration` (picker) or `/orchestration low|standard`. Mid-conversation, Steiner asks for confirmation first because the change invalidates the cached prompt prefix.
 
 ## Sub-agent types
 
@@ -22,8 +43,8 @@ With delegation enabled the main agent gets two tools:
 | `code` | Implement a scoped change in its own worktree | Yes |
 | `documentor` | Write or update documentation in its own worktree | Documentation files only |
 | `evaluate` | Analyse a focused sub-problem or compare approaches | No |
-| `sanity_check` | Run checks and verify a result | Not intended to |
-| `review` | Review implemented changes for bugs, regressions, and missing tests | Not intended to |
+| `sanity_check` | Run checks and verify a result | No (by instruction only; see [Safety](#safety)) |
+| `review` | Review implemented changes for bugs, regressions, and missing tests | No (by instruction only; see [Safety](#safety)) |
 | `vision` | Describe or answer questions about a pasted image | No |
 
 `evaluate` is for scoped analysis, not overall task planning. `review` examines changes; it does not plan or implement.
@@ -57,6 +78,13 @@ Every type except `vision` receives `AGENTS.md`. Project context `extra_files` g
 - In `plan` mode, `code` and `documentor` are denied, and so is `follow_up` to them. See [Execution modes](working-with-steiner.md#what-each-mode-allows).
 - The child's full transcript is not copied into the main session; only the result is kept.
 
+## Tools
+
+With delegation enabled, the orchestrator gets two tools. The model fills them in; you never call them directly.
+
+- **`sub_agent`** dispatches a sub-agent. Its `type` picks the kind of sub-agent; the brief has `objective`, `context`, `deliverable`, `constraints`, `success_criteria`, and `checks`. `vision` also needs `image_id`. An optional `group` delivers results from the same batch together.
+- **`follow_up`** sends a new message to an existing child by `agent_id`, keeping its conversation history.
+
 ## Results and follow-ups
 
 A child returns its `output`, a `status`, and a `reason` on failure or cancellation. `code` and `documentor` results also carry `worktree_path`, a project-relative path such as `.steiner/worktrees/<process>/<branch>/<agent-id>`, so the orchestrator can read the worktree directly.
@@ -75,7 +103,7 @@ A child returns its `output`, a `status`, and a `reason` on failure or cancellat
 
 ## Background sub-agents
 
-In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return immediately with status `running` (or `queued`) and the `agent_id`. The result arrives later as a separate message, so the main agent can keep working. `--exec` runs wait for each child.
+In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return immediately with status `running` (or `queued`) and the `agent_id`. The result arrives later as a separate message, so the orchestrator can keep working. `--exec` runs wait for each child.
 
 - At most `sub_agent.max_parallel` children run at once (default `3`); further ones queue in order. More than twice that many running plus queued is an error.
 - Calls in one response that share a `group` name are delivered together once all have finished. A group name cannot be reused later in the same conversation.
@@ -86,7 +114,7 @@ In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return i
 
 - Each child has a card in the transcript; grouped cards share a frame. A "sub-agent(s) finished" row marks each delivery: `✓` complete, `✗` failed, `?` lost on restart.
 - The sidebar lists running, queued, and finished children. Click a row to jump to its card.
-- `/agents` or `alt+a` opens a filterable picker of all sub-agent cards. `alt+.` and `alt+,` cycle through running children. `alt+/` expands or collapses the card you jumped to for 10 seconds. On macOS, the terminal must send Option as Alt.
+- `/agents` or `alt+a` opens a filterable picker of all sub-agent cards. `alt+.` and `alt+,` cycle through running children. Within 10 seconds of a jump, `alt+/` expands or collapses the card you jumped to. On macOS, the terminal must send Option as Alt.
 - The status bar shows finished and total children, the queued count, and failures.
 - A child with no activity for 5 minutes shows `stalled Nm`. This is display-only.
 - While waiting, the activity row shows `waiting on N sub-agents`. If results arrive after the main turn failed, a `⚠` row says results are waiting; send a message to continue.
@@ -97,11 +125,13 @@ While results are pending, session switching, forking, and `/clear` are refused.
 
 With at least one child active, **Esc**, **Ctrl-C**, or **Ctrl-D** opens the stop dialog instead of interrupting or exiting. It lists each active child by type, ID, and task, and offers:
 
-- **Stop current turn**: shown only while the main agent is generating. Stops the main turn, leaves children running, and holds their results until you send a message.
+- **Stop current turn**: shown only while the orchestrator is generating. Stops the main turn, leaves children running, and holds their results until you send a message.
 - **Stop one** (select a child): for `code` and `documentor`, choose **Stop and keep worktree** (default) or **Stop and discard worktree**; for other types, **Stop**.
 - **Stop all delegates**: stops every child and keeps all worktrees.
 - **Stop entire run**: stops every child and the main turn.
-- **Dismiss**: closes the dialog. **Keep working** on a confirmation returns to the list.
+- **Dismiss**: closes the dialog.
+
+On a confirmation prompt, **Keep working** returns to the list.
 
 Discarding a worktree deletes its directory and branch, including uncommitted and unmerged work, and the child cannot be resumed with `follow_up` afterwards.
 
@@ -143,7 +173,7 @@ Documentation that must ship in the same commit as a code change belongs with th
 
 ## `vision` type
 
-`vision` is offered only when the selected profile sets `sub_agents.vision` to a vision-capable model. When you paste an image, the TUI shows its ID (for example `img-1`) below your message; the main agent passes it as `image_id`.
+`vision` is offered only when the selected profile sets `sub_agents.vision` to a vision-capable model. When you paste an image, the TUI shows its ID (for example `img-1`) below your message; the orchestrator passes it as `image_id`.
 
 Children can also read image files with `read`. The image is visible only on the next model request, so a child re-reads the file if it needs the image again.
 
@@ -162,18 +192,61 @@ models:
         vision: anthropic/<vision-model-id>
 ```
 
+### Choosing the orchestrator model
+
+Use a mid- to high-tier model as the orchestrator (`default_model`). Stronger models follow the delegation guidance, plan, and write briefs better. Model families also differ: some delegate readily, others tend to do the work themselves. Try the models you have access to and keep the ones that delegate well. A Balanced model is usually enough for routine work; for hard, multi-step jobs a Strong orchestrator plans and briefs noticeably better.
+
 ### Recommended model tiers
 
-These are suggestions; any type can use any model.
+These tiers suit typical work. Any role can use any model: drop a tier on routine tasks to save cost or allowance, and raise one for hard jobs. Profiles make the switch quick; see the example below.
 
-| Tier | Types | Why |
+| Tier | Roles | Why |
 |---|---|---|
 | Fast | `explore`, `code`, `sanity_check` | Search, scoped changes, and checks; speed matters more than depth. |
 | Balanced | `research`, `documentor`, `review`, `vision` | Synthesis and judgement. |
-| Strongest | `evaluate` | Deep reasoning on scoped sub-problems. |
+| Strong | `evaluate` | Deep reasoning on scoped sub-problems. |
+| Strongest | `advisor` | Deep reasoning on the whole task. |
 
-## Orchestration level
+`advisor` is not a sub-agent type; set it with the profile's `advisor` field, not under `sub_agents`.
 
-`sub_agent.orchestration_level` sets how strongly the main agent is steered towards delegating. `standard` (default) tells it to act as orchestrator and delegate by default. `low` drops that steering but keeps the sub-agent roster and briefing guidance, so delegation is at the model's discretion. Tools are the same at both levels.
+An example from the author's setup, which spreads use across Claude Pro, ChatGPT Plus, and OpenCode Go allowances (aliases are defined in the [full example](provider-and-model-setup.md#full-example-local-codex-claude-subscription-and-opencode-go)):
 
-Change it for the current session with `/orchestration` (picker) or `/orchestration low|standard`. Mid-conversation, Steiner asks for confirmation first because the change invalidates the cached prompt prefix.
+- **`default`** handles most routine work. Simpler tasks tolerate cheaper models, so `research`, `review`, and `vision` drop to Fast and `evaluate` to Balanced.
+- **`smarter`** is for harder jobs: a Strong orchestrator, the Strongest advisor, and `code` and `evaluate` one tier up.
+- **`cheaper`** runs everything on one Fast model, with a Strong advisor as a safety net.
+
+```yaml
+models:
+  profiles:
+    default:
+      default_model: terra          # Balanced
+      advisor: opus                 # Strong
+      sub_agents:
+        explore: deepseek-flash     # Fast
+        code: deepseek-flash        # Fast
+        sanity_check: haiku         # Fast
+        research: luna              # Fast
+        review: haiku               # Fast
+        vision: luna                # Fast
+        documentor: terra           # Balanced
+        evaluate: sonnet            # Balanced
+
+    smarter:
+      default_model: opus           # Strong
+      advisor: astra                # Strongest
+      sub_agents:
+        explore: deepseek-flash     # Fast
+        research: deepseek-flash    # Fast
+        sanity_check: haiku         # Fast
+        vision: luna                # Fast
+        code: sonnet                # Balanced
+        review: terra               # Balanced
+        documentor: terra           # Balanced
+        evaluate: sol               # Strong
+
+    cheaper:
+      default_model: deepseek-flash # Fast
+      advisor: sol                  # Strong
+```
+
+Start a hard job with `--profile smarter`. Mid-session, `/profile smarter` switches the sub-agent and advisor models; switch the orchestrator separately with `/model`.
