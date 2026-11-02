@@ -28,21 +28,24 @@ const interactive = [
 	"",
 ].join("\n");
 
-function render() {
+function render({ repository = "owner/steiner", readmeText = readme } = {}) {
 	const repo = mkdtempSync(join(tmpdir(), "steiner-wiki-render-"));
 	const wiki = join(repo, "wiki");
 	mkdirSync(wiki);
-	writeFileSync(join(repo, "README.md"), readme);
+	writeFileSync(join(repo, "README.md"), readmeText);
 	mkdirSync(join(repo, "docs", "user"), { recursive: true });
 	writeFileSync(join(repo, "docs", "user", "interactive.md"), interactive);
 	mkdirSync(join(repo, "docs", "images", "diagrams"), { recursive: true });
 	writeFileSync(join(repo, "docs", "images", "screenshot.png"), "screenshot-bytes");
 	writeFileSync(join(repo, "docs", "images", "tui.png"), "tui-bytes");
 	writeFileSync(join(repo, "docs", "images", "diagrams", "flow.png"), "flow-bytes");
-	execFileSync("python3", [script], {
-		cwd: repo,
-		env: { ...process.env, WIKI_DIR: wiki, GITHUB_REPOSITORY: "owner/steiner" },
-	});
+	const env = { ...process.env, WIKI_DIR: wiki };
+	if (repository === null) {
+		delete env.GITHUB_REPOSITORY;
+	} else {
+		env.GITHUB_REPOSITORY = repository;
+	}
+	execFileSync("python3", [script], { cwd: repo, env });
 	return { repo, wiki };
 }
 
@@ -86,5 +89,24 @@ test("copies the whole docs/images tree and links land on copied files", () => {
 		}
 	} finally {
 		rmSync(repo, { recursive: true, force: true });
+	}
+});
+
+test("reads GITHUB_REPOSITORY only when rewriting an AGENTS.md link", () => {
+	const withoutEnv = render({ repository: null });
+	try {
+		assert.match(readFileSync(join(withoutEnv.wiki, "Home.md"), "utf8"), /!\[Steiner screenshot\]\(images\/screenshot\.png\)/);
+	} finally {
+		rmSync(withoutEnv.repo, { recursive: true, force: true });
+	}
+	const agents = "# steiner\n\nSee [contributing](AGENTS.md#work-loop).\n";
+	const withEnv = render({ readmeText: agents });
+	try {
+		assert.match(
+			readFileSync(join(withEnv.wiki, "Home.md"), "utf8"),
+			/\[contributing\]\(https:\/\/github\.com\/owner\/steiner\/blob\/main\/AGENTS\.md#work-loop\)/,
+		);
+	} finally {
+		rmSync(withEnv.repo, { recursive: true, force: true });
 	}
 });

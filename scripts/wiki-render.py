@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Render repository Markdown and the docs/images tree into a wiki checkout.
 
-Run from the repository root with WIKI_DIR set to the wiki clone and
-GITHUB_REPOSITORY set to owner/repo.
+Run from the repository root with WIKI_DIR set to the wiki clone.
+GITHUB_REPOSITORY is read only when an AGENTS.md link is rewritten.
 """
 
 import os
@@ -12,7 +12,6 @@ import shutil
 
 root = pathlib.Path.cwd()
 out = pathlib.Path(os.environ["WIKI_DIR"])
-repository = os.environ["GITHUB_REPOSITORY"]
 docs = root / "docs"
 images = docs / "images"
 
@@ -39,7 +38,7 @@ def rewrite(text, source):
         path, sep, anchor = target.partition("#")
         suffix = "#" + anchor if sep else ""
         if path == "AGENTS.md":
-            replacement = "https://github.com/" + repository + "/blob/main/AGENTS.md"
+            replacement = "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/blob/main/AGENTS.md"
             return match.group("prefix") + replacement + suffix + match.group("close")
         if not path:
             return match.group(0)
