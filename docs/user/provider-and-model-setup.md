@@ -30,22 +30,22 @@ You can declare several providers of the same type, such as two `openai_compat` 
 
 ### Provider types
 
-| Type | Connects to | `base_url` | Authentication |
-| --- | --- | --- | --- |
-| **Hosted APIs** | | | |
-| `openai` | OpenAI API | Default `https://api.openai.com/v1` | Required API key |
-| `anthropic` | Anthropic API | Default `https://api.anthropic.com/v1` | Required API key |
-| `openrouter` | OpenRouter gateway | Default `https://openrouter.ai/api/v1` | Required API key |
-| `opencode_go` | OpenCode Go gateway | Default `https://opencode.ai/zen/go/v1` | Required API key |
-| `opencode_zen` | OpenCode Zen gateway | Default `https://opencode.ai/zen/v1` | Required API key |
-| **Subscriptions** | | | |
-| [`codex`](#codex-chatgpt-sign-in) | ChatGPT backend | Optional, ignored for ChatGPT sign-in | OAuth login |
-| [`claude_subscription`](#claude-subscription) | Signed-in local `claude` CLI | Rejected | Claude Code login |
-| **Self-hosted and gateways** | | | |
-| `ollama` | Ollama's OpenAI-compatible API | Required | Optional API key |
-| `lmstudio` | LM Studio's local server | Required | Optional API key |
-| `litellm` | LiteLLM gateway | Required | Optional API key |
-| `openai_compat` | OpenAI chat-completions compatible server | Required | Optional API key |
+| Type                                          | Connects to                               | `base_url`                              | Authentication    |
+| --------------------------------------------- | ----------------------------------------- | --------------------------------------- | ----------------- |
+| **Hosted APIs**                               |                                           |                                         |                   |
+| `openai`                                      | OpenAI API                                | Default `https://api.openai.com/v1`     | Required API key  |
+| `anthropic`                                   | Anthropic API                             | Default `https://api.anthropic.com/v1`  | Required API key  |
+| `openrouter`                                  | OpenRouter gateway                        | Default `https://openrouter.ai/api/v1`  | Required API key  |
+| `opencode_go`                                 | OpenCode Go gateway                       | Default `https://opencode.ai/zen/go/v1` | Required API key  |
+| `opencode_zen`                                | OpenCode Zen gateway                      | Default `https://opencode.ai/zen/v1`    | Required API key  |
+| **Subscriptions**                             |                                           |                                         |                   |
+| [`codex`](#codex-chatgpt-sign-in)             | ChatGPT backend                           | Optional, ignored for ChatGPT sign-in   | OAuth login       |
+| [`claude_subscription`](#claude-subscription) | Signed-in local `claude` CLI              | Rejected                                | Claude Code login |
+| **Self-hosted and gateways**                  |                                           |                                         |                   |
+| `ollama`                                      | Ollama's OpenAI-compatible API            | Required                                | Optional API key  |
+| `lmstudio`                                    | LM Studio's local server                  | Required                                | Optional API key  |
+| `litellm`                                     | LiteLLM gateway                           | Required                                | Optional API key  |
+| `openai_compat`                               | OpenAI chat-completions compatible server | Required                                | Optional API key  |
 
 `gemini` passes validation but cannot run, so don't use it.
 
@@ -295,45 +295,7 @@ A profile under `models.profiles` assigns models to roles: `default_model`, `adv
 - Selecting an undeclared profile, including `default`, is an error.
 - `default_model` is mandatory and is the fallback model for everything undeclared on that profile.
 
-```yaml
-  profiles:
-    default:
-      default_model: terra
-      advisor: opus
-
-      compaction_fallback: deepseek-flash
-
-      sub_agents:
-        code: deepseek-flash
-        evaluate: sonnet
-        explore: deepseek-flash
-        research: deepseek-flash
-        review: haiku
-        sanity_check: haiku
-        vision: luna
-        documentor: terra
-
-      oneshot:
-        plan: sonnet
-        implement: sonnet
-        review: sonnet
-
-      workflow_handoff:
-        implement: sonnet
-        review: sonnet
-
-    cheaper:
-      default_model: deepseek-flash
-      advisor: sol
-
-    smarter:
-      default_model: opus
-      advisor: astra
-
-      compaction_fallback: deepseek-flash
-```
-
-`local-only` has no `sub_agents.code` entry, so its `code` sub-agents use `ollama/qwen2.5-coder:14b`, not the OpenRouter model from `default`. Select it at startup with `--profile local-only`.
+For a complete configuration with several profiles, see the [full example](#full-example-local-codex-claude-subscription-and-opencode-go). Its `cheaper` profile sets no `sub_agents`, so every sub-agent uses its `default_model`, `deepseek-flash`. Select a profile at startup with `--profile <name>`.
 
 ### Choosing the active model
 
@@ -384,15 +346,15 @@ Generic types (`openai_compat`, `ollama`, `litellm`) front arbitrary backends, s
 
 ## Cache commands and files
 
-| Command | What it does |
-| --- | --- |
-| `steiner models refresh` | Refresh discovered models for every configured provider. Prints `ok` or `failed` per provider; exits non-zero only when every provider fails. |
-| `steiner models status` | Print `fresh`, `stale`, or `missing` for each provider's discovery cache, without refreshing. |
-| `steiner model-metadata status` | Show the models.dev cache path, size, age, freshness, and model count. |
-| `steiner model-metadata refresh` | Download fresh models.dev metadata. |
-| `steiner model-metadata clear` | Delete the models.dev cache files. |
-| `steiner cache refresh` | Run `model-metadata refresh` and `models refresh` together. |
-| `steiner model inspect <reference>` | Show how an alias or raw reference resolves: provider, backend ID, transport, limits, and where each fact came from. |
+| Command                             | What it does                                                                                                                                  |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `steiner models refresh`            | Refresh discovered models for every configured provider. Prints `ok` or `failed` per provider; exits non-zero only when every provider fails. |
+| `steiner models status`             | Print `fresh`, `stale`, or `missing` for each provider's discovery cache, without refreshing.                                                 |
+| `steiner model-metadata status`     | Show the models.dev cache path, size, age, freshness, and model count.                                                                        |
+| `steiner model-metadata refresh`    | Download fresh models.dev metadata.                                                                                                           |
+| `steiner model-metadata clear`      | Delete the models.dev cache files.                                                                                                            |
+| `steiner cache refresh`             | Run `model-metadata refresh` and `models refresh` together.                                                                                   |
+| `steiner model inspect <reference>` | Show how an alias or raw reference resolves: provider, backend ID, transport, limits, and where each fact came from.                          |
 
 When discovery is off, `steiner models refresh` and `steiner models status` report that discovery is disabled. See the [CLI reference](cli.md) for flags.
 
@@ -400,8 +362,152 @@ When discovery is off, `steiner models refresh` and `steiner models status` repo
 
 These files live under `$XDG_CACHE_HOME` or `$XDG_STATE_HOME` when set, otherwise under the defaults shown. They can be deleted safely. A refresh rebuilds the cache directories; deleting `model-popularity.json` resets picker ranking history, which cannot be recovered by a refresh.
 
-| Path | Contents |
-| --- | --- |
-| `~/.cache/steiner/provider-models/` | One discovery cache file per provider. |
-| `~/.cache/steiner/model-metadata/` | models.dev metadata. |
+| Path                                           | Contents                                     |
+| ---------------------------------------------- | -------------------------------------------- |
+| `~/.cache/steiner/provider-models/`            | One discovery cache file per provider.       |
+| `~/.cache/steiner/model-metadata/`             | models.dev metadata.                         |
 | `~/.local/state/steiner/model-popularity.json` | Model switch counts used for picker ranking. |
+
+
+## Full example: Local, Codex, Claude subscription and OpenCode Go
+
+```yaml
+providers:
+  local:
+    type: openai_compat
+    base_url: http://localhost:9105/v1
+    timeout: 240s
+
+  opencode-go:
+    type: opencode_go
+    api_key_env: OPENCODE_API_KEY
+
+  codex:
+    type: codex
+
+  claude:
+    type: claude_subscription
+
+models:
+  definitions:
+    qwen-35b:
+      provider: local
+      id: qwen3.6-35b-a3b
+      prompt_suffix: "<|think_off|>"
+
+      advanced:
+        limits:
+          context_window: 65536
+          max_output_tokens: 16384
+
+    haiku:
+      provider: claude
+      id: claude-haiku-5-5
+      advanced:
+        reasoning:
+          effort: high
+        limits:
+          # Over 100k, haiku costs double, but it needs room to avoid frequent compactions
+          compaction_threshold_tokens: 262144
+
+    sonnet:
+      provider: claude
+      id: claude-sonnet-5-5
+      advanced:
+        reasoning:
+          effort: medium
+
+    opus:
+      provider: claude
+      id: claude-opus-5-5
+      advanced:
+        reasoning:
+          effort: high
+
+    deepseek-flash:
+      provider: opencode-go
+      id: deepseek-v4.1-flash
+      advanced:
+        reasoning:
+          effort: high
+
+    luna:
+      provider: codex
+      id: gpt-6-luna
+      advanced:
+        reasoning:
+          effort: high
+
+    sol:
+      provider: codex
+      id: gpt-6.1-sol
+      advanced:
+        reasoning:
+          effort: high
+
+    terra:
+      provider: codex
+      id: gpt-6.1-terra
+      advanced:
+        reasoning:
+          effort: high
+
+    astra:
+      provider: codex
+      id: gpt-6-astra
+      advanced:
+        reasoning:
+          effort: high
+
+  profiles:
+    default:
+      default_model: terra
+      advisor: opus
+
+      compaction_fallback: deepseek-flash
+
+      sub_agents:
+        code: deepseek-flash
+        evaluate: sonnet
+        explore: deepseek-flash
+        research: luna
+        review: haiku
+        sanity_check: haiku
+        vision: luna
+        documentor: terra
+
+      oneshot:
+        plan: terra
+        implement: terra
+        review: terra
+
+      workflow_handoff:
+        implement: terra
+        review: terra
+
+    cheaper:
+      default_model: deepseek-flash
+      advisor: sol
+
+    smarter:
+      default_model: opus
+      advisor: astra
+
+      compaction_fallback: sonnet
+
+      sub_agents:
+        code: sonnet
+        evaluate: sol
+        explore: deepseek-flash
+
+        # A raw provider/model-id reference with default settings; no alias needed
+        research: opencode-go/minimax-m3
+
+        review: terra
+        sanity_check: haiku
+        vision: luna
+        documentor: terra
+
+    local:
+      default_model: qwen-35b
+```
