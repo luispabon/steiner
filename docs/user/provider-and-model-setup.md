@@ -266,21 +266,24 @@ Raw references work everywhere a model is chosen: profile roles, `--model`, `STE
 
 ### Aliases
 
-An alias under `models.definitions` gives a model a short or stable name, or stores settings a raw reference cannot carry. Aliases are optional:
+Steiner does model discovery - it will query the provider API to provide it with a list of available models. You do not strictly need to add any model configuration at all on the config file to use and reference models.
+
+An alias under `models.definitions` gives a model a short or stable name, or stores settings a raw reference cannot carry, like a thinking level, or a compaction threshold.
+
 
 ```yaml
 models:
   definitions:
     careful:
       provider: openai
-      id: <model-id>
+      id: my-model
       advanced:
         reasoning:
           effort: high
           supported_efforts: [low, medium, high]
 ```
 
-Without the reasoning setting, `openai/<model-id>` would do the same job. For every alias field, see the [`models` block](configuration.md#models-block).
+Without the reasoning setting, `openai/my-model` would do the same job. For every alias field, see the [`models` block](configuration.md#models-block).
 
 ### Profiles
 
@@ -290,16 +293,44 @@ A profile under `models.profiles` assigns models to roles: `default_model`, `adv
 - Profiles are independent. A named profile does not inherit from `default`; a role it omits falls back to its own `default_model`.
 - Without a `default` profile, no roles are assigned unless you pick a profile, and the orchestrator model must come from `--model`, `STEINER_MODEL`, or `/model`.
 - Selecting an undeclared profile, including `default`, is an error.
+- `default_model` is mandatory and is the fallback model for everything undeclared on that profile.
 
 ```yaml
-models:
   profiles:
     default:
-      default_model: ollama/qwen2.5-coder:14b
+      default_model: terra
+      advisor: opus
+
+      compaction_fallback: deepseek-flash
+
       sub_agents:
-        code: openrouter/openai/gpt-4o
-    local-only:
-      default_model: ollama/qwen2.5-coder:14b
+        code: deepseek-flash
+        evaluate: sonnet
+        explore: deepseek-flash
+        research: deepseek-flash
+        review: haiku
+        sanity_check: haiku
+        vision: luna
+        documentor: terra
+
+      oneshot:
+        plan: sonnet
+        implement: sonnet
+        review: sonnet
+
+      workflow_handoff:
+        implement: sonnet
+        review: sonnet
+
+    cheaper:
+      default_model: deepseek-flash
+      advisor: sol
+
+    smarter:
+      default_model: opus
+      advisor: astra
+
+      compaction_fallback: deepseek-flash
 ```
 
 `local-only` has no `sub_agents.code` entry, so its `code` sub-agents use `ollama/qwen2.5-coder:14b`, not the OpenRouter model from `default`. Select it at startup with `--profile local-only`.
