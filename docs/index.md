@@ -22,6 +22,7 @@
 ## Tools and integrations
 
 - [Built-in tools](user/tools.md)
+- [Web search](user/web-search.md)
 - [MCP](user/mcp.md)
 - [LSP](user/lsp.md)
 - [Desktop notifications](user/desktop-notifications.md)

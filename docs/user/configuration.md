@@ -351,7 +351,7 @@ Baseline context management. Applies to the parent and to each sub-agent. See [C
 
 ## `search` block
 
-Backend for the `web_search` tool. Setup is in [Tools](tools.md). The key fields can be filled from the unprefixed environment variables in [Environment variables](#environment-variables) when empty.
+Backend for the `web_search` tool. Setup is in [Web search](web-search.md). The key fields can be filled from the unprefixed environment variables in [Environment variables](#environment-variables) when empty.
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |

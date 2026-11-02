@@ -30,7 +30,7 @@ Agent skills are supported, and only injected when invoked (many agents bloat th
 
 Steiner's built-in tools cover all of the basics for file-finding, traversal, reading, editing and scripting, in a safe manner that keeps the agent's context from bloating.
 
-It also supports web searches via various providers, like SearxNG (run locally or hosted), Brave API and others.
+It also supports [web searches](docs/user/web-search.md) via various providers, like SearxNG (run locally or hosted), Brave API and others.
 
 There's also support for [MCP servers](docs/user/mcp.md) for integrating external tooling, as well as [LSP](docs/user/lsp.md) for code navigation.
 
