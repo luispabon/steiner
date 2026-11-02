@@ -6,7 +6,7 @@ It's built in Go and distributed as a single, compact binary that can update its
 
 Steiner's not a vibe-coder's tool; it's a systems engineer's assistant for getting real work done with quality results.
 
-![Steiner screenshot](docs/screenshot.png)
+![Steiner screenshot](docs/images/screenshot.png)
 
 ## Providers, models and delegation
 
