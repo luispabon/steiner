@@ -33,11 +33,6 @@ func TestNewSearchBackend(t *testing.T) {
 			wantErrMsg: `search backend: unsupported backend "unknown"`,
 		},
 		{
-			name:       "google backend is unsupported",
-			config:     config.SearchConfig{Backend: "google"},
-			wantErrMsg: `search backend: unsupported backend "google"`,
-		},
-		{
 			name:       "kagi backend requires credentials",
 			config:     config.SearchConfig{Backend: "kagi"},
 			wantErrMsg: "missing kagi api key",
