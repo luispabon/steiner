@@ -329,3 +329,21 @@ jobs:
             ${{ steps.go-cache.outputs.GOMODCACHE }}
             ${{ steps.go-cache.outputs.GOCACHE }}
           key: go-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-go.outputs.go-version }}-${{ github.job }}-${{ hashFiles('go.sum') }}
+
+  # scripts/ holds stdlib-only Node tooling (session log and diagnostics
+  # mining) whose tests need no Go toolchain, so they run as their own job
+  # rather than a step in the Go jobs above.
+  scripts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Test scripts
+        run: make test-scripts
