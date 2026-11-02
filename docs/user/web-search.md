@@ -100,13 +100,12 @@ Requirements for a usable instance:
 
 This example runs a private instance on `http://localhost:8888`, reachable only from the local machine. It is a starting point, not a production deployment. For public or shared instances, use the upstream [container installation guide](https://docs.searxng.org/admin/installation-docker.html), which covers the full Compose template, Valkey for the limiter, and reverse proxy and TLS setup.
 
-Create the directory, generate a secret and write the Compose file:
+Create the directory and generate a secret. The command refuses to overwrite an existing `.env` file:
 
 ```bash
 mkdir -p searxng-local/searxng
 cd searxng-local
-printf 'SEARXNG_SECRET=%s\n' "$(openssl rand -hex 32)" > .env
-chmod 600 .env
+(umask 077; set -C; printf 'SEARXNG_SECRET=%s\n' "$(openssl rand -hex 32)" > .env)
 ```
 
 `compose.yaml`:
@@ -198,7 +197,7 @@ All four should return 200. A SearXNG 403 can have multiple causes, including di
 
 ## Troubleshooting
 
-The tool returns backend errors prefixed with `web_search:`. Brave and SearXNG include at most the first 100 bytes of an error response body; Google and Kagi report the HTTP status without the body. The `curl` commands above discard the body. To inspect it, repeat the relevant command without `-o /dev/null` and handle the output as potentially sensitive.
+The tool returns backend errors prefixed with `web_search:`. Brave and SearXNG include at most the first 100 bytes of an error response body; Google and Kagi report the HTTP status without the body, and Google errors may also include the request URL and API key. These errors may be sent to the model provider as tool results. The `curl` commands above discard the body. To inspect it, repeat the relevant command without `-o /dev/null` and handle the output as potentially sensitive.
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
@@ -217,5 +216,5 @@ The tool returns backend errors prefixed with `web_search:`. Brave and SearXNG i
 ## Secrets and networking
 
 - Prefer environment variables or `${VAR}` references in config over literal keys in a file. The [environment variables](configuration.md#environment-variables) section lists the recognised names.
-- `steiner config` prints resolved values, including API keys and the SearXNG URL. Google search errors can also contain the request URL and API key. Do not paste these into bug reports or logs.
+- `steiner config` prints resolved values, including API keys and the SearXNG URL. Google transport and API errors can contain the request URL and API key and may be sent to the model provider as tool results. Do not paste these into bug reports or logs.
 - `web_search` honours `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`. `fetch_url` deliberately does not; see [Tools](tools.md#fetching-urls).
