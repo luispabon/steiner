@@ -10,7 +10,6 @@ import (
 )
 
 func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width int) string {
-	_, statusWidth := b.renderDelegationHeaderStatus(dd)
 	meta := b.renderDelegationHeaderMeta(dd)
 	metaWidth := lipgloss.Width(meta)
 
@@ -26,7 +25,7 @@ func (b *contentBuffer) renderDelegationHeader(dd *delegationDisplayState, width
 		gap = 2
 	}
 	leftWidth := lipgloss.Width(left)
-	operationWidth := width - leftWidth - statusWidth - metaWidth - gap
+	operationWidth := width - leftWidth - metaWidth - gap
 	if operationWidth < 0 {
 		operationWidth = 0
 	}
@@ -132,7 +131,7 @@ func (b *contentBuffer) renderDelegationHeaderStatus(dd *delegationDisplayState)
 
 func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) string {
 	status, _ := b.renderDelegationHeaderStatus(dd)
-	parts := []string{status}
+	var parts []string
 	switch dd.status {
 	case "active":
 		if dd.cacheHitOK {
@@ -167,10 +166,13 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 		metaParts := delegationFailedMeta(dd)
 		parts = append(parts, b.renderStyledDelegationMeta(metaParts))
 	}
-	if dd.status == "active" && len(parts) > 1 {
-		return parts[0] + " " + strings.Join(parts[1:], " · ")
+	// The status glyph trails the meta block so it sits in a fixed column at
+	// the right edge of the header.
+	body := strings.Join(parts, " · ")
+	if body == "" {
+		return status
 	}
-	return strings.Join(parts, " ")
+	return body + " " + status
 }
 
 func (b *contentBuffer) renderStyledDelegationMeta(metaParts []string) string {

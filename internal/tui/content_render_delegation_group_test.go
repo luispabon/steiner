@@ -43,17 +43,17 @@ func TestRenderDelegationGroupFooter(t *testing.T) {
 		wantSubs []string
 		wantNot  []string
 	}{
-		{"complete", groupOf("discovery", "complete", "complete"), 60, []string{"discovery", "2 agents", "✓ 2/2"}, nil},
+		{"complete", groupOf("discovery", "complete", "complete"), 60, []string{"discovery", "2 agents", "2/2 ✓"}, nil},
 		{"running", groupOf("discovery", "complete", "active"), 60, []string{"discovery", "1/2"}, []string{"✓"}},
-		{"failed", groupOf("discovery", "complete", "failed"), 60, []string{"✗ 1 failed"}, nil},
-		{"budget", groupOf("discovery", "budget_exhausted", "complete"), 60, []string{"! 1 budget exhausted"}, nil},
+		{"failed", groupOf("discovery", "complete", "failed"), 60, []string{"1 failed ✗"}, nil},
+		{"budget", groupOf("discovery", "budget_exhausted", "complete"), 60, []string{"1 budget exhausted !"}, nil},
 		{"unlabelled", groupOf("", "complete", "complete"), 60, []string{"2 agents"}, nil},
 		{"name truncated first", groupOf("a-very-long-group-name", "complete", "complete"), 30, []string{"…", "2 agents"}, []string{"a-very-long-group-name"}},
 		{"stats dropped", groupOf("discovery", "complete", "complete"), 18, []string{"discovery"}, []string{"agents"}},
 		{"tiny", groupOf("discovery", "complete", "complete"), 1, nil, []string{"discovery", "agents"}},
 		{"full width", groupOf("discovery", "complete", "complete"), 11, []string{"discovery"}, []string{"agents"}},
 		{"wide name", groupOf("探索作業探索作業探索作業", "complete", "complete"), 30, []string{"…", "2 agents"}, []string{"探索作業探索作業探索作業"}},
-		{"singular", groupOf("discovery", "complete"), 60, []string{"1 agent · ✓ 1/1"}, []string{"agents"}},
+		{"singular", groupOf("discovery", "complete"), 60, []string{"1 agent · 1/1 ✓"}, []string{"agents"}},
 		{"active wins", groupOf("discovery", "active", "failed"), 60, []string{"0/2"}, []string{"✗", "failed"}},
 	}
 	b := groupTestBuffer()
@@ -217,6 +217,32 @@ func TestRenderDelegationGroupFooterGlyphColours(t *testing.T) {
 			}
 			if strings.Contains(out, b.styles.FgDim.Background(bg).Render(tt.glyph)) {
 				t.Errorf("glyph uses label colour instead of state colour: %q", out)
+			}
+		})
+	}
+}
+
+func TestRenderDelegationGroupFooterGlyphLast(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+	b := groupTestBuffer()
+	tests := []struct {
+		name     string
+		statuses []string
+		glyph    string
+	}{
+		{"complete", []string{"complete", "complete"}, "✓"},
+		{"failed", []string{"complete", "failed"}, "✗"},
+		{"budget", []string{"budget_exhausted", "complete"}, "!"},
+		{"running", []string{"complete", "active"}, spinnerFrames[0]},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := groupOf("discovery", tt.statuses...)
+			lines := strings.Split(ansi.Strip(b.renderDelegationGroupFooter(g, 60, lipgloss.Color("#00aa88"))), "\n")
+			tab := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(lines[1]), "│"))
+			if !strings.HasSuffix(tab, tt.glyph) {
+				t.Errorf("glyph not last in footer tab %q, want suffix %q", tab, tt.glyph)
 			}
 		})
 	}

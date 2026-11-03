@@ -136,6 +136,7 @@ func (b *contentBuffer) renderDeliveredMember(m deliveredMember, avail int) stri
 	if m.duration != "" {
 		line += sep + b.styles.FgDim.Render(m.duration)
 	}
+	line += " " + outcomeStyle.Render(m.glyph)
 	if m.reason != "" {
 		const dash = " — "
 		room := avail - lipgloss.Width(line) - len(dash) - 12 // leave room for a right-aligned timestamp on single rows

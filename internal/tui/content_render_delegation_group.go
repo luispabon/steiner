@@ -108,7 +108,7 @@ func (b *contentBuffer) renderDelegationGroupFooter(group *delegationGroupSegmen
 	if agg.total == 1 {
 		noun = "agent"
 	}
-	statsPlain := fmt.Sprintf("%d %s · %s %s", agg.total, noun, glyph, stateText)
+	statsPlain := fmt.Sprintf("%d %s · %s %s", agg.total, noun, stateText, glyph)
 
 	// One padding cell on each side, plus " · " between name and stats.
 	const lead, trail, join = 1, 1, 3
@@ -150,9 +150,8 @@ func (b *contentBuffer) renderDelegationGroupFooter(group *delegationGroupSegmen
 		write(" · ", label)
 	}
 	if showStats {
-		write(fmt.Sprintf("%d %s · ", agg.total, noun), label)
+		write(fmt.Sprintf("%d %s · %s ", agg.total, noun, stateText), label)
 		write(glyph, b.groupGlyphStyle(agg).Background(bg))
-		write(" "+stateText, label)
 	}
 	write(" ", label)
 

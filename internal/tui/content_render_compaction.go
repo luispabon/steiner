@@ -28,8 +28,10 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 
 // compactionBoxRows builds the inner lines of the compaction box.
 func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) []string {
-	// Account for box border (2) and padding (2 each side).
-	innerWidth := width - 6
+	// boxStyle counts the 2 border cells and the 1-cell padding each side in
+	// its Width, so the drawable content area is width - 4. Matching that here
+	// keeps the right-aligned meta flush against the border.
+	innerWidth := width - 4
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
@@ -52,7 +54,7 @@ func (b *contentBuffer) renderCompactionHeader(cd *compactionBannerData, width i
 
 	left := tag + subtitle
 
-	// Right-hand meta: spinner/✓ + elapsed + #count.
+	// Right-hand meta: cache + elapsed + #count, then the spinner/✓ glyph last.
 	meta := b.renderCompactionHeaderMeta(cd)
 
 	leftW := lipgloss.Width(left)
@@ -70,14 +72,6 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 	var parts []string
 
 	if cd.finished {
-		if !cd.skipped {
-			parts = append(parts, b.styles.SuccessStyle.Render("✓"))
-		}
-	} else {
-		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
-		parts = append(parts, b.styles.FgMute.Render(frame))
-	}
-	if cd.finished {
 		if rate, ok := usagestats.HitRate(cd.cacheReadTokens, cd.inputTokens, cd.cacheCreateTokens); ok {
 			parts = append(parts, b.styles.FgDim.Render("cache "+formatCacheHitRate(rate, ok)))
 		}
@@ -91,6 +85,13 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 
 	if cd.compactionCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("#%d", cd.compactionCount)))
+	}
+
+	if !cd.finished {
+		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
+		parts = append(parts, b.styles.FgMute.Render(frame))
+	} else if !cd.skipped {
+		parts = append(parts, b.styles.SuccessStyle.Render("✓"))
 	}
 
 	return strings.Join(parts, " ")

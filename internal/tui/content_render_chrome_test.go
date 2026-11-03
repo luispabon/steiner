@@ -122,8 +122,8 @@ func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
 	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
 		t.Fatalf("output missing metadata: %q", out)
 	}
-	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
-		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	if cacheIndex >= elapsedIndex || elapsedIndex >= countIndex || countIndex >= glyphIndex {
+		t.Errorf("metadata order = cache:%d elapsed:%d count:%d glyph:%d, want cache < elapsed < count < glyph", cacheIndex, elapsedIndex, countIndex, glyphIndex)
 	}
 }
 
@@ -148,8 +148,8 @@ func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
 	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
 		t.Fatalf("output missing metadata: %q", out)
 	}
-	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
-		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	if cacheIndex >= elapsedIndex || elapsedIndex >= countIndex || countIndex >= glyphIndex {
+		t.Errorf("metadata order = cache:%d elapsed:%d count:%d glyph:%d, want cache < elapsed < count < glyph", cacheIndex, elapsedIndex, countIndex, glyphIndex)
 	}
 }
 
@@ -172,8 +172,8 @@ func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
 	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
 		t.Fatalf("output missing metadata: %q", out)
 	}
-	if glyphIndex >= elapsedIndex || elapsedIndex >= countIndex {
-		t.Errorf("metadata order = glyph:%d elapsed:%d count:%d, want glyph < elapsed < count", glyphIndex, elapsedIndex, countIndex)
+	if elapsedIndex >= countIndex || countIndex >= glyphIndex {
+		t.Errorf("metadata order = elapsed:%d count:%d glyph:%d, want elapsed < count < glyph", elapsedIndex, countIndex, glyphIndex)
 	}
 }
 
@@ -241,8 +241,27 @@ func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
 	if strings.Contains(out, "cache") {
 		t.Fatalf("in-progress output should omit cache rate: %q", out)
 	}
-	if !strings.Contains(out, "3s") || !strings.Contains(out, "#2") {
-		t.Fatalf("output missing elapsed or count: %q", out)
+	if !strings.Contains(stripANSI(out), "3s #2 "+spinnerFrames[0]) {
+		t.Fatalf("in-progress output = %q, want elapsed, count, then spinner glyph", stripANSI(out))
+	}
+}
+
+func TestCompactionSkippedHeaderOmitsGlyph(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		skipped:         true,
+		elapsed:         "3s",
+		compactionCount: 2,
+	}
+
+	out := stripANSI(b.renderCompactionBanner(cd, 80))
+	if strings.Contains(out, "✓") {
+		t.Fatalf("skipped compaction header should omit the check glyph: %q", out)
+	}
+	if !strings.Contains(out, "3s #2") {
+		t.Fatalf("skipped compaction header missing elapsed and count: %q", out)
 	}
 }
 
@@ -319,7 +338,9 @@ func TestCompactionFallbackNoteIsSingleBoundedRow(t *testing.T) {
 				t.Fatalf("rows = %d, want header plus one note row: %q", len(rows), rows)
 			}
 			note := stripANSI(rows[1])
-			if innerWidth := max(1, tt.width-6); lipgloss.Width(note) > innerWidth {
+			// Content area is the box width minus the 2 border cells and the 1-cell
+			// padding each side, matching boxStyle's Width accounting.
+			if innerWidth := max(1, tt.width-4); lipgloss.Width(note) > innerWidth {
 				t.Errorf("note width = %d, want <= %d: %q", lipgloss.Width(note), innerWidth, note)
 			}
 			if strings.ContainsAny(note, "\n\r\t") {
@@ -337,6 +358,35 @@ func TestCompactionFallbackNoteIsSingleBoundedRow(t *testing.T) {
 				t.Errorf("note adds %d rendered lines, want exactly 1", withLines-withoutLines)
 			}
 		})
+	}
+}
+
+// TestCompactionHeaderGlyphFlushToRightBorder pins the header's right-aligned
+// meta against the box padding: the content area is the box width minus the 2
+// border cells and the 1-cell padding each side, so the glyph must sit directly
+// against the right padding with no dead gap.
+func TestCompactionHeaderGlyphFlushToRightBorder(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+		inputTokens:     100,
+		cacheReadTokens: 90,
+	}
+
+	const width = 80
+	lines := strings.Split(stripANSI(b.renderCompactionBanner(cd, width)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("banner has %d lines, want a header row: %q", len(lines), lines)
+	}
+	header := lines[1]
+	if got := lipgloss.Width(header); got != width {
+		t.Errorf("header width = %d, want %d: %q", got, width, header)
+	}
+	if !strings.HasSuffix(header, "✓ │") {
+		t.Errorf("header = %q, want the glyph flush against the right padding", header)
 	}
 }
 
