@@ -338,7 +338,9 @@ func TestCompactionFallbackNoteIsSingleBoundedRow(t *testing.T) {
 				t.Fatalf("rows = %d, want header plus one note row: %q", len(rows), rows)
 			}
 			note := stripANSI(rows[1])
-			if innerWidth := max(1, tt.width-6); lipgloss.Width(note) > innerWidth {
+			// Content area is the box width minus the 2 border cells and the 1-cell
+			// padding each side, matching boxStyle's Width accounting.
+			if innerWidth := max(1, tt.width-4); lipgloss.Width(note) > innerWidth {
 				t.Errorf("note width = %d, want <= %d: %q", lipgloss.Width(note), innerWidth, note)
 			}
 			if strings.ContainsAny(note, "\n\r\t") {
@@ -356,6 +358,35 @@ func TestCompactionFallbackNoteIsSingleBoundedRow(t *testing.T) {
 				t.Errorf("note adds %d rendered lines, want exactly 1", withLines-withoutLines)
 			}
 		})
+	}
+}
+
+// TestCompactionHeaderGlyphFlushToRightBorder pins the header's right-aligned
+// meta against the box padding: the content area is the box width minus the 2
+// border cells and the 1-cell padding each side, so the glyph must sit directly
+// against the right padding with no dead gap.
+func TestCompactionHeaderGlyphFlushToRightBorder(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		elapsed:         "3s",
+		compactionCount: 2,
+		inputTokens:     100,
+		cacheReadTokens: 90,
+	}
+
+	const width = 80
+	lines := strings.Split(stripANSI(b.renderCompactionBanner(cd, width)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("banner has %d lines, want a header row: %q", len(lines), lines)
+	}
+	header := lines[1]
+	if got := lipgloss.Width(header); got != width {
+		t.Errorf("header width = %d, want %d: %q", got, width, header)
+	}
+	if !strings.HasSuffix(header, "✓ │") {
+		t.Errorf("header = %q, want the glyph flush against the right padding", header)
 	}
 }
 

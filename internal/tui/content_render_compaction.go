@@ -28,8 +28,10 @@ func (b *contentBuffer) renderCompactionBanner(cd *compactionBannerData, width i
 
 // compactionBoxRows builds the inner lines of the compaction box.
 func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) []string {
-	// Account for box border (2) and padding (2 each side).
-	innerWidth := width - 6
+	// boxStyle counts the 2 border cells and the 1-cell padding each side in
+	// its Width, so the drawable content area is width - 4. Matching that here
+	// keeps the right-aligned meta flush against the border.
+	innerWidth := width - 4
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
