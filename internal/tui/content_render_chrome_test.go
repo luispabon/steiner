@@ -122,8 +122,8 @@ func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
 	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
 		t.Fatalf("output missing metadata: %q", out)
 	}
-	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
-		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	if cacheIndex >= elapsedIndex || elapsedIndex >= countIndex || countIndex >= glyphIndex {
+		t.Errorf("metadata order = cache:%d elapsed:%d count:%d glyph:%d, want cache < elapsed < count < glyph", cacheIndex, elapsedIndex, countIndex, glyphIndex)
 	}
 }
 
@@ -148,8 +148,8 @@ func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
 	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
 		t.Fatalf("output missing metadata: %q", out)
 	}
-	if glyphIndex >= cacheIndex || cacheIndex >= elapsedIndex || elapsedIndex >= countIndex {
-		t.Errorf("metadata order = glyph:%d cache:%d elapsed:%d count:%d, want glyph < cache < elapsed < count", glyphIndex, cacheIndex, elapsedIndex, countIndex)
+	if cacheIndex >= elapsedIndex || elapsedIndex >= countIndex || countIndex >= glyphIndex {
+		t.Errorf("metadata order = cache:%d elapsed:%d count:%d glyph:%d, want cache < elapsed < count < glyph", cacheIndex, elapsedIndex, countIndex, glyphIndex)
 	}
 }
 
@@ -172,8 +172,8 @@ func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
 	if glyphIndex < 0 || elapsedIndex < 0 || countIndex < 0 {
 		t.Fatalf("output missing metadata: %q", out)
 	}
-	if glyphIndex >= elapsedIndex || elapsedIndex >= countIndex {
-		t.Errorf("metadata order = glyph:%d elapsed:%d count:%d, want glyph < elapsed < count", glyphIndex, elapsedIndex, countIndex)
+	if elapsedIndex >= countIndex || countIndex >= glyphIndex {
+		t.Errorf("metadata order = elapsed:%d count:%d glyph:%d, want elapsed < count < glyph", elapsedIndex, countIndex, glyphIndex)
 	}
 }
 
@@ -241,8 +241,27 @@ func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
 	if strings.Contains(out, "cache") {
 		t.Fatalf("in-progress output should omit cache rate: %q", out)
 	}
-	if !strings.Contains(out, "3s") || !strings.Contains(out, "#2") {
-		t.Fatalf("output missing elapsed or count: %q", out)
+	if !strings.Contains(stripANSI(out), "3s #2 "+spinnerFrames[0]) {
+		t.Fatalf("in-progress output = %q, want elapsed, count, then spinner glyph", stripANSI(out))
+	}
+}
+
+func TestCompactionSkippedHeaderOmitsGlyph(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:        true,
+		skipped:         true,
+		elapsed:         "3s",
+		compactionCount: 2,
+	}
+
+	out := stripANSI(b.renderCompactionBanner(cd, 80))
+	if strings.Contains(out, "✓") {
+		t.Fatalf("skipped compaction header should omit the check glyph: %q", out)
+	}
+	if !strings.Contains(out, "3s #2") {
+		t.Fatalf("skipped compaction header missing elapsed and count: %q", out)
 	}
 }
 

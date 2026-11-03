@@ -199,23 +199,23 @@ func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
 			name:         "all active metadata",
 			contextFill:  5.4,
 			outputTPS:    42.1,
-			wantSegments: []string{"⠋", "ctx: 5%", "42.1 t/s", "gpt-x/high"},
+			wantSegments: []string{"ctx: 5%", "42.1 t/s", "gpt-x/high"},
 		},
 		{
 			name:         "context without tps",
 			contextFill:  5.4,
-			wantSegments: []string{"⠋", "ctx: 5%", "gpt-x/high"},
+			wantSegments: []string{"ctx: 5%", "gpt-x/high"},
 			omitSegments: []string{"t/s"},
 		},
 		{
 			name:         "tps without context",
 			outputTPS:    42.1,
-			wantSegments: []string{"⠋", "42.1 t/s", "gpt-x/high"},
+			wantSegments: []string{"42.1 t/s", "gpt-x/high"},
 			omitSegments: []string{"ctx:"},
 		},
 		{
 			name:         "unknown context and tps",
-			wantSegments: []string{"⠋", "gpt-x/high"},
+			wantSegments: []string{"gpt-x/high"},
 			omitSegments: []string{"ctx:", "t/s"},
 		},
 	}
@@ -234,10 +234,15 @@ func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
 
 			wantParts := append([]string(nil), tc.wantSegments...)
 			wantParts = append(wantParts, formatElapsed(dd.startTime, now))
-			want := wantParts[0] + " " + strings.Join(wantParts[1:], " · ")
+			status, _ := b.renderDelegationHeaderStatus(dd)
+			statusGlyph := stripANSI(status)
+			want := strings.Join(wantParts, " · ") + " " + statusGlyph
 			meta := stripANSI(b.renderDelegationHeaderMeta(dd))
 			if meta != want {
 				t.Fatalf("meta = %q, want %q", meta, want)
+			}
+			if !strings.HasSuffix(meta, statusGlyph) {
+				t.Fatalf("meta = %q, want status glyph %q last", meta, statusGlyph)
 			}
 			modelIndex := strings.Index(meta, "gpt-x/high")
 			elapsedIndex := strings.Index(meta, wantParts[len(wantParts)-1])
@@ -250,6 +255,76 @@ func TestDelegationActiveHeaderMetaPlacesModelBeforeElapsed(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDelegationHeaderMetaPlacesStatusGlyphLast(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	now := nanoNow()
+
+	tests := []struct {
+		name string
+		dd   *delegationDisplayState
+		want string
+	}{
+		{
+			name: "complete meta body",
+			dd:   &delegationDisplayState{status: "complete", elapsed: "12.4s"},
+			want: "complete · 12.4s ✓",
+		},
+		{
+			name: "complete without optional meta",
+			dd:   &delegationDisplayState{status: "complete"},
+			want: "complete ✓",
+		},
+		{
+			name: "active body with cache and context",
+			dd: &delegationDisplayState{
+				status:         "active",
+				cacheHitOK:     true,
+				cacheHitRate:   0.961,
+				contextFillPct: 12,
+				modelName:      "opus-4",
+				startTime:      now - 12_400_000_000,
+			},
+			want: "cache 96.1% · ctx: 12% · opus-4 · 12s ⠋",
+		},
+		{
+			name: "empty meta body is glyph alone",
+			dd:   &delegationDisplayState{status: "active"},
+			want: "⠋",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripANSI(b.renderDelegationHeaderMeta(tc.dd)); got != tc.want {
+				t.Fatalf("meta = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestRenderDelegationHeaderOperationKeepsFullWidth guards the header width
+// arithmetic: the status glyph lives inside the meta block, so its width must
+// not be subtracted from the operation budget a second time.
+func TestRenderDelegationHeaderOperationKeepsFullWidth(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	dd := &delegationDisplayState{
+		agentID:          "e1",
+		toolLabel:        "code",
+		status:           "complete",
+		elapsed:          "12.4s",
+		currentOperation: "abcdefghij",
+	}
+
+	// 9 (identity) + 1 + 10 (operation) + 1 (padding) + 18 (meta) = 39.
+	header := stripANSI(b.renderDelegationHeader(dd, 39))
+	want := "▾ code e1 abcdefghij complete · 12.4s ✓"
+	if header != want {
+		t.Fatalf("header = %q, want %q", header, want)
 	}
 }
 

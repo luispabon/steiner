@@ -204,13 +204,19 @@ func (b *contentBuffer) renderToolCallDivider(width int) string {
 		Render(strings.Repeat("─", width))
 }
 
+// renderToolCallMeta returns the right-aligned meta parts and their total width.
+// The elapsed time leads and the status glyph (spinner while active, ✓/✗ once
+// finished) trails, so it lands in a fixed column at the right edge.
 func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) {
 	parts := make([]string, 0, 2)
 	width := 0
 	if tc.active {
-		frame := spinnerFrames[tc.spinnerFrame%len(spinnerFrames)]
-		parts = append(parts, b.styles.FgMute.Render(frame))
-		width += lipgloss.Width(frame)
+		elapsed := formatElapsed(tc.startTime, nanoNow())
+		parts = append(parts, b.styles.FgDim.Render(elapsed))
+		width += lipgloss.Width(elapsed) + 1
+	} else if tc.elapsed != "" {
+		parts = append(parts, b.styles.FgDim.Render(tc.elapsed))
+		width += lipgloss.Width(tc.elapsed) + 1
 	}
 	if tc.meta != "" {
 		var styled string
@@ -223,12 +229,9 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 		width += lipgloss.Width(styled)
 	}
 	if tc.active {
-		elapsed := formatElapsed(tc.startTime, nanoNow())
-		parts = append(parts, b.styles.FgDim.Render(elapsed))
-		width += lipgloss.Width(elapsed) + 1
-	} else if tc.elapsed != "" {
-		parts = append(parts, b.styles.FgDim.Render(tc.elapsed))
-		width += lipgloss.Width(tc.elapsed) + 1
+		frame := spinnerFrames[tc.spinnerFrame%len(spinnerFrames)]
+		parts = append(parts, b.styles.FgMute.Render(frame))
+		width += lipgloss.Width(frame)
 	}
 	return parts, width
 }

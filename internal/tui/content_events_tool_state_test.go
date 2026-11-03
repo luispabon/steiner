@@ -93,8 +93,8 @@ func TestRegularToolCallLifecycleTracksElapsedAndClears(t *testing.T) {
 	if !strings.Contains(active, spinnerFrames[0]) || !strings.Contains(active, "0ms") {
 		t.Fatalf("active frame = %q, want spinner and immediate 0ms", active)
 	}
-	if strings.Index(active, spinnerFrames[0]) > strings.Index(active, "0ms") {
-		t.Fatalf("active frame = %q, want spinner before duration", active)
+	if strings.Index(active, spinnerFrames[0]) < strings.Index(active, "0ms") {
+		t.Fatalf("active frame = %q, want spinner after duration", active)
 	}
 
 	beforeAdvance := b.String(100)
@@ -124,8 +124,8 @@ func TestRegularToolCallLifecycleTracksElapsedAndClears(t *testing.T) {
 	if !strings.Contains(finished, "✓") || !strings.Contains(finished, "2s") {
 		t.Fatalf("finished frame = %q, want icon and fixed duration", finished)
 	}
-	if strings.Index(finished, "✓") > strings.Index(finished, "2s") {
-		t.Fatalf("finished frame = %q, want icon before duration", finished)
+	if strings.Index(finished, "✓") < strings.Index(finished, "2s") {
+		t.Fatalf("finished frame = %q, want icon after duration", finished)
 	}
 }
 
@@ -145,8 +145,8 @@ func TestRegularToolCallErrorKeepsIconBeforeElapsed(t *testing.T) {
 		t.Fatalf("error state = %#v, want ✗ and 250ms", td)
 	}
 	got := stripANSI(b.renderToolCallFrame(td, 100))
-	if !strings.Contains(got, "✗") || !strings.Contains(got, "250ms") || strings.Index(got, "✗") > strings.Index(got, "250ms") {
-		t.Fatalf("error frame = %q, want ✗ before 250ms", got)
+	if !strings.Contains(got, "✗") || !strings.Contains(got, "250ms") || strings.Index(got, "✗") < strings.Index(got, "250ms") {
+		t.Fatalf("error frame = %q, want ✗ after 250ms", got)
 	}
 }
 

@@ -52,7 +52,7 @@ func (b *contentBuffer) renderCompactionHeader(cd *compactionBannerData, width i
 
 	left := tag + subtitle
 
-	// Right-hand meta: spinner/✓ + elapsed + #count.
+	// Right-hand meta: cache + elapsed + #count, then the spinner/✓ glyph last.
 	meta := b.renderCompactionHeaderMeta(cd)
 
 	leftW := lipgloss.Width(left)
@@ -70,14 +70,6 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 	var parts []string
 
 	if cd.finished {
-		if !cd.skipped {
-			parts = append(parts, b.styles.SuccessStyle.Render("✓"))
-		}
-	} else {
-		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
-		parts = append(parts, b.styles.FgMute.Render(frame))
-	}
-	if cd.finished {
 		if rate, ok := usagestats.HitRate(cd.cacheReadTokens, cd.inputTokens, cd.cacheCreateTokens); ok {
 			parts = append(parts, b.styles.FgDim.Render("cache "+formatCacheHitRate(rate, ok)))
 		}
@@ -91,6 +83,13 @@ func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData) str
 
 	if cd.compactionCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("#%d", cd.compactionCount)))
+	}
+
+	if !cd.finished {
+		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
+		parts = append(parts, b.styles.FgMute.Render(frame))
+	} else if !cd.skipped {
+		parts = append(parts, b.styles.SuccessStyle.Render("✓"))
 	}
 
 	return strings.Join(parts, " ")
