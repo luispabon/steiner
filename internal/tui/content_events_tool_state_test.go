@@ -129,7 +129,7 @@ func TestRegularToolCallLifecycleTracksElapsedAndClears(t *testing.T) {
 	}
 }
 
-func TestRegularToolCallErrorKeepsIconBeforeElapsed(t *testing.T) {
+func TestRegularToolCallErrorKeepsIconAfterElapsed(t *testing.T) {
 	originalNanoNow := nanoNow
 	now := int64(40_000_000_000)
 	nanoNow = func() int64 { return now }
