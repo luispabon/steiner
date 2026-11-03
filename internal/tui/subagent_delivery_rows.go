@@ -19,8 +19,9 @@ type deliveredLookup struct {
 // deliveredMember is one sub-agent line in a "sub-agent finished" row.
 type deliveredMember struct {
 	label    string // "<type> <id>"
-	outcome  string // "✓ complete", "✗ failed", "? lost (session restarted)"
-	bad      bool   // failed or lost: outcome renders in the error colour
+	outcome  string // "complete", "failed", "lost (session restarted)"
+	glyph    string // "✓", "✗", "?": rendered after the duration
+	bad      bool   // failed or lost: outcome and glyph render in the error colour
 	duration string
 	reason   string // first line of the failure text, unclipped
 }
@@ -71,13 +72,13 @@ func newDeliveredMember(item output.DeliveredSubAgent, info deliveredLookup) del
 	m := deliveredMember{label: strings.TrimSpace(singleLineDisplayText(item.AgentType) + " " + singleLineDisplayText(item.AgentID))}
 	switch strings.TrimSpace(item.Status) {
 	case "", "complete":
-		m.outcome = "✓ complete"
+		m.outcome, m.glyph = "complete", "✓"
 	case "lost":
-		m.outcome, m.bad = "? lost (session restarted)", true
+		m.outcome, m.glyph, m.bad = "lost (session restarted)", "?", true
 	case "failed":
-		m.outcome, m.bad = "✗ failed", true
+		m.outcome, m.glyph, m.bad = "failed", "✗", true
 	default:
-		m.outcome, m.bad = "✗ "+strings.TrimSpace(item.Status), true
+		m.outcome, m.glyph, m.bad = strings.TrimSpace(item.Status), "✗", true
 	}
 	if item.DurationMs > 0 {
 		m.duration = formatElapsed(0, item.DurationMs*1_000_000)

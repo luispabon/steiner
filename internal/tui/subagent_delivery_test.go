@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
@@ -28,15 +30,15 @@ func TestBuildDeliveredRows(t *testing.T) {
 		wantMember []string // substrings expected in member i
 	}{
 		{"single", []output.DeliveredSubAgent{item("child-6", "explore", "complete", 218000)}, nil,
-			"sub-agent finished", "", []string{"explore child-6", "✓ complete", "3m38s"}},
+			"sub-agent finished", "", []string{"explore child-6", "complete", "3m38s", "✓"}},
 		{"several ungrouped", []output.DeliveredSubAgent{item("c1", "code", "complete", 38000), item("c2", "code", "complete", 5000)}, nil,
 			"sub-agents finished", "2 of 2", []string{"code c1", "38s"}},
 		{"grouped", []output.DeliveredSubAgent{item("c4", "review", "complete", 1000), item("c5", "review", "complete", 2000)}, grp,
 			"sub-agents finished", "group final-review (2 of 3)", []string{"review c4"}},
 		{"failed with reason", []output.DeliveredSubAgent{item("c4", "sanity_check", "failed", 252000)}, failed,
-			"sub-agent finished", "", []string{"✗ failed", "4m12s", "make check: 2 failing packages"}},
+			"sub-agent finished", "", []string{"failed", "✗", "4m12s", "make check: 2 failing packages"}},
 		{"lost", []output.DeliveredSubAgent{item("c9", "explore", "lost", 0)}, nil,
-			"sub-agent finished", "", []string{"? lost (session restarted)"}},
+			"sub-agent finished", "", []string{"lost (session restarted)", "?"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,7 +51,7 @@ func TestBuildDeliveredRows(t *testing.T) {
 				t.Fatalf("members = %d, want %d", len(rows.members), len(tt.items))
 			}
 			m := rows.members[0]
-			got := strings.Join([]string{m.label, m.outcome, m.duration, m.reason}, " | ")
+			got := strings.Join([]string{m.label, m.outcome, m.glyph, m.duration, m.reason}, " | ")
 			for _, want := range tt.wantMember {
 				if !strings.Contains(got, want) {
 					t.Errorf("member %q missing %q", got, want)
@@ -67,6 +69,32 @@ func newDeliveryBuffer() *contentBuffer {
 		collapseState:     make(map[int]bool),
 		activeDelegations: make(map[string]delegationLocator),
 		styles:            testStyles(theme.AccentAmber),
+	}
+}
+
+func TestRenderDeliveredMemberGlyphLast(t *testing.T) {
+	t.Parallel()
+	b := newDeliveryBuffer()
+	tests := []struct {
+		name string
+		item output.DeliveredSubAgent
+		want string
+	}{
+		{"complete with duration", output.DeliveredSubAgent{AgentID: "child-6", AgentType: "explore", Status: "complete", DurationMs: 218000}, "explore child-6 complete · 3m38s ✓"},
+		{"failed with duration", output.DeliveredSubAgent{AgentID: "c4", AgentType: "code", Status: "failed", DurationMs: 38000}, "code c4 failed · 38s ✗"},
+		{"lost with duration", output.DeliveredSubAgent{AgentID: "c9", AgentType: "code", Status: "lost", DurationMs: 1000}, "code c9 lost (session restarted) · 1s ?"},
+		{"complete without duration", output.DeliveredSubAgent{AgentID: "c1", AgentType: "code", Status: "complete"}, "code c1 complete ✓"},
+		{"failed without duration", output.DeliveredSubAgent{AgentID: "c2", AgentType: "code", Status: "failed"}, "code c2 failed ✗"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := newDeliveredMember(tt.item, deliveredLookup{})
+			line := ansi.Strip(b.renderDeliveredMember(m, 100))
+			if line != tt.want {
+				t.Errorf("row = %q, want %q", line, tt.want)
+			}
+		})
 	}
 }
 
@@ -98,8 +126,8 @@ func TestLostDeliverySettlesActiveReplayCard(t *testing.T) {
 		t.Fatalf("delivery row missing: %#v", b.segments)
 	}
 	row := stripANSI(b.renderSubAgentsFinishedSegment(b.segments[len(b.segments)-1], 100))
-	if !strings.Contains(row, "? lost (session restarted)") {
-		t.Fatalf("delivery row = %q, want lost outcome", row)
+	if !strings.Contains(row, "lost (session restarted)") || !strings.Contains(row, "?") {
+		t.Fatalf("delivery row = %q, want lost outcome and glyph", row)
 	}
 }
 
@@ -151,7 +179,7 @@ func TestDeliveredEventRendersRowWithGroupAndReason(t *testing.T) {
 		t.Fatalf("last segment kind = %v", last.kind)
 	}
 	out := stripANSI(b.renderSubAgentsFinishedSegment(last, 100))
-	for _, want := range []string{"sub-agents finished", "group g (2 of 3)", "review c4", "✗ failed", "boom: exploded", "review c5", "✓ complete"} {
+	for _, want := range []string{"sub-agents finished", "group g (2 of 3)", "review c4", "failed", "✗", "boom: exploded", "review c5", "complete", "✓"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render missing %q:\n%s", want, out)
 		}
