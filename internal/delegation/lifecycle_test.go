@@ -302,6 +302,58 @@ func TestQueuedSpecializedCancellationEmitsTerminalComplete(t *testing.T) {
 	recv(t, sink.ch, "blocker completion")
 }
 
+func TestQueuedShutdownCancellationEmitsTerminalComplete(t *testing.T) {
+	events := &recordingEventSink{}
+	sup, _ := newAsyncSupervisor(1)
+	blocker := newAsyncChild("blocker", "")
+	spawnAsync(context.Background(), t, sup, blocker)
+	<-blocker.started
+
+	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+		t.Error("shutdown-cancelled queued child ran the runner")
+		return successRunState(), nil
+	}})
+	deps.AsyncSubAgents = true
+	deps.Supervisor = sup
+	deps.Events = events
+
+	originalIDGen := idGen
+	idGen = func() string { return "shutdown-child" }
+	defer func() { idGen = originalIDGen }()
+
+	batch := testBatchID(11)
+	ctx := context.WithValue(agent.WithToolBatchID(context.Background(), batch), tool.ExecutionCallIDKey{}, "call-shutdown")
+	got, err := newSpecializedHandler(AgentTypeExplore, deps)(ctx, lifecycleTestStructuredTask("shutdown"))
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	result, ok := got.(tool.ExecutionResult)
+	if !ok || result.DelegationAdmission == nil || result.DelegationAdmission.AgentID != "shutdown-child" {
+		t.Fatalf("handler result = %#v, want accepted shutdown-child admission", got)
+	}
+
+	sup.Shutdown(context.Background(), CancelCauseSystem)
+
+	completions := cancelledCompletionEvents(events.Events(), "shutdown-child")
+	if len(completions) != 1 {
+		t.Fatalf("cancelled completion events = %d, want 1", len(completions))
+	}
+	payload, ok := completions[0].Payload.(output.DelegationCompleteEvent)
+	if !ok {
+		t.Fatalf("completion payload = %T, want DelegationCompleteEvent", completions[0].Payload)
+	}
+	if payload.Status != string(StatusCancelled) {
+		t.Errorf("completion status = %q, want %q", payload.Status, StatusCancelled)
+	}
+	want := output.DelegationOccurrence{CallID: "call-shutdown", BatchID: batch, AgentID: "shutdown-child"}
+	if payload.DelegationOccurrence != want {
+		t.Errorf("completion occurrence = %+v, want %+v", payload.DelegationOccurrence, want)
+	}
+	if completions[0].Scope.AgentID != "shutdown-child" || completions[0].Scope.AgentType != string(AgentTypeExplore) {
+		t.Errorf("completion scope = %+v, want explore child scope", completions[0].Scope)
+	}
+}
+
 func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testing.T) {
 	repo := setupTestRepo(t)
 
