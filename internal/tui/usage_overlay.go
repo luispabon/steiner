@@ -78,9 +78,11 @@ func (o usageOverlayState) Close() usageOverlayState {
 
 // withViews returns a copy of the overlay caching views and bodyCount, the
 // number of lines their body renders. The count comes from a render, so it
-// cannot drift from the body. It stays valid while the overlay is open because
-// the line count does not depend on the clock, refresh state or width: rows are
-// truncated, never wrapped.
+// cannot drift from the body. Refresh state and width do not change the line
+// count because rows are truncated, never wrapped. A window's empty-by forecast
+// drops its row once its time has passed, so the body can be shorter than the
+// cached count until the next views load; View and the scroll clamp use the
+// body they render.
 func (o usageOverlayState) withViews(views []quota.AccountView) usageOverlayState {
 	o.views = views
 	o.bodyCount = len(o.bodyLines())

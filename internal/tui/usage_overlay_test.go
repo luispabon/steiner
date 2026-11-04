@@ -374,12 +374,15 @@ func TestUsageBodyCountMatchesRenderedBody(t *testing.T) {
 		name  string
 		views []quota.AccountView
 		want  int
+		// wantAfterClock is the body length once the clock passes the empty-by
+		// forecast, which drops its row.
+		wantAfterClock int
 	}{
-		{name: "empty", views: nil, want: 1},
-		{name: "unavailable", views: []quota.AccountView{{DisplayAlias: "work", Unavailable: "no credentials"}}, want: 1},
-		{name: "error without snapshot", views: []quota.AccountView{{DisplayAlias: "work", Err: "upstream failed"}}, want: 1},
-		{name: "full account", views: []quota.AccountView{usageTestFullView()}, want: 7},
-		{name: "two accounts", views: []quota.AccountView{usageTestFullView(), {DisplayAlias: "home", Unavailable: "no credentials"}}, want: 9},
+		{name: "empty", views: nil, want: 1, wantAfterClock: 1},
+		{name: "unavailable", views: []quota.AccountView{{DisplayAlias: "work", Unavailable: "no credentials"}}, want: 1, wantAfterClock: 1},
+		{name: "error without snapshot", views: []quota.AccountView{{DisplayAlias: "work", Err: "upstream failed"}}, want: 1, wantAfterClock: 1},
+		{name: "full account", views: []quota.AccountView{usageTestFullView()}, want: 7, wantAfterClock: 6},
+		{name: "two accounts", views: []quota.AccountView{usageTestFullView(), {DisplayAlias: "home", Unavailable: "no credentials"}}, want: 9, wantAfterClock: 8},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -393,12 +396,17 @@ func TestUsageBodyCountMatchesRenderedBody(t *testing.T) {
 			if got := len(o.bodyLines()); got != tt.want {
 				t.Fatalf("rendered body lines = %d, want %d", got, tt.want)
 			}
-			// The count must hold when the clock, refresh state and width change.
-			o.now = func() time.Time { return usageTestNow.Add(72 * time.Hour) }
+			// The count must hold when refresh state and width change.
 			o.inFlight = 1
 			o.OverlayShell = o.WithDimensions(20, 40)
 			if got := len(o.bodyLines()); got != o.bodyCount {
-				t.Errorf("rendered body lines = %d after clock, refresh and width change, want bodyCount %d", got, o.bodyCount)
+				t.Errorf("rendered body lines = %d after refresh and width change, want bodyCount %d", got, o.bodyCount)
+			}
+			// A passed empty-by forecast drops its row, so the body shrinks while
+			// the cached count stays until the next views load.
+			o.now = func() time.Time { return usageTestNow.Add(72 * time.Hour) }
+			if got := len(o.bodyLines()); got != tt.wantAfterClock {
+				t.Errorf("rendered body lines = %d after the forecast time passed, want %d", got, tt.wantAfterClock)
 			}
 		})
 	}

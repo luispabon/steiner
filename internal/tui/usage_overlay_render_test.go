@@ -306,6 +306,79 @@ func TestUsageTrendLines(t *testing.T) {
 	}
 }
 
+func TestUsageWindowTrendLimitReached(t *testing.T) {
+	const limitRow = "  └─ trend: limit reached ✗"
+	forecast := quota.Projection{OK: true, BeforeReset: true, EmptyAt: usageTestNow.Add(time.Hour)}
+	tests := []struct {
+		name    string
+		pct     float64
+		proj    quota.Projection
+		wantPct string
+		want    string
+	}{
+		{"below rounding threshold keeps the forecast", 99.4, forecast, " 99%", "  └─ trend: empty by 13:00 (before reset) ✗"},
+		{"rounds up to full", 99.5, forecast, "100%", limitRow},
+		{"exactly full", 100, quota.Projection{}, "100%", limitRow},
+		{"full with a stale forecast", 100, forecast, "100%", limitRow},
+		{"over capacity", 140, quota.Projection{}, "140%", limitRow},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := usageTestFrame(t, quota.AccountView{
+				DisplayAlias:      "work",
+				Latest:            &quota.Snapshot{Windows: []quota.Window{{Label: "5h", UsedPercent: tt.pct, ResetsAt: usageTestNow.Add(2 * time.Hour)}}},
+				WindowProjections: []quota.Projection{tt.proj},
+			})
+			lines := usageAccountLines(f, f.views[0])
+			if len(lines) != 3 {
+				t.Fatalf("got %d lines, want header, window and trend: %q", len(lines), lines)
+			}
+			if window := ansi.Strip(lines[1]); !strings.Contains(window, tt.wantPct) {
+				t.Errorf("window row %q does not show %q", window, tt.wantPct)
+			}
+			if got := ansi.Strip(lines[2]); got != tt.want {
+				t.Errorf("trend row = %q, want %q", got, tt.want)
+			}
+			if tt.want == limitRow {
+				if got, want := lines[2], usageStyled(t, f.styles.ErrorStyle, limitRow); got != want {
+					t.Errorf("limit row = %q, want the error style %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestUsageWindowTrendDropsPassedForecast(t *testing.T) {
+	tests := []struct {
+		name    string
+		emptyAt time.Time
+		want    string
+	}{
+		{"future forecast", usageTestNow.Add(30 * time.Minute), "  └─ trend: empty by 12:30 (before reset) ✗"},
+		{"forecast at render time", usageTestNow, ""},
+		{"forecast in the past", usageTestNow.Add(-30 * time.Minute), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := usageTestFrame(t, quota.AccountView{
+				DisplayAlias:      "work",
+				Latest:            &quota.Snapshot{Windows: []quota.Window{{Label: "5h", UsedPercent: 92, ResetsAt: usageTestNow.Add(2 * time.Hour)}}},
+				WindowProjections: []quota.Projection{{OK: true, BeforeReset: true, EmptyAt: tt.emptyAt}},
+			})
+			lines := usageAccountLines(f, f.views[0])
+			if tt.want == "" {
+				if len(lines) != 2 {
+					t.Fatalf("got %d lines, want header and window only: %q", len(lines), lines)
+				}
+				return
+			}
+			if len(lines) != 3 || ansi.Strip(lines[2]) != tt.want {
+				t.Errorf("lines = %q, want trend row %q", lines, tt.want)
+			}
+		})
+	}
+}
+
 func TestUsageBudgetLine(t *testing.T) {
 	limit := 50.0
 	resets := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
