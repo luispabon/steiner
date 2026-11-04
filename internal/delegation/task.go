@@ -61,6 +61,24 @@ func emitDelegateStopped(events output.EventSink, spec Spec, agentType AgentType
 	events.Emit(event)
 }
 
+// emitDelegateCancelled emits the terminal completion event for a child
+// cancelled before dispatch. That path never reaches SpawnDelegate, so without
+// this event roster consumers keep the occurrence running. The child never ran,
+// so usage counts stay zero.
+func emitDelegateCancelled(events output.EventSink, spec Spec, agentType AgentType) {
+	if events == nil {
+		return
+	}
+	event := output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: specOccurrence(spec),
+		AgentType:            string(agentType),
+		Status:               string(StatusCancelled),
+	})
+	event = output.WithAgentScope(event, spec.AgentID)
+	event = output.WithAgentTypeScope(event, string(agentType))
+	events.Emit(event)
+}
+
 func emitDelegateFailed(events output.EventSink, spec Spec, agentType AgentType, errMsg string) {
 	if events == nil {
 		return

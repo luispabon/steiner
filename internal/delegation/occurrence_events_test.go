@@ -321,3 +321,71 @@ func TestSupervisorWithoutJobSinkEmitsNothing(t *testing.T) {
 	close(c.release)
 	recv(t, sink.ch, "completion")
 }
+
+func TestFollowUpQueuedCancellationEmitsTerminalComplete(t *testing.T) {
+	events := &queuedEventSink{}
+	sup, sink := newAsyncSupervisor(1)
+	blocker := newAsyncChild("blocker", "")
+	spawnAsync(context.Background(), t, sup, blocker)
+	<-blocker.started
+
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{AgentID: "child-fu", AgentType: AgentTypeReview, Task: "review"},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: 1, MaxTokens: 1},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount: 1,
+	})
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:    config.SubAgentConfig{MaxTurns: 5, MaxTokens: 50, MaxFollowUps: 100},
+		Events:         events,
+		SessionStore:   store,
+		Supervisor:     sup,
+		AsyncSubAgents: true,
+		Runner: &mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+			t.Error("cancelled queued follow-up ran the runner")
+			return successRunState(), nil
+		}},
+	})
+	ctx := context.WithValue(agent.WithToolBatchID(context.Background(), "current-batch"), tool.ExecutionCallIDKey{}, "follow-call")
+	if _, err := handler(ctx, map[string]any{"agent_id": "child-fu", "message": "continue"}); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if got := sup.CancelAgent("child-fu", false, CancelCauseUser); got != CancelAccepted {
+		t.Fatalf("cancel outcome = %v, want %v", got, CancelAccepted)
+	}
+	recv(t, sink.ch, "cancelled completion")
+
+	var completions []output.Event
+	for _, e := range events.snapshot() {
+		if e.Type == output.EventTypeDelegationComplete {
+			completions = append(completions, e)
+		}
+	}
+	if len(completions) != 1 {
+		t.Fatalf("completion events = %d, want 1", len(completions))
+	}
+	payload, ok := completions[0].Payload.(output.DelegationCompleteEvent)
+	if !ok {
+		t.Fatalf("completion payload = %T, want DelegationCompleteEvent", completions[0].Payload)
+	}
+	if payload.Status != string(StatusCancelled) {
+		t.Errorf("completion status = %q, want %q", payload.Status, StatusCancelled)
+	}
+	want := output.DelegationOccurrence{CallID: "follow-call", BatchID: "current-batch", AgentID: "child-fu"}
+	if payload.DelegationOccurrence != want {
+		t.Errorf("completion occurrence = %+v, want %+v", payload.DelegationOccurrence, want)
+	}
+	if completions[0].Scope.AgentID != "child-fu" || completions[0].Scope.AgentType != string(AgentTypeReview) {
+		t.Errorf("completion scope = %+v, want review child scope", completions[0].Scope)
+	}
+
+	close(blocker.release)
+	recv(t, sink.ch, "blocker completion")
+}

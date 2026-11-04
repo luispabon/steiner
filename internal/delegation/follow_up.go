@@ -123,6 +123,7 @@ func runFollowUp(ctx context.Context, input map[string]any, deps SubAgentHandler
 			emitDelegateStopped(deps.Events, spec, spec.AgentType)
 			result := cancelledBeforeDispatchResult(agentID)
 			applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, agentID, &result)
+			emitDelegateCancelled(deps.Events, spec, spec.AgentType)
 			return result
 		},
 		nil,

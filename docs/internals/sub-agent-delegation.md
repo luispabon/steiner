@@ -156,6 +156,8 @@ Delegation events (`internal/output/event_types.go`): `delegation_accepted`, `de
 
 `Supervisor.enqueue` (`supervisor_queue.go`) emits `delegation_accepted` for each accepted job and `delegation_queued` only when the job waits for a running slot.
 
+A child cancelled before dispatch emits `delegation_started`, a scoped cancelled `stop_reason`, and `delegation_complete` with status `cancelled` (`emitDelegateCancelled` in `task.go`). Both cancellation paths use it: a queued job's `OnCancelledBeforeStart` callback (`specialized_execute.go`, `follow_up.go`) and a dequeued job whose dispatch gate wait ends cancelled (`finishCancelledBeforeDispatch`, `specialized_execute.go`). Neither path reaches `SpawnDelegate`, so this terminal event is the only completion the roster sees; without it the occurrence stays running. The child never ran, so usage counts are zero.
+
 ## Grouped card render invariant
 
 Grouped card boxes are cached in `settledGroupRows` and `groupBoxCache` (`internal/tui`). `markDelegationDirty` (`content_events_delegation.go`) sets `renderDirty` and calls `invalidatePrefixIfCached`. `dirtyDelegationCard` (`delegation_jump.go`) sets `renderDirty` and bumps `gen`. After any entry change, call one of them. A direct `renderDirty` writer must also call `invalidatePrefixIfCached` or bump `gen`, or the settled prefix serves stale output. `AdvanceDelegationSpinners` must not set `renderDirty`. Inputs that change a settled entry's box belong in `settledRowsKey`.

@@ -236,5 +236,6 @@ func finishCancelledBeforeDispatch(
 		markResultPersisted(&result)
 	}
 	applyFinalizeCancellation(deps.Events, deps.SessionStore, deps.ActiveController, deps.WorkDir, spec.AgentID, &result)
+	emitDelegateCancelled(deps.Events, spec, spec.AgentType)
 	return result
 }

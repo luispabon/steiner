@@ -210,6 +210,96 @@ func TestSpecializedHandlerCacheWaitingCancellationReturnsCancelled(t *testing.T
 	if !stopped {
 		t.Error("missing scoped cancelled StopReasonEvent")
 	}
+	completions := cancelledCompletionEvents(events.Events(), "cancelled-child")
+	if len(completions) != 1 {
+		t.Fatalf("cancelled completion events = %d, want 1", len(completions))
+	}
+	payload, ok := completions[0].Payload.(output.DelegationCompleteEvent)
+	if !ok {
+		t.Fatalf("completion payload = %T, want DelegationCompleteEvent", completions[0].Payload)
+	}
+	if payload.Status != string(StatusCancelled) {
+		t.Errorf("completion status = %q, want %q", payload.Status, StatusCancelled)
+	}
+	if want := (output.DelegationOccurrence{AgentID: "cancelled-child"}); payload.DelegationOccurrence != want {
+		t.Errorf("completion occurrence = %+v, want %+v", payload.DelegationOccurrence, want)
+	}
+	if completions[0].Scope.AgentID != "cancelled-child" || completions[0].Scope.AgentType != string(AgentTypeExplore) {
+		t.Errorf("completion scope = %+v, want explore child scope", completions[0].Scope)
+	}
+}
+
+// cancelledCompletionEvents returns the terminal completion events for agentID.
+func cancelledCompletionEvents(events []output.Event, agentID string) []output.Event {
+	var completions []output.Event
+	for _, event := range events {
+		if event.Type != output.EventTypeDelegationComplete {
+			continue
+		}
+		payload, ok := event.Payload.(output.DelegationCompleteEvent)
+		if !ok || payload.AgentID != agentID {
+			continue
+		}
+		completions = append(completions, event)
+	}
+	return completions
+}
+
+func TestQueuedSpecializedCancellationEmitsTerminalComplete(t *testing.T) {
+	events := &recordingEventSink{}
+	sup, sink := newAsyncSupervisor(1)
+	blocker := newAsyncChild("blocker", "")
+	spawnAsync(context.Background(), t, sup, blocker)
+	<-blocker.started
+
+	deps := minimalDeps(&mockRunner{runFunc: func(context.Context, agent.RunRequest) (agent.RunState, error) {
+		t.Error("cancelled queued child ran the runner")
+		return successRunState(), nil
+	}})
+	deps.AsyncSubAgents = true
+	deps.Supervisor = sup
+	deps.Events = events
+
+	originalIDGen := idGen
+	idGen = func() string { return "queued-child" }
+	defer func() { idGen = originalIDGen }()
+
+	batch := testBatchID(9)
+	ctx := context.WithValue(agent.WithToolBatchID(context.Background(), batch), tool.ExecutionCallIDKey{}, "call-queued")
+	got, err := newSpecializedHandler(AgentTypeExplore, deps)(ctx, lifecycleTestStructuredTask("queued"))
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	result, ok := got.(tool.ExecutionResult)
+	if !ok || result.DelegationAdmission == nil || result.DelegationAdmission.AgentID != "queued-child" {
+		t.Fatalf("handler result = %#v, want accepted queued-child admission", got)
+	}
+	if got := sup.CancelAgent("queued-child", false, CancelCauseUser); got != CancelAccepted {
+		t.Fatalf("cancel outcome = %v, want %v", got, CancelAccepted)
+	}
+	recv(t, sink.ch, "cancelled completion")
+
+	completions := cancelledCompletionEvents(events.Events(), "queued-child")
+	if len(completions) != 1 {
+		t.Fatalf("cancelled completion events = %d, want 1", len(completions))
+	}
+	payload, ok := completions[0].Payload.(output.DelegationCompleteEvent)
+	if !ok {
+		t.Fatalf("completion payload = %T, want DelegationCompleteEvent", completions[0].Payload)
+	}
+	if payload.Status != string(StatusCancelled) {
+		t.Errorf("completion status = %q, want %q", payload.Status, StatusCancelled)
+	}
+	want := output.DelegationOccurrence{CallID: "call-queued", BatchID: batch, AgentID: "queued-child"}
+	if payload.DelegationOccurrence != want {
+		t.Errorf("completion occurrence = %+v, want %+v", payload.DelegationOccurrence, want)
+	}
+	if completions[0].Scope.AgentID != "queued-child" || completions[0].Scope.AgentType != string(AgentTypeExplore) {
+		t.Errorf("completion scope = %+v, want explore child scope", completions[0].Scope)
+	}
+
+	close(blocker.release)
+	recv(t, sink.ch, "blocker completion")
 }
 
 func TestSpecializedCodeCacheWaitingCancellationDiscardsAfterCompletion(t *testing.T) {
