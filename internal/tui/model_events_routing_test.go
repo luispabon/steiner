@@ -232,8 +232,17 @@ func TestUpdateApprovalPromotionDoesNotNotify(t *testing.T) {
 		t.Fatalf("approval.identity = %q, want %q", got, want)
 	}
 	// Only opening the tray notifies; the queued call-A request stayed silent.
-	if calls := fn.waitForCall(t); len(calls) != 1 {
+	calls := fn.waitForCall(t)
+	if len(calls) != 1 {
 		t.Fatalf("got %d Notify calls before promotion, want 1", len(calls))
+	}
+	if !strings.Contains(calls[0].Reason, "write") {
+		t.Fatalf("first notification Reason = %q, want the call-B write request", calls[0].Reason)
+	}
+	// Let a delayed queued-request notification surface before resetting.
+	fn.expectQuiet(t)
+	if calls := fn.snapshot(); len(calls) != 1 {
+		t.Fatalf("got %d Notify calls after the quiet window, want 1", len(calls))
 	}
 
 	fn.reset()

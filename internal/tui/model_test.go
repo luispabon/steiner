@@ -3632,6 +3632,17 @@ func (f *fakeNotifier) expectNoCall(t *testing.T) {
 	}
 }
 
+// expectQuiet waits for notificationQuietWindow and fails if another Notify
+// arrives, without inspecting calls recorded earlier.
+func (f *fakeNotifier) expectQuiet(t *testing.T) {
+	t.Helper()
+	select {
+	case <-f.notified:
+		t.Fatal("unexpected extra Notify call")
+	case <-time.After(notificationQuietWindow):
+	}
+}
+
 // reset clears recorded calls and drains a pending signal so a later assertion
 // observes only new notifications.
 func (f *fakeNotifier) reset() {
