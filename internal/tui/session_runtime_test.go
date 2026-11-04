@@ -8,28 +8,17 @@ import (
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/session"
-	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
-// sessionTestStart is a fixed past instant so explicit-time assertions cannot
-// pick up real elapsed time.
+// sessionTestStart is a fixed instant so explicit-time assertions cannot pick
+// up real elapsed time.
 var sessionTestStart = time.Date(2026, 11, 4, 9, 30, 0, 0, time.Local)
 
-// setConversationWork sets the driver state the runtime accounting reads.
-func setConversationWork(m *Model, state string, activeSubAgents int) {
-	m.convState = output.ConversationStateEvent{State: state, ActiveSubAgents: activeSubAgents}
-	m.convStateSeen = true
-}
-
-// applyConversationWorkState applies a conversation state event with an
-// explicit queued plus running sub-agent count.
-func applyConversationWorkState(t *testing.T, m *Model, state string, activeSubAgents int) {
-	t.Helper()
-	event := output.NewConversationStateEvent(state, false, 0, false)
-	payload := event.Payload.(output.ConversationStateEvent)
-	payload.ActiveSubAgents = activeSubAgents
-	event.Payload = payload
-	m.applyEvent(event)
+// setRosterStatus forces a roster row's lifecycle status.
+func setRosterStatus(m *Model, agentID, status string) {
+	e := m.roster.upsert(agentID)
+	e.status = status
+	e.startTime = sessionTestStart.UnixNano()
 }
 
 func TestSessionRuntimeCountsUnionOfParentAndSubAgents(t *testing.T) {
@@ -37,38 +26,38 @@ func TestSessionRuntimeCountsUnionOfParentAndSubAgents(t *testing.T) {
 	m := &Model{}
 	m.startSessionClock(sessionTestStart)
 
-	setConversationWork(m, conversationStateGenerating, 0)
+	m.rootRunActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(10 * time.Second))
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(10 * time.Second)); got != 10*time.Second {
-		t.Errorf("runtime while generating = %v, want 10s", got)
+		t.Errorf("runtime while the root run is active = %v, want 10s", got)
 	}
 
-	// The parent stops generating but two sub-agents are queued or running: the
-	// span stays open.
-	setConversationWork(m, conversationStateWaiting, 2)
+	// The root run finishes but two sub-agents are queued or running: the span
+	// stays open.
+	m.rootRunActive = false
+	setRosterStatus(m, "child-1", rosterRunning)
+	setRosterStatus(m, "child-2", rosterQueued)
 	m.syncSessionClockAt(sessionTestStart.Add(10 * time.Second))
 	if m.sessionActiveSince == nil {
 		t.Fatal("runtime span closed while queued or running sub-agents remained")
 	}
-
-	// The parent generating again overlaps the sub-agents; the union counts once.
-	setConversationWork(m, conversationStateGenerating, 2)
-	m.syncSessionClockAt(sessionTestStart.Add(20 * time.Second))
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(20 * time.Second)); got != 20*time.Second {
-		t.Errorf("overlapping runtime = %v, want 20s", got)
+		t.Errorf("runtime with sub-agents = %v, want 20s", got)
 	}
 
-	setConversationWork(m, conversationStateIdle, 0)
+	// Every sub-agent finishing closes the span; the overlap counted once.
+	setRosterStatus(m, "child-1", rosterDone)
+	setRosterStatus(m, "child-2", rosterDone)
 	m.syncSessionClockAt(sessionTestStart.Add(20 * time.Second))
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(90 * time.Second)); got != 20*time.Second {
 		t.Errorf("idle runtime = %v, want the 20s already accumulated", got)
 	}
 
-	// Work resuming after an idle stretch opens a new span at the resume time.
-	setConversationWork(m, conversationStateGenerating, 0)
+	// A later root run opens a new span at its start.
+	m.rootRunActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(90 * time.Second))
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(95 * time.Second)); got != 25*time.Second {
-		t.Errorf("runtime after resuming = %v, want 25s", got)
+		t.Errorf("runtime after the next root run = %v, want 25s", got)
 	}
 }
 
@@ -76,13 +65,15 @@ func TestSessionRuntimeFreezesOnParkedResults(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
 	m.startSessionClock(sessionTestStart)
-	setConversationWork(m, conversationStateGenerating, 0)
+	m.rootRunActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(5 * time.Second))
 
-	// Finished sub-agent results waiting for the next message are not work.
-	setConversationWork(m, conversationStateWaiting, 0)
-	m.convState.Held = true
-	m.convState.Pending = 2
+	// Finished sub-agent results waiting for the next message are not work, even
+	// while the driver still reports a waiting state with held results.
+	m.rootRunActive = false
+	setRosterStatus(m, "child-1", rosterDone)
+	m.convState = output.ConversationStateEvent{State: conversationStateWaiting, Held: true, Pending: 2}
+	m.convStateSeen = true
 	m.syncSessionClockAt(sessionTestStart.Add(5 * time.Second))
 	if m.sessionActiveSince != nil {
 		t.Fatal("runtime span stayed open on parked results")
@@ -92,76 +83,102 @@ func TestSessionRuntimeFreezesOnParkedResults(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeFallsBackWithoutDriverState(t *testing.T) {
-	t.Parallel()
-	styles := testStyles(theme.AccentAmber)
-
-	t.Run("active delegation", func(t *testing.T) {
-		t.Parallel()
-		m := &Model{content: contentBuffer{styles: styles}}
-		m.content.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-1"), "task", "", "explore"))
-		m.startSessionClock(sessionTestStart)
-		m.syncSessionClockAt(sessionTestStart.Add(time.Second))
-		if got := m.sessionRuntimeAt(sessionTestStart.Add(6 * time.Second)); got != 6*time.Second {
-			t.Errorf("fallback runtime = %v, want 6s", got)
-		}
-	})
-
-	t.Run("streaming parent", func(t *testing.T) {
-		t.Parallel()
-		m := &Model{status: statusState{streaming: true}}
-		m.startSessionClock(sessionTestStart)
-		m.syncSessionClockAt(sessionTestStart.Add(time.Second))
-		if got := m.sessionRuntimeAt(sessionTestStart.Add(4 * time.Second)); got != 4*time.Second {
-			t.Errorf("fallback runtime = %v, want 4s", got)
-		}
-	})
-}
-
-func TestConversationStateEventDrivesRuntime(t *testing.T) {
+func TestSessionRuntimeRootRunLifecycleWithoutDriverState(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.startSessionClock(time.Now())
 
-	applyConversationWorkState(t, m, conversationStateGenerating, 0)
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+	if m.convStateSeen {
+		t.Fatal("the run lifecycle test must not receive conversation state")
+	}
+	if !m.sessionWorkActive() {
+		t.Fatal("a root run in progress did not activate the runtime")
+	}
 	if m.sessionActiveSince == nil {
-		t.Fatal("generating state closed the runtime span")
+		t.Fatal("root run start left the runtime span closed")
 	}
 
-	applyConversationWorkState(t, m, conversationStateWaiting, 2)
-	if m.sessionActiveSince == nil {
-		t.Fatal("waiting with queued or running sub-agents closed the runtime span")
+	m.applyEvent(output.NewRunFinishedEvent(1, "completed", "", "", nil))
+	if m.sessionWorkActive() {
+		t.Error("a finished root run kept the runtime active")
 	}
-
-	applyConversationWorkState(t, m, conversationStateWaiting, 0)
 	if m.sessionActiveSince != nil {
-		t.Fatal("waiting on finished sub-agent results left the runtime span open")
+		t.Error("root run finish left the runtime span open")
 	}
 }
 
-func TestStaleConversationStateDoesNotAdvanceRuntime(t *testing.T) {
+func TestSessionRuntimeRootStopOverridesStaleGenerating(t *testing.T) {
 	t.Parallel()
-	m := &Model{controller: &epochController{testController: &testController{}, epoch: 2}}
-	m.startSessionClock(sessionTestStart)
-	setConversationWork(m, conversationStateIdle, 0)
-	m.syncSessionClockAt(sessionTestStart)
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+	m.convState = output.ConversationStateEvent{State: conversationStateGenerating}
+	m.convStateSeen = true
+	m.rootRunActive = true
 
-	stale := output.NewConversationStateEvent(conversationStateGenerating, false, 0, false)
-	payload := stale.Payload.(output.ConversationStateEvent)
-	payload.Epoch = 1
-	payload.ActiveSubAgents = 3
-	stale.Payload = payload
-	m.applyEvent(stale)
+	m.applyEvent(output.NewStopReasonEvent(1, "cancelled", nil))
 
-	if m.convState.State != conversationStateIdle {
-		t.Fatalf("stale state event changed convState to %q", m.convState.State)
+	if m.rootRunActive {
+		t.Error("root stop left the root run active")
 	}
-	m.syncSessionClockAt(sessionTestStart.Add(time.Minute))
+	if m.sessionWorkActive() {
+		t.Error("stale generating state kept the runtime active after a root stop")
+	}
 	if m.sessionActiveSince != nil {
-		t.Fatal("stale state event opened a runtime span")
+		t.Error("stale generating state kept the runtime span open after a root stop")
 	}
+}
+
+func TestSessionRuntimeIgnoresStaleGeneratingWithoutRootRun(t *testing.T) {
+	t.Parallel()
+	m := &Model{}
+	m.startSessionClock(sessionTestStart)
+	m.convState = output.ConversationStateEvent{State: conversationStateGenerating}
+	m.convStateSeen = true
+
+	m.syncSessionClockAt(sessionTestStart)
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(time.Minute)); got != 0 {
-		t.Errorf("runtime after stale event = %v, want 0", got)
+		t.Errorf("runtime under stale generating state = %v, want 0", got)
+	}
+}
+
+func TestSessionRuntimeTracksGroupedAndHeldCompletions(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+
+	for _, id := range []string{"child-1", "child-2"} {
+		occ := agentOcc(id)
+		m.applyEvent(output.NewDelegationAcceptedEvent(occ, "grp"))
+		m.applyEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "task", "", "review"), id))
+	}
+	if !m.sessionWorkActive() {
+		t.Fatal("running grouped sub-agents did not activate the runtime")
+	}
+
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: agentOcc("child-1"), AgentType: "review", Status: "completed",
+	}))
+	if !m.sessionWorkActive() {
+		t.Error("one grouped sub-agent finishing stopped the runtime while its peer ran")
+	}
+
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: agentOcc("child-2"), AgentType: "review", Status: "completed",
+	}))
+	if m.sessionWorkActive() {
+		t.Error("the last grouped completion kept the runtime active")
+	}
+	if m.sessionActiveSince != nil {
+		t.Error("the last grouped completion left the runtime span open")
+	}
+
+	// Held results arrive after the completions: the driver waits while the
+	// roster has no queued or running work, so the runtime stays frozen.
+	m.convState = output.ConversationStateEvent{State: conversationStateWaiting, Held: true, Pending: 2}
+	m.convStateSeen = true
+	if m.sessionWorkActive() {
+		t.Error("held results reactivated the runtime")
 	}
 }
 
@@ -169,7 +186,7 @@ func TestSessionClockResetsOnClear(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.startSessionClock(sessionTestStart)
-	setConversationWork(m, conversationStateGenerating, 0)
+	m.rootRunActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(30 * time.Second))
 
 	m.resetConversationUI()
@@ -185,8 +202,10 @@ func TestSessionClockResetsOnFork(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.content.AppendLine("hello")
 	m.startSessionClock(sessionTestStart)
+	m.rootRunActive = true
 
-	if _, _ = m.executeForkSessionAction(); m.sessionStartedAt != nil {
+	_, _ = m.executeForkSessionAction()
+	if m.sessionStartedAt != nil {
 		t.Fatal("fork kept the previous session clock")
 	}
 	assertSessionClockReset(t, m)
@@ -197,6 +216,7 @@ func TestSessionClockResetsOnResume(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.controller = &testController{}
 	m.startSessionClock(sessionTestStart)
+	m.rootRunActive = true
 	m.sessionPicker.candidates = []session.IndexEntry{{ID: "sess-1"}}
 	m.sessionPicker.selection = 0
 
@@ -219,6 +239,9 @@ func assertSessionClockReset(t *testing.T, m *Model) {
 	}
 	if m.sessionActiveSince != nil {
 		t.Errorf("sessionActiveSince = %v after reset, want nil", *m.sessionActiveSince)
+	}
+	if m.rootRunActive {
+		t.Error("rootRunActive = true after reset, want false")
 	}
 	if m.sidebar.runtimeActive {
 		t.Error("sidebar.runtimeActive = true after reset, want false")
@@ -257,7 +280,7 @@ func TestRenderSidebarTracksStartedAndRuntime(t *testing.T) {
 	m.sidebar.runtimeElapsedSec = 4054
 	first := m.renderSidebar(m.width, m.height)
 	if want := m.sidebar.View(m.width, m.height); first != want {
-		t.Fatalf("renderSidebar did not invalidate after the start and runtime changed")
+		t.Fatal("renderSidebar did not invalidate after the start and runtime changed")
 	}
 	plain := stripANSI(first)
 	if !strings.Contains(plain, "2026-11-04 09:30") {

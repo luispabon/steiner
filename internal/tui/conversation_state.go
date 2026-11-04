@@ -98,18 +98,6 @@ func (m *Model) driverGenerating() bool {
 	return m.convStateSeen && m.convState.State == conversationStateGenerating
 }
 
-// sessionWorkActive reports whether the sidebar runtime should advance. The
-// driver's generating state and its count of queued plus running sub-agents
-// are the source. An active content delegation covers drivers that do not
-// report that count, and an unseen driver state falls back to the host busy
-// signals.
-func (m *Model) sessionWorkActive() bool {
-	if !m.convStateSeen {
-		return m.content.HasActiveDelegations() || m.status.streaming
-	}
-	return m.driverGenerating() || m.convState.ActiveSubAgents > 0 || m.content.HasActiveDelegations()
-}
-
 // asyncConversationBusy reports whether the driver has a turn or sub-agent
 // results outstanding.
 func (m *Model) asyncConversationBusy() bool {

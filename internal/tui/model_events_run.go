@@ -9,6 +9,8 @@ import (
 
 // applyRunStartedEvent resets per-run state and shows the run as starting.
 func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
+	m.rootRunActive = true
+	m.evaluateSessionWork()
 	m.interruptPending = false
 	m.setCompaction(compactionState{})
 	if payload.MaxTurns > 0 {
@@ -20,6 +22,8 @@ func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
 
 // applyRunFinishedEvent shows the finished run and clears terminal state.
 func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
+	m.rootRunActive = false
+	m.evaluateSessionWork()
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
 	m.activity.retry = ""
@@ -27,8 +31,12 @@ func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 	m.resetTopLevelTerminalState(true)
 }
 
-// applyStopReasonEvent shows a stopped run and clears terminal state.
+// applyStopReasonEvent shows a stopped run and clears terminal state. A root
+// stop ends the parent span even when the conversation state still reports
+// generating, so a stale state cannot keep the sidebar runtime ticking.
 func (m *Model) applyStopReasonEvent(payload output.StopReasonEvent) {
+	m.rootRunActive = false
+	m.evaluateSessionWork()
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	m.activity.retry = ""

@@ -349,6 +349,19 @@ func (r *subAgentRoster) hasRunning() bool {
 	return false
 }
 
+// activeCount reports queued plus running entries, the sub-agent half of the
+// session runtime. It matches countRoster's queued and running totals without
+// allocating a snapshot, so per-event evaluation stays cheap.
+func (r *subAgentRoster) activeCount() int {
+	active := 0
+	for _, e := range r.entries {
+		if e.status == rosterQueued || e.status == rosterRunning {
+			active++
+		}
+	}
+	return active
+}
+
 // observeRoster feeds one event into the roster.
 func (m *Model) observeRoster(event output.Event) {
 	m.roster.observe(event, nanoNow())
