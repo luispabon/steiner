@@ -560,8 +560,19 @@ func TestCloseWakesWaitingDrain(t *testing.T) {
 		Store: NewStore(path),
 		Now:   func() time.Time { return testBase },
 	})
-	release := holdStoreLock(t, path)
-	defer release()
+	// Registered before the store lock so its cleanup runs after the lock is
+	// released: Close stops the writer and this wait keeps the writer from
+	// creating files while t.TempDir removes the directory, including when the
+	// test fails before reaching Close.
+	t.Cleanup(func() {
+		svc.Close()
+		select {
+		case <-svc.writer.done:
+		case <-time.After(5 * time.Second):
+			t.Error("writer did not stop after Close")
+		}
+	})
+	holdStoreLock(t, path)
 	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
 
 	svc.Observe(sampleSnapshot("k", testBase, 10))
