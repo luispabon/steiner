@@ -2262,6 +2262,56 @@ func TestModelApprovalFIFOSkipsCancelledMiddleRequest(t *testing.T) {
 	}
 }
 
+func TestModelApprovalUnrelatedDecisionPreservesActiveTray(t *testing.T) {
+	t.Parallel()
+	coord := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coord}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-A", nil)})
+	aCh := coord.Begin("call-A", "write", "", "path", "")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", Mode: "prompt", Preview: "{}", Kind: "path"})})
+	if !m.approval.active {
+		t.Fatal("approval.active = false for coordinator head call-A request")
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if got, want := m.approval.selectedAction, 1; got != want {
+		t.Fatalf("selectedAction = %d, want %d", got, want)
+	}
+
+	// A cached session grant emits a decision without ever registering with the
+	// coordinator, so the pending head keeps the tray and its selection.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-cached", Mode: "always allowed", Preview: "{}", Message: "always allowed", Kind: "path"})})
+	if !m.approval.active {
+		t.Fatal("unrelated decision cleared the active tray")
+	}
+	if got, want := m.approval.identity, "call-A"; got != want {
+		t.Errorf("approval.identity = %q, want %q", got, want)
+	}
+	if got, want := m.approval.selectedAction, 1; got != want {
+		t.Errorf("selectedAction = %d, want %d after unrelated decision", got, want)
+	}
+	if got, want := m.status.mode, "approval"; got != want {
+		t.Errorf("status mode = %q, want %q", got, want)
+	}
+
+	// The pending head still resolves through the normal path.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 || submissions[0].Identity != "call-A" {
+		t.Fatalf("submissions = %+v, want one call-A submission", submissions)
+	}
+	coord.Submit(interactive.SubmitApproval{Identity: "call-A", Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	coord.Finish(aCh)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
+	if m.approval.active {
+		t.Fatal("approval.active = true after the call-A decision")
+	}
+	if got, want := m.status.mode, "running"; got != want {
+		t.Errorf("status mode = %q, want %q", got, want)
+	}
+}
+
 func TestModelApprovalModeTransitions(t *testing.T) {
 	t.Parallel()
 	ctrl := &testController{}

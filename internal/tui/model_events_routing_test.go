@@ -103,25 +103,161 @@ func TestUpdateRoutesWorkflowHandoffEvents(t *testing.T) {
 func TestUpdateApprovalRequestedRespectsHeadIdentity(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name       string
-		head       string
-		wantActive bool
+		name        string
+		coordinated bool
+		callID      string
+		head        string
+		wantActive  bool
 	}{
-		{name: "no coordinator head", head: "", wantActive: true},
-		{name: "head matches request", head: "call-1", wantActive: true},
-		{name: "another call is head", head: "call-0", wantActive: false},
+		{name: "no coordinator falls back to event stream", coordinated: false, callID: "call-1", wantActive: true},
+		{name: "head matches request", coordinated: true, callID: "call-1", head: "call-1", wantActive: true},
+		{name: "another call is head", coordinated: true, callID: "call-1", head: "call-0", wantActive: false},
+		{name: "cached grant leaves no coordinator head", coordinated: true, callID: "call-cached", wantActive: false},
+		{name: "empty request call ID with coordinator", coordinated: true, head: "call-1", wantActive: false},
+		{name: "empty request call ID without coordinator", coordinated: false, wantActive: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			m := newModel(Config{}, nil)
-			m.controller = approvalHeadController{head: tc.head}
-			requested := output.Event{Type: output.EventTypeApprovalRequested, Payload: output.ApprovalEvent{CallID: "call-1", Tool: "bash"}}
+			if tc.coordinated {
+				m.controller = approvalHeadController{head: tc.head}
+			} else {
+				m.controller = &testController{}
+			}
+			requested := output.Event{Type: output.EventTypeApprovalRequested, Payload: output.ApprovalEvent{CallID: tc.callID, Tool: "bash"}}
 			m = updateModel(t, m, runtimeEventMsg{Event: requested})
 			if m.approval.active != tc.wantActive {
 				t.Errorf("approval active = %t, want %t", m.approval.active, tc.wantActive)
 			}
+			if got := m.approvalRequestPromptable(tc.callID); got != tc.wantActive {
+				t.Errorf("approvalRequestPromptable(%q) = %t, want %t", tc.callID, got, tc.wantActive)
+			}
 		})
+	}
+}
+
+// Cached session grants emit requested events without registering with the
+// coordinator. They must not open the tray or reset the composer. The
+// notification shares the promptable gate but runs asynchronously, so the
+// deterministic assertion is the gate itself.
+func TestUpdateCachedApprovalRequestLeavesComposerAndTrayAlone(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.controller = approvalHeadController{head: ""}
+	m.status.mode = "build"
+	m.input.SetValue("draft instruction")
+	m.input.Focus()
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-cached", Mode: "session grant", Preview: `{"path":"x"}`, Kind: "path"})})
+
+	if m.approval.active {
+		t.Fatal("cached grant activated the approval tray")
+	}
+	if m.approvalRequestPromptable("call-cached") {
+		t.Error("approvalRequestPromptable(call-cached) = true, want false for a cached grant")
+	}
+	if got, want := m.input.Value(), "draft instruction"; got != want {
+		t.Errorf("input value = %q, want %q", got, want)
+	}
+	if !m.input.Focused() {
+		t.Error("input.Focused() = false, want the cached grant to leave the composer focused")
+	}
+	if got, want := m.status.mode, "build"; got != want {
+		t.Errorf("status mode = %q, want %q", got, want)
+	}
+}
+
+func TestUpdateApprovalHeadMatchStillNotifies(t *testing.T) {
+	t.Parallel()
+	fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 1)}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
+	m.controller = approvalHeadController{head: "call-1"}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", CallID: "call-1", Mode: "prompt", Preview: "{}", Kind: "path"})})
+	if !m.approval.active {
+		t.Fatal("approval.active = false for coordinator head call-1 request")
+	}
+
+	calls := fn.waitForCall(t)
+	if len(calls) != 1 {
+		t.Fatalf("got %d Notify calls, want 1", len(calls))
+	}
+	if !strings.Contains(calls[0].Reason, "bash") {
+		t.Errorf("Reason = %q, want it to contain %q", calls[0].Reason, "bash")
+	}
+}
+
+func TestDecisionPreservesActiveApproval(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		coordinated bool
+		head        string
+		active      bool
+		activeID    string
+		callID      string
+		want        bool
+	}{
+		{name: "unrelated decision while head matches active", coordinated: true, head: "call-A", active: true, activeID: "call-A", callID: "call-cached", want: true},
+		{name: "decision for the active call", coordinated: true, head: "call-A", active: true, activeID: "call-A", callID: "call-A"},
+		{name: "head moved on", coordinated: true, head: "call-B", active: true, activeID: "call-A", callID: "call-cached"},
+		{name: "no coordinator", coordinated: false, active: true, activeID: "call-A", callID: "call-cached"},
+		{name: "no active tray", coordinated: true, head: "call-A", callID: "call-cached"},
+		{name: "empty active identity", coordinated: true, head: "call-A", active: true, callID: "call-cached"},
+		{name: "empty decision call ID", coordinated: true, head: "call-A", active: true, activeID: "call-A", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newModel(Config{}, nil)
+			if tc.coordinated {
+				m.controller = approvalHeadController{head: tc.head}
+			} else {
+				m.controller = &testController{}
+			}
+			m.approval = approvalState{active: tc.active, identity: tc.activeID}
+			if got := m.decisionPreservesActiveApproval(tc.callID); got != tc.want {
+				t.Errorf("decisionPreservesActiveApproval(%q) = %t, want %t", tc.callID, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUpdateUnrelatedApprovalDecisionPreservesTrayAndSelection(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.controller = approvalHeadController{head: "call-A"}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", Mode: "prompt", Preview: `{"path":"a"}`, Kind: "path"})})
+	if !m.approval.active {
+		t.Fatal("approval.active = false for coordinator head call-A request")
+	}
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if got, want := m.approval.selectedAction, 1; got != want {
+		t.Fatalf("selectedAction = %d, want %d", got, want)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-cached", Mode: "always allowed", Preview: "{}", Message: "always allowed", Kind: "path"})})
+	if !m.approval.active {
+		t.Fatal("unrelated decision cleared the active tray")
+	}
+	if got, want := m.approval.identity, "call-A"; got != want {
+		t.Errorf("approval.identity = %q, want %q", got, want)
+	}
+	if got, want := m.approval.selectedAction, 1; got != want {
+		t.Errorf("selectedAction = %d, want %d after unrelated decision", got, want)
+	}
+	if got, want := m.status.mode, "approval"; got != want {
+		t.Errorf("status mode = %q, want %q", got, want)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", Mode: "prompt", Preview: `{"path":"a"}`, Message: "ok", Kind: "path"})})
+	if m.approval.active {
+		t.Fatal("approval.active = true after the active call-A decision")
+	}
+	if got, want := m.status.mode, "running"; got != want {
+		t.Errorf("status mode = %q, want %q", got, want)
 	}
 }
 
