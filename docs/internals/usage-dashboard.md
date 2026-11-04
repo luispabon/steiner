@@ -34,9 +34,9 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 
 ## Projection
 
-`ProjectWindow` and `ProjectBudget` extrapolate linearly to capacity from the oldest history point for the same account, label, and reset period (reset times within one minute). Times come from the current snapshot's `FetchedAt`, not the wall clock. A window at or above full usage has no remaining capacity, so its `EmptyAt` is the snapshot's `FetchedAt`.
+`ProjectWindow` and `ProjectBudget` extrapolate linearly to capacity from the oldest history point for the same account, label, and reset period (reset times within one minute). Times come from the current snapshot's `FetchedAt`, not the wall clock. A window at or above full usage has no remaining capacity, so a projection that is `OK` has `EmptyAt` equal to the snapshot's `FetchedAt`; without a projection, `EmptyAt` is zero.
 
-`usageAccountLines` in `internal/tui/usage_overlay_render.go` renders a trend row under each window through `appendWindowTrend`. When `usageAtLimit` reports that the window's displayed whole percentage is 100 or more, the row reads `trend: limit reached` in the error style, whether or not a projection exists. `usageAtLimit` rounds half to even, the rounding the row's `%3.0f` text uses, so a window showing `100%` always reads as exhausted. Otherwise the window defers to `appendTrend`, which drops an `empty by` row whose `EmptyAt` is not after `usageFrame.now`, because a past time is not a forecast. Budgets render through `appendTrend` alone.
+`usageAccountLines` in `internal/tui/usage_overlay_render.go` renders a trend row under each window through `appendWindowTrend`. When `usageAtLimit` reports that the window's displayed whole percentage is 100 or more, the row reads `trend: limit reached` in the error style, whether or not a projection exists. `usageAtLimit` rounds half to even, the rounding the row's `%3.0f` text uses, so a window showing `100%` always reads as exhausted. Otherwise `appendWindowTrend` drops an `empty by` row whose `EmptyAt` is not after `usageFrame.now`, because a past time is not a forecast, and defers to `appendTrend` for the remaining rows. Budgets render through `appendTrend` alone.
 
 ## In-memory state
 
