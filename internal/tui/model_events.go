@@ -24,6 +24,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 		return nil
 	}
 	m.observeRoster(event)
+	m.evaluateSessionWork()
 	if event.Scope.AgentID == "" && event.Type == output.EventTypeStopReason && m.pendingWorkflowHandoffLaunch != nil {
 		if payload, ok := event.Payload.(output.StopReasonEvent); !ok || payload.Reason != "workflow_handoff" {
 			m.cancelWorkflowHandoffSettlement()

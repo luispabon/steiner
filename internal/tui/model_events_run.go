@@ -7,8 +7,12 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// applyRunStartedEvent resets per-run state and shows the run as starting.
+// applyRunStartedEvent resets per-run state and shows the run as starting. Each
+// runner invocation emits a started and a finished pair, including compaction
+// runs, so a start marks the fallback root turn until it finishes.
 func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
+	m.rootTurnActive = true
+	m.evaluateSessionWork()
 	m.interruptPending = false
 	m.setCompaction(compactionState{})
 	if payload.MaxTurns > 0 {
@@ -18,8 +22,14 @@ func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
 	m.activity = m.activity.waiting("starting run", strings.TrimSpace(payload.Model))
 }
 
-// applyRunFinishedEvent shows the finished run and clears terminal state.
+// applyRunFinishedEvent shows the finished run and clears terminal state. It
+// ends the fallback root turn and any latched compaction run, but a driver still
+// reporting generating keeps the runtime advancing, because this event can
+// arrive between chained runs.
 func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
+	m.rootTurnActive = false
+	m.compactionRunActive = false
+	m.evaluateSessionWork()
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
 	m.activity.retry = ""
@@ -27,8 +37,16 @@ func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 	m.resetTopLevelTerminalState(true)
 }
 
-// applyStopReasonEvent shows a stopped run and clears terminal state.
+// applyStopReasonEvent shows a stopped run and clears terminal state. A root
+// stop ends the fallback root turn and any latched compaction run, because a
+// failed compaction can stop without a terminal diagnostic. While the driver
+// still reports generating the runtime keeps advancing, because a stop can
+// arrive between chained runs; the runtime ends when the driver settles to
+// waiting or idle.
 func (m *Model) applyStopReasonEvent(payload output.StopReasonEvent) {
+	m.rootTurnActive = false
+	m.compactionRunActive = false
+	m.evaluateSessionWork()
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
 	m.activity.retry = ""

@@ -29,7 +29,10 @@ type rosterEntry struct {
 	startTime  int64 // unix nano; set on queue, reset when the agent starts
 	finishTime int64 // unix nano; 0 until finished
 	delivered  bool
-	seq        int // insertion order, tie-breaker for deterministic sorting
+	// replayed marks a queued or running row recreated from saved history. Such
+	// a start may have no terminal event, so it is not live work.
+	replayed bool
+	seq      int // insertion order, tie-breaker for deterministic sorting
 }
 
 func (e rosterEntry) finished() bool {
@@ -50,6 +53,8 @@ type subAgentRoster struct {
 	entries    map[string]*rosterEntry
 	admissions map[occurrenceKey]output.DelegationAdmission
 	nextSeq    int
+	// replaying marks starts observed during saved-session replay.
+	replaying bool
 }
 
 func (r *subAgentRoster) upsert(agentID string) *rosterEntry {
@@ -99,6 +104,7 @@ func (r *subAgentRoster) begin(occ output.DelegationOccurrence, agentType, statu
 		e.startTime = now
 	}
 	e.status = status
+	e.replayed = r.replaying
 }
 
 func (e *rosterEntry) clearRun() {
@@ -349,8 +355,26 @@ func (r *subAgentRoster) hasRunning() bool {
 	return false
 }
 
+// activeCount reports queued plus running entries, the sub-agent half of the
+// session runtime. It matches countRoster's queued and running totals without
+// allocating a snapshot, so per-event evaluation stays cheap. Replayed rows are
+// excluded: a saved start without a terminal event is history, not live work.
+func (r *subAgentRoster) activeCount() int {
+	active := 0
+	for _, e := range r.entries {
+		if e.replayed {
+			continue
+		}
+		if e.status == rosterQueued || e.status == rosterRunning {
+			active++
+		}
+	}
+	return active
+}
+
 // observeRoster feeds one event into the roster.
 func (m *Model) observeRoster(event output.Event) {
+	m.roster.replaying = m.devLog.replaying
 	m.roster.observe(event, nanoNow())
 }
 

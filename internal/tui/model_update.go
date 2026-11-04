@@ -39,9 +39,9 @@ type controllerHandleFailedMsg struct{ err error }
 // sessionTickInterval is the cadence of the session timer display.
 const sessionTickInterval = time.Second
 
-func sessionTickCmd() tea.Cmd {
+func sessionTickCmd(gen int) tea.Cmd {
 	return tea.Tick(sessionTickInterval, func(time.Time) tea.Msg {
-		return sessionTickMsg{}
+		return sessionTickMsg{gen: gen}
 	})
 }
 
@@ -278,7 +278,7 @@ func (m *Model) resetConversationUI() {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
-	m.sessionStartedAt = nil
+	m.resetSessionClock()
 	m.status.mode = ""
 	m.removePendingImages()
 	m.resetConversationDisplay()
@@ -387,12 +387,16 @@ func (m *Model) handleSetAccentMsg(msg setAccentMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleSessionTickMsg(_ sessionTickMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleSessionTickMsg(msg sessionTickMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.sessionTickGen {
+		// A timer chain armed for a replaced session; let it expire.
+		return m, nil
+	}
 	m.syncSidebar()
 	if m.sessionStartedAt == nil {
 		return m, nil
 	}
-	return m, sessionTickCmd()
+	return m, sessionTickCmd(msg.gen)
 }
 
 func (m *Model) handleComposerBlinkMsg(_ composerBlinkMsg) (tea.Model, tea.Cmd) {

@@ -321,7 +321,7 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
-	m.sessionStartedAt = nil
+	m.resetSessionClock()
 	m.syncSidebar()
 	if m.controller != nil {
 		ctrl := m.controller
@@ -339,17 +339,23 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 	var sessionCmd tea.Cmd
 	newSession := m.sessionStartedAt == nil
 	if newSession {
-		now := time.Now()
-		m.sessionStartedAt = &now
+		m.startSessionClock(time.Now())
 		m.syncSidebar()
-		sessionCmd = sessionTickCmd()
+		sessionCmd = sessionTickCmd(m.sessionTickGen)
 	}
+	// The submit itself starts a root turn, so the runtime begins at the prompt
+	// instead of waiting for the driver's generating state.
+	previousTurnActive := m.rootTurnActive
+	m.rootTurnActive = true
+	m.evaluateSessionWork()
 	// Capture images before clearing
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
+			m.rootTurnActive = previousTurnActive
+			m.evaluateSessionWork()
 			if newSession {
-				m.sessionStartedAt = nil
+				m.resetSessionClock()
 				m.syncSidebar()
 			}
 			m.appendError(err)

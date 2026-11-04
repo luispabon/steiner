@@ -49,8 +49,9 @@ type sidebarStateComparable struct {
 	sessionCacheHitRateOK  bool
 	lastRequestCacheRate   float64
 	lastRequestCacheRateOK bool
-	sessionActive          bool
-	sessionElapsedSec      int64
+	startedLocal           string
+	runtimeActive          bool
+	runtimeElapsedSec      int64
 	oneshotPhase           string
 	sandboxStatus          string
 	orchestrationLevel     string
@@ -110,8 +111,9 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		sessionCacheHitRateOK:  s.sessionCacheHitRateOK,
 		lastRequestCacheRate:   s.lastRequestCacheRate,
 		lastRequestCacheRateOK: s.lastRequestCacheRateOK,
-		sessionActive:          s.sessionActive,
-		sessionElapsedSec:      s.sessionElapsedSec,
+		startedLocal:           s.startedLocal,
+		runtimeActive:          s.runtimeActive,
+		runtimeElapsedSec:      s.runtimeElapsedSec,
 		oneshotPhase:           s.oneshotPhase,
 		sandboxStatus:          s.sandboxStatus,
 		orchestrationLevel:     s.orchestrationLevel,

@@ -58,7 +58,11 @@ type workflowHandoffLaunch struct {
 }
 
 type tickMsg struct{}
-type sessionTickMsg struct{}
+
+// sessionTickMsg carries the generation of the session timer chain that sent
+// it, so a tick from a chain the session has since replaced is ignored.
+type sessionTickMsg struct{ gen int }
+
 type composerBlinkMsg struct{}
 
 type setAccentMsg struct{ preset string }
@@ -229,7 +233,29 @@ type Model struct {
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
 	clearConversationHooks       func()
-	sessionStartedAt             *time.Time
+	// sessionStartedAt is the wall clock time of the current session's first
+	// prompt. The sidebar shows it as the start time.
+	sessionStartedAt *time.Time
+	// sessionRuntime is the active runtime accumulated so far, excluding idle
+	// spans and spans parked on finished sub-agent results.
+	sessionRuntime time.Duration
+	// sessionActiveSince is when the current active runtime span began; nil
+	// while the runtime is frozen.
+	sessionActiveSince *time.Time
+	// sessionTickGen invalidates session timer chains armed for a session the
+	// user has since cleared, forked or replaced.
+	sessionTickGen int
+	// rootTurnActive is the root turn latch: set by a submit or a run start,
+	// cleared by a run finish, a root stop reason or a non-generating driver
+	// state. It starts the runtime at a prompt, covers a compaction run while the
+	// driver is idle, and is the only source when no driver state is seen. The
+	// driver's generating state stays authoritative while it is known.
+	rootTurnActive bool
+	// compactionRunActive latches a root compaction run from its active
+	// diagnostic until the run finishes or is stopped. Compaction display state
+	// is transient (a terminal diagnostic or a run start can clear it before the
+	// run's finish event), so the runtime reads this latch instead.
+	compactionRunActive bool
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int
@@ -340,7 +366,15 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.syncSidebar()
 }
 
+// syncSidebar refreshes the sidebar from the model at the current wall clock.
 func (m *Model) syncSidebar() {
+	m.syncSidebarAt(time.Now())
+}
+
+// syncSidebarAt refreshes the sidebar from the model at now, so the session
+// start label and the runtime both reflect the same instant. Tests pin now to
+// cross a local midnight without overriding the package clock.
+func (m *Model) syncSidebarAt(now time.Time) {
 	m.sidebar.model = strings.TrimSpace(m.primaryModel)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
 	m.sidebar.providerName = strings.TrimSpace(m.sidebar.providerName)
@@ -361,10 +395,13 @@ func (m *Model) syncSidebar() {
 		m.sidebar.lastRequestCacheRateOK = lastOK
 	}
 	m.syncRoster()
-	m.sidebar.sessionActive = m.sessionStartedAt != nil
-	m.sidebar.sessionElapsedSec = 0
+	m.syncSessionClockAt(now)
+	m.sidebar.runtimeActive = m.sessionStartedAt != nil
+	m.sidebar.runtimeElapsedSec = 0
+	m.sidebar.startedLocal = ""
 	if m.sessionStartedAt != nil {
-		m.sidebar.sessionElapsedSec = int64(time.Since(*m.sessionStartedAt) / time.Second)
+		m.sidebar.runtimeElapsedSec = int64(m.sessionRuntimeAt(now) / time.Second)
+		m.sidebar.startedLocal = sessionStartDisplay(*m.sessionStartedAt, now)
 	}
 	m.sidebar.mcpConnected = 0
 	m.sidebar.mcpTotal = 0

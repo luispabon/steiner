@@ -107,6 +107,17 @@ steiner --exec "summarize this repository"
 
 Usage lines contain a timestamp, the optional run ID, the source, provider and model identity, and token counts. They contain no prompt or response text. For per-request cache diagnostics, see the [`diagnostics` block](configuration.md#diagnostics-block).
 
+## Session start and runtime
+
+The `PERFORMANCE` card also shows when the current session started and how long it has worked.
+
+- `started` is the local time of the first prompt sent after launching the TUI or after `/resume`. It reads `09:30` when that prompt was sent today, `09:30 yesterday` when it was sent on the previous local calendar day, and `2026-11-01 09:30` when it was older. It shows `n/a` until you send that prompt, and it moves to the next form at local midnight without a new prompt.
+- `runtime` is the time the session spent working since that prompt, as `HH:MM:SS`, and shows a dash until then. It advances while the main conversation is generating a reply, while at least one sub-agent is queued or running, and while the conversation compacts.
+
+Overlapping work counts once: a generating turn with sub-agents running adds a single span. Runtime stops while the session is idle, and while the conversation is parked on finished sub-agent results you have not answered yet. It resumes on the next prompt or sub-agent start.
+
+Both rows reset on `/clear`, `/fork` and `/resume`. The runtime is not saved, so it covers the current TUI process only; the start time uses your machine's local time zone. After `/resume`, the rows stay empty until the next prompt.
+
 ## What is stored
 
 Both features store data under `$XDG_STATE_HOME/steiner/`, or `~/.local/state/steiner/` when `XDG_STATE_HOME` is unset. You can delete these files; Steiner starts them empty again.
