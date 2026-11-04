@@ -245,9 +245,10 @@ type Model struct {
 	// sessionTickGen invalidates session timer chains armed for a session the
 	// user has since cleared, forked or replaced.
 	sessionTickGen int
-	// rootRunActive is set between a root run's started and finished or stop
-	// event. It is the parent half of the sidebar runtime.
-	rootRunActive bool
+	// rootTurnActive is set while a root turn is producing and cleared by the
+	// driver's non-generating state, a root stop reason or a root run finish.
+	// It is the parent half of the sidebar runtime.
+	rootTurnActive bool
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int

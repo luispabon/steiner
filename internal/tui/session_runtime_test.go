@@ -21,20 +21,25 @@ func setRosterStatus(m *Model, agentID, status string) {
 	e.startTime = sessionTestStart.UnixNano()
 }
 
+// applyConversationStateForTest feeds the driver's real state event.
+func applyConversationStateForTest(m *Model, state string, held bool, pending int) {
+	m.applyEvent(output.NewConversationStateEvent(state, held, pending, false))
+}
+
 func TestSessionRuntimeCountsUnionOfParentAndSubAgents(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
 	m.startSessionClock(sessionTestStart)
 
-	m.rootRunActive = true
+	m.rootTurnActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(10 * time.Second))
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(10 * time.Second)); got != 10*time.Second {
-		t.Errorf("runtime while the root run is active = %v, want 10s", got)
+		t.Errorf("runtime while the root turn is active = %v, want 10s", got)
 	}
 
-	// The root run finishes but two sub-agents are queued or running: the span
+	// The root turn ends but two sub-agents are queued or running: the span
 	// stays open.
-	m.rootRunActive = false
+	m.rootTurnActive = false
 	setRosterStatus(m, "child-1", rosterRunning)
 	setRosterStatus(m, "child-2", rosterQueued)
 	m.syncSessionClockAt(sessionTestStart.Add(10 * time.Second))
@@ -53,11 +58,11 @@ func TestSessionRuntimeCountsUnionOfParentAndSubAgents(t *testing.T) {
 		t.Errorf("idle runtime = %v, want the 20s already accumulated", got)
 	}
 
-	// A later root run opens a new span at its start.
-	m.rootRunActive = true
+	// A later root turn opens a new span at its start.
+	m.rootTurnActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(90 * time.Second))
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(95 * time.Second)); got != 25*time.Second {
-		t.Errorf("runtime after the next root run = %v, want 25s", got)
+		t.Errorf("runtime after the next root turn = %v, want 25s", got)
 	}
 }
 
@@ -65,12 +70,12 @@ func TestSessionRuntimeFreezesOnParkedResults(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
 	m.startSessionClock(sessionTestStart)
-	m.rootRunActive = true
+	m.rootTurnActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(5 * time.Second))
 
 	// Finished sub-agent results waiting for the next message are not work, even
-	// while the driver still reports a waiting state with held results.
-	m.rootRunActive = false
+	// while the driver reports a waiting state with held results.
+	m.rootTurnActive = false
 	setRosterStatus(m, "child-1", rosterDone)
 	m.convState = output.ConversationStateEvent{State: conversationStateWaiting, Held: true, Pending: 2}
 	m.convStateSeen = true
@@ -83,53 +88,81 @@ func TestSessionRuntimeFreezesOnParkedResults(t *testing.T) {
 	}
 }
 
-func TestSessionRuntimeRootRunLifecycleWithoutDriverState(t *testing.T) {
+func TestSessionRuntimeNormalSubmitAndStop(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
-	m.startSessionClock(time.Now())
+	m.controller = &testController{}
 
-	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
-	if m.convStateSeen {
-		t.Fatal("the run lifecycle test must not receive conversation state")
-	}
+	m.executeSubmitAction("hello", "hello")
 	if !m.sessionWorkActive() {
-		t.Fatal("a root run in progress did not activate the runtime")
+		t.Fatal("a normal submit did not activate the root turn")
 	}
 	if m.sessionActiveSince == nil {
-		t.Fatal("root run start left the runtime span closed")
+		t.Fatal("a normal submit left the runtime span closed")
 	}
 
-	m.applyEvent(output.NewRunFinishedEvent(1, "completed", "", "", nil))
-	if m.sessionWorkActive() {
-		t.Error("a finished root run kept the runtime active")
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
+	if !m.sessionWorkActive() {
+		t.Fatal("the driver's generating state deactivated the root turn")
 	}
-	if m.sessionActiveSince != nil {
-		t.Error("root run finish left the runtime span open")
+
+	// A root stop ends the turn; ordinary turns emit a stop reason, not a run
+	// finished event.
+	m.applyEvent(output.NewStopReasonEvent(1, "completed", nil))
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("a root stop did not close the runtime")
+	}
+
+	// A repeated generating state must not revive the turn after the stop.
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("a stale generating state revived the runtime after a stop")
+	}
+
+	applyConversationStateForTest(m, conversationStateIdle, false, 0)
+	if m.sessionWorkActive() {
+		t.Error("the idle state left the runtime active")
 	}
 }
 
-func TestSessionRuntimeRootStopOverridesStaleGenerating(t *testing.T) {
+func TestSessionRuntimeContinuationAfterSubAgentResults(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
-	m.startSessionClock(time.Now())
-	m.convState = output.ConversationStateEvent{State: conversationStateGenerating}
-	m.convStateSeen = true
-	m.rootRunActive = true
+	m.controller = &testController{}
+	m.executeSubmitAction("hello", "hello")
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
 
-	m.applyEvent(output.NewStopReasonEvent(1, "cancelled", nil))
-
-	if m.rootRunActive {
-		t.Error("root stop left the root run active")
+	occ := agentOcc("child-1")
+	m.applyEvent(output.NewDelegationAcceptedEvent(occ, ""))
+	m.applyEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "task", "", "review"), "child-1"))
+	applyConversationStateForTest(m, conversationStateWaiting, false, 1)
+	if !m.sessionWorkActive() {
+		t.Fatal("waiting on a running sub-agent stopped the runtime")
 	}
+
+	// The finished result is held: the runtime freezes until the driver resumes.
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: occ, AgentType: "review", Status: "completed",
+	}))
+	applyConversationStateForTest(m, conversationStateWaiting, true, 1)
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("held sub-agent results kept the runtime active")
+	}
+
+	// The driver resumes automatically: waiting to generating restarts the turn
+	// without another submit.
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
+	if !m.sessionWorkActive() || m.sessionActiveSince == nil {
+		t.Fatal("an automatic continuation did not restart the runtime")
+	}
+
+	m.applyEvent(output.NewStopReasonEvent(2, "completed", nil))
 	if m.sessionWorkActive() {
-		t.Error("stale generating state kept the runtime active after a root stop")
-	}
-	if m.sessionActiveSince != nil {
-		t.Error("stale generating state kept the runtime span open after a root stop")
+		t.Error("the continuation's stop did not end the runtime")
 	}
 }
 
-func TestSessionRuntimeIgnoresStaleGeneratingWithoutRootRun(t *testing.T) {
+func TestSessionRuntimeIgnoresStaleGeneratingWithoutRootTurn(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
 	m.startSessionClock(sessionTestStart)
@@ -138,7 +171,24 @@ func TestSessionRuntimeIgnoresStaleGeneratingWithoutRootRun(t *testing.T) {
 
 	m.syncSessionClockAt(sessionTestStart)
 	if got := m.sessionRuntimeAt(sessionTestStart.Add(time.Minute)); got != 0 {
-		t.Errorf("runtime under stale generating state = %v, want 0", got)
+		t.Errorf("runtime under a stale generating state = %v, want 0", got)
+	}
+}
+
+func TestSessionRuntimeCompactionRunLifecycle(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+
+	// Run started and finished bracket compaction runs, not ordinary turns.
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+	if !m.sessionWorkActive() || m.sessionActiveSince == nil {
+		t.Fatal("a compaction run start did not activate the runtime")
+	}
+
+	m.applyEvent(output.NewRunFinishedEvent(1, "completed", "", "", nil))
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("a compaction run finish left the runtime active")
 	}
 }
 
@@ -146,6 +196,7 @@ func TestSessionRuntimeTracksGroupedAndHeldCompletions(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.startSessionClock(time.Now())
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
 
 	for _, id := range []string{"child-1", "child-2"} {
 		occ := agentOcc(id)
@@ -154,6 +205,12 @@ func TestSessionRuntimeTracksGroupedAndHeldCompletions(t *testing.T) {
 	}
 	if !m.sessionWorkActive() {
 		t.Fatal("running grouped sub-agents did not activate the runtime")
+	}
+
+	// The parent run hands off and waits; the roster now carries the activity.
+	applyConversationStateForTest(m, conversationStateWaiting, false, 2)
+	if !m.sessionWorkActive() {
+		t.Fatal("the waiting state dropped the runtime while grouped sub-agents ran")
 	}
 
 	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
@@ -175,8 +232,7 @@ func TestSessionRuntimeTracksGroupedAndHeldCompletions(t *testing.T) {
 
 	// Held results arrive after the completions: the driver waits while the
 	// roster has no queued or running work, so the runtime stays frozen.
-	m.convState = output.ConversationStateEvent{State: conversationStateWaiting, Held: true, Pending: 2}
-	m.convStateSeen = true
+	applyConversationStateForTest(m, conversationStateWaiting, true, 2)
 	if m.sessionWorkActive() {
 		t.Error("held results reactivated the runtime")
 	}
@@ -186,7 +242,7 @@ func TestSessionClockResetsOnClear(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.startSessionClock(sessionTestStart)
-	m.rootRunActive = true
+	m.rootTurnActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(30 * time.Second))
 
 	m.resetConversationUI()
@@ -202,7 +258,7 @@ func TestSessionClockResetsOnFork(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.content.AppendLine("hello")
 	m.startSessionClock(sessionTestStart)
-	m.rootRunActive = true
+	m.rootTurnActive = true
 
 	_, _ = m.executeForkSessionAction()
 	if m.sessionStartedAt != nil {
@@ -216,7 +272,7 @@ func TestSessionClockResetsOnResume(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.controller = &testController{}
 	m.startSessionClock(sessionTestStart)
-	m.rootRunActive = true
+	m.rootTurnActive = true
 	m.sessionPicker.candidates = []session.IndexEntry{{ID: "sess-1"}}
 	m.sessionPicker.selection = 0
 
@@ -240,8 +296,8 @@ func assertSessionClockReset(t *testing.T, m *Model) {
 	if m.sessionActiveSince != nil {
 		t.Errorf("sessionActiveSince = %v after reset, want nil", *m.sessionActiveSince)
 	}
-	if m.rootRunActive {
-		t.Error("rootRunActive = true after reset, want false")
+	if m.rootTurnActive {
+		t.Error("rootTurnActive = true after reset, want false")
 	}
 	if m.sidebar.runtimeActive {
 		t.Error("sidebar.runtimeActive = true after reset, want false")

@@ -3,20 +3,21 @@ package tui
 import "time"
 
 // sessionWorkActive reports whether the sidebar runtime should advance: a root
-// run is in progress, or the roster holds queued or running sub-agents. Roster
-// status comes from direct delegation lifecycle events, so grouped and held
-// completions clear it even while the driver still reports a wait. It does not
-// read the conversation state, which can lag behind a finished root run.
+// turn is in progress, or the roster holds queued or running sub-agents. The
+// root turn is tracked by its actual lifecycle (submit plus driver generating
+// state, ended by a non-generating state or a root stop), and roster status
+// comes from direct delegation lifecycle events, so grouped and held completions
+// clear it even while the driver still reports a wait.
 func (m *Model) sessionWorkActive() bool {
-	if m.rootRunActive {
+	if m.rootTurnActive {
 		return true
 	}
 	return m.roster.activeCount() > 0
 }
 
 // evaluateSessionWork advances the runtime accounting at the current time. It
-// runs after roster observations and root run lifecycle transitions, so a span
-// opens or closes with the event that caused it.
+// runs after roster observations, conversation state transitions and root turn
+// transitions, so a span opens or closes with the event that caused it.
 func (m *Model) evaluateSessionWork() {
 	m.syncSessionClockAt(time.Now())
 }
@@ -50,7 +51,7 @@ func (m *Model) resetSessionClock() {
 	m.sessionStartedAt = nil
 	m.sessionRuntime = 0
 	m.sessionActiveSince = nil
-	m.rootRunActive = false
+	m.rootTurnActive = false
 	m.sessionTickGen++
 }
 

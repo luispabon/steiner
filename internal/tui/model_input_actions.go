@@ -343,10 +343,17 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 		m.syncSidebar()
 		sessionCmd = sessionTickCmd(m.sessionTickGen)
 	}
+	// The submit itself starts a root turn, so the runtime begins at the prompt
+	// instead of waiting for the driver's generating state.
+	previousTurnActive := m.rootTurnActive
+	m.rootTurnActive = true
+	m.evaluateSessionWork()
 	// Capture images before clearing
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
+			m.rootTurnActive = previousTurnActive
+			m.evaluateSessionWork()
 			if newSession {
 				m.resetSessionClock()
 				m.syncSidebar()

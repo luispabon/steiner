@@ -7,9 +7,11 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// applyRunStartedEvent resets per-run state and shows the run as starting.
+// applyRunStartedEvent resets per-run state and shows the run as starting. Run
+// started and finished events bracket compaction runs only; ordinary turns are
+// bracketed by the driver's generating state and a root stop reason.
 func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
-	m.rootRunActive = true
+	m.rootTurnActive = true
 	m.evaluateSessionWork()
 	m.interruptPending = false
 	m.setCompaction(compactionState{})
@@ -22,7 +24,7 @@ func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
 
 // applyRunFinishedEvent shows the finished run and clears terminal state.
 func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
-	m.rootRunActive = false
+	m.rootTurnActive = false
 	m.evaluateSessionWork()
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("run finished", strings.TrimSpace(payload.Reason))
@@ -35,7 +37,7 @@ func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 // stop ends the parent span even when the conversation state still reports
 // generating, so a stale state cannot keep the sidebar runtime ticking.
 func (m *Model) applyStopReasonEvent(payload output.StopReasonEvent) {
-	m.rootRunActive = false
+	m.rootTurnActive = false
 	m.evaluateSessionWork()
 	m.status.mode = strings.TrimSpace(payload.Reason)
 	m.activity = m.activity.static("stopped", strings.TrimSpace(payload.Reason))
