@@ -251,6 +251,11 @@ type Model struct {
 	// driver is idle, and is the only source when no driver state is seen. The
 	// driver's generating state stays authoritative while it is known.
 	rootTurnActive bool
+	// compactionRunActive latches a root compaction run from its active
+	// diagnostic until the run finishes or is stopped. Compaction display state
+	// is transient (a terminal diagnostic or a run start can clear it before the
+	// run's finish event), so the runtime reads this latch instead.
+	compactionRunActive bool
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int

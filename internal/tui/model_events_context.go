@@ -37,9 +37,12 @@ func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
 	switch {
 	case cs.Active():
 		// A compaction run has its own started and finished pair, so mark the
-		// root turn here too: a driver state event can be interleaved between
-		// them and would otherwise end the runtime while compaction still runs.
+		// root turn and latch the run here too: a driver state event can be
+		// interleaved between them and would otherwise end the runtime while
+		// compaction still runs. Sub-agent compaction diagnostics never reach
+		// this handler because scoped events dispatch separately.
 		m.rootTurnActive = true
+		m.compactionRunActive = true
 		m.evaluateSessionWork()
 		m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
 	case payload.Severity == "skipped":

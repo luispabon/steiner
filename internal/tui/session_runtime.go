@@ -2,7 +2,7 @@ package tui
 
 import "time"
 
-// sessionWorkActive reports whether the sidebar runtime should advance. Three
+// sessionWorkActive reports whether the sidebar runtime should advance. Four
 // independent signals are OR-ed:
 //
 //   - rootTurnActive, the root turn latch. A submit or a run start sets it and a
@@ -10,6 +10,10 @@ import "time"
 //     It is a first-class source, not just a fallback: it starts the runtime at
 //     a prompt and covers a compaction run while the driver stays idle. It is
 //     also the only source when no driver state has been seen.
+//   - compactionRunActive, the compaction run latch. A root active compaction
+//     diagnostic sets it and a run finish, a root stop reason or a reset clears
+//     it. It outlives the compaction display state, which a terminal diagnostic
+//     can clear before the run's finish event arrives.
 //   - the driver's generating state, authoritative while state is known. It
 //     spans chained runs, where a stop reason or run finished event can arrive
 //     between runs without an intervening state change.
@@ -17,7 +21,7 @@ import "time"
 //     events, so grouped and held completions clear them even while the driver
 //     still reports a wait. Entries recreated from saved history do not count.
 func (m *Model) sessionWorkActive() bool {
-	return m.rootTurnActive || m.driverGenerating() || m.roster.activeCount() > 0
+	return m.rootTurnActive || m.compactionRunActive || m.driverGenerating() || m.roster.activeCount() > 0
 }
 
 // evaluateSessionWork advances the runtime accounting at the current time. It
@@ -57,6 +61,7 @@ func (m *Model) resetSessionClock() {
 	m.sessionRuntime = 0
 	m.sessionActiveSince = nil
 	m.rootTurnActive = false
+	m.compactionRunActive = false
 	m.sessionTickGen++
 }
 

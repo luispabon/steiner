@@ -284,6 +284,7 @@ func TestSessionClockResetsOnClear(t *testing.T) {
 	m := newModel(Config{}, nil)
 	m.startSessionClock(sessionTestStart)
 	m.rootTurnActive = true
+	m.compactionRunActive = true
 	m.syncSessionClockAt(sessionTestStart.Add(30 * time.Second))
 
 	m.resetConversationUI()
@@ -339,6 +340,9 @@ func assertSessionClockReset(t *testing.T, m *Model) {
 	}
 	if m.rootTurnActive {
 		t.Error("rootTurnActive = true after reset, want false")
+	}
+	if m.compactionRunActive {
+		t.Error("compactionRunActive = true after reset, want false")
 	}
 	if m.sidebar.runtimeActive {
 		t.Error("sidebar.runtimeActive = true after reset, want false")
@@ -468,6 +472,91 @@ func TestSessionRuntimeCompactionSurvivesWaitingChildFinish(t *testing.T) {
 	if m.sessionWorkActive() || m.sessionActiveSince != nil {
 		t.Fatal("the finished compaction run left the runtime active")
 	}
+}
+
+func TestSessionRuntimeCompactionSurvivesTerminalDiagnosticBeforeRunFinished(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+	applyConversationStateForTest(m, conversationStateIdle, false, 0)
+
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+	m.applyEvent(contextCompactionDiagnosticsEvent("compacting"))
+	if !m.compactionRunActive {
+		t.Fatal("a root active compaction diagnostic did not latch the compaction run")
+	}
+
+	// The terminal diagnostic clears the display state before the run finishes,
+	// and the driver can report waiting in between.
+	m.applyEvent(contextCompactionDiagnosticsEvent("completed"))
+	if m.compaction.Active() {
+		t.Fatal("the terminal diagnostic left the display compaction active")
+	}
+	applyConversationStateForTest(m, conversationStateWaiting, false, 0)
+	if !m.rootTurnActive {
+		t.Fatal("a waiting state after the terminal diagnostic cleared the root turn while the compaction run was still in flight")
+	}
+	if !m.sessionWorkActive() || m.sessionActiveSince == nil {
+		t.Fatal("a waiting state after the terminal diagnostic ended the runtime while the compaction run was still in flight")
+	}
+
+	m.applyEvent(output.NewRunFinishedEvent(1, "complete", "", "", nil))
+	if m.compactionRunActive {
+		t.Error("run finished left the compaction run latched")
+	}
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the finished compaction run left the runtime active")
+	}
+}
+
+func TestSessionRuntimeCompactionErrorWithoutTerminalDiagnosticDoesNotLatch(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+	applyConversationStateForTest(m, conversationStateIdle, false, 0)
+
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+	m.applyEvent(contextCompactionDiagnosticsEvent("compacting"))
+	if !m.compactionRunActive {
+		t.Fatal("a root active compaction diagnostic did not latch the compaction run")
+	}
+
+	// A failed compaction stops without a terminal diagnostic.
+	m.applyEvent(output.NewStopReasonEvent(1, "error", errors.New("compaction failed")))
+	if m.compactionRunActive {
+		t.Error("a root stop reason left the compaction run latched")
+	}
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("a failed compaction run without a terminal diagnostic left the runtime active")
+	}
+
+	applyConversationStateForTest(m, conversationStateWaiting, false, 0)
+	if m.sessionWorkActive() {
+		t.Fatal("a waiting state reactivated the runtime after the failed compaction run")
+	}
+}
+
+func TestSessionRuntimeChildCompactionDiagnosticDoesNotLatch(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+	applyConversationStateForTest(m, conversationStateIdle, false, 0)
+
+	m.applyEvent(output.WithAgentScope(contextCompactionDiagnosticsEvent("compacting"), "child-1"))
+	if m.compactionRunActive {
+		t.Fatal("a child-scoped compaction diagnostic latched the root compaction run")
+	}
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("a child-scoped compaction diagnostic activated the root runtime")
+	}
+}
+
+// contextCompactionDiagnosticsEvent builds a root compaction diagnostics event
+// with the given severity.
+func contextCompactionDiagnosticsEvent(severity string) output.Event {
+	return output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind: "compaction", Scope: "conversation", Severity: severity,
+	})
 }
 
 func TestFailedSubmitRestoresSessionClock(t *testing.T) {

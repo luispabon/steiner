@@ -39,13 +39,15 @@ func (m *Model) staleConversationState(payload output.ConversationStateEvent) bo
 // Leaving generating clears the fallback root turn, except while a compaction
 // run is in flight: the driver can report waiting because a sub-agent finished
 // while compaction still runs, so that state must not end the compaction span.
+// The latch is read rather than the display state, which a terminal compaction
+// diagnostic can clear before the run's finish event arrives.
 // The generating state itself is read directly by the runtime, because it spans
 // chained runs whose boundary events can arrive without an intervening state
 // change.
 func (m *Model) applyConversationState(payload output.ConversationStateEvent) {
 	m.convState = payload
 	m.convStateSeen = true
-	if payload.State != conversationStateGenerating && !m.compaction.Active() {
+	if payload.State != conversationStateGenerating && !m.compactionRunActive {
 		m.rootTurnActive = false
 	}
 	if payload.State == conversationStateGenerating {
