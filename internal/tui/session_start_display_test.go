@@ -6,8 +6,8 @@ import (
 )
 
 // TestSessionStartDisplayRelativeLocalDates pins the sidebar's relative start
-// label: clock time today, clock time plus "yesterday" on the preceding local
-// calendar day, and the full date before that.
+// label: clock time plus "today", clock time plus "yesterday" on the preceding
+// local calendar day, and the full date before that.
 func TestSessionStartDisplayRelativeLocalDates(t *testing.T) {
 	t.Parallel()
 	at := func(day, hour, minute int) time.Time {
@@ -21,11 +21,11 @@ func TestSessionStartDisplayRelativeLocalDates(t *testing.T) {
 		want    string
 	}{
 		{"not started", time.Time{}, at(4, 9, 30), ""},
-		{"start today", at(4, 9, 30), at(4, 9, 31), "09:30"},
-		{"start today, under 24h elapsed", at(4, 0, 10), at(4, 23, 50), "00:10"},
+		{"start today", at(4, 9, 30), at(4, 9, 31), "09:30 today"},
+		{"start today, under 24h elapsed", at(4, 0, 10), at(4, 23, 50), "00:10 today"},
 		{"start yesterday", at(3, 9, 30), at(4, 9, 30), "09:30 yesterday"},
 		{"start yesterday, over 24h elapsed", at(3, 22, 0), at(4, 23, 30), "22:00 yesterday"},
-		{"start at midnight today", at(4, 0, 0), at(4, 13, 5), "00:00"},
+		{"start at midnight today", at(4, 0, 0), at(4, 13, 5), "00:00 today"},
 		{"start just before midnight yesterday", at(3, 23, 59), at(4, 0, 0), "23:59 yesterday"},
 		{"start two days back", at(2, 9, 30), at(4, 9, 30), "2026-11-02 09:30"},
 		{"yesterday across the year boundary",
@@ -68,7 +68,7 @@ func TestSessionStartDisplayAcrossDST(t *testing.T) {
 			time.Date(2026, 11, 1, 22, 30, 0, 0, loc), "22:30 yesterday"},
 		{"fall back, same day across the repeated hour",
 			time.Date(2026, 11, 1, 1, 30, 0, 0, loc),
-			time.Date(2026, 11, 1, 23, 0, 0, 0, loc), "01:30"},
+			time.Date(2026, 11, 1, 23, 0, 0, 0, loc), "01:30 today"},
 		{"spring forward, 23h elapsed is yesterday",
 			time.Date(2026, 3, 7, 23, 30, 0, 0, loc),
 			time.Date(2026, 3, 8, 23, 30, 0, 0, loc), "23:30 yesterday"},
@@ -96,8 +96,8 @@ func TestSyncSidebarRefreshesStartLabelAcrossMidnight(t *testing.T) {
 	m.startSessionClock(time.Date(2026, 11, 3, 23, 55, 0, 0, time.Local))
 
 	m.syncSidebarAt(time.Date(2026, 11, 3, 23, 59, 30, 0, time.Local))
-	if got := m.sidebar.startedLocal; got != "23:55" {
-		t.Fatalf("sidebar.startedLocal before midnight = %q, want %q", got, "23:55")
+	if got := m.sidebar.startedLocal; got != "23:55 today" {
+		t.Fatalf("sidebar.startedLocal before midnight = %q, want %q", got, "23:55 today")
 	}
 
 	m.syncSidebarAt(time.Date(2026, 11, 4, 0, 0, 30, 0, time.Local))
