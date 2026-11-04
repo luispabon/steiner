@@ -440,6 +440,33 @@ func TestUsageOverlayScrollUsesCachedBodyCount(t *testing.T) {
 	}
 }
 
+func TestUsageOverlayClampsScrollToExpiredBody(t *testing.T) {
+	m := newModel(Config{}, nil)
+	o := m.usageOverlay.Open()
+	o.OverlayShell = o.WithDimensions(120, 12)
+	o.now = func() time.Time { return usageTestNow }
+	o = o.withViews([]quota.AccountView{usageTestFullView()})
+	visible := o.visibleHeight()
+
+	// The empty-by forecast passes, so the body loses its trend row while the
+	// cached bodyCount still counts it.
+	o.now = func() time.Time { return usageTestNow.Add(72 * time.Hour) }
+	body := len(o.bodyLines())
+	if want := o.bodyCount - 1; body != want {
+		t.Fatalf("body lines = %d after the forecast passed, want %d", body, want)
+	}
+
+	o, _ = o.Update(tea.KeyPressMsg{Code: tea.KeyEnd})
+	bottom := ansi.Strip(o.View())
+	if want := max(body-visible, 0); o.scrollOffset != want {
+		t.Fatalf("scrollOffset after End = %d, want %d clamped to the rendered body", o.scrollOffset, want)
+	}
+	o, _ = o.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if got := ansi.Strip(o.View()); got == bottom {
+		t.Error("Up after End did not scroll once the forecast row expired")
+	}
+}
+
 func TestUsageSlashCommandRouting(t *testing.T) {
 	var found bool
 	for _, c := range slashCommands {
