@@ -111,12 +111,12 @@ Usage lines contain a timestamp, the optional run ID, the source, provider and m
 
 The `PERFORMANCE` card also shows when the current session started and how long it has worked.
 
-- `started` is the local date and time of the first prompt, such as `2026-11-04 09:30`. It shows `n/a` until you send a prompt.
-- `runtime` is the time the session spent working, as `HH:MM:SS`. It advances while the main conversation is generating a reply, while at least one sub-agent is queued or running, and while the conversation compacts.
+- `started` is the local date and time of the first prompt sent after launching the TUI or after `/resume`, such as `2026-11-04 09:30`. It shows `n/a` until you send that prompt.
+- `runtime` is the time the session spent working since that prompt, as `HH:MM:SS`, and shows a dash until then. It advances while the main conversation is generating a reply, while at least one sub-agent is queued or running, and while the conversation compacts.
 
 Overlapping work counts once: a generating turn with sub-agents running adds a single span. Runtime stops while the session is idle, and while the conversation is parked on finished sub-agent results you have not answered yet. It resumes on the next prompt or sub-agent start.
 
-Both rows reset on `/clear`, `/fork` and `/resume`. The runtime is not saved, so it covers the current TUI process only; the start time uses your machine's local time zone.
+Both rows reset on `/clear`, `/fork` and `/resume`. The runtime is not saved, so it covers the current TUI process only; the start time uses your machine's local time zone. After `/resume`, the rows stay empty until the next prompt.
 
 ## What is stored
 

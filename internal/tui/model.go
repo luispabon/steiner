@@ -245,9 +245,11 @@ type Model struct {
 	// sessionTickGen invalidates session timer chains armed for a session the
 	// user has since cleared, forked or replaced.
 	sessionTickGen int
-	// rootTurnActive is the fallback root turn: set by a submit or a run start,
+	// rootTurnActive is the root turn latch: set by a submit or a run start,
 	// cleared by a run finish, a root stop reason or a non-generating driver
-	// state. The driver's generating state stays authoritative while it is seen.
+	// state. It starts the runtime at a prompt, covers a compaction run while the
+	// driver is idle, and is the only source when no driver state is seen. The
+	// driver's generating state stays authoritative while it is known.
 	rootTurnActive bool
 
 	// Render caches for width/height-dependent styles.

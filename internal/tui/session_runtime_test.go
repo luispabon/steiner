@@ -391,3 +391,34 @@ func TestRenderSidebarTracksStartedAndRuntime(t *testing.T) {
 		t.Error("sidebar render cache served a stale frame after the runtime changed")
 	}
 }
+
+// TestReplayedOrphanDelegationDoesNotActivateRuntime covers a saved-session
+// replay of a delegate call with ledger evidence but no persisted result:
+// replaySessionMessages emits the start and no terminal event, so the display
+// roster keeps a running row. That historical row must not count as live work,
+// or the runtime would advance while the resumed session sits idle.
+func TestReplayedOrphanDelegationDoesNotActivateRuntime(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+
+	m.applyEvent(output.NewReplayStartedEvent())
+	occ := agentOcc("agent-orphan")
+	m.applyEvent(output.NewDelegationAcceptedEvent(occ, "grp"))
+	m.applyEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "task", "", "explore"), "agent-orphan"))
+	m.applyEvent(output.NewReplayFinishedEvent())
+
+	entry, ok := m.roster.entries["agent-orphan"]
+	if !ok || entry.status != rosterRunning {
+		t.Fatalf("replayed orphan row = %#v, want a running display row", entry)
+	}
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("a replayed delegation start without a terminal event activated the runtime")
+	}
+
+	// A live start for the same agent is real work and reactivates the runtime.
+	m.applyEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "next task", "", "explore"), "agent-orphan"))
+	if !m.sessionWorkActive() {
+		t.Fatal("a live delegation start after replay did not activate the runtime")
+	}
+}

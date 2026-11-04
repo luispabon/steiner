@@ -2,15 +2,20 @@ package tui
 
 import "time"
 
-// sessionWorkActive reports whether the sidebar runtime should advance: a root
-// turn is producing, or the roster holds queued or running sub-agents. While
-// the conversation driver reports state, generating is authoritative: it spans
-// chained runs, where a stop reason or run finished event can arrive between
-// runs without an intervening state change. The submit and run lifecycle latch
-// carries work the driver state does not cover, such as a compaction run while
-// the driver is idle, and is the fallback when no driver state is seen. The
-// roster half comes from direct delegation lifecycle events, so grouped and
-// held completions clear it even while the driver still reports a wait.
+// sessionWorkActive reports whether the sidebar runtime should advance. Three
+// independent signals are OR-ed:
+//
+//   - rootTurnActive, the root turn latch. A submit or a run start sets it and a
+//     run finish, a root stop reason or a non-generating driver state clears it.
+//     It is a first-class source, not just a fallback: it starts the runtime at
+//     a prompt and covers a compaction run while the driver stays idle. It is
+//     also the only source when no driver state has been seen.
+//   - the driver's generating state, authoritative while state is known. It
+//     spans chained runs, where a stop reason or run finished event can arrive
+//     between runs without an intervening state change.
+//   - queued or running roster entries, fed by direct delegation lifecycle
+//     events, so grouped and held completions clear them even while the driver
+//     still reports a wait. Entries recreated from saved history do not count.
 func (m *Model) sessionWorkActive() bool {
 	return m.rootTurnActive || m.driverGenerating() || m.roster.activeCount() > 0
 }
