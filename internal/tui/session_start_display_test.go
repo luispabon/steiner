@@ -115,9 +115,10 @@ func TestSyncSidebarRefreshesStartLabelAcrossMidnight(t *testing.T) {
 func TestSessionTickRefreshesStartLabelWhileIdle(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
-	// 48 hours back always lands at least two local calendar days earlier, so
-	// the label takes the absolute date form regardless of when the test runs.
-	start := time.Now().Add(-48 * time.Hour)
+	// Three local calendar days back stays outside today and yesterday by
+	// calendar arithmetic, so the label takes the absolute date form regardless
+	// of a 23 or 25 hour DST day or of when the test runs.
+	start := time.Now().AddDate(0, 0, -3)
 	m.startSessionClock(start)
 	m.sidebar.startedLocal = "stale"
 
