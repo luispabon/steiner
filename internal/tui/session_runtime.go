@@ -39,10 +39,10 @@ const sessionStartLayout = "2006-01-02 15:04"
 const sessionStartClockLayout = "15:04"
 
 // sessionStartDisplay formats a session start time in local time for the
-// sidebar, relative to now: "HH:MM today" on the same local calendar day,
-// "HH:MM yesterday" on the preceding one, and "YYYY-MM-DD HH:MM" before that.
-// It returns "" when the session has not started. now carries the reference
-// zone; callers pass time.Now(), so that is the machine's local zone. The day
+// sidebar, relative to now: "HH:MM" on the same local calendar day, "HH:MM
+// yesterday" on the preceding one, and "YYYY-MM-DD HH:MM" before that. It
+// returns "" when the session has not started. now carries the reference zone;
+// callers pass time.Now(), so that is the machine's local zone. The day
 // comparison uses calendar dates via AddDate, not elapsed time, so it stays
 // correct across DST shifts and year boundaries.
 func sessionStartDisplay(started, now time.Time) string {
@@ -51,7 +51,7 @@ func sessionStartDisplay(started, now time.Time) string {
 	}
 	local := started.In(now.Location())
 	if sameLocalDate(local, now) {
-		return local.Format(sessionStartClockLayout) + " today"
+		return local.Format(sessionStartClockLayout)
 	}
 	if sameLocalDate(local, now.AddDate(0, 0, -1)) {
 		return local.Format(sessionStartClockLayout) + " yesterday"
