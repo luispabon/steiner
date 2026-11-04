@@ -46,8 +46,11 @@ A trend row under a window or budget projects when usage will reach its limit, u
 
 - `└─ trend: empty by <time> (before reset) ✗` means that at this rate the limit is reached before the reset.
 - `└─ trend: lasts past reset ✓` means usage lasts until the reset.
+- `└─ trend: limit reached ✗` means the window already shows 100% used, so there is nothing left to forecast. It replaces the other rows even when no projection is available, and it appears whenever the shown percentage rounds up to 100 as well as at or above 100.
 
 A trend appears only when the readings are at least 15 minutes apart, usage rose by at least 2 percentage points (2% of the limit for budgets), and the window or budget has a reset time. The projection uses two points, so one large turn can move it noticeably.
+
+An `empty by` time is not shown once it has passed: a window whose projected limit time is at or before the current time shows no trend row instead.
 
 ### When usage refreshes
 

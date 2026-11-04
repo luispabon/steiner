@@ -34,7 +34,9 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 
 ## Projection
 
-`ProjectWindow` and `ProjectBudget` extrapolate linearly to capacity from the oldest history point for the same account, label, and reset period (reset times within one minute). Times come from the current snapshot's `FetchedAt`, not the wall clock.
+`ProjectWindow` and `ProjectBudget` extrapolate linearly to capacity from the oldest history point for the same account, label, and reset period (reset times within one minute). Times come from the current snapshot's `FetchedAt`, not the wall clock. A window at or above full usage has no remaining capacity, so a projection that is `OK` has `EmptyAt` equal to the snapshot's `FetchedAt`; without a projection, `EmptyAt` is zero.
+
+`usageAccountLines` in `internal/tui/usage_overlay_render.go` renders a trend row under each window through `appendWindowTrend`. When `usageAtLimit` reports that the window's displayed whole percentage is 100 or more, the row reads `trend: limit reached` in the error style, whether or not a projection exists. `usageAtLimit` rounds half to even, the rounding the row's `%3.0f` text uses, so a window showing `100%` always reads as exhausted. Otherwise `appendWindowTrend` drops an `empty by` row whose `EmptyAt` is not after `usageFrame.now`, because a past time is not a forecast, and defers to `appendTrend` for the remaining rows. Budgets render through `appendTrend` alone.
 
 ## In-memory state
 
@@ -44,5 +46,6 @@ In `cmd/steiner`, `runtime_build.go` builds the service and store, and `primeQuo
 
 - `openUsageOverlay` shows cached views and starts `RefreshAll` under a 30-second context. Views are read only in commands (`loadUsageViewsCmd`, `usageRunFinishedCmd`). `handleQuotaUpdateMsg` calls `Updates()`, a capacity-one channel whose notifications coalesce, and checks overlay state.
 - `needsTicking` includes `IsOpen() && refreshing()`. `handleTickMsg` advances the spinner only while open and refreshing. Closing keys start no ticker.
+- `withViews` caches `bodyCount` so scroll keys never render the body. `View` clamps the stored `scrollOffset` to the body it renders: an empty-by forecast that expires drops a row, so the cached count can exceed the body until the next views load.
 - `usageRunFinishedCmd` runs on run-finished events. It returns nil when there is no service or the interval is not positive. Otherwise it calls `RefreshUsed` with that interval as the minimum snapshot age. `RefreshUsed` fetches only accounts whose alias the run marked through `MarkUsed`, and skips those whose latest snapshot is newer than the interval (`internal/quota/service_fetch.go`).
 - `tui.quota_refresh_interval` (default `5m`) is validated by `validateTUIConfig`, which rejects negative values and accepts zero. `quotaTUIConfig` passes it to the TUI. Opening the dashboard and pressing `r` do not read it.

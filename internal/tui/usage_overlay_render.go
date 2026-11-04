@@ -106,7 +106,7 @@ func usageAccountLines(f usageFrame, v quota.AccountView) []string {
 	snap := v.Latest
 	for i, w := range snap.Windows {
 		lines = append(lines, usageWindowLine(f, w))
-		lines = appendTrend(lines, f, v.WindowProjections, i)
+		lines = appendWindowTrend(lines, f, v.WindowProjections, i, w.UsedPercent)
 	}
 	var spend []string
 	for i, b := range snap.Budgets {
@@ -140,6 +140,27 @@ func appendTrend(lines []string, f usageFrame, projs []quota.Projection, i int) 
 		return append(lines, f.styles.WarningStyle.Render(text)+f.styles.ErrorStyle.Render("✗"))
 	}
 	return append(lines, "  └─ trend: lasts past reset "+f.styles.SuccessStyle.Render("✓"))
+}
+
+// usageAtLimit reports whether pct displays as a full window. It rounds half to
+// even, the rounding the window row's %3.0f percentage text uses, so the trend
+// row always agrees with the percentage shown beside it.
+func usageAtLimit(pct float64) bool {
+	return math.RoundToEven(pct) >= 100
+}
+
+// appendWindowTrend appends the trend row for the window projs[i] was projected
+// from. A window that displays as full is already at its limit, so it reads as
+// exhausted instead of forecast. A forecast whose time has already arrived is
+// not a forecast and is dropped.
+func appendWindowTrend(lines []string, f usageFrame, projs []quota.Projection, i int, pct float64) []string {
+	if usageAtLimit(pct) {
+		return append(lines, f.styles.ErrorStyle.Render("  └─ trend: limit reached ✗"))
+	}
+	if i < len(projs) && projs[i].OK && projs[i].BeforeReset && !projs[i].EmptyAt.After(f.now) {
+		return lines
+	}
+	return appendTrend(lines, f, projs, i)
 }
 
 // usageRow renders a label padded to the label column, followed by value.

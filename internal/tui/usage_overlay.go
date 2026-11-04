@@ -78,9 +78,11 @@ func (o usageOverlayState) Close() usageOverlayState {
 
 // withViews returns a copy of the overlay caching views and bodyCount, the
 // number of lines their body renders. The count comes from a render, so it
-// cannot drift from the body. It stays valid while the overlay is open because
-// the line count does not depend on the clock, refresh state or width: rows are
-// truncated, never wrapped.
+// cannot drift from the body. Refresh state and width do not change the line
+// count because rows are truncated, never wrapped. A window's empty-by forecast
+// drops its row once its time has passed, so the body can be shorter than the
+// cached count until the next views load; View clamps the stored scroll offset
+// to the body it renders.
 func (o usageOverlayState) withViews(views []quota.AccountView) usageOverlayState {
 	o.views = views
 	o.bodyCount = len(o.bodyLines())
@@ -138,14 +140,17 @@ func (o usageOverlayState) Update(msg tea.Msg) (usageOverlayState, tea.Cmd) {
 	return o, nil
 }
 
-// View renders the overlay, or "" while it is closed.
-func (o usageOverlayState) View() string {
+// View renders the overlay, or "" while it is closed. It clamps the stored
+// scroll offset to the body it renders, because a window forecast that expires
+// drops its row while bodyCount still counts it.
+func (o *usageOverlayState) View() string {
 	if !o.IsOpen() {
 		return ""
 	}
 	lines := o.bodyLines()
 	visible := o.visibleHeight()
-	start := min(o.scrollOffset, max(len(lines)-visible, 0))
+	o.scrollOffset = min(o.scrollOffset, max(len(lines)-visible, 0))
+	start := o.scrollOffset
 	end := min(len(lines), start+visible)
 	body := lipgloss.JoinVertical(lipgloss.Left, lines[start:end]...)
 	full := lipgloss.JoinVertical(lipgloss.Left,
