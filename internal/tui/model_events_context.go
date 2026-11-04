@@ -36,6 +36,11 @@ func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
 	m.setCompaction(cs)
 	switch {
 	case cs.Active():
+		// A compaction run has its own started and finished pair, so mark the
+		// root turn here too: a driver state event can be interleaved between
+		// them and would otherwise end the runtime while compaction still runs.
+		m.rootTurnActive = true
+		m.evaluateSessionWork()
 		m.activity = m.activity.waiting("compacting context", compactingLabel(payload))
 	case payload.Severity == "skipped":
 		// Nothing was compacted; the run continues in the same waiting state a model call uses.

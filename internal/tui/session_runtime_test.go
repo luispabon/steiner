@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -420,5 +421,123 @@ func TestReplayedOrphanDelegationDoesNotActivateRuntime(t *testing.T) {
 	m.applyEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "next task", "", "explore"), "agent-orphan"))
 	if !m.sessionWorkActive() {
 		t.Fatal("a live delegation start after replay did not activate the runtime")
+	}
+}
+
+// TestSessionRuntimeCompactionSurvivesWaitingChildFinish reproduces the manual
+// compaction undercount: compaction starts while the driver waits, a sub-agent
+// finishes mid-compaction, and the driver's waiting state event must not end the
+// compaction span.
+func TestSessionRuntimeCompactionSurvivesWaitingChildFinish(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+
+	occ := agentOcc("child-1")
+	m.applyEvent(output.NewDelegationAcceptedEvent(occ, ""))
+	m.applyEvent(output.WithAgentScope(output.NewDelegationStartedEvent(occ, "task", "", "review"), "child-1"))
+	applyConversationStateForTest(m, conversationStateWaiting, false, 1)
+	if !m.sessionWorkActive() {
+		t.Fatal("waiting on a running sub-agent did not activate the runtime")
+	}
+
+	// Manual compaction is allowed while the driver waits and emits its own run
+	// pair without moving the driver state.
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+	m.applyEvent(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind: "compaction", Scope: "conversation", Severity: "compacting", Notes: []string{"starting compaction"},
+	}))
+	if !m.compaction.Active() {
+		t.Fatal("the compaction start event did not mark compaction active")
+	}
+
+	// The sub-agent finishes while compaction is still in flight, and the
+	// driver emits a waiting state event for the changed pending count.
+	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: occ, AgentType: "review", Status: "completed",
+	}))
+	applyConversationStateForTest(m, conversationStateWaiting, false, 0)
+	if !m.sessionWorkActive() || m.sessionActiveSince == nil {
+		t.Fatal("a waiting state event ended the runtime while compaction was in flight")
+	}
+
+	m.applyEvent(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind: "compaction", Scope: "conversation", Severity: "completed",
+	}))
+	m.applyEvent(output.NewRunFinishedEvent(0, "complete", "", "", nil))
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the finished compaction run left the runtime active")
+	}
+}
+
+func TestFailedSubmitRestoresSessionClock(t *testing.T) {
+	t.Parallel()
+
+	t.Run("first prompt", func(t *testing.T) {
+		t.Parallel()
+		m := newModel(Config{}, nil)
+		m.controller = &testController{err: errors.New("submit failed")}
+
+		m.executeSubmitAction("hello", "hello")
+
+		if m.sessionStartedAt != nil || m.sessionRuntime != 0 || m.sessionActiveSince != nil {
+			t.Fatalf("failed first submit left the clock set: started=%v runtime=%v active=%v",
+				m.sessionStartedAt, m.sessionRuntime, m.sessionActiveSince)
+		}
+		if m.rootTurnActive {
+			t.Error("failed first submit left the root turn active")
+		}
+		if m.sidebar.runtimeActive {
+			t.Error("failed first submit left the sidebar runtime active")
+		}
+	})
+
+	t.Run("later prompt", func(t *testing.T) {
+		t.Parallel()
+		started := time.Now().Add(-time.Minute)
+		m := newModel(Config{}, nil)
+		m.controller = &testController{err: errors.New("submit failed")}
+		m.sessionStartedAt = &started
+		m.sessionRuntime = 2 * time.Second
+
+		m.executeSubmitAction("hello", "hello")
+
+		if m.sessionStartedAt == nil || !m.sessionStartedAt.Equal(started) {
+			t.Fatalf("failed later submit replaced the start time: %v", m.sessionStartedAt)
+		}
+		if got := m.sessionRuntime; got < 2*time.Second || got > 3*time.Second {
+			t.Errorf("runtime after a failed later submit = %v, want the 2s already accumulated", got)
+		}
+		if m.sessionActiveSince != nil {
+			t.Error("failed later submit left an open runtime span")
+		}
+		if m.rootTurnActive {
+			t.Error("failed later submit left the root turn active")
+		}
+	})
+}
+
+// TestDriverWorkBeforeFirstPromptStaysUncounted documents the first-prompt rule:
+// driver work after a reset but before the next prompt has no start time to
+// measure from, so it does not advance the runtime. The next prompt starts the
+// clock.
+func TestDriverWorkBeforeFirstPromptStaysUncounted(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.controller = &testController{}
+	m.startSessionClock(sessionTestStart)
+	m.resetSessionClock()
+
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
+	if m.sessionStartedAt != nil || m.sessionActiveSince != nil {
+		t.Fatal("driver work before the first prompt started the session clock")
+	}
+
+	m.executeSubmitAction("hello", "hello")
+	if m.sessionStartedAt == nil {
+		t.Fatal("the first prompt after a reset did not start the session clock")
+	}
+	if !m.sessionWorkActive() {
+		t.Error("the first prompt after a reset did not activate the runtime")
 	}
 }
