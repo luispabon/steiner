@@ -245,9 +245,9 @@ type Model struct {
 	// sessionTickGen invalidates session timer chains armed for a session the
 	// user has since cleared, forked or replaced.
 	sessionTickGen int
-	// rootTurnActive is set while a root turn is producing and cleared by the
-	// driver's non-generating state, a root stop reason or a root run finish.
-	// It is the parent half of the sidebar runtime.
+	// rootTurnActive is the fallback root turn: set by a submit or a run start,
+	// cleared by a run finish, a root stop reason or a non-generating driver
+	// state. The driver's generating state stays authoritative while it is seen.
 	rootTurnActive bool
 
 	// Render caches for width/height-dependent styles.

@@ -101,27 +101,70 @@ func TestSessionRuntimeNormalSubmitAndStop(t *testing.T) {
 		t.Fatal("a normal submit left the runtime span closed")
 	}
 
+	// The real normal sequence: run started, driver generating, stop reason,
+	// run finished, then the driver settles to idle.
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "hello", 0, 0))
 	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
+	m.applyEvent(output.NewStopReasonEvent(1, "complete", nil))
 	if !m.sessionWorkActive() {
-		t.Fatal("the driver's generating state deactivated the root turn")
+		t.Fatal("a stop reason while the driver still generates ended the runtime early")
 	}
-
-	// A root stop ends the turn; ordinary turns emit a stop reason, not a run
-	// finished event.
-	m.applyEvent(output.NewStopReasonEvent(1, "completed", nil))
-	if m.sessionWorkActive() || m.sessionActiveSince != nil {
-		t.Fatal("a root stop did not close the runtime")
-	}
-
-	// A repeated generating state must not revive the turn after the stop.
-	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
-	if m.sessionWorkActive() || m.sessionActiveSince != nil {
-		t.Fatal("a stale generating state revived the runtime after a stop")
+	m.applyEvent(output.NewRunFinishedEvent(1, "complete", "", "", nil))
+	if !m.sessionWorkActive() {
+		t.Fatal("a run finished event while the driver still generates ended the runtime early")
 	}
 
 	applyConversationStateForTest(m, conversationStateIdle, false, 0)
-	if m.sessionWorkActive() {
-		t.Error("the idle state left the runtime active")
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the idle state did not close the runtime")
+	}
+}
+
+func TestSessionRuntimeGeneratingAuthoritativeAcrossChainedRuns(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+	applyConversationStateForTest(m, conversationStateGenerating, false, 0)
+
+	// Chained runs emit their own started, stop reason and finished events with
+	// no intervening state change; the driver stays generating throughout.
+	for run := 0; run < 2; run++ {
+		m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+		m.applyEvent(output.NewStopReasonEvent(run+1, "complete", nil))
+		m.applyEvent(output.NewRunFinishedEvent(run+1, "complete", "", "", nil))
+		if !m.sessionWorkActive() {
+			t.Fatalf("run %d boundary ended the runtime while the driver was generating", run)
+		}
+		if m.sessionActiveSince == nil {
+			t.Fatalf("run %d boundary closed the runtime span", run)
+		}
+	}
+
+	applyConversationStateForTest(m, conversationStateWaiting, false, 0)
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the waiting state did not end the chained turn")
+	}
+}
+
+func TestSessionRuntimeFallbackRootRunLifecycle(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.startSessionClock(time.Now())
+
+	// The CLI runner's normal events, with no driver state to consult.
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "hello", 0, 0))
+	if !m.sessionWorkActive() || m.sessionActiveSince == nil {
+		t.Fatal("run started did not activate the fallback runtime")
+	}
+	m.applyEvent(output.NewStopReasonEvent(1, "complete", nil))
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the fallback runtime stayed active after a stop reason")
+	}
+
+	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
+	m.applyEvent(output.NewRunFinishedEvent(1, "complete", "", "", nil))
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the fallback runtime stayed active after run finished")
 	}
 }
 
@@ -156,31 +199,28 @@ func TestSessionRuntimeContinuationAfterSubAgentResults(t *testing.T) {
 		t.Fatal("an automatic continuation did not restart the runtime")
 	}
 
-	m.applyEvent(output.NewStopReasonEvent(2, "completed", nil))
-	if m.sessionWorkActive() {
-		t.Error("the continuation's stop did not end the runtime")
+	// An interrupt emits a root stop; the runtime ends when the driver settles
+	// out of generating, not on the stop alone.
+	m.applyEvent(output.NewStopReasonEvent(2, "cancelled", nil))
+	if !m.sessionWorkActive() {
+		t.Fatal("a stop reason ended chained generation before the driver settled")
+	}
+	applyConversationStateForTest(m, conversationStateWaiting, true, 0)
+	if m.sessionWorkActive() || m.sessionActiveSince != nil {
+		t.Fatal("the driver settling after an interrupt did not end the runtime")
 	}
 }
 
-func TestSessionRuntimeIgnoresStaleGeneratingWithoutRootTurn(t *testing.T) {
-	t.Parallel()
-	m := &Model{}
-	m.startSessionClock(sessionTestStart)
-	m.convState = output.ConversationStateEvent{State: conversationStateGenerating}
-	m.convStateSeen = true
-
-	m.syncSessionClockAt(sessionTestStart)
-	if got := m.sessionRuntimeAt(sessionTestStart.Add(time.Minute)); got != 0 {
-		t.Errorf("runtime under a stale generating state = %v, want 0", got)
-	}
-}
-
-func TestSessionRuntimeCompactionRunLifecycle(t *testing.T) {
+func TestSessionRuntimeCompactionRunWhileDriverIdle(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.startSessionClock(time.Now())
+	applyConversationStateForTest(m, conversationStateIdle, false, 0)
+	if m.sessionWorkActive() {
+		t.Fatal("the idle state started the runtime before compaction")
+	}
 
-	// Run started and finished bracket compaction runs, not ordinary turns.
+	// Compaction emits its own run pair without moving the driver out of idle.
 	m.applyEvent(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
 	if !m.sessionWorkActive() || m.sessionActiveSince == nil {
 		t.Fatal("a compaction run start did not activate the runtime")

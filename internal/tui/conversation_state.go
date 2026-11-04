@@ -35,19 +35,14 @@ func (m *Model) staleConversationState(payload output.ConversationStateEvent) bo
 }
 
 // applyConversationState records the driver's state, the only source for it,
-// and derives the parent activity label while the conversation is waiting. A
-// transition into generating starts a root turn, which covers automatic
-// continuations after sub-agent results; leaving generating ends it. A repeated
-// generating state does not restart a turn, so a stale update that arrives
-// after a root stop cannot revive the sidebar runtime.
+// and derives the parent activity label while the conversation is waiting.
+// Leaving generating clears the fallback root turn; the generating state itself
+// is read directly by the runtime, because it spans chained runs whose boundary
+// events can arrive without an intervening state change.
 func (m *Model) applyConversationState(payload output.ConversationStateEvent) {
-	wasGenerating := m.convStateSeen && m.convState.State == conversationStateGenerating
 	m.convState = payload
 	m.convStateSeen = true
-	switch {
-	case payload.State == conversationStateGenerating && !wasGenerating:
-		m.rootTurnActive = true
-	case payload.State != conversationStateGenerating:
+	if payload.State != conversationStateGenerating {
 		m.rootTurnActive = false
 	}
 	if payload.State == conversationStateGenerating {

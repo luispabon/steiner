@@ -7,9 +7,9 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// applyRunStartedEvent resets per-run state and shows the run as starting. Run
-// started and finished events bracket compaction runs only; ordinary turns are
-// bracketed by the driver's generating state and a root stop reason.
+// applyRunStartedEvent resets per-run state and shows the run as starting. Each
+// runner invocation emits a started and a finished pair, including compaction
+// runs, so a start marks the fallback root turn until it finishes.
 func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
 	m.rootTurnActive = true
 	m.evaluateSessionWork()
@@ -22,7 +22,9 @@ func (m *Model) applyRunStartedEvent(payload output.RunStartedEvent) {
 	m.activity = m.activity.waiting("starting run", strings.TrimSpace(payload.Model))
 }
 
-// applyRunFinishedEvent shows the finished run and clears terminal state.
+// applyRunFinishedEvent shows the finished run and clears terminal state. It
+// ends the fallback root turn, but a driver still reporting generating keeps the
+// runtime advancing, because this event can arrive between chained runs.
 func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 	m.rootTurnActive = false
 	m.evaluateSessionWork()
@@ -34,8 +36,9 @@ func (m *Model) applyRunFinishedEvent(payload output.RunFinishedEvent) {
 }
 
 // applyStopReasonEvent shows a stopped run and clears terminal state. A root
-// stop ends the parent span even when the conversation state still reports
-// generating, so a stale state cannot keep the sidebar runtime ticking.
+// stop ends the fallback root turn. While the driver still reports generating
+// the runtime keeps advancing, because a stop can arrive between chained runs;
+// the runtime ends when the driver settles to waiting or idle.
 func (m *Model) applyStopReasonEvent(payload output.StopReasonEvent) {
 	m.rootTurnActive = false
 	m.evaluateSessionWork()

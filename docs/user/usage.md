@@ -112,7 +112,7 @@ Usage lines contain a timestamp, the optional run ID, the source, provider and m
 The `PERFORMANCE` card also shows when the current session started and how long it has worked.
 
 - `started` is the local date and time of the first prompt, such as `2026-11-04 09:30`. It shows `n/a` until you send a prompt.
-- `runtime` is the time the session spent working, as `HH:MM:SS`. It advances while the main conversation is generating a reply, or while at least one sub-agent is queued or running.
+- `runtime` is the time the session spent working, as `HH:MM:SS`. It advances while the main conversation is generating a reply, while at least one sub-agent is queued or running, and while the conversation compacts.
 
 Overlapping work counts once: a generating turn with sub-agents running adds a single span. Runtime stops while the session is idle, and while the conversation is parked on finished sub-agent results you have not answered yet. It resumes on the next prompt or sub-agent start.
 
