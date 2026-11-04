@@ -113,6 +113,7 @@ func TestUpdateApprovalRequestedRespectsHeadIdentity(t *testing.T) {
 		{name: "head matches request", coordinated: true, callID: "call-1", head: "call-1", wantActive: true},
 		{name: "another call is head", coordinated: true, callID: "call-1", head: "call-0", wantActive: false},
 		{name: "cached grant leaves no coordinator head", coordinated: true, callID: "call-cached", wantActive: false},
+		{name: "empty head and empty request call ID", coordinated: true, wantActive: false},
 		{name: "empty request call ID with coordinator", coordinated: true, head: "call-1", wantActive: false},
 		{name: "empty request call ID without coordinator", coordinated: false, wantActive: true},
 	}
@@ -138,12 +139,11 @@ func TestUpdateApprovalRequestedRespectsHeadIdentity(t *testing.T) {
 }
 
 // Cached session grants emit requested events without registering with the
-// coordinator. They must not open the tray or reset the composer. The
-// notification shares the promptable gate but runs asynchronously, so the
-// deterministic assertion is the gate itself.
+// coordinator. They must not open the tray, reset the composer or notify.
 func TestUpdateCachedApprovalRequestLeavesComposerAndTrayAlone(t *testing.T) {
 	t.Parallel()
-	m := newModel(Config{}, nil)
+	fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 1)}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 	m.controller = approvalHeadController{head: ""}
 	m.status.mode = "build"
 	m.input.SetValue("draft instruction")
@@ -166,26 +166,88 @@ func TestUpdateCachedApprovalRequestLeavesComposerAndTrayAlone(t *testing.T) {
 	if got, want := m.status.mode, "build"; got != want {
 		t.Errorf("status mode = %q, want %q", got, want)
 	}
+	fn.expectNoCall(t)
 }
 
-func TestUpdateApprovalHeadMatchStillNotifies(t *testing.T) {
+func TestUpdateApprovalRequestNotifiesOnlyForCoordinatorHead(t *testing.T) {
 	t.Parallel()
+	cases := []struct {
+		name       string
+		head       string
+		callID     string
+		wantNotify bool
+	}{
+		{name: "cached grant with empty head", callID: "call-cached"},
+		{name: "empty head and empty call ID", callID: ""},
+		{name: "mismatching head", head: "call-other", callID: "call-cached"},
+		{name: "matching head", head: "call-1", callID: "call-1", wantNotify: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 1)}
+			m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
+			m.controller = approvalHeadController{head: tc.head}
+
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", CallID: tc.callID, Mode: "prompt", Preview: "{}", Kind: "path"})})
+
+			if tc.wantNotify {
+				if !m.approval.active {
+					t.Fatalf("approval.active = false for coordinator head %q request", tc.callID)
+				}
+				calls := fn.waitForCall(t)
+				if len(calls) != 1 {
+					t.Fatalf("got %d Notify calls, want 1", len(calls))
+				}
+				if !strings.Contains(calls[0].Reason, "bash") {
+					t.Errorf("Reason = %q, want it to contain %q", calls[0].Reason, "bash")
+				}
+				return
+			}
+			if m.approval.active {
+				t.Fatal("approval.active = true, want the tray to stay closed")
+			}
+			fn.expectNoCall(t)
+		})
+	}
+}
+
+func TestUpdateApprovalPromotionDoesNotNotify(t *testing.T) {
+	t.Parallel()
+	coord := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coord}
 	fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 1)}
-	m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
-	m.controller = approvalHeadController{head: "call-1"}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Controller: ctrl, Notifier: fn}, nil)
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", CallID: "call-1", Mode: "prompt", Preview: "{}", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-B", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", "call-A", nil)})
+	bCh := coord.Begin("call-B", "write", "", "path", "")
+	aCh := coord.Begin("call-A", "read", "", "path", "")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", Mode: "prompt", Preview: "{}", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if !m.approval.active {
-		t.Fatal("approval.active = false for coordinator head call-1 request")
+		t.Fatal("approval.active = false for coordinator head call-B request")
+	}
+	if got, want := m.approval.identity, "call-B"; got != want {
+		t.Fatalf("approval.identity = %q, want %q", got, want)
+	}
+	// Only opening the tray notifies; the queued call-A request stayed silent.
+	if calls := fn.waitForCall(t); len(calls) != 1 {
+		t.Fatalf("got %d Notify calls before promotion, want 1", len(calls))
 	}
 
-	calls := fn.waitForCall(t)
-	if len(calls) != 1 {
-		t.Fatalf("got %d Notify calls, want 1", len(calls))
+	fn.reset()
+	coord.Submit(interactive.SubmitApproval{Identity: "call-B", Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	coord.Finish(bCh)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
+	if !m.approval.active {
+		t.Fatal("approval.active = false after call-B promotion, want call-A")
 	}
-	if !strings.Contains(calls[0].Reason, "bash") {
-		t.Errorf("Reason = %q, want it to contain %q", calls[0].Reason, "bash")
+	if got, want := m.approval.identity, "call-A"; got != want {
+		t.Fatalf("approval.identity after promotion = %q, want %q", got, want)
 	}
+	fn.expectNoCall(t)
+	coord.Finish(aCh)
 }
 
 func TestDecisionPreservesActiveApproval(t *testing.T) {

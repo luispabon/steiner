@@ -3614,6 +3614,36 @@ func (f *fakeNotifier) waitForCall(t *testing.T) []notify.Notification {
 	return f.snapshot()
 }
 
+// notificationQuietWindow bounds a negative notification assertion. Notify runs
+// in its own goroutine, so absence is observed over a bounded wait.
+const notificationQuietWindow = 100 * time.Millisecond
+
+// expectNoCall waits for notificationQuietWindow and fails if Notify was
+// invoked.
+func (f *fakeNotifier) expectNoCall(t *testing.T) {
+	t.Helper()
+	select {
+	case <-f.notified:
+		t.Fatal("Notify was called, want no notification")
+	case <-time.After(notificationQuietWindow):
+	}
+	if calls := f.snapshot(); len(calls) != 0 {
+		t.Fatalf("got %d Notify calls, want 0", len(calls))
+	}
+}
+
+// reset clears recorded calls and drains a pending signal so a later assertion
+// observes only new notifications.
+func (f *fakeNotifier) reset() {
+	f.mu.Lock()
+	f.calls = nil
+	f.mu.Unlock()
+	select {
+	case <-f.notified:
+	default:
+	}
+}
+
 func (f *fakeNotifier) Availability() (bool, string) {
 	return f.avail, f.reason
 }
