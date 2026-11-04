@@ -31,16 +31,39 @@ func (m *Model) evaluateSessionWork() {
 	m.syncSessionClockAt(time.Now())
 }
 
-// sessionStartLayout is how the sidebar shows the session start time.
+// sessionStartLayout is how the sidebar shows a session start from an earlier
+// local calendar day.
 const sessionStartLayout = "2006-01-02 15:04"
 
+// sessionStartClockLayout is how the sidebar shows a session start from today.
+const sessionStartClockLayout = "15:04"
+
 // sessionStartDisplay formats a session start time in local time for the
-// sidebar, returning "" when the session has not started.
-func sessionStartDisplay(started time.Time) string {
+// sidebar, relative to now: "HH:MM" on the same local calendar day, "HH:MM
+// yesterday" on the preceding one, and "YYYY-MM-DD HH:MM" before that. It
+// returns "" when the session has not started. now carries the reference zone;
+// callers pass time.Now(), so that is the machine's local zone. The day
+// comparison uses calendar dates via AddDate, not elapsed time, so it stays
+// correct across DST shifts and year boundaries.
+func sessionStartDisplay(started, now time.Time) string {
 	if started.IsZero() {
 		return ""
 	}
-	return started.Local().Format(sessionStartLayout)
+	local := started.In(now.Location())
+	if sameLocalDate(local, now) {
+		return local.Format(sessionStartClockLayout)
+	}
+	if sameLocalDate(local, now.AddDate(0, 0, -1)) {
+		return local.Format(sessionStartClockLayout) + " yesterday"
+	}
+	return local.Format(sessionStartLayout)
+}
+
+// sameLocalDate reports whether a and b fall on the same local calendar day.
+func sameLocalDate(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // startSessionClock starts the session clock at the current session's first

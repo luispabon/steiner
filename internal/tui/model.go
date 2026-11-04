@@ -366,7 +366,15 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.syncSidebar()
 }
 
+// syncSidebar refreshes the sidebar from the model at the current wall clock.
 func (m *Model) syncSidebar() {
+	m.syncSidebarAt(time.Now())
+}
+
+// syncSidebarAt refreshes the sidebar from the model at now, so the session
+// start label and the runtime both reflect the same instant. Tests pin now to
+// cross a local midnight without overriding the package clock.
+func (m *Model) syncSidebarAt(now time.Time) {
 	m.sidebar.model = strings.TrimSpace(m.primaryModel)
 	m.sidebar.provider = strings.TrimSpace(m.sidebar.provider)
 	m.sidebar.providerName = strings.TrimSpace(m.sidebar.providerName)
@@ -387,14 +395,13 @@ func (m *Model) syncSidebar() {
 		m.sidebar.lastRequestCacheRateOK = lastOK
 	}
 	m.syncRoster()
-	now := time.Now()
 	m.syncSessionClockAt(now)
 	m.sidebar.runtimeActive = m.sessionStartedAt != nil
 	m.sidebar.runtimeElapsedSec = 0
 	m.sidebar.startedLocal = ""
 	if m.sessionStartedAt != nil {
 		m.sidebar.runtimeElapsedSec = int64(m.sessionRuntimeAt(now) / time.Second)
-		m.sidebar.startedLocal = sessionStartDisplay(*m.sessionStartedAt)
+		m.sidebar.startedLocal = sessionStartDisplay(*m.sessionStartedAt, now)
 	}
 	m.sidebar.mcpConnected = 0
 	m.sidebar.mcpTotal = 0
