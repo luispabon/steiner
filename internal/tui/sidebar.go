@@ -52,8 +52,9 @@ type sidebarState struct {
 	sessionCacheHitRateOK  bool
 	lastRequestCacheRate   float64
 	lastRequestCacheRateOK bool
-	sessionActive          bool
-	sessionElapsedSec      int64
+	startedLocal           string // session start, YYYY-MM-DD HH:MM local
+	runtimeActive          bool
+	runtimeElapsedSec      int64
 	oneshotPhase           string
 	sandboxStatus          string
 	orchestrationLevel     string

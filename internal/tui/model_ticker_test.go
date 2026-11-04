@@ -207,21 +207,24 @@ func TestSessionTickIntervalIsOneSecond(t *testing.T) {
 	}
 }
 
-func TestSyncSidebarComputesSessionElapsedSeconds(t *testing.T) {
+func TestSyncSidebarComputesRuntimeSeconds(t *testing.T) {
 	t.Parallel()
-	started := time.Now().Add(-(67*time.Minute + 30*time.Second))
-	m := &Model{sessionStartedAt: &started, sidebar: sidebarState{styles: testStyles(theme.AccentAmber)}}
+	m := &Model{sidebar: sidebarState{styles: testStyles(theme.AccentAmber)}}
+	m.startSessionClock(time.Now().Add(-(67*time.Minute + 30*time.Second)))
 
 	m.syncSidebar()
 
-	if !m.sidebar.sessionActive {
-		t.Fatal("sidebar.sessionActive = false, want true")
+	if !m.sidebar.runtimeActive {
+		t.Fatal("sidebar.runtimeActive = false, want true")
 	}
-	if m.sidebar.sessionElapsedSec < 4050 {
-		t.Errorf("sidebar.sessionElapsedSec = %d, want at least 4050", m.sidebar.sessionElapsedSec)
+	if m.sidebar.runtimeElapsedSec < 4050 {
+		t.Errorf("sidebar.runtimeElapsedSec = %d, want at least 4050", m.sidebar.runtimeElapsedSec)
 	}
-	if m.sidebar.sessionElapsedSec > 4080 {
-		t.Errorf("sidebar.sessionElapsedSec = %d, want at most 4080", m.sidebar.sessionElapsedSec)
+	if m.sidebar.runtimeElapsedSec > 4080 {
+		t.Errorf("sidebar.runtimeElapsedSec = %d, want at most 4080", m.sidebar.runtimeElapsedSec)
+	}
+	if m.sidebar.startedLocal == "" {
+		t.Error("sidebar.startedLocal is empty, want the session start timestamp")
 	}
 }
 
@@ -229,24 +232,24 @@ func TestSessionTickArmsAndStopsBySessionStart(t *testing.T) {
 	t.Parallel()
 
 	// With a session start, a sessionTickMsg re-arms the session timer.
-	started := time.Now()
-	active := &Model{sessionStartedAt: &started}
-	updated, cmd := active.Update(sessionTickMsg{})
+	active := &Model{}
+	active.startSessionClock(time.Now())
+	updated, cmd := active.Update(sessionTickMsg{gen: active.sessionTickGen})
 	if cmd == nil {
 		t.Fatal("Update(sessionTickMsg{}) with sessionStartedAt set returned nil cmd, want an arming sessionTickCmd")
 	}
-	if got := updated.(*Model).sidebar.sessionActive; !got {
-		t.Errorf("sidebar.sessionActive = false after tick, want true")
+	if got := updated.(*Model).sidebar.runtimeActive; !got {
+		t.Errorf("sidebar.runtimeActive = false after tick, want true")
 	}
 
 	// After a reset (sessionStartedAt nil), the tick stops chaining.
 	idle := &Model{}
-	_, cmd = idle.Update(sessionTickMsg{})
+	updated, cmd = idle.Update(sessionTickMsg{gen: idle.sessionTickGen})
 	if cmd != nil {
 		t.Errorf("Update(sessionTickMsg{}) with sessionStartedAt nil returned non-nil cmd, want nil to stop the timer")
 	}
-	if got := idle.sidebar.sessionActive; got {
-		t.Errorf("sidebar.sessionActive = true after reset, want false")
+	if got := updated.(*Model).sidebar.runtimeActive; got {
+		t.Errorf("sidebar.runtimeActive = true after reset, want false")
 	}
 }
 func TestSyncSidebarResetsAndDetectsMCPConnecting(t *testing.T) {

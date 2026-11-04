@@ -7,7 +7,7 @@ Run `steiner` with no arguments to start the interactive terminal UI (TUI). For 
 - **Transcript**: the main pane. It shows your messages, model replies, thinking blocks, tool calls, approval prompts and sub-agent cards.
 - **Composer**: the input box at the bottom. Queued messages appear in a box above it.
 - **Status bar**: below the composer. It shows the execution mode, context usage and key hints.
-- **Sidebar**: model and profile, context gauge, sandbox status, orchestration level, active skill, MCP and LSP server counts, sub-agents, performance and cache hit rate, repository branch and modified files. When a newer release is available, the sidebar shows `↑ <version> · upgrade` (see [Installation](installation.md)). Press `ctrl+b` to show or hide it. It is hidden when the terminal is narrower than 100 columns.
+- **Sidebar**: model and profile, context gauge, sandbox status, orchestration level, active skill, MCP and LSP server counts, sub-agents, performance, session start and active runtime, repository branch and modified files. When a newer release is available, the sidebar shows `↑ <version> · upgrade` (see [Installation](installation.md)). Press `ctrl+b` to show or hide it. It is hidden when the terminal is narrower than 100 columns.
 
 ![Steiner screenshot](../images/tui.png)
 
@@ -130,6 +130,7 @@ Steiner saves interactive sessions under `~/.config/steiner/sessions`.
 - `steiner --resume` prints saved sessions with their IDs, and `steiner --resume <id>` starts the TUI with that session. See [CLI reference](cli.md).
 - `/fork` copies the current conversation into a new session and switches to it. Forking from the picker does the same for a saved session. The fork is titled `Fork of: <original title>`, and changes in one session do not affect the other. `/recall` in a fork shows only the fork's own compaction archive.
 - `/clear` starts a new, empty session. It resets enabled skills, queued steers and pending images. The previous session stays saved.
+- The sidebar's `started` row records the local time of the first prompt, and `runtime` counts how long the session has been working. `/clear`, `/fork` and `/resume` reset both. See [Usage](usage.md#session-start-and-runtime).
 
 Loading, forking and clearing are refused while a run or sub-agent is still active.
 

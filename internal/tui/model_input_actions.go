@@ -321,7 +321,7 @@ func (m *Model) executeForkSessionAction() (tea.Model, tea.Cmd) {
 	if m.sessionResetCleanup != nil {
 		m.sessionResetCleanup()
 	}
-	m.sessionStartedAt = nil
+	m.resetSessionClock()
 	m.syncSidebar()
 	if m.controller != nil {
 		ctrl := m.controller
@@ -339,17 +339,16 @@ func (m *Model) executeSubmitAction(submitText string, displayText string) (tea.
 	var sessionCmd tea.Cmd
 	newSession := m.sessionStartedAt == nil
 	if newSession {
-		now := time.Now()
-		m.sessionStartedAt = &now
+		m.startSessionClock(time.Now())
 		m.syncSidebar()
-		sessionCmd = sessionTickCmd()
+		sessionCmd = sessionTickCmd(m.sessionTickGen)
 	}
 	// Capture images before clearing
 	images := m.pendingImageBlocks()
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitPrompt{Text: submitText, Images: images}); err != nil {
 			if newSession {
-				m.sessionStartedAt = nil
+				m.resetSessionClock()
 				m.syncSidebar()
 			}
 			m.appendError(err)

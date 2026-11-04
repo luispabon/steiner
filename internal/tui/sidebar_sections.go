@@ -276,33 +276,51 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
 		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "latest req", "req", w-keyW+7), w-keyW+7), s.styles),
 		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session", "sess", w-keyW+7), w-keyW+7), s.styles),
-		s.sessionRow(w),
+		s.startedRow(w),
+		s.runtimeRow(w),
 	}
 }
 
-// formatSessionElapsed formats elapsed seconds as HH:MM:SS, or "—" when unused.
-func formatSessionElapsed(active bool, seconds int64) string {
+// formatRuntimeElapsed formats the accumulated active runtime as HH:MM:SS,
+// or "—" when the session has not started.
+func formatRuntimeElapsed(active bool, seconds int64) string {
 	if !active {
 		return "—"
+	}
+	if seconds < 0 {
+		seconds = 0
 	}
 	return fmt.Sprintf("%02d:%02d:%02d", seconds/3600, (seconds%3600)/60, seconds%60)
 }
 
-// sessionRow renders the session timer value: HH:MM in the value colour with
-// the seconds and preceding colon in the faint key colour, matching the
-// "session" label.
-func (s sidebarState) sessionRow(width int) string {
+// startedRow renders the session start time, or "n/a" before the first prompt.
+func (s sidebarState) startedRow(width int) string {
 	const keyW = 10
-	if !s.sessionActive {
-		return cardFieldN("session", keyW, s.styles.FgDim, fitText("—", width-keyW+7), s.styles)
+	value := s.startedLocal
+	if value == "" {
+		value = "n/a"
 	}
-	sec := s.sessionElapsedSec
-	full := formatSessionElapsed(true, sec)
+	return cardFieldN("started", keyW, s.styles.FgDim, fitText(value, width-keyW+7), s.styles)
+}
+
+// runtimeRow renders the accumulated active runtime: HH:MM in the value colour
+// with the seconds and preceding colon in the faint key colour, matching the
+// "runtime" label.
+func (s sidebarState) runtimeRow(width int) string {
+	const keyW = 10
+	if !s.runtimeActive {
+		return cardFieldN("runtime", keyW, s.styles.FgDim, fitText("—", width-keyW+7), s.styles)
+	}
+	full := formatRuntimeElapsed(true, s.runtimeElapsedSec)
 	splitAt := strings.LastIndex(full, ":")
 	hhmm, ss := full[:splitAt], full[splitAt:]
+	valueWidth := width - keyW + 7
+	if valueWidth < len(full) {
+		return cardFieldN("runtime", keyW, s.styles.FgDim, fitText(full, valueWidth), s.styles)
+	}
 	keyStyle := s.styles.FgFaint.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
 	valStyle := s.styles.FgDim.Background(lipgloss.Color(s.styles.Palette.SidebarBG))
-	return keyStyle.Render(fmt.Sprintf("%-*s", keyW, "session")) + valStyle.Render(fitText(hhmm, width-keyW+7-len(ss))) + keyStyle.Render(ss)
+	return keyStyle.Render(fmt.Sprintf("%-*s", keyW, "runtime")) + valStyle.Render(hhmm) + keyStyle.Render(ss)
 }
 
 // formatCacheHitWithScope renders a cache hit rate with its scope when it

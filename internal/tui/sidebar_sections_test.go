@@ -31,7 +31,7 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-func TestFormatSessionElapsed(t *testing.T) {
+func TestFormatRuntimeElapsed(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name    string
@@ -41,6 +41,7 @@ func TestFormatSessionElapsed(t *testing.T) {
 	}{
 		{"inactive", false, 42, "—"},
 		{"zero", true, 0, "00:00:00"},
+		{"negative clamps", true, -5, "00:00:00"},
 		{"seconds", true, 42, "00:00:42"},
 		{"minute boundary", true, 60, "00:01:00"},
 		{"minute 34", true, 94, "00:01:34"},
@@ -49,14 +50,14 @@ func TestFormatSessionElapsed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := formatSessionElapsed(tc.active, tc.seconds); got != tc.want {
-				t.Errorf("formatSessionElapsed(%t, %d) = %q, want %q", tc.active, tc.seconds, got, tc.want)
+			if got := formatRuntimeElapsed(tc.active, tc.seconds); got != tc.want {
+				t.Errorf("formatRuntimeElapsed(%t, %d) = %q, want %q", tc.active, tc.seconds, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestSessionRowTwoTone(t *testing.T) {
+func TestRuntimeRowTwoTone(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 	keyStyle := styles.FgFaint.Background(lipgloss.Color(styles.Palette.SidebarBG))
@@ -73,20 +74,48 @@ func TestSessionRowTwoTone(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := sidebarState{styles: styles, sessionActive: true, sessionElapsedSec: tc.sec}
-			want := keyStyle.Render("session   ") + valStyle.Render(tc.wantHHMM) + keyStyle.Render(tc.wantSS)
-			if got := s.sessionRow(32); got != want {
-				t.Errorf("sessionRow() = %q, want %q", got, want)
+			s := sidebarState{styles: styles, runtimeActive: true, runtimeElapsedSec: tc.sec}
+			want := keyStyle.Render("runtime   ") + valStyle.Render(tc.wantHHMM) + keyStyle.Render(tc.wantSS)
+			if got := s.runtimeRow(32); got != want {
+				t.Errorf("runtimeRow() = %q, want %q", got, want)
 			}
-			if w := lipgloss.Width(stripANSI(s.sessionRow(32))); w > 32 {
-				t.Errorf("sessionRow() width = %d, want <= 32", w)
+			if w := lipgloss.Width(stripANSI(s.runtimeRow(32))); w > 32 {
+				t.Errorf("runtimeRow() width = %d, want <= 32", w)
 			}
 		})
 	}
 
 	inactive := sidebarState{styles: styles}
-	if got := inactive.sessionRow(32); !strings.Contains(stripANSI(got), "—") {
-		t.Errorf("inactive sessionRow() = %q, want dash", got)
+	if got := inactive.runtimeRow(32); !strings.Contains(stripANSI(got), "—") {
+		t.Errorf("inactive runtimeRow() = %q, want dash", got)
+	}
+
+	narrow := sidebarState{styles: styles, runtimeActive: true, runtimeElapsedSec: 4054}
+	if w := lipgloss.Width(stripANSI(narrow.runtimeRow(8))); w > 15 {
+		t.Errorf("narrow runtimeRow() width = %d, want <= 15", w)
+	}
+}
+
+func TestStartedRow(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+
+	s := sidebarState{styles: styles, startedLocal: "2026-11-04 09:30"}
+	got := stripANSI(s.startedRow(32))
+	if !strings.Contains(got, "started") || !strings.Contains(got, "2026-11-04 09:30") {
+		t.Errorf("startedRow() = %q, want the started label and timestamp", got)
+	}
+	if w := lipgloss.Width(got); w > 32 {
+		t.Errorf("startedRow() width = %d, want <= 32", w)
+	}
+
+	if got := stripANSI((sidebarState{styles: styles}).startedRow(32)); !strings.Contains(got, "n/a") {
+		t.Errorf("startedRow() before the first prompt = %q, want n/a", got)
+	}
+
+	narrow := sidebarState{styles: styles, startedLocal: "2026-11-04 09:30"}
+	if w := lipgloss.Width(stripANSI(narrow.startedRow(12))); w > 19 {
+		t.Errorf("narrow startedRow() width = %d, want <= 19", w)
 	}
 }
 
@@ -495,8 +524,8 @@ func TestPerformanceSection(t *testing.T) {
 				sessionCacheHitRateOK: tc.sessionCacheHitRateOK,
 				styles:                testStyles(theme.AccentAmber),
 			}
-			if got, want := len(s.performanceSection(32)), 8; got != want {
-				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus six value rows)", got, want)
+			if got, want := len(s.performanceSection(32)), 9; got != want {
+				t.Errorf("len(performanceSection()) = %d, want %d lines (blank line plus label plus seven value rows)", got, want)
 			}
 			got := s.performanceSection(32)
 			if len(got) == 0 {
@@ -728,7 +757,7 @@ func TestStaticLinesLineCount(t *testing.T) {
 		workingDir:            "/home/user/project",
 		styles:                styles,
 	}
-	const want = 30
+	const want = 31
 	if got := len(s.staticLines(32)); got != want {
 		t.Errorf("len(staticLines(32)) = %d, want %d", got, want)
 	}

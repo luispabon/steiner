@@ -58,7 +58,11 @@ type workflowHandoffLaunch struct {
 }
 
 type tickMsg struct{}
-type sessionTickMsg struct{}
+
+// sessionTickMsg carries the generation of the session timer chain that sent
+// it, so a tick from a chain the session has since replaced is ignored.
+type sessionTickMsg struct{ gen int }
+
 type composerBlinkMsg struct{}
 
 type setAccentMsg struct{ preset string }
@@ -229,7 +233,18 @@ type Model struct {
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
 	clearConversationHooks       func()
-	sessionStartedAt             *time.Time
+	// sessionStartedAt is the wall clock time of the current session's first
+	// prompt. The sidebar shows it as the start time.
+	sessionStartedAt *time.Time
+	// sessionRuntime is the active runtime accumulated so far, excluding idle
+	// spans and spans parked on finished sub-agent results.
+	sessionRuntime time.Duration
+	// sessionActiveSince is when the current active runtime span began; nil
+	// while the runtime is frozen.
+	sessionActiveSince *time.Time
+	// sessionTickGen invalidates session timer chains armed for a session the
+	// user has since cleared, forked or replaced.
+	sessionTickGen int
 
 	// Render caches for width/height-dependent styles.
 	hDividerCacheWidth      int
@@ -361,10 +376,14 @@ func (m *Model) syncSidebar() {
 		m.sidebar.lastRequestCacheRateOK = lastOK
 	}
 	m.syncRoster()
-	m.sidebar.sessionActive = m.sessionStartedAt != nil
-	m.sidebar.sessionElapsedSec = 0
+	now := time.Now()
+	m.syncSessionClockAt(now)
+	m.sidebar.runtimeActive = m.sessionStartedAt != nil
+	m.sidebar.runtimeElapsedSec = 0
+	m.sidebar.startedLocal = ""
 	if m.sessionStartedAt != nil {
-		m.sidebar.sessionElapsedSec = int64(time.Since(*m.sessionStartedAt) / time.Second)
+		m.sidebar.runtimeElapsedSec = int64(m.sessionRuntimeAt(now) / time.Second)
+		m.sidebar.startedLocal = sessionStartDisplay(*m.sessionStartedAt)
 	}
 	m.sidebar.mcpConnected = 0
 	m.sidebar.mcpTotal = 0
