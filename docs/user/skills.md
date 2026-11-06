@@ -13,8 +13,9 @@ A skill is a Markdown instruction file that gives the agent a workflow for a spe
 | `simplify` | Runs four parallel `explore` sub-agents (reuse, simplification, efficiency, altitude) over the branch's changes against a base branch (default `main`), then offers a fix and review loop. Does not hunt for bugs. | A code-quality pass on any branch; after `/review` when using the plan, implement, review flow. |
 | `pull-request` | Detects the Git host, picks a target branch, writes a title and body from the branch commits, and opens a pull or merge request. | The branch is ready to publish. |
 | `security-audit` | Static, read-only security audit of a diff or the repository. See [Security audit](security-audit.md). | Before shipping a change, or when assessing unfamiliar code. |
+| `fast-iteration` | Trial-and-error mode: edits directly, without delegation or routine confirmation, and skips tests and docs; periodically reminds you that you can say "done", then offers a button-up pass (cleanup, tests, docs, full checks) or a discard of your changes. | You want to try small changes quickly and clean up once the direction works. |
 
-The workflows in `plan`, `implement`, `review`, `simplify`, and `security-audit` dispatch sub-agents, so they work best with delegation enabled. See [Sub-agent delegation](sub-agent-delegation.md).
+The workflows in `plan`, `implement`, `review`, `simplify`, and `security-audit` dispatch sub-agents, so they work best with delegation enabled. `fast-iteration` is the exception: it edits directly and does not need delegation. See [Sub-agent delegation](sub-agent-delegation.md).
 
 ## Using skills
 
