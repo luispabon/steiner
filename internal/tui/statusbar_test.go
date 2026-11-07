@@ -113,25 +113,26 @@ func TestStatusBarContextPlaceholderHonest(t *testing.T) {
 	}
 }
 
-// TestStatusBarContextRendersAfterModelBeforeMode pins the footer order.
-func TestStatusBarContextRendersAfterModelBeforeMode(t *testing.T) {
+// TestStatusBarContextRendersBetweenModeAndSandbox pins the footer order.
+func TestStatusBarContextRendersBetweenModeAndSandbox(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
-	s := statusState{model: "gpt", contextMeasured: true, promptUsed: 100, contextBudget: 1000, execMode: "plan", styles: styles}
+	s := statusState{model: "gpt", contextMeasured: true, promptUsed: 100, contextBudget: 1000, execMode: "plan", sandboxStatus: "active", styles: styles}
 	got := stripANSI(s.view(0))
 	modelAt := strings.Index(got, "gpt")
-	ctxAt := strings.Index(got, "ctx ")
 	modeAt := strings.Index(got, "plan")
-	if modelAt < 0 || ctxAt < 0 || modeAt < 0 {
-		t.Fatalf("status bar = %q, want model, ctx and mode segments", got)
+	ctxAt := strings.Index(got, "ctx ")
+	sandboxAt := strings.Index(got, "sbx")
+	if modelAt < 0 || modeAt < 0 || ctxAt < 0 || sandboxAt < 0 {
+		t.Fatalf("status bar = %q, want model, mode, ctx and sandbox segments", got)
 	}
-	if modelAt >= ctxAt || ctxAt >= modeAt {
-		t.Fatalf("status bar = %q, want model before ctx before mode", got)
+	if modelAt >= modeAt || modeAt >= ctxAt || ctxAt >= sandboxAt {
+		t.Fatalf("status bar = %q, want model before mode before ctx before sandbox", got)
 	}
 }
 
 // TestStatusBarNarrowWidthKeepsModeOverContext proves the mode badge outlives
-// the context segment even though context renders to its left.
+// the context segment even though context renders to its right.
 func TestStatusBarNarrowWidthKeepsModeOverContext(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
