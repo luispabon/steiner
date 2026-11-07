@@ -156,6 +156,13 @@ func (m *Model) handleNavigationKeyMsg(msg tea.KeyPressMsg) (bool, tea.Model, te
 	case isAlt(msg, 'e'):
 		m.openDevLogOverlay()
 		return true, m, nil
+	case isAlt(msg, 'r'):
+		if m.helpVisible {
+			return false, m, nil
+		}
+		// Yield setAccentMsg directly instead of executeSetAccentAction, which
+		// resets the composer; the draft and cursor must survive the shortcut.
+		return true, m, func() tea.Msg { return setAccentMsg{preset: "random"} }
 	}
 	if handled, cmd := m.handleSubAgentNavKey(msg); handled {
 		return true, m, cmd
