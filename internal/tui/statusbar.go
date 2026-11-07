@@ -47,15 +47,16 @@ type statusSegment struct {
 	dropRank int
 }
 
-// Truncation drop order for a narrow footer. Context drops before mode even
-// though it renders to the left of the mode badge, so the execution mode
-// survives longest among the variable-width segments.
+// Truncation drop order for a narrow footer, lowest first. Context drops
+// before the mode badge even though it renders to its left, so the mode
+// survives while context is shed; the model and oneshot phase outlive every
+// other segment.
 const (
 	dropApprovalDeny = iota + 1
 	dropApprovalMove
 	dropApprovalApprove
-	dropDevLog
 	dropContext
+	dropDevLog
 	dropHelp
 	dropSidebar
 	dropSubAgents

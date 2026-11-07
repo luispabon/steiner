@@ -154,6 +154,30 @@ func TestStatusBarNarrowWidthKeepsModeOverContext(t *testing.T) {
 	}
 }
 
+// TestStatusBarNarrowWidthDropsContextBeforeDevLog keeps the previous drop
+// order between context and the dev-log badge: context is shed first.
+func TestStatusBarNarrowWidthDropsContextBeforeDevLog(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{model: "gpt", contextMeasured: true, promptUsed: 100, contextBudget: 1000, devLogUnseen: 1, styles: styles}
+	full := lipgloss.Width(s.view(0))
+	sawDevLogWithoutCtx := false
+	for w := full; w > 5; w-- {
+		out := stripANSI(s.view(w))
+		hasCtx := strings.Contains(out, "ctx")
+		hasDevLog := strings.Contains(out, "⚠")
+		if hasCtx && !hasDevLog {
+			t.Fatalf("width %d kept ctx but dropped dev-log badge: %q", w, out)
+		}
+		if hasDevLog && !hasCtx {
+			sawDevLogWithoutCtx = true
+		}
+	}
+	if !sawDevLogWithoutCtx {
+		t.Error("dev-log badge never survived after ctx was dropped")
+	}
+}
+
 // TestStatusContextPlaceholderUntilMeasured walks the model lifecycle: a fresh
 // conversation with a configured budget shows the placeholder, and the first
 // context budget event switches the footer to measured usage.
@@ -175,6 +199,35 @@ func TestStatusContextPlaceholderUntilMeasured(t *testing.T) {
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 164, "ok", false)})
 	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx 100 / 4.1k · 2%") {
 		t.Fatalf("status = %q, want measured context usage", got)
+	}
+}
+
+// TestStatusContextMeasuredResetOnClearAndModelSwitch proves the footer goes
+// back to the placeholder once the measured conversation is gone.
+func TestStatusContextMeasuredResetOnClearAndModelSwitch(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{
+		Model:         "gpt-test",
+		ModelContexts: map[string]int{"gpt-test": 4096, "other": 8192},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	measure := func() {
+		m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 164, "ok", false)})
+		if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx 100 / 4.1k · 2%") {
+			t.Fatalf("status = %q, want measured context usage", got)
+		}
+	}
+
+	measure()
+	m.resetConversationUI()
+	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx --") {
+		t.Fatalf("status after clear = %q, want ctx -- placeholder", got)
+	}
+
+	measure()
+	m.applyModelSelection("other", "")
+	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx --") {
+		t.Fatalf("status after model switch = %q, want ctx -- placeholder", got)
 	}
 }
 
