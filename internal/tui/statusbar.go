@@ -48,9 +48,8 @@ type statusSegment struct {
 }
 
 // Truncation drop order for a narrow footer, lowest first. Context drops
-// before the mode badge even though it renders to its left, so the mode
-// survives while context is shed; the model and oneshot phase outlive every
-// other segment.
+// before the mode and sandbox badges, so both badges survive while context is
+// shed; the model and oneshot phase outlive every other segment.
 const (
 	dropApprovalDeny = iota + 1
 	dropApprovalMove
@@ -82,13 +81,13 @@ func (s statusState) view(width int) string {
 		parts = append(parts, statusSegment{lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(formatModelEffort(model, s.reasoning)), dropModel})
 	}
 
-	// Segment 1a: ctx (static, infrequently changing)
-	parts = append(parts, statusSegment{s.contextSegment(), dropContext})
-
-	// Segment 1b: execution mode badge
+	// Segment 1a: execution mode badge
 	if badge := renderModeBadge(s.styles, s.execMode); badge != "" {
 		parts = append(parts, statusSegment{badge, dropMode})
 	}
+
+	// Segment 1b: ctx (static, infrequently changing)
+	parts = append(parts, statusSegment{s.contextSegment(), dropContext})
 
 	// Segment 1c: sandbox status badge
 	if badge := renderSandboxBadge(s.styles, s.sandboxStatus); badge != "" {
