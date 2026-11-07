@@ -8,8 +8,10 @@ import (
 	"testing"
 	"unsafe"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -84,15 +86,148 @@ func TestStatusBarContextCounts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := statusState{promptUsed: tc.used, contextBudget: tc.budget, styles: styles}
+			s := statusState{promptUsed: tc.used, contextBudget: tc.budget, contextMeasured: true, styles: styles}
 			got := stripANSI(s.view(120))
 			if !strings.Contains(got, "ctx "+tc.want) {
 				t.Fatalf("status bar = %q, want context %q", got, tc.want)
 			}
 		})
 	}
-	if got := stripANSI((statusState{styles: styles}).view(120)); strings.Contains(got, "ctx ") {
-		t.Fatalf("status bar = %q, context should be omitted when counts are zero", got)
+	if got := stripANSI((statusState{styles: styles}).view(120)); !strings.Contains(got, "ctx --") {
+		t.Fatalf("status bar = %q, want ctx -- placeholder when no usage was measured", got)
+	}
+}
+
+// TestStatusBarContextPlaceholderHonest proves a configured budget without
+// reported usage renders as a placeholder rather than a measured zero.
+func TestStatusBarContextPlaceholderHonest(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{model: "gpt", contextBudget: 1000, styles: styles}
+	got := stripANSI(s.view(120))
+	if !strings.Contains(got, "ctx --") {
+		t.Fatalf("status bar = %q, want ctx -- placeholder", got)
+	}
+	if strings.Contains(got, "0 / 1.0k") {
+		t.Fatalf("status bar = %q, must not claim measured zero usage", got)
+	}
+}
+
+// TestStatusBarContextRendersAfterModelBeforeMode pins the footer order.
+func TestStatusBarContextRendersAfterModelBeforeMode(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{model: "gpt", contextMeasured: true, promptUsed: 100, contextBudget: 1000, execMode: "plan", styles: styles}
+	got := stripANSI(s.view(0))
+	modelAt := strings.Index(got, "gpt")
+	ctxAt := strings.Index(got, "ctx ")
+	modeAt := strings.Index(got, "plan")
+	if modelAt < 0 || ctxAt < 0 || modeAt < 0 {
+		t.Fatalf("status bar = %q, want model, ctx and mode segments", got)
+	}
+	if modelAt >= ctxAt || ctxAt >= modeAt {
+		t.Fatalf("status bar = %q, want model before ctx before mode", got)
+	}
+}
+
+// TestStatusBarNarrowWidthKeepsModeOverContext proves the mode badge outlives
+// the context segment even though context renders to its left.
+func TestStatusBarNarrowWidthKeepsModeOverContext(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{model: "gpt", contextMeasured: true, promptUsed: 100, contextBudget: 1000, execMode: "plan", styles: styles}
+	full := lipgloss.Width(s.view(0))
+	sawModeWithoutCtx := false
+	for w := full; w > 5; w-- {
+		out := stripANSI(s.view(w))
+		hasCtx := strings.Contains(out, "ctx")
+		hasMode := strings.Contains(out, "plan")
+		if hasCtx && !hasMode {
+			t.Fatalf("width %d kept ctx but dropped mode: %q", w, out)
+		}
+		if hasMode && !hasCtx {
+			sawModeWithoutCtx = true
+		}
+	}
+	if !sawModeWithoutCtx {
+		t.Error("mode never survived after ctx was dropped")
+	}
+}
+
+// TestStatusBarNarrowWidthDropsContextBeforeDevLog keeps the previous drop
+// order between context and the dev-log badge: context is shed first.
+func TestStatusBarNarrowWidthDropsContextBeforeDevLog(t *testing.T) {
+	t.Parallel()
+	styles := testStyles(theme.AccentAmber)
+	s := statusState{model: "gpt", contextMeasured: true, promptUsed: 100, contextBudget: 1000, devLogUnseen: 1, styles: styles}
+	full := lipgloss.Width(s.view(0))
+	sawDevLogWithoutCtx := false
+	for w := full; w > 5; w-- {
+		out := stripANSI(s.view(w))
+		hasCtx := strings.Contains(out, "ctx")
+		hasDevLog := strings.Contains(out, "⚠")
+		if hasCtx && !hasDevLog {
+			t.Fatalf("width %d kept ctx but dropped dev-log badge: %q", w, out)
+		}
+		if hasDevLog && !hasCtx {
+			sawDevLogWithoutCtx = true
+		}
+	}
+	if !sawDevLogWithoutCtx {
+		t.Error("dev-log badge never survived after ctx was dropped")
+	}
+}
+
+// TestStatusContextPlaceholderUntilMeasured walks the model lifecycle: a fresh
+// conversation with a configured budget shows the placeholder, and the first
+// context budget event switches the footer to measured usage.
+func TestStatusContextPlaceholderUntilMeasured(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{
+		Model:         "gpt-test",
+		ModelContexts: map[string]int{"gpt-test": 4096},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	m = updateModel(t, m, tickMsg{})
+	if m.sidebar.contextBudget != 4096 {
+		t.Fatalf("sidebar.contextBudget = %d, want configured 4096", m.sidebar.contextBudget)
+	}
+	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx --") {
+		t.Fatalf("status = %q, want ctx -- before usage is measured", got)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 164, "ok", false)})
+	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx 100 / 4.1k · 2%") {
+		t.Fatalf("status = %q, want measured context usage", got)
+	}
+}
+
+// TestStatusContextMeasuredResetOnClearAndModelSwitch proves the footer goes
+// back to the placeholder once the measured conversation is gone.
+func TestStatusContextMeasuredResetOnClearAndModelSwitch(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{
+		Model:         "gpt-test",
+		ModelContexts: map[string]int{"gpt-test": 4096, "other": 8192},
+	}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
+	measure := func() {
+		m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextTokenBudgetEvent("conversation", 1, 100, 100, 4096, 2, 70, 32, 164, "ok", false)})
+		if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx 100 / 4.1k · 2%") {
+			t.Fatalf("status = %q, want measured context usage", got)
+		}
+	}
+
+	measure()
+	m.resetConversationUI()
+	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx --") {
+		t.Fatalf("status after clear = %q, want ctx -- placeholder", got)
+	}
+
+	measure()
+	m.applyModelSelection("other", "")
+	if got := stripANSI(m.renderStatus(120)); !strings.Contains(got, "ctx --") {
+		t.Fatalf("status after model switch = %q, want ctx -- placeholder", got)
 	}
 }
 
@@ -113,7 +248,7 @@ func TestStatusBarContextColourThresholds(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			s := statusState{promptUsed: tc.used, contextBudget: tc.budget, styles: styles}
+			s := statusState{promptUsed: tc.used, contextBudget: tc.budget, contextMeasured: true, styles: styles}
 			got := s.view(120)
 			want := lipgloss.NewStyle().Foreground(tc.color).Render(fmt.Sprintf("%s / %s · %d%%", formatCompactCount(tc.used), formatCompactCount(tc.budget), tc.used))
 			if !strings.Contains(got, want) {

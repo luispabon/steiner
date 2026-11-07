@@ -21,8 +21,12 @@ type statusState struct {
 	approvalActive bool
 	promptUsed     int
 	contextBudget  int
-	oneshotPhase   string
-	sandboxStatus  string
+	// contextMeasured reports whether a context budget event has reported
+	// usage for the current conversation. A configured budget alone leaves
+	// it false so the footer shows a placeholder instead of a measured 0%.
+	contextMeasured bool
+	oneshotPhase    string
+	sandboxStatus   string
 
 	subAgentsFinished int
 	subAgentsTotal    int
@@ -35,79 +39,102 @@ type statusState struct {
 	devLogWorst  devLogSeverity
 }
 
+// statusSegment is one footer part plus the order in which truncation drops
+// it. Lower dropRank values are removed first, so a segment can outlive parts
+// that render to its right.
+type statusSegment struct {
+	text     string
+	dropRank int
+}
+
+// Truncation drop order for a narrow footer, lowest first. Context drops
+// before the mode badge even though it renders to its left, so the mode
+// survives while context is shed; the model and oneshot phase outlive every
+// other segment.
+const (
+	dropApprovalDeny = iota + 1
+	dropApprovalMove
+	dropApprovalApprove
+	dropContext
+	dropDevLog
+	dropHelp
+	dropSidebar
+	dropSubAgents
+	dropSandbox
+	dropMode
+	dropModel
+	dropPhase
+)
+
 //nolint:gocyclo // fan-out by segment is structural, not accidental
 func (s statusState) view(width int) string {
 	sep := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render(" │ ")
 
-	var parts []string
+	var parts []statusSegment
 
 	// Segment 0: oneshot phase indicator (first, accent-styled)
 	if s.oneshotPhase != "" {
 		phaseStr := fmt.Sprintf("phase · %s", s.oneshotPhase)
-		parts = append(parts, lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(phaseStr))
+		parts = append(parts, statusSegment{lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(phaseStr), dropPhase})
 	}
 	// Segment 1: model (stable left)
 	if model := strings.TrimSpace(s.model); model != "" {
-		parts = append(parts, lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(formatModelEffort(model, s.reasoning)))
+		parts = append(parts, statusSegment{lipgloss.NewStyle().Foreground(s.styles.AccentColor).Render(formatModelEffort(model, s.reasoning)), dropModel})
 	}
+
+	// Segment 1a: ctx (static, infrequently changing)
+	parts = append(parts, statusSegment{s.contextSegment(), dropContext})
 
 	// Segment 1b: execution mode badge
 	if badge := renderModeBadge(s.styles, s.execMode); badge != "" {
-		parts = append(parts, badge)
+		parts = append(parts, statusSegment{badge, dropMode})
 	}
 
 	// Segment 1c: sandbox status badge
 	if badge := renderSandboxBadge(s.styles, s.sandboxStatus); badge != "" {
-		parts = append(parts, badge)
+		parts = append(parts, statusSegment{badge, dropSandbox})
 	}
 
 	// Segment 1d: sub-agent chip (dropped only after ctx, help and sidebar)
 	if chip := s.subAgentsChip(); chip != "" {
-		parts = append(parts, chip)
+		parts = append(parts, statusSegment{chip, dropSubAgents})
 	}
 
 	// Segments 2-3: stable commands and navigation
-	parts = append(parts, s.styles.KeyChip.Render("^B")+" sidebar")
-	parts = append(parts, s.styles.KeyChip.Render("Ctrl+F1")+" help")
+	parts = append(parts, statusSegment{s.styles.KeyChip.Render("^B") + " sidebar", dropSidebar})
+	parts = append(parts, statusSegment{s.styles.KeyChip.Render("Ctrl+F1") + " help", dropHelp})
 
 	// Segment 5: internal error badge (unseen developer error log entries)
 	if badge := s.devLogBadge(); badge != "" {
-		parts = append(parts, badge)
+		parts = append(parts, statusSegment{badge, dropDevLog})
 	}
 
-	// Segment 6: ctx (static, infrequently changing)
-	if s.contextBudget > 0 || s.promptUsed > 0 {
-		pct := 0
-		if s.contextBudget > 0 {
-			pct = (s.promptUsed * 100) / s.contextBudget
-		}
-		var ctxColor color.Color
-		switch {
-		case pct > 90:
-			ctxColor = lipgloss.Color(theme.Removed)
-		case pct > 70:
-			ctxColor = lipgloss.Color(theme.Warn)
-		default:
-			ctxColor = s.styles.AccentColor
-		}
-		ctxStr := fmt.Sprintf("%s / %s · %d%%", formatCompactCount(s.promptUsed), formatCompactCount(s.contextBudget), pct)
-		label := s.styles.FgMute.Render("ctx ")
-		val := lipgloss.NewStyle().Foreground(ctxColor).Render(ctxStr)
-		parts = append(parts, label+val)
-	}
-
-	// Segment 7: transient action hints (very end)
+	// Segment 6: transient action hints (very end)
 	if s.approvalActive {
-		parts = append(parts, s.styles.KeyChip.Render("y/a/n")+" approve")
-		parts = append(parts, s.styles.KeyChip.Render("tab")+" move")
-		parts = append(parts, s.styles.KeyChip.Render("esc")+" deny")
+		parts = append(parts, statusSegment{s.styles.KeyChip.Render("y/a/n") + " approve", dropApprovalApprove})
+		parts = append(parts, statusSegment{s.styles.KeyChip.Render("tab") + " move", dropApprovalMove})
+		parts = append(parts, statusSegment{s.styles.KeyChip.Render("esc") + " deny", dropApprovalDeny})
 	}
 
-	text := strings.Join(parts, sep)
+	join := func(segs []statusSegment) string {
+		texts := make([]string, len(segs))
+		for i := range segs {
+			texts[i] = segs[i].text
+		}
+		return strings.Join(texts, sep)
+	}
+
+	text := join(parts)
 	if width > 0 && lipgloss.Width(text) > width {
 		for len(parts) > 1 {
-			parts = parts[:len(parts)-1]
-			text = strings.Join(parts, sep)
+			drop := 0
+			for i := 1; i < len(parts); i++ {
+				if parts[i].dropRank < parts[drop].dropRank {
+					drop = i
+				}
+			}
+			parts = append(parts[:drop], parts[drop+1:]...)
+			text = join(parts)
 			if lipgloss.Width(text) <= width {
 				break
 			}
@@ -141,6 +168,31 @@ func (m *Model) renderStatus(width int) string {
 	m.statusViewCacheWidth = width
 	m.statusViewCacheRendered = rendered
 	return rendered
+}
+
+// contextSegment renders the context usage indicator. Until a context budget
+// event reports usage for this conversation it shows a placeholder, so a
+// configured budget alone never claims a measured reading of zero.
+func (s statusState) contextSegment() string {
+	label := s.styles.FgMute.Render("ctx ")
+	if !s.contextMeasured {
+		return label + s.styles.FgMute.Render("--")
+	}
+	pct := 0
+	if s.contextBudget > 0 {
+		pct = (s.promptUsed * 100) / s.contextBudget
+	}
+	var ctxColor color.Color
+	switch {
+	case pct > 90:
+		ctxColor = lipgloss.Color(theme.Removed)
+	case pct > 70:
+		ctxColor = lipgloss.Color(theme.Warn)
+	default:
+		ctxColor = s.styles.AccentColor
+	}
+	ctxStr := fmt.Sprintf("%s / %s · %d%%", formatCompactCount(s.promptUsed), formatCompactCount(s.contextBudget), pct)
+	return label + lipgloss.NewStyle().Foreground(ctxColor).Render(ctxStr)
 }
 
 // subAgentsChip renders the sub-agent progress chip, empty when none were

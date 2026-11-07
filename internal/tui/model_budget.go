@@ -51,6 +51,7 @@ func (m *Model) applyContextBudget(payload output.ContextBudgetEvent) {
 	m.sidebar.contextBudget = contextWindow
 	m.status.promptUsed = promptUsed
 	m.status.contextBudget = contextWindow
+	m.status.contextMeasured = true
 	if payload.Turn > 0 {
 		m.sidebar.currentTurn = payload.Turn
 	}
