@@ -44,6 +44,7 @@ Open the help overlay with `ctrl+f1` for a short list of key bindings.
 | `alt+m` | Open the model picker |
 | `alt+p` | Open the profile picker |
 | `alt+e` | Open or close the error log |
+| `alt+r` | Apply a new random accent colour (see [Appearance](#appearance)) |
 | `alt+a` | Open or close the sub-agent picker |
 | `alt+.` / `alt+,` | Jump to the next / previous running sub-agent |
 | `alt+/` | Expand or collapse the sub-agent you jumped to |
@@ -179,13 +180,17 @@ content_bg: "#000000"
 
 | Field | Default | Meaning |
 |-------|---------|---------|
-| `accent` | `amber` | Accent colour preset, or `random` for a different preset on each start. Set with `/accent`. |
+| `accent` | `amber` | Accent colour preset, or `random` for a different preset on each start. Set with `/accent` or `alt+r`. |
 | `show_thinking` | `true` | Show thinking blocks in the transcript. Toggle with `/thinking`. |
 | `sidebar_position` | `left` | `right` places the sidebar on the right; any other value places it on the left. Edit the file to change it. |
 | `sidebar_bg` | `#050505` | Sidebar background colour. Edit the file to change it. |
 | `content_bg` | `#000000` | Main pane background colour. Edit the file to change it. |
 
 Accent presets: `amber`, `coral`, `rose`, `magenta`, `gold`, `violet`, `indigo`, `blue`, `cyan`, `teal`, `green`, `mint`, `lime`, `red`, `pink`, `sky`, `lavender`, `terracotta`, `yellow`, `purple`. `/accent` with no argument opens a picker with colour swatches; `/accent <preset>` sets one directly.
+
+Press `alt+r` for a new random accent without submitting or clearing your draft; the cursor stays where it was. The preference is saved as `accent: random`, so each later start also picks a random preset. Press `alt+r` again for another colour in the same session. A random pick can repeat the current colour.
+
+On macOS, terminals only send `alt` as Meta when Option is configured to: enable "Use Option as Meta key" in Terminal (Settings > Profiles > Keyboard) or set the Option key to send Esc+ in iTerm2 (Settings > Profiles > Keys). Otherwise Option+R types a character instead of triggering the shortcut.
 
 Background colours must be `#RRGGBB`. Quote them in YAML, because `#` starts a comment. Empty or missing values use the defaults. If the file is not valid YAML or a colour is invalid, the TUI does not start and reports the error.
 
