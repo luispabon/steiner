@@ -313,6 +313,7 @@ func (m *Model) resetConversationDisplay() {
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
 	m.status.promptUsed = 0
+	m.status.contextMeasured = false
 	m.sidebar.perfDurationMs = 0
 	m.sidebar.perfTTFTMs = 0
 	m.sidebar.perfOutputTPS = 0

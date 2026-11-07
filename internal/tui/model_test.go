@@ -6258,6 +6258,7 @@ func TestClearConversationStateRenderClearsChrome(t *testing.T) {
 	m.sidebar.contextBudget = 128000
 	m.status.contextBudget = 128000
 	m.status.promptUsed = 64000
+	m.status.contextMeasured = true
 	m.content.AppendLine("stale segment")
 	m.content.AppendLine("another stale segment")
 	m.syncViewport()

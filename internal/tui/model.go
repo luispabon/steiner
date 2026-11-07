@@ -358,6 +358,7 @@ func (m *Model) applyModelSelection(modelName, providerBaseURL string) {
 	m.sidebar.reasoning = m.reasoningLabels[modelName]
 	m.sidebar.promptUsed = 0
 	m.sidebar.budgetUsed = 0
+	m.status.contextMeasured = false
 	if m.sidebar.contextBudget > 0 {
 		m.status.context = fmt.Sprintf("ctx 0/%d", m.sidebar.contextBudget)
 	} else {
