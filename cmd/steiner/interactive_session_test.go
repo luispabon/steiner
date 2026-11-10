@@ -93,10 +93,15 @@ func TestStartupTUIModelConfigUsesAliasForDisplayModel(t *testing.T) {
 
 func TestResetSandboxTmpEmitsWarning(t *testing.T) {
 	tmpPath := filepath.Join(t.TempDir(), "tmp")
-	if err := os.WriteFile(tmpPath, []byte("not a directory"), 0o600); err != nil {
+	if err := os.Mkdir(tmpPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	sb := sandbox.New(config.SandboxConfig{}, config.PermissionsConfig{}, "", "", "", tmpPath)
+	// A closed Sandbox is the defined ResetTmp error path; an unsafe or foreign
+	// path is now a silent no-op.
+	if err := sb.Cleanup(); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
 	var events []output.Event
 	resetSandboxTmp(output.SinkFunc(func(event output.Event) { events = append(events, event) }), sb)
 	if len(events) != 1 {

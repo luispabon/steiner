@@ -148,6 +148,13 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, err
 	}
 	rt.sandbox = sb
+	if sb != nil {
+		// A tmp dir recreated mid-session is empty: tell the user that files
+		// written under /tmp earlier in the session are gone.
+		sb.SetTmpReprovisionHandler(func(message string) {
+			events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{Kind: "session_health", Severity: "warning", Notes: []string{message}}))
+		})
+	}
 
 	emitSandboxWarning(cfg, status, events)
 	emitProjectContextDeprecationWarning(cfg, events)
