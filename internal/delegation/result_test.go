@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -483,6 +484,123 @@ func TestProviderRelativeWorktreePath(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestProjectToolResult_InterruptedOutputNotice pins the partial projection: an
+// incomplete last assistant message adds the truncation notice to the reason,
+// a completed message leaves the short base token alone, and a partial result's
+// own Reason never reaches the projection.
+func TestProjectToolResult_InterruptedOutputNotice(t *testing.T) {
+	t.Parallel()
+	// Pins the model-facing wording and the turn of the states built below.
+	const wantNotice = "output is the partial assistant message from turn 2; the model call ended mid-message and the text may be truncated"
+	makeState := func(stopReason agent.StopReason, content string, incomplete bool) agent.RunState {
+		state := makeRunState(2, 100, stopReason, content)
+		if incomplete {
+			state.Conversation[0].Turn = 2
+			state.Conversation[0].Incomplete = true
+		}
+		return state
+	}
+	tests := []struct {
+		name         string
+		stopReason   agent.StopReason
+		content      string
+		incomplete   bool
+		wantPrefix   string
+		wantNotice   bool
+		wantNoNotice bool
+	}{
+		{
+			name:       "cancelled partial with interrupted output",
+			stopReason: agent.StopReasonCancelled,
+			content:    "work so far",
+			incomplete: true,
+			wantPrefix: "cancelled; ",
+			wantNotice: true,
+		},
+		{
+			name:         "cancelled partial without interrupted output",
+			stopReason:   agent.StopReasonCancelled,
+			content:      "work so far",
+			wantPrefix:   "cancelled",
+			wantNoNotice: true,
+		},
+		{
+			name:       "max turns partial with interrupted output",
+			stopReason: agent.StopReasonMaxTurns,
+			content:    "work so far",
+			incomplete: true,
+			wantPrefix: "limit reached; ",
+			wantNotice: true,
+		},
+		{
+			name:         "max turns partial without interrupted output",
+			stopReason:   agent.StopReasonMaxTurns,
+			content:      "work so far",
+			wantPrefix:   "limit reached",
+			wantNoNotice: true,
+		},
+		{
+			name:       "max tokens partial with interrupted output",
+			stopReason: agent.StopReasonMaxTokens,
+			content:    "work so far",
+			incomplete: true,
+			wantPrefix: "limit reached; ",
+			wantNotice: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			state := makeState(tt.stopReason, tt.content, tt.incomplete)
+			result := BuildResult("a", state)
+			if result.Status != StatusPartial {
+				t.Fatalf("status = %q, want %q", result.Status, StatusPartial)
+			}
+			envelope := result.ProjectToolResult()
+			if !strings.HasPrefix(envelope.Reason, tt.wantPrefix) {
+				t.Errorf("reason = %q, want prefix %q", envelope.Reason, tt.wantPrefix)
+			}
+			if tt.wantNoNotice && envelope.Reason != tt.wantPrefix {
+				t.Errorf("reason = %q, want exactly %q", envelope.Reason, tt.wantPrefix)
+			}
+			if tt.wantNotice {
+				if want := tt.wantPrefix + wantNotice; envelope.Reason != want {
+					t.Errorf("reason = %q, want exactly %q", envelope.Reason, want)
+				}
+			}
+		})
+	}
+
+	t.Run("failed builder carries the notice without its failure explanation", func(t *testing.T) {
+		t.Parallel()
+		state := agent.RunState{Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "work so far", Turn: 2, Incomplete: true},
+		}}
+		result := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, context.Canceled, context.Canceled, newTraceCollector("a", "task"), nil).Value.(Result)
+		if result.Status != StatusPartial {
+			t.Fatalf("status = %q, want %q", result.Status, StatusPartial)
+		}
+		envelope := result.ProjectToolResult()
+		if want := "cancelled; " + wantNotice; envelope.Reason != want {
+			t.Errorf("reason = %q, want exactly %q", envelope.Reason, want)
+		}
+	})
+
+	t.Run("partial explanation stays out of the projection", func(t *testing.T) {
+		t.Parallel()
+		state := agent.RunState{Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "work so far", Turn: 2},
+		}}
+		result := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, context.Canceled, context.Canceled, newTraceCollector("a", "task"), nil).Value.(Result)
+		if result.Status != StatusPartial || result.Reason == "" {
+			t.Fatalf("result = %#v, want a partial result with its own explanation", result)
+		}
+		if envelope := result.ProjectToolResult(); envelope.Reason != "cancelled" {
+			t.Errorf("reason = %q, want exactly %q", envelope.Reason, "cancelled")
+		}
+	})
 }
 
 func TestProjectToolResultWorktreePathSerialization(t *testing.T) {

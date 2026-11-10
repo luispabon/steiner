@@ -33,6 +33,15 @@ func TestUnansweredResultEnvelopes(t *testing.T) {
 		{name: "unanswered without prior assistant", conv: []agent.Message{user(envelopeFor("a"))}, want: []string{"a"}},
 		{name: "envelope then user text only", conv: []agent.Message{asst("ok"), user(envelopeFor("a")), user("just text")}, want: []string{"a"}},
 		{name: "text after answered results", conv: []agent.Message{asst("ok"), user(envelopeFor("a")), asst("done"), user("text")}},
+		{
+			name: "interrupted partial does not answer results",
+			conv: []agent.Message{user("hi"), asst("ok"), user(envelopeFor("a")), {Role: agent.MessageRoleAssistant, Content: "I looked at", Incomplete: true}},
+			want: []string{"a"},
+		},
+		{
+			name: "complete answer after an earlier partial answers results",
+			conv: []agent.Message{{Role: agent.MessageRoleAssistant, Content: "cut off", Incomplete: true}, user(envelopeFor("a")), asst("done")},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,6 +52,50 @@ func TestUnansweredResultEnvelopes(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("ids = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUnansweredResultsReason(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		conv []agent.Message
+		want string
+	}{
+		{
+			name: "interrupted partial tail",
+			conv: []agent.Message{
+				{Role: agent.MessageRoleAssistant, Content: "ok"},
+				{Role: agent.MessageRoleUser, Content: envelopeFor("a")},
+				{Role: agent.MessageRoleAssistant, Content: "I looked at", Incomplete: true},
+			},
+			want: interruptedUnansweredReason,
+		},
+		{
+			name: "failed before any response",
+			conv: []agent.Message{
+				{Role: agent.MessageRoleAssistant, Content: "ok"},
+				{Role: agent.MessageRoleUser, Content: envelopeFor("a")},
+			},
+			want: "provider error",
+		},
+		{
+			name: "earlier partial is answered by a later complete response",
+			conv: []agent.Message{
+				{Role: agent.MessageRoleAssistant, Content: "cut off", Incomplete: true},
+				{Role: agent.MessageRoleUser, Content: envelopeFor("a")},
+				{Role: agent.MessageRoleAssistant, Content: "done"},
+			},
+			want: "provider error",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := unansweredResultsReason(tc.conv, "provider error"); got != tc.want {
+				t.Fatalf("reason = %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -90,5 +143,37 @@ func TestDriverRunEmitsUnansweredResultsOnError(t *testing.T) {
 				t.Errorf("payload = %+v", p)
 			}
 		})
+	}
+}
+
+// TestDriverRunNamesInterruptedResponseInUnansweredResults proves the driver
+// passes the committed partial conversation through to the warning, so its
+// reason says the response was interrupted instead of quoting the stream error.
+func TestDriverRunNamesInterruptedResponseInUnansweredResults(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+	s.SetRunner(&inputRunner{run: func(context.Context, RunInput) (RunResult, error) {
+		return RunResult{Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "ok"},
+			{Role: agent.MessageRoleUser, Content: envelopeFor("a")},
+			{Role: agent.MessageRoleAssistant, Content: "I looked at", Incomplete: true},
+		}}, errors.New("stream interrupted")
+	}})
+	in := agent.DriverRunInput{Conversation: []agent.Message{
+		{Role: agent.MessageRoleAssistant, Content: "ok"},
+	}}
+	if _, err := s.driverRun(context.Background(), in, ""); err != nil {
+		t.Fatalf("driverRun: %v", err)
+	}
+	got := eventsOfType(events, output.EventTypeSubAgentResultsUnanswered)
+	if len(got) != 1 {
+		t.Fatalf("events = %d, want 1", len(got))
+	}
+	p := got[0].Payload.(output.SubAgentResultsUnansweredEvent)
+	if p.Reason != interruptedUnansweredReason {
+		t.Fatalf("reason = %q, want %q", p.Reason, interruptedUnansweredReason)
 	}
 }

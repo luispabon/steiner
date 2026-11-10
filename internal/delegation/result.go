@@ -83,6 +83,17 @@ func appendAdvisorSummaryLine(output string, uses, denied int) string {
 	return output + "\n" + line
 }
 
+// interruptedOutputNotice explains that a child's output is the partial
+// assistant message committed when its model call ended mid-message. It returns
+// an empty string when the last assistant message completed normally.
+func interruptedOutputNotice(state agent.RunState) string {
+	msg, ok := agent.LastAssistantMessage(state.Conversation)
+	if !ok || !msg.Incomplete {
+		return ""
+	}
+	return fmt.Sprintf("output is the partial assistant message from turn %d; the model call ended mid-message and the text may be truncated", msg.Turn)
+}
+
 func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
@@ -124,6 +135,12 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		result.Status = StatusFailed
 		result.StopReason = rawReason
 		result.Reason = fmt.Sprintf("unknown stop reason: %s", rawReason)
+	}
+
+	// Only a partial projection reads the notice; failed and cancelled results
+	// carry their own reason.
+	if result.Status == StatusPartial {
+		result.truncationNotice = interruptedOutputNotice(state)
 	}
 
 	if tc != nil {
@@ -168,11 +185,19 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 	return envelope
 }
 
+// projectionReason builds the model-facing reason for a partial result: the
+// short base token for limit stops and cancellations, plus the truncation
+// notice when the output is an interrupted partial message. Any other child
+// explanation stays out; the cancelled status carries it through Reason.
 func projectionReason(r Result) string {
+	base := "limit reached"
 	if r.StopReason == "cancelled" {
-		return "cancelled"
+		base = "cancelled"
 	}
-	return "limit reached"
+	if notice := strings.TrimSpace(r.truncationNotice); notice != "" {
+		return base + "; " + notice
+	}
+	return base
 }
 
 func cancellationProjectionReason(r Result) string {

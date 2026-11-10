@@ -220,7 +220,11 @@ func (b *contentBuffer) applyDelegationAssistantMessage(dd *delegationDisplaySta
 		dd.currentOperation = previewDelegationText(last.body)
 		return true
 	}
-	if streamedAssistant != "" && normalizeDelegationText(streamedAssistant) == normalizeDelegationText(payload.Content) {
+	// A retry appends its own text to the same streamed accumulator, so the
+	// committed message repeats the tail of the streamed text rather than all of
+	// it. An exact match keeps the single-attempt case; the suffix match stops a
+	// retried attempt's text from being appended a second time.
+	if streamedAssistant != "" && strings.HasSuffix(normalizeDelegationText(streamedAssistant), normalizeDelegationText(payload.Content)) {
 		dd.currentOperation = previewDelegationText(payload.Content)
 		return true
 	}

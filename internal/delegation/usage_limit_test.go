@@ -64,6 +64,59 @@ func TestFailedDelegateExecution_UsageLimit(t *testing.T) {
 	}
 }
 
+func TestFailedDelegateExecution_IncompleteOutputNotice(t *testing.T) {
+	t.Parallel()
+	state := agent.RunState{
+		TurnCount:  3,
+		StopReason: agent.StopReasonUsageLimit,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "summarise the report"},
+			{Role: agent.MessageRoleAssistant, Content: "the report so far", Turn: 3, Incomplete: true},
+		},
+	}
+	res := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, testUsageLimitErr(), nil, newTraceCollector("a", "task"), nil)
+	result := res.Value.(Result)
+	if result.Status != StatusFailed {
+		t.Errorf("status = %q, want %q", result.Status, StatusFailed)
+	}
+	if result.Output != "the report so far" {
+		t.Errorf("output = %q, want the streamed partial text", result.Output)
+	}
+	const wantNotice = "output is the partial assistant message from turn 3; the model call ended mid-message and the text may be truncated"
+	if !strings.Contains(result.Reason, wantNotice) {
+		t.Errorf("reason = %q, want the truncation notice %q", result.Reason, wantNotice)
+	}
+	if !strings.Contains(result.Reason, usageLimitDelegateNotice) {
+		t.Errorf("reason = %q, want the usage limit notice too", result.Reason)
+	}
+	envelope := result.ProjectToolResult()
+	if envelope.Status != "failed" {
+		t.Errorf("envelope status = %q, want %q", envelope.Status, "failed")
+	}
+	if !strings.Contains(envelope.Reason, wantNotice) {
+		t.Errorf("envelope reason = %q, want the truncation notice %q", envelope.Reason, wantNotice)
+	}
+}
+
+func TestFailedDelegateExecution_CompleteOutputHasNoNotice(t *testing.T) {
+	t.Parallel()
+	state := agent.RunState{
+		TurnCount:  3,
+		StopReason: agent.StopReasonUsageLimit,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "the report", Turn: 3},
+		},
+	}
+	res := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, testUsageLimitErr(), nil, newTraceCollector("a", "task"), nil)
+	result := res.Value.(Result)
+	if notice := interruptedOutputNotice(state); notice != "" {
+		t.Fatalf("interruptedOutputNotice() = %q, want empty for a complete message", notice)
+	}
+	if strings.Contains(result.Reason, "may be truncated") {
+		t.Errorf("reason = %q, want no truncation notice", result.Reason)
+	}
+}
+
 func TestBuildResult_UsageLimitStopReason(t *testing.T) {
 	t.Parallel()
 	result := BuildResult("a", makeRunState(1, 10, agent.StopReasonUsageLimit, "partial"))

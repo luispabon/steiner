@@ -44,7 +44,7 @@ User guide: [Sub-agent delegation](../user/sub-agent-delegation.md).
 
 In async mode, `superviseDelegate` returns an `AckResult` (`ack.go`) with status `running` or `queued` and the agent ID needed for `follow_up`.
 
-The conversation driver (`internal/agent/conversation_driver.go`) calls `Supervisor.MarkDelivered` (`supervisor_async.go`) on delivery and coalesces completions within `completionCoalesceWindow` (five seconds, `internal/agent/conversation_driver_policy.go`). Deliveries emit `output.SubAgentsDeliveredEvent`. `output.SubAgentResultsUnansweredEvent` is emitted from `internal/interactive/unanswered_results.go`.
+The conversation driver (`internal/agent/conversation_driver.go`) calls `Supervisor.MarkDelivered` (`supervisor_async.go`) on delivery and coalesces completions within `completionCoalesceWindow` (five seconds, `internal/agent/conversation_driver_policy.go`). Deliveries emit `output.SubAgentsDeliveredEvent`. `output.SubAgentResultsUnansweredEvent` is emitted from `internal/interactive/unanswered_results.go`. The boundary scan skips `Message.Incomplete` assistants, so an interrupted partial response does not count as an answer; the warning then says the response was interrupted before the results were handled.
 
 - **Ledger.** `Supervisor.Ledger()` lists outstanding children, and `IsPending` reports whether one is still outstanding (`supervisor_async.go`). Sessions persist the ledger as `SubAgentLedger` (`internal/agent/sub_agent_types.go`, `internal/session/session.go`) and group state as `DelegationGroups` (`internal/agent/delegation_groups.go`, `internal/session/session.go`).
 - **Groups.** `jobGroup` (`supervisor_groups.go`) holds one label's members within a tool batch. `sealBatch` seals the batch's groups. `releaseGroupLocked` holds completions until a group is sealed and every member has a final result, then posts them together, ordered by `Seq`.
@@ -119,11 +119,13 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 
 | Field | Content |
 |-------|---------|
-| `output` | Exact child output |
+| `output` | Child output. When the child's model call ended mid-message, this is the partial assistant message committed at run exit (`Message.Incomplete`). With advisor usage, an `advisor: N used` line follows it. |
 | `status` | Omitted on success. Otherwise `partial`, `cancelled`, or `failed` |
-| `reason` | The error for failures (`unknown failure` when empty), or a fallback such as `limit reached` |
+| `reason` | The error for failures (`unknown failure` when empty). Partial results carry the short token (`cancelled` or `limit reached`); when the last assistant message is incomplete, the truncation explanation follows it after `; `. Cancelled results usually carry the session-preserved explanation; a child cancelled before dispatch, or one whose session was discarded, carries a different notice. |
 | `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
 | `worktree_path` | Project-relative path of a worktree-isolated child's worktree. |
+
+`interruptedOutputNotice` (`result.go`) builds the truncation explanation for a child whose last assistant message is incomplete: it names the turn and warns the text may be truncated. It reaches the model through `failedDelegateReason`, and through partial projections via `Result.truncationNotice`, which `projectionReason` appends to the short token.
 
 Delegation results also set `ToolRetention` with kind `delegate_summary` (`RetentionKindDelegateSummary`, `task.go`).
 

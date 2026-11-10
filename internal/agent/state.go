@@ -308,6 +308,15 @@ func (l ConversationLineage) Candidates() []ConversationCandidate {
 	return candidates
 }
 
+// PendingAssistant carries assistant text that streamed before a model call
+// failed. The run commits it as an incomplete assistant message when it exits,
+// so text the user already saw is not lost. Turn is the attempted turn, which
+// the run has not counted yet when the call fails.
+type PendingAssistant struct {
+	Content string
+	Turn    int
+}
+
 // RunState captures the mutable state of an in-flight run.
 type RunState struct {
 	TurnCount           int
@@ -328,6 +337,9 @@ type RunState struct {
 	// LastMainRequest is the run's last successful main model request. It is
 	// in-memory only and is not part of the persisted lineage.
 	LastMainRequest LastMainRequest
+	// PendingAssistant is assistant text streamed before a failed model call.
+	// It is in-memory only and is not part of the persisted lineage.
+	PendingAssistant PendingAssistant
 }
 
 // Clone returns a deep copy of the run state.
@@ -347,6 +359,7 @@ func (s RunState) Clone() RunState {
 		BudgetStartTurn:     s.BudgetStartTurn,
 		ParentUsage:         s.ParentUsage.Clone(),
 		LastMainRequest:     s.LastMainRequest,
+		PendingAssistant:    s.PendingAssistant,
 	}
 }
 

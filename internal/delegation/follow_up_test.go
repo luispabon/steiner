@@ -1309,6 +1309,108 @@ func TestFollowUpHandler_FreshBudgetWithHighPriorTurnCount(t *testing.T) {
 	}
 }
 
+// TestFollowUpHandler_InterruptedPartialKeepsTurnNumbering resumes a child whose
+// conversation ends in the committed incomplete assistant message. The partial's
+// turn seeds the resumed run, so the next turn is partial.Turn+1 and the fresh
+// max_turns budget is added on top of the committed turn.
+func TestFollowUpHandler_InterruptedPartialKeepsTurnNumbering(t *testing.T) {
+	t.Parallel()
+	const priorTurns = 4
+	partial := agent.Message{Role: agent.MessageRoleAssistant, Content: "the partial report", Turn: priorTurns, Incomplete: true}
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec: Spec{
+			AgentID: "child-partial",
+			Task:    "write the report",
+			Limits:  Limits{MaxTurns: priorTurns, OutputLimitTokens: 100000},
+		},
+		Request: agent.RunRequest{
+			Prompt: promptWithConversation("initial task"),
+			Limits: agent.Limits{MaxTurns: priorTurns, MaxTokens: 100000},
+		},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task", Turn: 1},
+			{Role: agent.MessageRoleAssistant, Content: "working", Turn: 2},
+			{Role: agent.MessageRoleUser, Content: "more context", Turn: 3},
+			partial,
+		},
+		TurnCount:     priorTurns,
+		TokenCount:    500,
+		ToolCallCount: 2,
+	})
+
+	var captured agent.RunRequest
+	runs := 0
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 30, MaxTokens: 100000, MaxFollowUps: 100},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			captured = req
+			runs++
+			// Mirror the real runner: the next turn is one past the highest turn
+			// in the resumed conversation.
+			maxTurn := 0
+			for _, msg := range req.SourceConversation {
+				if msg.Turn > maxTurn {
+					maxTurn = msg.Turn
+				}
+			}
+			if req.Limits.MaxTurns > 0 && maxTurn >= req.Limits.MaxTurns {
+				return agent.RunState{StopReason: agent.StopReasonMaxTurns, TurnCount: maxTurn, Conversation: req.SourceConversation}, nil
+			}
+			conversation := append(append([]agent.Message{}, req.SourceConversation...), agent.Message{
+				Role: agent.MessageRoleAssistant, Content: "completed follow-up", Turn: maxTurn + 1,
+			})
+			return agent.RunState{Conversation: conversation, TurnCount: maxTurn + 1, StopReason: agent.StopReasonComplete}, nil
+		}},
+	})
+
+	got, err := handler(context.Background(), map[string]any{"agent_id": "child-partial", "message": "continue"})
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1 (the fresh budget must not stop the resume immediately)", runs)
+	}
+	if want := priorTurns + 30; captured.Limits.MaxTurns != want {
+		t.Fatalf("MaxTurns = %d, want %d (committed turn %d + fresh 30)", captured.Limits.MaxTurns, want, priorTurns)
+	}
+
+	var resumed agent.Message
+	found := false
+	for _, msg := range captured.SourceConversation {
+		if msg.Incomplete {
+			resumed, found = msg, true
+		}
+	}
+	if !found {
+		t.Fatalf("resumed conversation lost the partial: %+v", captured.SourceConversation)
+	}
+	if resumed.Content != partial.Content || resumed.Turn != priorTurns {
+		t.Fatalf("resumed partial = %+v, want content %q at turn %d", resumed, partial.Content, priorTurns)
+	}
+	last := captured.SourceConversation[len(captured.SourceConversation)-1]
+	if last.Role != agent.MessageRoleUser || last.Content != "continue" {
+		t.Fatalf("last resumed message = %+v, want the follow-up user message", last)
+	}
+
+	result, ok := got.(tool.ExecutionResult)
+	if !ok {
+		t.Fatalf("result type = %T, want tool.ExecutionResult", got)
+	}
+	if delegationResult, ok := result.Value.(Result); !ok || delegationResult.Status != StatusComplete {
+		t.Fatalf("result.Value = %#v, want a complete result", result.Value)
+	}
+
+	updated, ok := store.Get("child-partial")
+	if !ok {
+		t.Fatal("session disappeared")
+	}
+	if want := resumed.Turn + 1; updated.TurnCount != want {
+		t.Fatalf("session TurnCount = %d, want %d (the turn after the committed partial)", updated.TurnCount, want)
+	}
+}
+
 func TestFollowUpHandler_AccumulatesTokenUsageFromPriorSession(t *testing.T) {
 	t.Parallel()
 	store := NewSessionStore()

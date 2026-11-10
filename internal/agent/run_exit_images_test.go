@@ -116,6 +116,37 @@ func TestFinalizeImagesAtRunExitForRequest(t *testing.T) {
 	}
 }
 
+// TestCommittedPartialSurvivesRunExitImageFinalize proves the run-exit image
+// strip runs after the partial commit and leaves the incomplete assistant
+// message in both the conversation and the lineage.
+func TestCommittedPartialSurvivesRunExitImageFinalize(t *testing.T) {
+	conversation := []Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{
+		{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "user-image-data"},
+	}}}
+	state := RunState{
+		Conversation:     conversation,
+		Lineage:          newConversationLineage(conversation),
+		PendingAssistant: PendingAssistant{Content: "interrupted text", Turn: 1},
+	}
+
+	got := finalizeImagesAtRunExitForRequest(RunRequest{}, commitInterruptedAssistant(RunRequest{}, state))
+	if len(got.Conversation) != 2 {
+		t.Fatalf("conversation = %+v, want the user message and the partial", got.Conversation)
+	}
+	last := got.Conversation[1]
+	if last.Role != MessageRoleAssistant || last.Content != "interrupted text" || !last.Incomplete {
+		t.Fatalf("last conversation message = %+v, want the incomplete partial", last)
+	}
+	lineage := got.Lineage.FullMessages()
+	lastLineage, ok := lastMessage(lineage)
+	if !ok || lastLineage.Content != "interrupted text" || !lastLineage.Incomplete {
+		t.Fatalf("lineage = %+v, want the incomplete partial appended", lineage)
+	}
+	if stateHasImageData(got) {
+		t.Fatalf("image data survived: %#v", got)
+	}
+}
+
 func TestRunnerRunExitStripsImageAfterTransientRetry(t *testing.T) {
 	origSleep := runnerRetrySleepFn
 	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }

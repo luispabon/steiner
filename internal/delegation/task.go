@@ -321,6 +321,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 	}
 
 	result.Reason = failedDelegateReason(err, childCtxErr, state)
+	result.truncationNotice = interruptedOutputNotice(state)
 
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
 		tc.add("tool_calls", "per-tool-call trace recorded", fields)
@@ -364,6 +365,9 @@ func failedDelegateReason(err, childCtxErr error, state agent.RunState) string {
 	}
 	if _, ok := provider.AsUsageLimit(err); ok {
 		parts = append(parts, usageLimitDelegateNotice)
+	}
+	if notice := interruptedOutputNotice(state); notice != "" {
+		parts = append(parts, notice)
 	}
 	return strings.Join(parts, "\n")
 }

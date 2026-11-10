@@ -168,6 +168,10 @@ type Result struct {
 	// computed from WorktreePath. It is unexported and sent only to the provider
 	// via ProjectToolResult, never exposed in JSON or stored in the session.
 	providerWorktreePath string
+	// truncationNotice explains that Output is the partial assistant message
+	// committed when the child's model call ended mid-message. It is unexported
+	// and reaches the parent only as a suffix on the partial projection's reason.
+	truncationNotice string
 }
 
 // Limits defines resource constraints for a child execution.

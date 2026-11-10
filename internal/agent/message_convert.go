@@ -56,6 +56,12 @@ func fromProviderMessages(messages []provider.Message) []Message {
 	return out
 }
 
+// interruptedAssistantNote is appended to the provider projection of an
+// incomplete assistant message. The model sees that its streamed response was
+// cut off, whatever ended it: a provider error, a cancellation, or a timeout.
+// The stored message and the emitted event keep the exact text.
+const interruptedAssistantNote = "\n\n[response interrupted: this assistant message ended before it was complete]"
+
 func toProviderMessage(message Message) provider.Message {
 	role := provider.MessageRole(message.Role)
 	if message.Role == MessageRoleSummary {
@@ -69,6 +75,9 @@ func toProviderMessage(message Message) provider.Message {
 		ToolCallID:       message.ToolCallID,
 		Turn:             message.Turn,
 		ProviderMetadata: toProviderMessageMetadata(message.ProviderMetadata),
+	}
+	if message.Role == MessageRoleAssistant && message.Incomplete {
+		out.Content += interruptedAssistantNote
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))

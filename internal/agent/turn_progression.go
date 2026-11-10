@@ -53,8 +53,19 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		if errors.Is(err, errRetryTurnForVision) {
 			return turnOutcome{State: state, Retry: true}, nil
 		}
+		// Hold the text streamed before the failure. The runner does not know yet
+		// whether it will retry this turn, so nothing is emitted or committed here.
+		// Rule: a later attempt overwrites the pending partial only when it streams
+		// text of its own, so text the user already saw survives a retry that
+		// fails before streaming anything.
+		if content := strings.TrimSpace(response.Message.Content); content != "" {
+			state.PendingAssistant = PendingAssistant{Content: response.Message.Content, Turn: turn}
+		}
 		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
+
+	// A successful attempt replaces any pending partial with its own message.
+	state.PendingAssistant = PendingAssistant{}
 
 	endTime := time.Now()
 	durationMs := endTime.Sub(startTime).Milliseconds()

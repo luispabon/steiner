@@ -15,7 +15,13 @@ func emitEvent(sink output.EventSink, event output.Event) {
 }
 
 func emitStop(sink output.EventSink, state RunState, err error) {
-	emitEvent(sink, output.NewStopReasonEvent(state.TurnCount, string(state.StopReason), err))
+	// A pending partial is committed at run exit under its attempted turn, which
+	// the run has not counted yet, so the stop event must name the same turn.
+	turn := state.TurnCount
+	if state.PendingAssistant.Turn > turn {
+		turn = state.PendingAssistant.Turn
+	}
+	emitEvent(sink, output.NewStopReasonEvent(turn, string(state.StopReason), err))
 }
 
 // ReportedError is a run error whose stop-reason event the runner has already

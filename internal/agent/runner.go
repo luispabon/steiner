@@ -31,6 +31,7 @@ func NewRunner() *Runner {
 func (r *Runner) Run(ctx context.Context, req RunRequest) (RunState, error) {
 	req = normalizeRunRequest(req)
 	state, err := r.run(ctx, req)
+	state = commitInterruptedAssistant(req, state)
 	return finalizeImagesAtRunExitForRequest(req, state), err
 }
 

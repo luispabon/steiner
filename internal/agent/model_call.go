@@ -140,7 +140,7 @@ func executeChatRequestWithOptions(ctx context.Context, prov provider.Provider, 
 		response, streamErr := consumeModelStream(ctx, events, turn, stream, output.ChunkSourceAssistant, &firstChunkTime)
 		if streamErr != nil {
 			emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", streamErr), turn, requestID))
-			return provider.ChatResponse{}, time.Time{}, streamErr
+			return response, firstChunkTime, streamErr
 		}
 		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
 		return response, firstChunkTime, nil

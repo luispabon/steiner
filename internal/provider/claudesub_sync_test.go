@@ -1217,6 +1217,17 @@ func TestClaudeSubRestoreFor(t *testing.T) {
 		{name: "final digest mismatch reseeds", stored: with(func(st *claudeSubBackendState) { st.FinalMessageDigest = "other" }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedFinalUUID},
 		{name: "state past the history reseeds", stored: with(func(st *claudeSubBackendState) { st.SyncEntries = 9 }), hasState: true, msgs: history, fp: "fp", wantReason: claudeSubReseedFinalUUID},
 		{name: "rewritten history reseeds", stored: stored, hasState: true, msgs: rewritten, fp: "fp", wantReason: claudeSubReseedPrefix},
+		// A locally committed incomplete assistant message is not in the CLI
+		// record, so it cannot be appended: the resume refuses and reseeds rather
+		// than erroring the request.
+		{
+			name:       "committed incomplete assistant message reseeds",
+			stored:     stored,
+			hasState:   true,
+			msgs:       []Message{history[0], history[1], claudeSubSyncAssistantMsg("the partial report\n\n[response interrupted: this assistant message ended before it was complete]")},
+			fp:         "fp",
+			wantReason: claudeSubReseedPlan,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
