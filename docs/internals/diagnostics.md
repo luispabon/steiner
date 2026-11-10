@@ -26,6 +26,17 @@ Records carry `ts`, `kind`, and `seq`. The rest are `omitempty`: `run_id`, `sess
 - `dirty` is written only when true. The Makefile sets `main.dirty` to `true` when `git diff --quiet HEAD` fails. Readers must treat an absent `dirty` as false.
 - `source` is `parent`, `sub_agent`, or `advisor`. Tool records take `turn` and `payload.model` from the call context when it is present.
 
+## Tool payload
+
+When the `tool` stream is enabled, every `Executor.Execute` call writes one `kind:"tool"` record, whatever the outcome. Fields:
+
+- `tool`, `model`, `outcome` (`ok`, `denied`, or `error`), and `duration_ms`.
+- `ops_total`, the number of operations the input carried (1 when it carries no `operations` array), and `ops_failed`, the number of failed operations.
+- `failures[]`: `op`, `reason`, `path_ext`, and, for failed mutate replaces under `capture_bodies`, the bounded `match` and `sample` evidence.
+- `ops_requested`: requested operation types and their counts, keyed by the tool's fixed labels.
+
+`ops_requested` is opt-in per tool through `ToolDef.OpsRequested` (currently only mutate supplies one). The extractor reads the call's raw input after execution, so counts cover policy-denied and failed calls, and it runs only while the `tool` stream is enabled. Absent means the tool has no extractor or the input did not describe operations, such as mutate input whose `operations` value is not an array, including a double-encoded JSON string. A present `{}` means the input described zero operations. Counts never carry paths, arguments, file content, or other model-supplied text: mutate derives its labels from `allowedFields`, maps a missing, non-string, or unknown `type` to `invalid`, and trims the type as the planner does. The executor also bounds any extractor result to 16 labels of at most 24 lowercase identifier characters and drops labels outside that shape, so the field cannot hold arbitrary strings. An extractor panic is swallowed and omits the field. `ops_total` is computed separately and does not change.
+
 ## Rotation and retention
 
 Before a write that would exceed the stream cap, `rotate` closes the file, shifts `<file>.N` to `<file>.N+1`, drops the oldest generation, renames the active file to `<file>.1`, and reopens it. The cap and generation count are constants in `writer.go`. If reopening fails, later records for that run are dropped without a log line. A failed write logs `diagnostics writer degraded` once per writer.
