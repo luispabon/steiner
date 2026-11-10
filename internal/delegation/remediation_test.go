@@ -29,18 +29,20 @@ func TestApplyRemediation(t *testing.T) {
 	initialState := successRunState()
 	originalOutput := "task result"
 	tests := []struct {
-		name            string
-		state           agent.RunState
-		cfg             *RemediationConfig
-		wantOutcome     remediationOutcome
-		wantStatus      Status
-		wantOutput      string
-		wantWarning     bool
-		warningContains string
-		wantRunnerCalls int
-		wantError       bool
-		wantResumable   bool
-		runErr          error
+		name             string
+		state            agent.RunState
+		cfg              *RemediationConfig
+		wantOutcome      remediationOutcome
+		wantStatus       Status
+		wantOutput       string
+		wantWarning      bool
+		warningContains  string
+		wantRunnerCalls  int
+		wantError        bool
+		wantResumable    bool
+		wantNotice       string
+		runErr           error
+		remediationState func() agent.RunState
 	}{
 		{
 			name: "nil config", state: initialState, wantOutcome: remediationNotAttempted,
@@ -74,6 +76,20 @@ func TestApplyRemediation(t *testing.T) {
 			cfg:         remediationConfigForDirty([]string{"changed.go"}, []string{}, nil),
 			wantOutcome: remediationAttempted, wantStatus: StatusFailed, wantOutput: originalOutput,
 			wantWarning: true, wantRunnerCalls: 1, wantError: true, runErr: errors.New("runner failed"),
+		},
+		{
+			name: "remediation run fails after streaming a partial", state: initialState,
+			cfg:         remediationConfigForDirty([]string{"changed.go"}, []string{}, nil),
+			wantOutcome: remediationAttempted, wantStatus: StatusFailed, wantOutput: originalOutput,
+			wantWarning: true, wantRunnerCalls: 1, wantError: true, runErr: errors.New("runner failed"),
+			remediationState: func() agent.RunState {
+				state := successRunState()
+				state.TurnCount = 2
+				state.Conversation = append(state.Conversation, agent.Message{
+					Role: agent.MessageRoleAssistant, Content: "remediation partial", Turn: 2, Incomplete: true,
+				})
+				return state
+			},
 		},
 		{
 			name: "clean tree but committed false", state: initialState,
@@ -113,6 +129,9 @@ func TestApplyRemediation(t *testing.T) {
 				calls++
 				state := successRunState()
 				state.TurnCount = 2
+				if tt.remediationState != nil {
+					state = tt.remediationState()
+				}
 				return state, tt.runErr
 			}}
 			gotState, _, result, outcome, err := applyRemediation(
@@ -127,6 +146,9 @@ func TestApplyRemediation(t *testing.T) {
 			}
 			if tt.wantOutput != "" && result.Output != tt.wantOutput {
 				t.Errorf("output = %q, want %q", result.Output, tt.wantOutput)
+			}
+			if result.truncationNotice != tt.wantNotice {
+				t.Errorf("truncation notice = %q, want %q", result.truncationNotice, tt.wantNotice)
 			}
 			if tt.warningContains != "" {
 				if !containsWarningText(result.Warnings, tt.warningContains) {

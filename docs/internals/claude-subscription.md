@@ -61,7 +61,7 @@ A new parent process restores stored state only when the stored CLI session ID, 
 
 A reseed sends the whole non-system history as one user transcript message. Images still in memory are included, and stripped image data does not return. Tool calls in the history are rendered as text.
 
-An interrupted run commits its streamed text locally as an incomplete assistant message. That message is not in the CLI record, so a restore cannot append it: `claudeSubRestoreFor` refuses the resume, reports the plan reseed branch, and the next turn reseeds from the local history. No request error is raised.
+An interrupted run commits its streamed text locally as an incomplete assistant message. That message is not part of the sync record steiner keeps for the CLI transcript, so a restore cannot append it: `claudeSubRestoreFor` refuses the resume, reports the plan reseed branch, and the next turn reseeds from the local history. No request error is raised.
 
 A generation whose backend state was cleared has nothing to restore, so its next request starts fresh and reseeds from the preserved conversation. Backend state is saved with the session, so a crash between retiring a process and saving the session can leave the previously persisted state on disk. That saved checkpoint may be older than the retired transcript, and resuming from it after such a crash is unverified.
 

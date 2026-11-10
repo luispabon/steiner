@@ -119,9 +119,9 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 
 | Field | Content |
 |-------|---------|
-| `output` | Exact child output. When the child's model call ended mid-message, this is the partial assistant message committed at run exit (`Message.Incomplete`). |
+| `output` | Child output. When the child's model call ended mid-message, this is the partial assistant message committed at run exit (`Message.Incomplete`). With advisor usage, an `advisor: N used` line follows it. |
 | `status` | Omitted on success. Otherwise `partial`, `cancelled`, or `failed` |
-| `reason` | The error for failures (`unknown failure` when empty). Partial results carry the short token (`cancelled` or `limit reached`); when the last assistant message is incomplete, the truncation explanation follows it after `; `. Cancelled results carry the session-preserved explanation. |
+| `reason` | The error for failures (`unknown failure` when empty). Partial results carry the short token (`cancelled` or `limit reached`); when the last assistant message is incomplete, the truncation explanation follows it after `; `. Cancelled results usually carry the session-preserved explanation; a child cancelled before dispatch, or one whose session was discarded, carries a different notice. |
 | `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
 | `worktree_path` | Project-relative path of a worktree-isolated child's worktree. |
 

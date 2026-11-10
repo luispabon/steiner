@@ -78,7 +78,7 @@ A non-streaming 400 whose body mentions `stream` and `must` or `required` is mat
 - `HistoryPath`, `AppendHistory`, and `ReadHistory` (`session/store.go`) manage the per-session compaction archive. Deletion removes the archive directory with the session.
 - Resume: `Session.LoadSessionByID` (`persistence.go`) → `loadSession`. `replayLoadedTranscript` (`interactive/replay.go`) re-emits events so the TUI shows the transcript. `session.Fork` copies only the latest lineage generation; the parent's compaction archive remains with the parent.
 - Compaction adds a generation with `ConversationLineage.WithNewGeneration` (`compaction_escalation.go`, `interactive/compaction.go`).
-- Run exit: when a model call ends after streaming assistant text, `Runner.Run` commits that text as an assistant message with `Message.Incomplete` set, in `Conversation` and `Lineage`, before images are stripped (`partial_assistant.go`). The stored message keeps the exact streamed text.
+- Run exit: when a model call ends after streaming assistant text, `Runner.Run` commits that text as an assistant message with `Message.Incomplete` set, in `Conversation` and, when one exists, `Lineage`, before images are stripped (`partial_assistant.go`). The stored message keeps the exact streamed text.
 - Other stores: diagnostics ([diagnostics.md](diagnostics.md)), usage stats ([prompt-caching.md](prompt-caching.md)), quota snapshots ([usage-dashboard.md](usage-dashboard.md)), oneshot manifests ([oneshot.md](oneshot.md)).
 
 ## Events, approvals, and the TUI

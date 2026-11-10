@@ -82,15 +82,19 @@ func TestFailedDelegateExecution_IncompleteOutputNotice(t *testing.T) {
 	if result.Output != "the report so far" {
 		t.Errorf("output = %q, want the streamed partial text", result.Output)
 	}
-	notice := interruptedOutputNotice(state)
-	if notice == "" {
-		t.Fatal("interruptedOutputNotice() = \"\", want a notice for an incomplete last assistant message")
-	}
-	if !strings.Contains(result.Reason, notice) {
-		t.Errorf("reason = %q, want the truncation notice %q", result.Reason, notice)
+	const wantNotice = "output is the partial assistant message from turn 3; the model call ended mid-message and the text may be truncated"
+	if !strings.Contains(result.Reason, wantNotice) {
+		t.Errorf("reason = %q, want the truncation notice %q", result.Reason, wantNotice)
 	}
 	if !strings.Contains(result.Reason, usageLimitDelegateNotice) {
 		t.Errorf("reason = %q, want the usage limit notice too", result.Reason)
+	}
+	envelope := result.ProjectToolResult()
+	if envelope.Status != "failed" {
+		t.Errorf("envelope status = %q, want %q", envelope.Status, "failed")
+	}
+	if !strings.Contains(envelope.Reason, wantNotice) {
+		t.Errorf("envelope reason = %q, want the truncation notice %q", envelope.Reason, wantNotice)
 	}
 }
 

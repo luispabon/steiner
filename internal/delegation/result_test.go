@@ -492,6 +492,8 @@ func TestProviderRelativeWorktreePath(t *testing.T) {
 // own Reason never reaches the projection.
 func TestProjectToolResult_InterruptedOutputNotice(t *testing.T) {
 	t.Parallel()
+	// Pins the model-facing wording and the turn of the states built below.
+	const wantNotice = "output is the partial assistant message from turn 2; the model call ended mid-message and the text may be truncated"
 	makeState := func(stopReason agent.StopReason, content string, incomplete bool) agent.RunState {
 		state := makeRunState(2, 100, stopReason, content)
 		if incomplete {
@@ -560,15 +562,11 @@ func TestProjectToolResult_InterruptedOutputNotice(t *testing.T) {
 			if !strings.HasPrefix(envelope.Reason, tt.wantPrefix) {
 				t.Errorf("reason = %q, want prefix %q", envelope.Reason, tt.wantPrefix)
 			}
-			notice := interruptedOutputNotice(state)
 			if tt.wantNoNotice && envelope.Reason != tt.wantPrefix {
 				t.Errorf("reason = %q, want exactly %q", envelope.Reason, tt.wantPrefix)
 			}
 			if tt.wantNotice {
-				if notice == "" {
-					t.Fatal("interruptedOutputNotice() = \"\", want a notice for an incomplete message")
-				}
-				if want := tt.wantPrefix + notice; envelope.Reason != want {
+				if want := tt.wantPrefix + wantNotice; envelope.Reason != want {
 					t.Errorf("reason = %q, want exactly %q", envelope.Reason, want)
 				}
 			}
@@ -585,7 +583,7 @@ func TestProjectToolResult_InterruptedOutputNotice(t *testing.T) {
 			t.Fatalf("status = %q, want %q", result.Status, StatusPartial)
 		}
 		envelope := result.ProjectToolResult()
-		if want := "cancelled; " + interruptedOutputNotice(state); envelope.Reason != want {
+		if want := "cancelled; " + wantNotice; envelope.Reason != want {
 			t.Errorf("reason = %q, want exactly %q", envelope.Reason, want)
 		}
 	})

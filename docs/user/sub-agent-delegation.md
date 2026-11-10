@@ -89,7 +89,7 @@ With delegation enabled, the orchestrator gets two tools. The model fills them i
 
 A child returns its `output`, a `status`, and a `reason` on failure or cancellation. `code` and `documentor` results also carry `worktree_path`, a project-relative path such as `.steiner/worktrees/<process>/<branch>/<agent-id>`, so the orchestrator can read the worktree directly.
 
-When a child's model call ends mid-message, the text it streamed is kept as its output instead of being discarded. A failed, cancelled, or partial result then returns that partial text, and the `reason` says it may be truncated. Follow-up messages can still resume the child session, which continues from the truncated turn.
+When a child's model call ends mid-message, the text it streamed is kept as its output instead of being discarded. A failed or partial result then returns that partial text, and the `reason` says it may be truncated. Follow-up messages can still resume the child session, which continues from the truncated turn.
 
 `follow_up` is for continuing the same deliverable in the same live workspace: a related correction by the implementing child, or a narrow re-review by the same reviewer. Use a fresh `sub_agent` when the scope changes, the worktree is gone, or the work needs an independent view.
 

@@ -167,9 +167,6 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 
 	state, runUsage, result := applyRemediationResult(childCtx, spec, req, runner, state, runUsage, o.remediation, tc)
 	result.AdvisorBudget = spec.AdvisorBudget
-	// A remediation run can replace the result's output, so refresh the
-	// truncation notice from the final state.
-	result.truncationNotice = interruptedOutputNotice(state)
 
 	tc.add("result", "status mapped", map[string]any{
 		"status":      string(result.Status),

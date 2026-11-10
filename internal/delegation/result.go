@@ -137,7 +137,11 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		result.Reason = fmt.Sprintf("unknown stop reason: %s", rawReason)
 	}
 
-	result.truncationNotice = interruptedOutputNotice(state)
+	// Only a partial projection reads the notice; failed and cancelled results
+	// carry their own reason.
+	if result.Status == StatusPartial {
+		result.truncationNotice = interruptedOutputNotice(state)
+	}
 
 	if tc != nil {
 		tc.add("status_mapping", fmt.Sprintf("%s -> %s", rawReason, string(result.Status)), map[string]any{

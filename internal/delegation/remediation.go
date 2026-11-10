@@ -142,6 +142,9 @@ Uncommitted paths: %s`, cfg.WorktreePath, cfg.ExpectedBranch, preHEAD, strings.J
 	failedStateResult := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 	failedStateResult.Status = StatusFailed
 	failedStateResult.Output = originalOutput
+	// The kept output is the initial complete run's text, not the failed
+	// remediation attempt's streamed partial, so it carries no interruption notice.
+	failedStateResult.truncationNotice = ""
 	failedStateResult.Warnings = append(failedStateResult.Warnings, dirtyWorktreeWarning(cfg.WorktreePath, dirty))
 	failedStateResult.SessionResumable = false
 	tc.add("remediation", "remediation failed", map[string]any{
@@ -167,6 +170,9 @@ func failedRemediation(
 	result := buildResultWithTrace(spec.AgentID, state, tc, spec.PriorTokenUsage.Add(runUsage))
 	result.Status = StatusFailed
 	result.Output = originalOutput
+	// The kept output is the initial complete run's text; drop any notice
+	// derived from the state built here.
+	result.truncationNotice = ""
 	result.Warnings = append(result.Warnings, dirtyWorktreeWarning(worktreePath, dirty))
 	result.SessionResumable = false
 	tc.add("remediation", "remediation failed", map[string]any{
