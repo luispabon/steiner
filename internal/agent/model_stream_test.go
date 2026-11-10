@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +16,8 @@ const modelStreamTestTimeout = 2 * time.Second
 // TestConsumeModelStreamDrainsAfterProcessingError proves an early processing
 // error is preserved but, on a request carrying a backend state retirement
 // signal, the remaining chunks are drained until the producer closes the
-// channel so producer-side terminal work finishes first.
+// channel so producer-side terminal work finishes first. The text streamed
+// before the error comes back with it so the caller can preserve it.
 func TestConsumeModelStreamDrainsAfterProcessingError(t *testing.T) {
 	upstreamErr := errors.New("upstream failed")
 	ctx := provider.WithBackendStateRetirement(context.Background())
@@ -66,8 +66,8 @@ func TestConsumeModelStreamDrainsAfterProcessingError(t *testing.T) {
 	if !errors.Is(got.err, upstreamErr) {
 		t.Fatalf("consumeModelStream() error = %v, want first error %v", got.err, upstreamErr)
 	}
-	if got.response.Message.Content != "" {
-		t.Fatalf("response content = %q, want empty on error", got.response.Message.Content)
+	if got, want := got.response.Message.Content, "first"; got != want {
+		t.Fatalf("response content = %q, want %q streamed before the error", got, want)
 	}
 	var streamed strings.Builder
 	for _, event := range events {
@@ -285,34 +285,47 @@ func TestConsumeModelStreamDeltaAfterFinalChunkContinuesReconciledContent(t *tes
 	}
 }
 
-// TestConsumeModelStreamEmitsPartialContentOnError proves the zero-response
-// contract survives a stream that fails after content streamed: the partial
-// text still reaches the sink, and the caller gets the failure with an empty
-// response.
-func TestConsumeModelStreamEmitsPartialContentOnError(t *testing.T) {
+// TestConsumeModelStreamReturnsStreamedTextOnError proves the response handed
+// back with a failed stream carries exactly the assistant text streamed before
+// the failure, and nothing else. A stream with no deltas returns an empty
+// message, and a RetryReset discards the text streamed before it.
+func TestConsumeModelStreamReturnsStreamedTextOnError(t *testing.T) {
 	upstreamErr := errors.New("upstream failed")
-	partialChunks := func(withErrorChunk bool) <-chan provider.ChatChunk {
-		chunks := make(chan provider.ChatChunk, 3)
-		chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "partial "}}
-		chunks <- provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "text"}}
-		if withErrorChunk {
-			chunks <- provider.ChatChunk{Done: true, Error: upstreamErr.Error(), OriginalError: upstreamErr}
+	streamOf := func(chunks ...provider.ChatChunk) <-chan provider.ChatChunk {
+		ch := make(chan provider.ChatChunk, len(chunks))
+		for _, chunk := range chunks {
+			ch <- chunk
 		}
-		close(chunks)
-		return chunks
+		close(ch)
+		return ch
 	}
+	delta := func(content string) provider.ChatChunk {
+		return provider.ChatChunk{Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: content}}
+	}
+	errorChunk := provider.ChatChunk{Done: true, Error: upstreamErr.Error(), OriginalError: upstreamErr}
 
 	tests := []struct {
-		name           string
-		ctx            func() context.Context
-		withErrorChunk bool
-		want           error
+		name        string
+		ctx         func() context.Context
+		chunks      <-chan provider.ChatChunk
+		want        error
+		wantText    string
+		wantContent string
 	}{
 		{
-			name:           "error chunk after content",
-			ctx:            context.Background,
-			withErrorChunk: true,
-			want:           upstreamErr,
+			name: "error chunk after content",
+			ctx:  context.Background,
+			chunks: streamOf(
+				delta("partial "),
+				provider.ChatChunk{Delta: provider.Message{
+					Role:      provider.MessageRoleAssistant,
+					Content:   "text",
+					ToolCalls: []provider.ToolCall{{ID: "call_1", Name: "read"}},
+				}},
+				errorChunk,
+			),
+			want:        upstreamErr,
+			wantContent: "partial text",
 		},
 		{
 			name: "closed stream without final chunk under canceled context",
@@ -321,25 +334,53 @@ func TestConsumeModelStreamEmitsPartialContentOnError(t *testing.T) {
 				cancel()
 				return ctx
 			},
-			want: context.Canceled,
+			chunks:      streamOf(delta("partial "), delta("text")),
+			want:        context.Canceled,
+			wantContent: "partial text",
+		},
+		{
+			name:        "closed stream without final chunk",
+			ctx:         context.Background,
+			chunks:      streamOf(delta("partial "), delta("text")),
+			wantText:    "stream completed without a final chunk",
+			wantContent: "partial text",
+		},
+		{
+			name:        "retry reset before the error",
+			ctx:         context.Background,
+			chunks:      streamOf(delta("discarded"), provider.ChatChunk{RetryReset: true}, delta("kept"), errorChunk),
+			want:        upstreamErr,
+			wantContent: "kept",
+		},
+		{
+			name:        "no deltas before the error",
+			ctx:         context.Background,
+			chunks:      streamOf(errorChunk),
+			want:        upstreamErr,
+			wantContent: "",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var emitted strings.Builder
-			response, err := consumeModelStream(tt.ctx(), output.SinkFunc(func(event output.Event) {
-				if chunk, ok := event.Payload.(output.AssistantChunkEvent); ok {
-					emitted.WriteString(chunk.Content)
+			response, err := consumeModelStream(tt.ctx(), output.NoopSink{}, 1, tt.chunks, output.ChunkSourceAssistant, nil)
+			if tt.wantText != "" {
+				if err == nil || err.Error() != tt.wantText {
+					t.Fatalf("consumeModelStream() error = %v, want %q", err, tt.wantText)
 				}
-			}), 1, partialChunks(tt.withErrorChunk), output.ChunkSourceAssistant, nil)
-			if !errors.Is(err, tt.want) {
+			} else if !errors.Is(err, tt.want) {
 				t.Fatalf("consumeModelStream() error = %v, want %v", err, tt.want)
 			}
-			if got, want := emitted.String(), "partial text"; got != want {
-				t.Errorf("emitted content = %q, want partial content %q preserved", got, want)
+			if got := response.Message.Content; got != tt.wantContent {
+				t.Errorf("response content = %q, want %q", got, tt.wantContent)
 			}
-			if !reflect.DeepEqual(response, provider.ChatResponse{}) {
-				t.Errorf("response = %+v, want zero response", response)
+			if response.Usage != nil || response.FinishReason != "" || response.UpstreamEndpoint != "" {
+				t.Errorf("response = %+v, want no usage, finish reason or endpoint on error", response)
+			}
+			if response.BackendState != nil || response.ClearBackendState {
+				t.Errorf("response backend state = %v (clear=%v), want none on error", response.BackendState, response.ClearBackendState)
+			}
+			if len(response.Message.ToolCalls) != 0 {
+				t.Errorf("response tool calls = %+v, want none on error", response.Message.ToolCalls)
 			}
 		})
 	}

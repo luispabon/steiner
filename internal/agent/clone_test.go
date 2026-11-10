@@ -270,6 +270,17 @@ func TestCloneMessageRetentionDeepEqual(t *testing.T) {
 	}
 }
 
+func TestRunStateCloneCopiesPendingAssistant(t *testing.T) {
+	state := RunState{PendingAssistant: PendingAssistant{Content: "streamed so far", Turn: 4}}
+	cloned := state.Clone()
+	if cloned.PendingAssistant != state.PendingAssistant {
+		t.Fatalf("PendingAssistant = %+v, want %+v", cloned.PendingAssistant, state.PendingAssistant)
+	}
+	if got := (RunState{}).Clone().PendingAssistant; got != (PendingAssistant{}) {
+		t.Errorf("zero state PendingAssistant = %+v, want empty", got)
+	}
+}
+
 func TestCloneMessagesEmptyReturnsNil(t *testing.T) {
 	if cloned := cloneMessages(nil); cloned != nil {
 		t.Errorf("cloneMessages(nil) = %#v, want nil", cloned)

@@ -518,6 +518,33 @@ func TestImageBlockRoundTrip(t *testing.T) {
 	})
 }
 func TestMessageConvert_ToProviderMessage(t *testing.T) {
+	t.Run("incomplete assistant gets the interrupted note", func(t *testing.T) {
+		msg := Message{Role: MessageRoleAssistant, Content: "the report so far", Incomplete: true}
+		result := toProviderMessage(msg)
+		if got, want := result.Content, "the report so far"+interruptedAssistantNote; got != want {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+		if msg.Content != "the report so far" {
+			t.Errorf("stored message mutated: %q", msg.Content)
+		}
+	})
+
+	t.Run("complete assistant gets no note", func(t *testing.T) {
+		msg := Message{Role: MessageRoleAssistant, Content: "the report"}
+		result := toProviderMessage(msg)
+		if got, want := result.Content, "the report"; got != want {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("incomplete flag on a non-assistant role is ignored", func(t *testing.T) {
+		msg := Message{Role: MessageRoleUser, Content: "question", Incomplete: true}
+		result := toProviderMessage(msg)
+		if got, want := result.Content, "question"; got != want {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("summary role becomes system", func(t *testing.T) {
 		msg := Message{Role: MessageRoleSummary, Content: "summary"}
 		result := toProviderMessage(msg)

@@ -85,16 +85,19 @@ type ImageBlock struct {
 
 // Message is the agent-side conversation record used across compaction flows.
 type Message struct {
-	Role                MessageRole               `json:"role"`
-	Content             string                    `json:"content,omitempty"`
-	ReasoningContent    string                    `json:"reasoning_content,omitempty"`
-	Name                string                    `json:"name,omitempty"`
-	ToolCallID          string                    `json:"tool_call_id,omitempty"`
-	ToolCalls           []ToolCall                `json:"tool_calls,omitempty"`
-	Images              []ImageBlock              `json:"images,omitempty"`
-	Source              string                    `json:"source,omitempty"`
-	ByteSize            int                       `json:"byte_size,omitempty"`
-	Turn                int                       `json:"turn,omitempty"`
+	Role             MessageRole  `json:"role"`
+	Content          string       `json:"content,omitempty"`
+	ReasoningContent string       `json:"reasoning_content,omitempty"`
+	Name             string       `json:"name,omitempty"`
+	ToolCallID       string       `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
+	Images           []ImageBlock `json:"images,omitempty"`
+	Source           string       `json:"source,omitempty"`
+	ByteSize         int          `json:"byte_size,omitempty"`
+	Turn             int          `json:"turn,omitempty"`
+	// Incomplete marks an assistant message whose model call failed before the
+	// message finished. Its content is what streamed before the failure.
+	Incomplete          bool                      `json:"incomplete,omitempty"`
 	Retention           *MessageRetention         `json:"retention,omitempty"`
 	DelegationAdmission *tool.DelegationAdmission `json:"delegation_admission,omitempty"`
 	ProviderMetadata    *MessageProviderMetadata  `json:"provider_metadata,omitempty"`

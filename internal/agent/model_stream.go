@@ -34,19 +34,19 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 		if err := consumeModelChunk(sink, turn, source, chunk, &response, &message, &streamedContent, &sawFinal, firstChunkOut); err != nil {
 			consumeErr = err
 			if !provider.HasBackendStateRetirement(ctx) {
-				return provider.ChatResponse{}, consumeErr
+				return interruptedStreamResponse(message), consumeErr
 			}
 		}
 	}
 
 	if consumeErr != nil {
-		return provider.ChatResponse{}, consumeErr
+		return interruptedStreamResponse(message), consumeErr
 	}
 	if !sawFinal {
 		if err := ctx.Err(); err != nil {
-			return provider.ChatResponse{}, err
+			return interruptedStreamResponse(message), err
 		}
-		return provider.ChatResponse{}, fmt.Errorf("stream completed without a final chunk")
+		return interruptedStreamResponse(message), fmt.Errorf("stream completed without a final chunk")
 	}
 
 	// Clone so the stored reply does not keep the streaming builder's slack
@@ -54,6 +54,17 @@ func consumeModelStream(ctx context.Context, sink output.EventSink, turn int, ch
 	message.Content = strings.Clone(message.Content)
 	response.Message = message
 	return response, nil
+}
+
+// interruptedStreamResponse builds the response a failed stream hands back. It
+// carries only the assistant text streamed before the failure, so the caller can
+// preserve what the user already saw. Usage, finish reason, backend state and
+// tool calls are unknown for an interrupted stream and stay zero: a partial
+// tool call is not a callable request.
+func interruptedStreamResponse(message provider.Message) provider.ChatResponse {
+	message.Content = strings.Clone(message.Content)
+	message.ToolCalls = nil
+	return provider.ChatResponse{Message: message}
 }
 
 func consumeModelChunk(sink output.EventSink, turn int, source output.ChunkSource, chunk provider.ChatChunk, response *provider.ChatResponse, message *provider.Message, streamed *strings.Builder, sawFinal *bool, firstChunkOut *time.Time) error {

@@ -35,6 +35,9 @@ type compactConversationFn func(ctx context.Context, req RunRequest, state *RunS
 // value so turnProgressor.advance can pass it to executeToolCalls.
 func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, assembly prompt.Assembly, chatRequest provider.ChatRequest, fit prompt.RequestTokenBudget) (turnOutcome, *provider.ChatResponse) {
 	turn := state.TurnCount + 1
+	// A pending partial from an earlier failed attempt of this turn must not
+	// outlive it: either this attempt streams new text or nothing is committed.
+	state.PendingAssistant = PendingAssistant{}
 
 	emitEvent(p.request.Events, output.NewModelCallStartedEvent(turn, p.request.ResolvedModel.BackendModelID, len(assembly.Messages)))
 
@@ -52,6 +55,12 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		// Check for vision capability discovery error; translate to turn-level retry.
 		if errors.Is(err, errRetryTurnForVision) {
 			return turnOutcome{State: state, Retry: true}, nil
+		}
+		// Hold the text streamed before the failure. The runner does not know yet
+		// whether it will retry this turn, so nothing is emitted or committed here;
+		// a retry clears it and run exit commits whatever survives.
+		if content := strings.TrimSpace(response.Message.Content); content != "" {
+			state.PendingAssistant = PendingAssistant{Content: response.Message.Content, Turn: turn}
 		}
 		return p.handleModelCallError(ctx, state, turn, err), nil
 	}
