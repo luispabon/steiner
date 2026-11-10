@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestPartialAssistantMessageAfterModelCallFinishedDoesNotDuplicate(t *testin
 
 	b.AppendEvent(output.NewAssistantChunkEventWithSource(1, "the report so far", output.ChunkSourceAssistant))
 	b.AppendEvent(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
-		Turn: 1, Model: "test-model", Err: nil,
+		Turn: 1, Model: "test-model", Err: errors.New("stream interrupted after partial output"),
 	}))
 	b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "the report so far"))
 

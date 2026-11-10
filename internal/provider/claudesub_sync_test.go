@@ -1224,7 +1224,7 @@ func TestClaudeSubRestoreFor(t *testing.T) {
 			name:       "committed incomplete assistant message reseeds",
 			stored:     stored,
 			hasState:   true,
-			msgs:       []Message{history[0], history[1], claudeSubSyncAssistantMsg("the partial report\n\n[response interrupted: the provider call failed before this message finished]")},
+			msgs:       []Message{history[0], history[1], claudeSubSyncAssistantMsg("the partial report\n\n[response interrupted: this assistant message ended before it was complete]")},
 			fp:         "fp",
 			wantReason: claudeSubReseedPlan,
 		},

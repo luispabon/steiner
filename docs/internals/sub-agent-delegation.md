@@ -125,7 +125,7 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 | `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
 | `worktree_path` | Project-relative path of a worktree-isolated child's worktree. |
 
-`interruptedOutputNotice` (`result.go`) builds the truncation explanation for a child whose last assistant message is incomplete: it names the turn and warns the text may be truncated. It reaches the model through `failedDelegateReason` and `cancelledDelegateReason`, and reaches partial projections through `Result.truncationNotice`, which `projectionReason` appends to the short token.
+`interruptedOutputNotice` (`result.go`) builds the truncation explanation for a child whose last assistant message is incomplete: it names the turn and warns the text may be truncated. It reaches the model through `failedDelegateReason`, and through partial projections via `Result.truncationNotice`, which `projectionReason` appends to the short token.
 
 Delegation results also set `ToolRetention` with kind `delegate_summary` (`RetentionKindDelegateSummary`, `task.go`).
 

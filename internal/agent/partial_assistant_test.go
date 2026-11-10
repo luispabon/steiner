@@ -118,9 +118,16 @@ func TestRunnerUsageLimitPreservesPartialAssistantText(t *testing.T) {
 	if emitted[0].Turn != 1 || emitted[0].Content != "the report so far" {
 		t.Errorf("assistant message event = %+v, want turn 1 and the exact streamed text", emitted[0])
 	}
+	stopTurns := stopEventTurns(events)
+	if len(stopTurns) != 1 {
+		t.Fatalf("stop event turns = %v, want exactly one stop event", stopTurns)
+	}
+	if stopTurns[0] != emitted[0].Turn || stopTurns[0] != state.TurnCount {
+		t.Errorf("stop event turn = %d, want the assistant message turn %d and TurnCount %d", stopTurns[0], emitted[0].Turn, state.TurnCount)
+	}
 }
 
-func TestRunnerTransientRetryDropsDiscardedPartial(t *testing.T) {
+func TestRunnerTransientRetrySuccessDropsDiscardedPartial(t *testing.T) {
 	origSleep := runnerRetrySleepFn
 	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
 	defer func() { runnerRetrySleepFn = origSleep }()
@@ -160,6 +167,94 @@ func TestRunnerTransientRetryDropsDiscardedPartial(t *testing.T) {
 	if state.PendingAssistant != (PendingAssistant{}) {
 		t.Errorf("PendingAssistant = %+v, want empty", state.PendingAssistant)
 	}
+}
+
+// TestRunnerRetryWithoutTextKeepsEarlierPartial covers a retry that starts and
+// fails before streaming anything: the text the user already saw from the first
+// attempt is what run exit commits.
+func TestRunnerRetryWithoutTextKeepsEarlierPartial(t *testing.T) {
+	origSleep := runnerRetrySleepFn
+	runnerRetrySleepFn = func(_ context.Context, _ time.Duration) error { return nil }
+	defer func() { runnerRetrySleepFn = origSleep }()
+
+	retryErr := &provider.HTTPError{StatusCode: 400, Status: "400 Bad Request"}
+	stub := streamScriptProvider(
+		assistantDeltas(
+			deltaChunk("the report so far"),
+			provider.ChatChunk{Done: true, Error: "503", OriginalError: &provider.HTTPError{StatusCode: 503, Status: "503 Service Unavailable"}},
+		),
+		assistantDeltas(provider.ChatChunk{Done: true, Error: "400", OriginalError: retryErr}),
+	)
+
+	var events []output.Event
+	state, err := NewRunner().Run(context.Background(), partialAssistantRunRequest(stub, &events))
+	if err == nil {
+		t.Fatal("Run() error = nil, want the retry failure")
+	}
+	emitted := assistantMessageEvents(events)
+	if len(emitted) != 1 || emitted[0].Content != "the report so far" {
+		t.Fatalf("assistant message events = %+v, want exactly the first attempt's text", emitted)
+	}
+	var partials []Message
+	for _, message := range state.Conversation {
+		if message.Incomplete {
+			partials = append(partials, message)
+		}
+	}
+	if len(partials) != 1 || partials[0].Content != "the report so far" || partials[0].Turn != 1 {
+		t.Fatalf("partial messages = %+v, want the first attempt's text at turn 1", partials)
+	}
+	stopTurns := stopEventTurns(events)
+	if len(stopTurns) != 1 || stopTurns[0] != 1 {
+		t.Fatalf("stop event turns = %v, want the committed turn 1", stopTurns)
+	}
+}
+
+// TestInitialConversationTurnCountSeedsFromIncompleteMessage proves a
+// conversation whose last message is an interrupted partial seeds the next run
+// at the partial's turn, so the next turn is that turn plus one.
+func TestInitialConversationTurnCountSeedsFromIncompleteMessage(t *testing.T) {
+	tests := []struct {
+		name         string
+		conversation []Message
+		wantTurn     int
+	}{
+		{
+			name: "incomplete assistant message at turn four",
+			conversation: []Message{
+				{Role: MessageRoleUser, Content: "task", Turn: 3},
+				{Role: MessageRoleAssistant, Content: "the partial report", Turn: 4, Incomplete: true},
+			},
+			wantTurn: 4,
+		},
+		{
+			name:         "no conversation",
+			conversation: nil,
+			wantTurn:     0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := initialConversationTurnCount(tt.conversation); got != tt.wantTurn {
+				t.Fatalf("initialConversationTurnCount() = %d, want %d", got, tt.wantTurn)
+			}
+			state := initializeRunState(RunRequest{SourceConversation: tt.conversation})
+			if state.TurnCount != tt.wantTurn {
+				t.Fatalf("seeded TurnCount = %d, want %d", state.TurnCount, tt.wantTurn)
+			}
+		})
+	}
+}
+
+func stopEventTurns(events []output.Event) []int {
+	var turns []int
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.StopReasonEvent); ok {
+			turns = append(turns, payload.Turn)
+		}
+	}
+	return turns
 }
 
 func TestRunnerExhaustedRetriesCommitOnePartial(t *testing.T) {
