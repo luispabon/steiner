@@ -11,8 +11,8 @@ import (
 // errSandboxClosed reports use of a Sandbox after Cleanup.
 var errSandboxClosed = errors.New("sandbox is closed")
 
-// errTmpDirNotOwned reports a tmp dir path that is not the directory this
-// Sandbox locked: a symlink, a non-directory, or a replacement inode.
+// errTmpDirNotOwned reports a tmp dir path that is not a real directory this
+// Sandbox may use, such as a symlink or a non-directory.
 var errTmpDirNotOwned = errors.New("sandbox tmp dir is not owned by this session")
 
 // tmpReprovisionMessage is the user-facing warning for a lost sandbox /tmp.
@@ -193,7 +193,8 @@ func (s *Sandbox) tmpDirStateLocked() (tmpDirState, error) {
 // lock. It is idempotent, and after it runs WrapCommandMode and ResetTmp return
 // errSandboxClosed. The directory is only removed when it is a real directory
 // still owned by this Sandbox, so a replacement created after the original
-// disappeared is left untouched. No-op when tmpDir is empty.
+// disappeared is left untouched unless it was adopted first. No-op when tmpDir
+// is empty.
 func (s *Sandbox) Cleanup() error {
 	s.tmpMu.Lock()
 	defer s.tmpMu.Unlock()

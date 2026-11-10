@@ -37,7 +37,7 @@ func TestCreateSandboxTmpDirRejectsSymlinkedParent(t *testing.T) {
 	}
 }
 
-func TestCreateSandboxTmpDirRejectsSymlinkedSessionDir(t *testing.T) {
+func TestCreateSandboxTmpDirRejectsSymlinkedSandboxTmpParent(t *testing.T) {
 	root := t.TempDir()
 	parent := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp")
 	if err := os.MkdirAll(parent, 0o755); err != nil {

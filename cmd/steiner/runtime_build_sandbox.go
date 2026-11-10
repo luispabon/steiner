@@ -140,20 +140,27 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 }
 
 // wireSandboxTmpWarning points the sandbox tmp warning handler at events so a
-// lost /tmp reaches the sink of the run that is actually live: the TUI swaps in
-// a session sink after the runtime is built.
+// lost /tmp reaches the sink of the run that is actually live: the TUI and
+// oneshot phase runtimes swap in their own sink after the runtime is built.
 func wireSandboxTmpWarning(sb *sandbox.Sandbox, events output.EventSink) {
 	if sb == nil || events == nil {
 		return
 	}
-	sb.SetTmpReprovisionHandler(func(message string) {
+	sb.SetTmpReprovisionHandler(sandboxTmpWarningHandler(events))
+}
+
+// sandboxTmpWarningHandler builds the callback a lost sandbox tmp dir reports
+// through, split out from wireSandboxTmpWarning so the emitted diagnostic shape
+// is testable without a Sandbox.
+func sandboxTmpWarningHandler(events output.EventSink) func(string) {
+	return func(message string) {
 		events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 			Kind:     "session_health",
 			Scope:    output.SessionHealthScopeSandboxTmp,
 			Severity: "warning",
 			Notes:    []string{message},
 		}))
-	})
+	}
 }
 
 // emitSandboxWarning emits a SandboxStatusEvent when sandbox is not active and

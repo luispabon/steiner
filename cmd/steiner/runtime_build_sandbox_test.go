@@ -6,7 +6,41 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/output"
 )
+
+func TestSandboxTmpWarningHandlerEmitsSessionHealthWarning(t *testing.T) {
+	var events []output.Event
+	handler := sandboxTmpWarningHandler(output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}))
+
+	handler("sandbox /tmp was lost")
+
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want one session_health diagnostic", events)
+	}
+	if events[0].Type != output.EventTypeContextDiagnostics {
+		t.Errorf("event type = %q, want %q", events[0].Type, output.EventTypeContextDiagnostics)
+	}
+	payload, ok := events[0].Payload.(output.ContextSessionHealthEvent)
+	if !ok {
+		t.Fatalf("payload = %T, want ContextSessionHealthEvent", events[0].Payload)
+	}
+	if got := output.ContextDiagnosticKind(payload); got != "session_health" {
+		t.Errorf("kind = %q, want session_health", got)
+	}
+	if payload.Scope != output.SessionHealthScopeSandboxTmp {
+		t.Errorf("scope = %q, want %q", payload.Scope, output.SessionHealthScopeSandboxTmp)
+	}
+	if got := output.ContextDiagnosticSeverity(payload); got != "warning" {
+		t.Errorf("severity = %q, want warning", got)
+	}
+	if len(payload.Notes) != 1 || payload.Notes[0] != "sandbox /tmp was lost" {
+		t.Errorf("notes = %#v, want the handler message", payload.Notes)
+	}
+}
 
 func TestCreateSandboxTmpDirRetriesCollision(t *testing.T) {
 	root := t.TempDir()
