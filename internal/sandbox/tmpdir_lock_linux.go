@@ -24,16 +24,25 @@ func acquireTmpDirLock(dir string) (*os.File, error) {
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		// Every failure path must release the descriptor it just opened.
 		_ = file.Close()
-		switch {
-		case errors.Is(err, unix.EWOULDBLOCK), errors.Is(err, unix.EAGAIN):
-			return nil, errTmpDirLockBusy
-		case errors.Is(err, unix.ENOLCK), errors.Is(err, unix.ENOTSUP), errors.Is(err, unix.EOPNOTSUPP):
-			return nil, errTmpDirLockUnsupported
-		default:
-			return nil, fmt.Errorf("flock sandbox tmp dir: %w", err)
-		}
+		return nil, tmpDirLockError(err)
 	}
 	return file, nil
+}
+
+// tmpDirLockError classifies a flock failure. A busy lock means a live owner.
+// Every other failure is reported as unsupported so a filesystem that cannot
+// provide the lock degrades to unprotected sandboxing instead of failing
+// runtime setup. Cleanup probes are conservative for the same reason: a
+// directory whose lock cannot be probed is never removed.
+func tmpDirLockError(err error) error {
+	switch {
+	case errors.Is(err, unix.EWOULDBLOCK), errors.Is(err, unix.EAGAIN):
+		return errTmpDirLockBusy
+	case errors.Is(err, unix.ENOLCK), errors.Is(err, unix.ENOTSUP), errors.Is(err, unix.EOPNOTSUPP):
+		return errTmpDirLockUnsupported
+	default:
+		return fmt.Errorf("%w: %w", errTmpDirLockUnsupported, err)
+	}
 }
 
 // removeDirIfUnlocked removes dir when its liveness lock is free and it is

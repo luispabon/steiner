@@ -126,6 +126,7 @@ func (s *Sandbox) adoptTmpDirLockLocked() error {
 	if err != nil {
 		if errors.Is(err, errTmpDirLockUnsupported) {
 			s.tmpLockUnsupported = true
+			slog.Warn("sandbox tmp dir locking unsupported; running without orphan-cleanup protection", "path", s.tmpDir, "error", err)
 			return nil
 		}
 		return err

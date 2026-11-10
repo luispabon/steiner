@@ -14,8 +14,30 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/luispabon/steiner/internal/config"
 )
+
+func TestTmpDirLockErrorClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "busy", err: unix.EWOULDBLOCK, want: errTmpDirLockBusy},
+		{name: "no locks", err: unix.ENOLCK, want: errTmpDirLockUnsupported},
+		{name: "bad descriptor from filesystem", err: unix.EBADF, want: errTmpDirLockUnsupported},
+		{name: "invalid argument from filesystem", err: unix.EINVAL, want: errTmpDirLockUnsupported},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tmpDirLockError(tt.err); !errors.Is(got, tt.want) {
+				t.Fatalf("tmpDirLockError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
 
 // openFDCount returns the number of open file descriptors for this process.
 func openFDCount(t *testing.T) int {
