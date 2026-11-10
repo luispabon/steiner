@@ -83,6 +83,9 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	}
 	if params.Events != nil {
 		runtime.events = output.NewMultiSink(params.Events, runtime.events)
+		// The runtime was built with the non-interactive sink, so re-point the
+		// sandbox tmp warning at the phase's merged sink.
+		wireSandboxTmpWarning(runtime.sandbox, runtime.events)
 	}
 	phaseAdvisor := runtime.cfg.Advisor
 	if params.AdvisorCfg.MaxUsesPerRun > 0 {

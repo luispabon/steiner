@@ -14,6 +14,18 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 )
 
+// testSandbox builds an enabled Sandbox rooted in a temp dir with a real
+// session tmp dir under it, matching how runtimes create one.
+func testSandbox(t *testing.T, cfg config.SandboxConfig) *Sandbox {
+	t.Helper()
+	root := t.TempDir()
+	tmpDir := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp", "session")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("mkdir sandbox tmp: %v", err)
+	}
+	return New(cfg, config.PermissionsConfig{}, root, root, "/home/user", tmpDir)
+}
+
 func TestWrapCommand_Disabled(t *testing.T) {
 	cfg := config.SandboxConfig{Enabled: false}
 	s := New(cfg, config.PermissionsConfig{}, "/workspace", "/workspace", "/home/user", "/tmp/sandbox-tmp")
@@ -53,7 +65,7 @@ func TestWrapCommandMode_False_MatchesWrapCommand(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 
@@ -202,7 +214,7 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "/usr/bin/env", "FOO=bar")
 	wrapped, err := s.WrapCommand(original)
@@ -220,8 +232,8 @@ func TestWrapCommand_Enabled_WrapsCommand(t *testing.T) {
 		t.Errorf("wrapped.Args[0] = %q, want \"bwrap\"", wrapped.Args[0])
 	}
 
-	if !containsSeq(wrapped.Args, "--bind", "/tmp/sandbox-tmp", "/tmp") {
-		t.Errorf("expected --bind /tmp/sandbox-tmp /tmp in args: %v", wrapped.Args)
+	if !containsSeq(wrapped.Args, "--bind", s.TmpDir(), "/tmp") {
+		t.Errorf("expected --bind %s /tmp in args: %v", s.TmpDir(), wrapped.Args)
 	}
 	lastSep := -1
 	for i, a := range wrapped.Args {
@@ -254,7 +266,7 @@ func TestWrapCommand_HostMountsFromConfig(t *testing.T) {
 			{Path: "/data/ro", Mode: "ro"},
 		},
 	}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped, err := s.WrapCommand(original)
@@ -279,7 +291,7 @@ func TestWrapCommand_Enabled_InheritsStreams(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "ls")
 	wrapped, err := s.WrapCommand(original)
@@ -333,7 +345,7 @@ func TestWrapCommand_AppendsSSHOverlayFiles(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "ssh", "example.com")
 	original.ExtraFiles = []*os.File{os.Stdout}
@@ -374,7 +386,7 @@ func TestWrapCommand_OverlayFailureFallsBack(t *testing.T) {
 	defer restore()
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped, err := s.WrapCommand(original)
@@ -404,7 +416,7 @@ func TestWrapCommandMode_NilEnv_DoesNotInheritUnfiltered(t *testing.T) {
 	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
 
 	cfg := config.SandboxConfig{Enabled: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped, err := s.WrapCommandMode(original, false)
@@ -443,7 +455,7 @@ func TestWrapCommandMode_NilEnv_PassthroughAll(t *testing.T) {
 	t.Setenv("STEINER_TEST_FAKE_TOKEN", "x")
 
 	cfg := config.SandboxConfig{Enabled: true, EnvPassthroughAll: true}
-	s := New(cfg, config.PermissionsConfig{}, "/tmp/workspace", "/tmp/workspace", "/home/user", "/tmp/sandbox-tmp")
+	s := testSandbox(t, cfg)
 
 	original := exec.CommandContext(context.Background(), "echo", "hello")
 	wrapped, err := s.WrapCommandMode(original, false)

@@ -148,6 +148,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, err
 	}
 	rt.sandbox = sb
+	wireSandboxTmpWarning(sb, events)
 
 	emitSandboxWarning(cfg, status, events)
 	emitProjectContextDeprecationWarning(cfg, events)

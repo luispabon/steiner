@@ -96,6 +96,9 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 
 func buildInteractiveRuntime(rt cliRuntime, sess *interactive.Session) cliRuntime {
 	rt.events = sess.EventSink()
+	// The runtime was built with the non-interactive sink, so re-point the
+	// sandbox tmp warning at the live session sink.
+	wireSandboxTmpWarning(rt.sandbox, rt.events)
 	// The approver must be updated before the registry is built: the registry
 	// copies ToolDef values (including their approval closures) by value, and
 	// the interactive runner later snapshots the runtime by value too, so any

@@ -61,13 +61,18 @@ func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
 
 // applySessionHealthEvent updates status context for a context session health
 // event. Shared by the direct ContextSessionHealthEvent case and the
-// ContextDiagnosticsEvent envelope. A warning or critical save-session health
-// event also renders its first note as a warning notice.
+// ContextDiagnosticsEvent envelope. A warning or critical session health event
+// for a save failure or a lost sandbox tmp dir also renders its first note as a
+// warning notice.
 func (m *Model) applySessionHealthEvent(payload output.ContextSessionHealthEvent) {
 	if !m.compaction.Active() {
 		m.status.context = appendStatusContext(m.status.context, sessionHealthStatusFragment(payload))
 	}
-	if _, ok := sessionHealthSeverity(payload); ok && payload.Scope == output.SessionHealthScopeSave && len(payload.Notes) > 0 {
+	if _, ok := sessionHealthSeverity(payload); !ok || len(payload.Notes) == 0 {
+		return
+	}
+	switch payload.Scope {
+	case output.SessionHealthScopeSave, output.SessionHealthScopeSandboxTmp:
 		m.content.AppendNotice(noticeWarn, payload.Notes[0], "")
 	}
 }

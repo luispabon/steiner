@@ -7,10 +7,13 @@ import (
 	"time"
 )
 
-// CleanupOrphans removes subdirectories under baseDir whose modtime is older than maxAge.
-// Returns the number of directories removed. Returns 0 if baseDir does not exist
-// or cannot be read — this function is best-effort startup cleanup and never
-// reports errors to the caller.
+// CleanupOrphans removes subdirectories under baseDir whose modtime is older
+// than maxAge and whose liveness lock is free, meaning no live steiner runtime
+// still owns them. Returns the number of directories removed. Returns 0 if
+// baseDir does not exist or cannot be read; this function is best-effort
+// startup cleanup and never reports errors to the caller. On platforms without
+// advisory directory locks it removes nothing, because an old directory cannot
+// be distinguished from a live one.
 func CleanupOrphans(baseDir string, maxAge time.Duration) int {
 	info, err := os.Lstat(baseDir)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
@@ -30,10 +33,10 @@ func CleanupOrphans(baseDir string, maxAge time.Duration) int {
 		if err != nil {
 			continue
 		}
-		if fi.ModTime().Before(cutoff) {
-			if err := forceRemoveAll(filepath.Join(baseDir, e.Name())); err != nil {
-				continue
-			}
+		if !fi.ModTime().Before(cutoff) {
+			continue
+		}
+		if removeDirIfUnlocked(filepath.Join(baseDir, e.Name()), cutoff) {
 			removed++
 		}
 	}
