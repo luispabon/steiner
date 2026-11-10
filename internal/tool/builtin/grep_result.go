@@ -46,10 +46,9 @@ func buildGrepResult(files []grepFileResult, stats grepSearchStats, mode string,
 	case "content":
 		fallthrough
 	default:
-		rows := grepContentSelections(files)
-		candidates := paginateGrepRows(rows, offset, headLimit)
-		page, output := fitGrepContentPage(files, candidates, showLines, beforeContext, afterContext)
-		result := buildGrepResultFromPage(len(rows), len(page), offset, stats, output)
+		total, candidates, pageFiles := selectGrepContentRows(files, offset, headLimit)
+		page, output := fitGrepContentPage(pageFiles, candidates, showLines, beforeContext, afterContext)
+		result := buildGrepResultFromPage(total, len(page), offset, stats, output)
 		// Apply line bounding for content mode only; never truncate
 		// file paths in files_with_matches or path:count rows.
 		if result.Output != "" && len(page) > 0 {
@@ -100,23 +99,37 @@ func grepCountRows(files []grepFileResult) []grepCountRow {
 	for _, file := range files {
 		rows = append(rows, grepCountRow{
 			file:  file.file,
-			count: len(file.matches),
+			count: file.matchCount,
 		})
 	}
 	return rows
 }
 
-func grepContentSelections(files []grepFileResult) []grepContentSelection {
-	rows := make([]grepContentSelection, 0)
+// selectGrepContentRows numbers content rows, one per matching line, across
+// files in walk order. It returns the total row count, the selections whose
+// row falls inside the page, and the files those selections come from. Files
+// whose rows miss the page are skipped, so they may be compacted.
+func selectGrepContentRows(files []grepFileResult, offset, headLimit int) (int, []grepContentSelection, []grepFileResult) {
+	total := 0
+	var selected []grepContentSelection
+	var pageFiles []grepFileResult
 	for _, file := range files {
-		for _, match := range file.matches {
-			rows = append(rows, grepContentSelection{
-				file:       file.file,
-				lineNumber: match.lineNumber,
-			})
+		start := total
+		total += file.matchCount
+		if !inGrepPage(start, file.matchCount, offset, headLimit) {
+			continue
+		}
+		pageFiles = append(pageFiles, file)
+		for i, match := range file.matches {
+			if inGrepPage(start+i, 1, offset, headLimit) {
+				selected = append(selected, grepContentSelection{
+					file:       file.file,
+					lineNumber: match.lineNumber,
+				})
+			}
 		}
 	}
-	return rows
+	return total, selected, pageFiles
 }
 
 func paginateGrepRows[T any](rows []T, offset, limit int) []T {
@@ -134,6 +147,38 @@ func paginateGrepRows[T any](rows []T, offset, limit int) []T {
 		end = len(rows)
 	}
 	return rows[offset:end]
+}
+
+// grepPageWindow is the page of results a caller renders. Walks use it to
+// decide which matching files keep their lines and matches.
+type grepPageWindow struct {
+	mode      string
+	offset    int
+	headLimit int
+}
+
+// keepGrepFile returns file with its lines and matches dropped unless the page
+// window renders them. start is the file's first content row among all
+// matching files in walk order. A nil window keeps everything.
+func keepGrepFile(file grepFileResult, start int, window *grepPageWindow) grepFileResult {
+	if window == nil {
+		return file
+	}
+	rendersMatches := window.mode != "files_with_matches" && window.mode != "count"
+	if rendersMatches && inGrepPage(start, file.matchCount, window.offset, window.headLimit) {
+		return file
+	}
+	file.lines = nil
+	file.matches = nil
+	return file
+}
+
+// inGrepPage reports whether any of the count rows starting at start falls in
+// the page of headLimit rows at offset. Offsets below zero count as zero, as in
+// paginateGrepRows. The comparisons avoid offset+headLimit, which can overflow.
+func inGrepPage(start, count, offset, headLimit int) bool {
+	lo := max(offset, 0)
+	return headLimit > 0 && count > 0 && start+count > lo && start-lo < headLimit
 }
 
 func renderGrepFilesWithMatches(files []string) string {

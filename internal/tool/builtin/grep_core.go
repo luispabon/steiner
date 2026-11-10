@@ -46,10 +46,14 @@ func runeColumn(line string, byteOffset int) int {
 	return utf8.RuneCountInString(line[:byteOffset]) + 1
 }
 
+// grepFileResult is one file with at least one match. A compacted result
+// keeps file and matchCount but drops lines and matches (see keepGrepFile).
+// matchCount is len(matches) before compaction.
 type grepFileResult struct {
-	file    string
-	lines   []string
-	matches []grepMatch
+	file       string
+	lines      []string
+	matches    []grepMatch
+	matchCount int
 }
 
 // grepFileScan is the outcome of scanning one file. binary marks a file that
@@ -129,6 +133,7 @@ type grepSearchParams struct {
 	fileType    string
 	excluder    *tool.WorkspaceExcluder
 	policy      *tool.PathPolicy
+	window      *grepPageWindow // nil keeps every matching file's lines and matches
 }
 
 func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, grepSearchStats, error) {
@@ -171,7 +176,7 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, grep
 		// Read the policy-resolved path so a sandbox /tmp rewrite is honoured
 		// instead of reading the host target behind the link; the lexical name
 		// keeps driving file filters and the displayed path.
-		return grepSearchPath(ctx, p.root, resolvedRoot, normalizedDisplayPath(p.root, dp), re, p.multiline, filterGlob, exts, p.excluder, p.policy)
+		return grepSearchPath(ctx, p.root, resolvedRoot, normalizedDisplayPath(p.root, dp), re, p.multiline, filterGlob, exts, p.excluder, p.policy, p.window)
 	}
 
 	walkRoot, err := resolveSearchRoot(p.root, p.policy)
@@ -185,12 +190,13 @@ func grepSearch(ctx context.Context, p grepSearchParams) ([]grepFileResult, grep
 		return nil, stats, nil
 	}
 
-	return grepWalkDir(ctx, walkRoot, p.root, re, p.multiline, filterGlob, exts, p.excluder, p.policy)
+	return grepWalkDir(ctx, walkRoot, p.root, re, p.multiline, filterGlob, exts, p.excluder, p.policy, p.window)
 }
 
-func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]grepFileResult, grepSearchStats, error) {
+func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy, window *grepPageWindow) ([]grepFileResult, grepSearchStats, error) {
 	var results []grepFileResult
 	var stats grepSearchStats
+	var matchedRows int
 	links := newSearchSymlinkScope(policy, excluder, root, lexicalRoot)
 
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -239,7 +245,8 @@ func grepWalkDir(ctx context.Context, root, lexicalRoot string, re *regexp.Regex
 		}
 		stats.filesSearched++
 		if scan.hasMatches {
-			results = append(results, scan.file)
+			results = append(results, keepGrepFile(scan.file, matchedRows, window))
+			matchedRows += scan.file.matchCount
 		}
 		return nil
 	})
@@ -412,7 +419,7 @@ func normalizedDisplayPath(root, displayPath string) string {
 // named, used for exclusion checks, file filters, and the displayed path;
 // readPath is the path opened on disk, which differs when policy rewrites a
 // symlink root.
-func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]grepFileResult, grepSearchStats, error) {
+func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *regexp.Regexp, multiline bool, filterGlob glob.Glob, exts []string, excluder *tool.WorkspaceExcluder, policy *tool.PathPolicy, window *grepPageWindow) ([]grepFileResult, grepSearchStats, error) {
 	var stats grepSearchStats
 	if grepPathExcluded(path, path, path, relPath, filterGlob, exts, excluder, policy) {
 		return nil, stats, nil
@@ -429,7 +436,7 @@ func grepSearchPath(ctx context.Context, path, readPath, relPath string, re *reg
 	if !scan.hasMatches {
 		return nil, stats, nil
 	}
-	return []grepFileResult{scan.file}, stats, nil
+	return []grepFileResult{keepGrepFile(scan.file, 0, window)}, stats, nil
 }
 
 // grepShouldSkipEntry decides whether the walk entry at path is searched. The
@@ -513,9 +520,10 @@ func grepSearchFile(ctx context.Context, path, relPath string, re *regexp.Regexp
 
 	return grepFileScan{
 		file: grepFileResult{
-			file:    relPath,
-			lines:   lines,
-			matches: matches,
+			file:       relPath,
+			lines:      lines,
+			matches:    matches,
+			matchCount: len(matches),
 		},
 		hasMatches: true,
 	}, nil

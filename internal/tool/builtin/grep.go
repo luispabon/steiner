@@ -75,6 +75,7 @@ func NewGrepTool(env Env) tool.ToolDef {
 				fileType:    in.Type,
 				excluder:    env.Excluder,
 				policy:      &policy,
+				window:      &grepPageWindow{mode: in.OutputMode, offset: in.Offset, headLimit: in.HeadLimit},
 			})
 			if err != nil {
 				return nil, fmt.Errorf("grep: %w", err)
