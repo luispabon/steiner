@@ -77,14 +77,29 @@ type DiagnosticsDetail interface {
 // toolRecordPayload is the kind:"tool" diagnostics payload. Fields are fixed
 // -size scalars only; Failures.PathExt never carries a path.
 type toolRecordPayload struct {
-	Tool       string                 `json:"tool"`
-	Model      string                 `json:"model,omitempty"`
-	Outcome    string                 `json:"outcome"`
-	DurationMs int                    `json:"duration_ms"`
-	OpsTotal   int                    `json:"ops_total"`
-	OpsFailed  int                    `json:"ops_failed"`
-	Failures   []toolOpFailurePayload `json:"failures,omitempty"`
+	Tool       string `json:"tool"`
+	Model      string `json:"model,omitempty"`
+	Outcome    string `json:"outcome"`
+	DurationMs int    `json:"duration_ms"`
+	OpsTotal   int    `json:"ops_total"`
+	OpsFailed  int    `json:"ops_failed"`
+	// OpsRequested counts the operation types the call asked for, keyed by the
+	// tool's fixed operation labels. It is a pointer so an absent field and an
+	// empty count map ({}), meaning zero operations requested, stay distinct.
+	OpsRequested *opsRequested          `json:"ops_requested,omitempty"`
+	Failures     []toolOpFailurePayload `json:"failures,omitempty"`
 }
+
+// opsRequested is the ops_requested payload: fixed operation labels mapped to
+// requested counts. Nothing in it comes from input values.
+type opsRequested map[string]int
+
+// Bounds on a tool's ops_requested contribution, so a faulty extractor cannot
+// grow the record without limit.
+const (
+	maxRequestedOpLabels = 16
+	maxOpLabelLen        = 24
+)
 
 // toolOpFailurePayload is one nested failed-operation entry.
 type toolOpFailurePayload struct {
@@ -124,11 +139,12 @@ func (e *Executor) recordDiagnostics(ctx context.Context, toolName string, input
 	}
 
 	payload := toolRecordPayload{
-		Tool:       toolName,
-		Outcome:    outcome,
-		DurationMs: int(dur.Milliseconds()),
-		OpsTotal:   opsTotal,
-		OpsFailed:  len(failures),
+		Tool:         toolName,
+		Outcome:      outcome,
+		DurationMs:   int(dur.Milliseconds()),
+		OpsTotal:     opsTotal,
+		OpsFailed:    len(failures),
+		OpsRequested: e.requestedOps(toolName, input),
 	}
 	for _, f := range failures {
 		payload.Failures = append(payload.Failures, toolOpFailurePayload{
@@ -153,6 +169,71 @@ func (e *Executor) recordDiagnostics(ctx context.Context, toolName string, input
 	record.Payload = payload
 
 	e.diagnostics.Write(record)
+}
+
+// requestedOps returns the tool's requested per-operation-type counts for one
+// call, or nil when the record must omit ops_requested. It reads the raw call
+// input, so counts survive policy denials and handler failures, and it only
+// runs once recordDiagnostics has confirmed the tool stream is enabled. Nothing
+// it returns can break the call: a nil or panicking extractor, or one that
+// returns labels which are not fixed identifiers, yields nil rather than a
+// malformed record. ops_total is computed separately and never changes.
+func (e *Executor) requestedOps(toolName string, input map[string]any) (counts *opsRequested) {
+	if e.registry == nil {
+		return nil
+	}
+	// Read the stored definition directly: Registry.Get clones the parameter
+	// schema, which this lookup never needs.
+	def, ok := e.registry.defs[toolName]
+	if !ok || def.OpsRequested == nil {
+		return nil
+	}
+	defer func() {
+		if recover() != nil {
+			counts = nil
+		}
+	}()
+	return sanitizeRequestedOps(def.OpsRequested(input))
+}
+
+// sanitizeRequestedOps bounds an extractor result to fixed operation labels.
+// Labels that are not lowercase identifiers, negative counts, and oversized
+// label sets are dropped; when nothing usable remains the field is omitted.
+func sanitizeRequestedOps(raw map[string]int) *opsRequested {
+	if raw == nil || len(raw) > maxRequestedOpLabels {
+		return nil
+	}
+	out := make(opsRequested, len(raw))
+	for label, count := range raw {
+		if count < 0 || !fixedOpLabel(label) {
+			continue
+		}
+		out[label] = count
+	}
+	if len(raw) > 0 && len(out) == 0 {
+		return nil
+	}
+	return &out
+}
+
+// fixedOpLabel reports whether label has the shape of a fixed operation name
+// (lowercase ASCII, digits, underscores; leading letter; bounded length). Model
+// text, paths, and file content do not pass it.
+func fixedOpLabel(label string) bool {
+	if label == "" || len(label) > maxOpLabelLen {
+		return false
+	}
+	for i := 0; i < len(label); i++ {
+		c := label[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+		case i > 0 && c >= '0' && c <= '9':
+		case i > 0 && c == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // pathExt returns path's extension, or "" for an extensionless name —
