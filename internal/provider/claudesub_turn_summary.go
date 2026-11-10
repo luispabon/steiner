@@ -20,10 +20,13 @@ func claudeSubSummaryTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 		return emit(chunk)
 	}
 	attempted, err := claudeSubTryParentFork(ctx, pool, req, key, spec, track)
+	// A usage limit refuses the summary itself, so the live parent is not asked
+	// to take it again.
+	_, limited := AsUsageLimit(err)
 	switch {
 	case attempted && err == nil:
 		return nil
-	case err != nil && (!attempted || emitted || ctx.Err() != nil):
+	case err != nil && (!attempted || emitted || ctx.Err() != nil || limited):
 		return err
 	}
 	// No fork, or a fork that failed before any output. The live parent is

@@ -49,7 +49,7 @@ Claude accounts can turn on extra usage (also called usage credits), which bills
 - If Steiner cannot confirm the state, it waits briefly and checks again, then refuses (fails closed). The error names what could not be confirmed.
 - If the CLI reports during a turn that paid extra usage has started, Steiner stops the response.
 
-To use this provider, turn off extra usage in Claude at **Settings -> Usage**, then retry. The ordinary subscription limit is separate: when you reach it, the turn stops and Steiner reports when the limit resets.
+To use this provider, turn off extra usage in Claude at **Settings -> Usage**, then retry. The ordinary subscription limit is separate: when you reach it, the turn stops and Steiner reports when the limit resets. Steiner turns off the CLI's unattended retry mode, so the limit stops the turn instead of waiting for the window to reset.
 
 ## Model discovery
 

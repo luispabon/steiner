@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -524,6 +525,30 @@ func TestClaudeSubUsageGateTransportErrorDoesNotProbe(t *testing.T) {
 	}
 }
 
+// TestClaudeSubUsageLimitEndsTurn proves a rejected rate-limit event ends a
+// resumed parent turn without replaying it on a fresh process.
+func TestClaudeSubUsageLimitEndsTurn(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	rejected := claudeSubEvent{Type: "rate_limit_event", Raw: json.RawMessage(`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour","overageStatus":"rejected","resetsAt":1791477000}}`)}
+	pool, spawner := claudeSubPoolWithScripts(t,
+		&claudeSubScript{batches: [][]claudeSubEvent{{rejected}}},
+		claudeSubTextTurns(t, 1),
+	)
+	req := ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	}
+	err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if _, ok := AsUsageLimit(err); !ok {
+		t.Fatalf("turn error = %v, want a *UsageLimitError", err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (a usage limit is not retried on a fresh process)", n)
+	}
+}
+
 // TestClaudeSubShouldRetryTurn proves a usage-gate refusal is never retried on a
 // fresh process, while a pre-output failure with a resume target still is.
 func TestClaudeSubShouldRetryTurn(t *testing.T) {
@@ -546,6 +571,8 @@ func TestClaudeSubShouldRetryTurn(t *testing.T) {
 		{name: "probe cancellation refusal is not retried", err: &claudeSubUsageGateError{err: context.Canceled}, resume: "sess-1"},
 		{name: "bare live credits enabled refusal still retries", err: errClaudeSubUsageCreditsEnabled, resume: "sess-1", want: true},
 		{name: "bare live transport failure still retries", err: errors.New("claude CLI get_usage: usage unavailable"), resume: "sess-1", want: true},
+		{name: "usage limit refusal is not retried", err: &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}, resume: "sess-1"},
+		{name: "wrapped usage limit refusal is not retried", err: fmt.Errorf("run: %w", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}), resume: "sess-1"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

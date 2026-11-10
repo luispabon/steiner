@@ -316,6 +316,36 @@ func TestClaudeSubSummaryForkFailureFallsBackInPlace(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSummaryForkUsageLimitIsNotReplayed proves a fork that fails with
+// a usage limit returns the refusal instead of replaying the summary on the live
+// parent.
+func TestClaudeSubSummaryForkUsageLimitIsNotReplayed(t *testing.T) {
+	limit := claudeSubEvent{Type: "rate_limit_event", Raw: json.RawMessage(`{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"five_hour","overageStatus":"rejected"}}`)}
+	helper := &claudeSubScript{batches: [][]claudeSubEvent{{limit}}}
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 3), helper)
+	_, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{claudeSubUserText("first question"), a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(ChatChunk) error { return nil })
+	if _, ok := AsUsageLimit(err); !ok {
+		t.Fatalf("summary error = %v, want a *UsageLimitError", err)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (parent and the fork helper)", got)
+	}
+	if _, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); !ok {
+		t.Error("fork helper did not resume: the fork was not exercised")
+	}
+	if lines := strings.Join(spawner.call(t, 0).Conn.sentLines(), "\n"); strings.Contains(lines, "steiner compaction summary request") {
+		t.Error("usage limit replayed the summary on the live parent")
+	}
+}
+
 // TestClaudeSubSummaryForkAndInPlaceFailureRetiresParent proves a fork failure
 // before output falls back to the live parent, and a failed in-place summary
 // there is still marked retired: the fallback retired the parent process.
