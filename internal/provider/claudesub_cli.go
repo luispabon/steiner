@@ -174,10 +174,13 @@ var claudeSubStrippedEnvKeys = map[string]struct{}{
 const claudeSubMaxMCPOutputTokensEnv = "MAX_MCP_OUTPUT_TOKENS"
 
 // claudeSubFixedEnv are the KEY=value overrides steiner always sets on the
-// child, ahead of MAX_MCP_OUTPUT_TOKENS.
+// child, ahead of MAX_MCP_OUTPUT_TOKENS. The retry watchdog is forced to 0 so an
+// inherited 1 is overridden too: the CLI's unattended retry mode waits out
+// 429/529 capacity errors and usage-limit windows, while steiner stops on a
+// usage limit and reports it.
 var claudeSubFixedEnv = []string{
 	"CLAUDE_CODE_DISABLE_FAST_MODE=1",
-	"CLAUDE_CODE_RETRY_WATCHDOG=1",
+	"CLAUDE_CODE_RETRY_WATCHDOG=0",
 }
 
 // claudeSubLaunchEnv are the CLI context-injection gates (#905), appended after

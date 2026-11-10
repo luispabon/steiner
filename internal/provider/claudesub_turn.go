@@ -171,14 +171,19 @@ func (e *claudeSubUsageGateError) Unwrap() error { return e.err }
 // a fresh process. Only a failure before any output, on a request with a resume
 // target, and while the caller still waits qualifies. It excludes every refusal
 // produced after the usage poll and the fresh confirmation, because retrying
-// would repeat that wait. A live get_usage transport error stays retryable: it
-// can mean the process is dead.
+// would repeat that wait. A usage limit is a refusal, so it is never retried on
+// a fresh process. A live get_usage transport error stays retryable: it can mean
+// the process is dead.
 func claudeSubShouldRetryTurn(err error, emitted bool, ctxErr error, resumeSessionID string) bool {
 	if err == nil || emitted || ctxErr != nil || resumeSessionID == "" {
 		return false
 	}
 	var gateErr *claudeSubUsageGateError
-	return !errors.As(err, &gateErr)
+	if errors.As(err, &gateErr) {
+		return false
+	}
+	_, limited := AsUsageLimit(err)
+	return !limited
 }
 
 // claudeSubSummarySuffix keys the ephemeral helper processes that answer a
