@@ -95,6 +95,9 @@ func createSandboxTmpDirAttempt(parentDir string) (string, error) {
 		return "", fmt.Errorf("inspect sandbox tmp dir: %w", err)
 	}
 	if err := os.Mkdir(tmpDir, 0o755); err != nil {
+		if os.IsExist(err) {
+			return "", errSandboxTmpCollision
+		}
 		return "", fmt.Errorf("create sandbox tmp dir: %w", err)
 	}
 	return tmpDir, nil
