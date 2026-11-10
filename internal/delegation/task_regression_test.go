@@ -65,13 +65,13 @@ func TestFailedDelegateExecutionContextStatusMapping(t *testing.T) {
 				}
 			default:
 				// A cancelled result carries its own explanation; a partial result
-				// carries the short projection token plus that explanation.
-				if result.Reason == "" {
-					t.Fatalf("%s result has no reason: %#v", tt.status, result)
-				}
-				wantReason := result.Reason
-				if tt.status == StatusPartial {
-					wantReason = tt.reason + "; " + result.Reason
+				// keeps the short projection token.
+				wantReason := tt.reason
+				if tt.status == StatusCancelled {
+					if result.Reason == "" {
+						t.Fatalf("cancelled result has no reason: %#v", result)
+					}
+					wantReason = result.Reason
 				}
 				if envelope.Status != string(tt.status) || envelope.Reason != wantReason {
 					t.Fatalf("envelope = %#v, want status=%q reason=%q", envelope, tt.status, wantReason)
@@ -188,8 +188,8 @@ func TestSpawnDelegate_ChildCancellationStaysResumablePartial(t *testing.T) {
 		t.Errorf("reason = %q, want preserved-session notice", result.Reason)
 	}
 	envelope := result.ProjectToolResult()
-	if envelope.Status != "partial" || envelope.Reason != "cancelled; "+result.Reason {
-		t.Errorf("envelope = %#v, want partial with the cancelled token and the child explanation", envelope)
+	if envelope.Status != "partial" || envelope.Reason != "cancelled" {
+		t.Errorf("envelope = %#v, want partial/cancelled", envelope)
 	}
 
 	record := readTraceRecord(t, path)
@@ -237,8 +237,8 @@ func TestSpawnDelegate_TimeoutSnapshotsDeadlineBeforeCleanup(t *testing.T) {
 		t.Errorf("reason = %q, want preserved-session notice", result.Reason)
 	}
 	envelope := result.ProjectToolResult()
-	if envelope.Status != "partial" || envelope.Reason != "limit reached; "+result.Reason {
-		t.Errorf("envelope = %#v, want partial with the limit token and the child explanation", envelope)
+	if envelope.Status != "partial" || envelope.Reason != "limit reached" {
+		t.Errorf("envelope = %#v, want partial/limit reached", envelope)
 	}
 
 	record := readTraceRecord(t, path)

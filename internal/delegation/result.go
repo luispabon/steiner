@@ -137,9 +137,7 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		result.Reason = fmt.Sprintf("unknown stop reason: %s", rawReason)
 	}
 
-	if result.Status == StatusPartial && result.Reason == "" {
-		result.Reason = interruptedOutputNotice(state)
-	}
+	result.truncationNotice = interruptedOutputNotice(state)
 
 	if tc != nil {
 		tc.add("status_mapping", fmt.Sprintf("%s -> %s", rawReason, string(result.Status)), map[string]any{
@@ -183,20 +181,19 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 	return envelope
 }
 
-// projectionReason builds the model-facing reason for a partial result. It
-// keeps the short base token for limit stops and cancellations, and appends the
-// child's own explanation, such as the interrupted-output notice, when it adds
-// information the base token does not carry.
+// projectionReason builds the model-facing reason for a partial result: the
+// short base token for limit stops and cancellations, plus the truncation
+// notice when the output is an interrupted partial message. Any other child
+// explanation stays out; the cancelled status carries it through Reason.
 func projectionReason(r Result) string {
 	base := "limit reached"
 	if r.StopReason == "cancelled" {
 		base = "cancelled"
 	}
-	note := strings.TrimSpace(r.Reason)
-	if note == "" || note == base {
-		return base
+	if notice := strings.TrimSpace(r.truncationNotice); notice != "" {
+		return base + "; " + notice
 	}
-	return base + "; " + note
+	return base
 }
 
 func cancellationProjectionReason(r Result) string {

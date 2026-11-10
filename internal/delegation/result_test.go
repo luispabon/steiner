@@ -1,6 +1,7 @@
 package delegation
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -487,7 +488,8 @@ func TestProviderRelativeWorktreePath(t *testing.T) {
 
 // TestProjectToolResult_InterruptedOutputNotice pins the partial projection: an
 // incomplete last assistant message adds the truncation notice to the reason,
-// and a completed message leaves the short base token alone.
+// a completed message leaves the short base token alone, and a partial result's
+// own Reason never reaches the projection.
 func TestProjectToolResult_InterruptedOutputNotice(t *testing.T) {
 	t.Parallel()
 	makeState := func(stopReason agent.StopReason, content string, incomplete bool) agent.RunState {
@@ -562,11 +564,45 @@ func TestProjectToolResult_InterruptedOutputNotice(t *testing.T) {
 			if tt.wantNoNotice && envelope.Reason != tt.wantPrefix {
 				t.Errorf("reason = %q, want exactly %q", envelope.Reason, tt.wantPrefix)
 			}
-			if tt.wantNotice && (notice == "" || !strings.Contains(envelope.Reason, notice)) {
-				t.Errorf("reason = %q, want the truncation notice %q", envelope.Reason, notice)
+			if tt.wantNotice {
+				if notice == "" {
+					t.Fatal("interruptedOutputNotice() = \"\", want a notice for an incomplete message")
+				}
+				if want := tt.wantPrefix + notice; envelope.Reason != want {
+					t.Errorf("reason = %q, want exactly %q", envelope.Reason, want)
+				}
 			}
 		})
 	}
+
+	t.Run("failed builder carries the notice without its failure explanation", func(t *testing.T) {
+		t.Parallel()
+		state := agent.RunState{Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "work so far", Turn: 2, Incomplete: true},
+		}}
+		result := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, context.Canceled, context.Canceled, newTraceCollector("a", "task"), nil).Value.(Result)
+		if result.Status != StatusPartial {
+			t.Fatalf("status = %q, want %q", result.Status, StatusPartial)
+		}
+		envelope := result.ProjectToolResult()
+		if want := "cancelled; " + interruptedOutputNotice(state); envelope.Reason != want {
+			t.Errorf("reason = %q, want exactly %q", envelope.Reason, want)
+		}
+	})
+
+	t.Run("partial explanation stays out of the projection", func(t *testing.T) {
+		t.Parallel()
+		state := agent.RunState{Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "work so far", Turn: 2},
+		}}
+		result := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, context.Canceled, context.Canceled, newTraceCollector("a", "task"), nil).Value.(Result)
+		if result.Status != StatusPartial || result.Reason == "" {
+			t.Fatalf("result = %#v, want a partial result with its own explanation", result)
+		}
+		if envelope := result.ProjectToolResult(); envelope.Reason != "cancelled" {
+			t.Errorf("reason = %q, want exactly %q", envelope.Reason, "cancelled")
+		}
+	})
 }
 
 func TestProjectToolResultWorktreePathSerialization(t *testing.T) {

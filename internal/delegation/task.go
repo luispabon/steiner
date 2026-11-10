@@ -167,6 +167,9 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 
 	state, runUsage, result := applyRemediationResult(childCtx, spec, req, runner, state, runUsage, o.remediation, tc)
 	result.AdvisorBudget = spec.AdvisorBudget
+	// A remediation run can replace the result's output, so refresh the
+	// truncation notice from the final state.
+	result.truncationNotice = interruptedOutputNotice(state)
 
 	tc.add("result", "status mapped", map[string]any{
 		"status":      string(result.Status),
@@ -321,6 +324,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 	}
 
 	result.Reason = failedDelegateReason(err, childCtxErr, state)
+	result.truncationNotice = interruptedOutputNotice(state)
 
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
 		tc.add("tool_calls", "per-tool-call trace recorded", fields)
