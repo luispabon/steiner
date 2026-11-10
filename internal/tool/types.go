@@ -14,6 +14,15 @@ type MCPProvenance struct {
 	ToolName string // original, unsanitised name as the server reported it
 }
 
+// OpsRequestedFunc derives the requested per-operation-type counts for one tool
+// call for the tool diagnostics stream. It receives the call's raw input.
+// Implementations must be cheap, side-effect free, and return labels drawn only
+// from their own fixed, compile-time operation names. Input values, paths, and
+// content must never become labels or be copied into the result. A nil result
+// means the input does not describe operations, so the record omits
+// ops_requested; an empty non-nil map means it requested zero of them.
+type OpsRequestedFunc func(input map[string]any) map[string]int
+
 // ToolDef describes a callable tool and its execution policy.
 //
 //nolint:revive // package API keeps tool-prefixed names for compatibility.
@@ -27,6 +36,11 @@ type ToolDef struct {
 	Handler         func(ctx context.Context, input map[string]any) (any, error)
 	MCP             MCPProvenance
 	ParallelSafe    bool
+	// OpsRequested, when non-nil, counts the operation types a call requested
+	// from its raw input for the tool diagnostics stream. It runs after the
+	// call finishes and only when that stream is enabled, so it covers denied
+	// and failed calls too.
+	OpsRequested OpsRequestedFunc
 }
 
 // RetentionKindDelegateSummary identifies retained delegate summaries.
