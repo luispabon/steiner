@@ -83,6 +83,17 @@ func appendAdvisorSummaryLine(output string, uses, denied int) string {
 	return output + "\n" + line
 }
 
+// interruptedOutputNotice explains that a child's output is the partial
+// assistant message committed when its model call ended mid-message. It returns
+// an empty string when the last assistant message completed normally.
+func interruptedOutputNotice(state agent.RunState) string {
+	msg, ok := agent.LastAssistantMessage(state.Conversation)
+	if !ok || !msg.Incomplete {
+		return ""
+	}
+	return fmt.Sprintf("output is the partial assistant message from turn %d; the model call ended mid-message and the text may be truncated", msg.Turn)
+}
+
 func buildResultInternal(agentID string, state agent.RunState, tc *traceCollector, cache TokenUsage) Result {
 	output := ""
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
@@ -124,6 +135,10 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 		result.Status = StatusFailed
 		result.StopReason = rawReason
 		result.Reason = fmt.Sprintf("unknown stop reason: %s", rawReason)
+	}
+
+	if result.Status == StatusPartial && result.Reason == "" {
+		result.Reason = interruptedOutputNotice(state)
 	}
 
 	if tc != nil {
@@ -168,11 +183,20 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 	return envelope
 }
 
+// projectionReason builds the model-facing reason for a partial result. It
+// keeps the short base token for limit stops and cancellations, and appends the
+// child's own explanation, such as the interrupted-output notice, when it adds
+// information the base token does not carry.
 func projectionReason(r Result) string {
+	base := "limit reached"
 	if r.StopReason == "cancelled" {
-		return "cancelled"
+		base = "cancelled"
 	}
-	return "limit reached"
+	note := strings.TrimSpace(r.Reason)
+	if note == "" || note == base {
+		return base
+	}
+	return base + "; " + note
 }
 
 func cancellationProjectionReason(r Result) string {

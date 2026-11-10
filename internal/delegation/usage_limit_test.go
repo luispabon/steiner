@@ -64,6 +64,55 @@ func TestFailedDelegateExecution_UsageLimit(t *testing.T) {
 	}
 }
 
+func TestFailedDelegateExecution_IncompleteOutputNotice(t *testing.T) {
+	t.Parallel()
+	state := agent.RunState{
+		TurnCount:  3,
+		StopReason: agent.StopReasonUsageLimit,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "summarise the report"},
+			{Role: agent.MessageRoleAssistant, Content: "the report so far", Turn: 3, Incomplete: true},
+		},
+	}
+	res := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, testUsageLimitErr(), nil, newTraceCollector("a", "task"), nil)
+	result := res.Value.(Result)
+	if result.Status != StatusFailed {
+		t.Errorf("status = %q, want %q", result.Status, StatusFailed)
+	}
+	if result.Output != "the report so far" {
+		t.Errorf("output = %q, want the streamed partial text", result.Output)
+	}
+	notice := interruptedOutputNotice(state)
+	if notice == "" {
+		t.Fatal("interruptedOutputNotice() = \"\", want a notice for an incomplete last assistant message")
+	}
+	if !strings.Contains(result.Reason, notice) {
+		t.Errorf("reason = %q, want the truncation notice %q", result.Reason, notice)
+	}
+	if !strings.Contains(result.Reason, usageLimitDelegateNotice) {
+		t.Errorf("reason = %q, want the usage limit notice too", result.Reason)
+	}
+}
+
+func TestFailedDelegateExecution_CompleteOutputHasNoNotice(t *testing.T) {
+	t.Parallel()
+	state := agent.RunState{
+		TurnCount:  3,
+		StopReason: agent.StopReasonUsageLimit,
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleAssistant, Content: "the report", Turn: 3},
+		},
+	}
+	res := failedDelegateExecution(Spec{AgentID: "a"}, state, TokenUsage{}, testUsageLimitErr(), nil, newTraceCollector("a", "task"), nil)
+	result := res.Value.(Result)
+	if notice := interruptedOutputNotice(state); notice != "" {
+		t.Fatalf("interruptedOutputNotice() = %q, want empty for a complete message", notice)
+	}
+	if strings.Contains(result.Reason, "may be truncated") {
+		t.Errorf("reason = %q, want no truncation notice", result.Reason)
+	}
+}
+
 func TestBuildResult_UsageLimitStopReason(t *testing.T) {
 	t.Parallel()
 	result := BuildResult("a", makeRunState(1, 10, agent.StopReasonUsageLimit, "partial"))

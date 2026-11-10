@@ -27,6 +27,7 @@ The source order is fixed in `internal/prompt/source_plan.go`. Static sources co
 - `applyBudget` (`internal/prompt/source_render.go`) marks over-budget project context and skill blocks as `Truncated`. `AssemblyPolicy.Budgets` overrides the defaults; negative values are rejected (`internal/prompt/budget.go`).
 - `IsSystemZone` covers the preamble, phase prompt, both AGENTS.md sources, and `conversation_summary`. Other sources are user role (`blockMessage`). `renderBlocks` merges consecutive blocks of the same role.
 - Interactive sessions pass no skill names to static assembly. The enabled set is held by `interactive.Skills` (seeded from `Dependencies.SkillNames`) and reaches the model through the envelopes below.
+- An assistant message marked `Message.Incomplete` is projected to the provider with a trailing interruption note (`toProviderMessage` in `internal/agent/message_convert.go`), so the model learns its previous streamed response was cut off. The stored message and the emitted event keep the exact streamed text.
 
 ### Preamble and static cache
 

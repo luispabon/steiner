@@ -365,14 +365,29 @@ func failedDelegateReason(err, childCtxErr error, state agent.RunState) string {
 	if _, ok := provider.AsUsageLimit(err); ok {
 		parts = append(parts, usageLimitDelegateNotice)
 	}
+	if notice := interruptedOutputNotice(state); notice != "" {
+		parts = append(parts, notice)
+	}
 	return strings.Join(parts, "\n")
 }
 
 // cancelledDelegateReason builds the deterministic cancellation explanation
 // surfaced to the parent model. It names the tool call count and the last tool
-// without previewing arguments, and always carries the resume notice.
+// without previewing arguments, and always carries the resume notice. When the
+// committed output is an interrupted partial, it also carries the truncation
+// notice.
 func cancelledDelegateReason(state agent.RunState) string {
 	toolCount := countToolCalls(state.Conversation)
+	reason := cancelledDelegateBaseReason(state, toolCount)
+	if notice := interruptedOutputNotice(state); notice != "" {
+		reason += "\n" + notice
+	}
+	return reason
+}
+
+// cancelledDelegateBaseReason builds the cancellation explanation before any
+// interrupted-output notice is appended.
+func cancelledDelegateBaseReason(state agent.RunState, toolCount int) string {
 	if toolCount == 0 {
 		// No tool activity before the cancellation. The child session is still
 		// preserved by SpawnDelegate, so the parent can resume it with follow_up.
