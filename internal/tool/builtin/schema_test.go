@@ -108,7 +108,7 @@ func TestGrepSchema(t *testing.T) {
 	}
 	lineNumbers, _ := props["line_numbers"].(map[string]any)
 	desc, _ := lineNumbers["description"].(string)
-	if !strings.Contains(desc, "Continuation lines of multiline matches have column 0.") {
+	if !strings.Contains(desc, "continuation lines have column 0") {
 		t.Errorf("line_numbers description = %q, want continuation column 0 note", desc)
 	}
 	if _, ok := props["offset"]; !ok {
