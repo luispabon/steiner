@@ -121,11 +121,11 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 |-------|---------|
 | `output` | Exact child output. When the child's model call ended mid-message, this is the partial assistant message committed at run exit (`Message.Incomplete`). |
 | `status` | Omitted on success. Otherwise `partial`, `cancelled`, or `failed` |
-| `reason` | The error for failures (`unknown failure` when empty). Partial results carry the short token (`cancelled` or `limit reached`) plus the child's own explanation when it has one, so an interrupted output is marked truncated. Cancelled results carry the session-preserved explanation. |
+| `reason` | The error for failures (`unknown failure` when empty). Partial results carry the short token (`cancelled` or `limit reached`); when the last assistant message is incomplete, the truncation explanation follows it after `; `. Cancelled results carry the session-preserved explanation. |
 | `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
 | `worktree_path` | Project-relative path of a worktree-isolated child's worktree. |
 
-`interruptedOutputNotice` (`result.go`) builds the truncation explanation for a child whose last assistant message is incomplete: it names the turn and warns the text may be truncated. It reaches the model through the failure reason (`failedDelegateReason`) and the cancellation reason (`cancelledDelegateReason`), and through the partial projection above.
+`interruptedOutputNotice` (`result.go`) builds the truncation explanation for a child whose last assistant message is incomplete: it names the turn and warns the text may be truncated. It reaches the model through `failedDelegateReason` and `cancelledDelegateReason`, and reaches partial projections through `Result.truncationNotice`, which `projectionReason` appends to the short token.
 
 Delegation results also set `ToolRetention` with kind `delegate_summary` (`RetentionKindDelegateSummary`, `task.go`).
 
