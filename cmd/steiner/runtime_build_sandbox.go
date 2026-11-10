@@ -139,6 +139,23 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 	return s, "active", nil
 }
 
+// wireSandboxTmpWarning points the sandbox tmp warning handler at events so a
+// lost /tmp reaches the sink of the run that is actually live: the TUI swaps in
+// a session sink after the runtime is built.
+func wireSandboxTmpWarning(sb *sandbox.Sandbox, events output.EventSink) {
+	if sb == nil || events == nil {
+		return
+	}
+	sb.SetTmpReprovisionHandler(func(message string) {
+		events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Scope:    output.SessionHealthScopeSandboxTmp,
+			Severity: "warning",
+			Notes:    []string{message},
+		}))
+	})
+}
+
 // emitSandboxWarning emits a SandboxStatusEvent when sandbox is not active and
 // WarningOnUnsupportedPlatform is enabled, and independently when the sandbox
 // is active but env_passthrough_all disables the credential barrier.

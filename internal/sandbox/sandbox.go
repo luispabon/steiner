@@ -3,6 +3,7 @@ package sandbox
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,11 +202,13 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cm
 			}
 			// Read-only mode cannot bind a directory that is missing or
 			// unusable, so it falls back to a tmpfs /tmp.
+			slog.Warn("sandbox tmp dir unavailable, using tmpfs /tmp", "path", s.tmpDir, "error", err)
 			tmpDir = ""
 		} else if !bindable {
 			if !readOnlyProject {
 				return nil, fmt.Errorf("sandbox tmp dir %s: %w", s.tmpDir, errTmpDirNotOwned)
 			}
+			slog.Warn("sandbox tmp dir not owned by this session, using tmpfs /tmp", "path", s.tmpDir)
 			tmpDir = ""
 		}
 	}

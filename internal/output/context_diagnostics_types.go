@@ -6,6 +6,10 @@ import "time"
 // reports a failed session save.
 const SessionHealthScopeSave = "session_save"
 
+// SessionHealthScopeSandboxTmp is the Scope of a session_health diagnostic that
+// reports the sandbox /tmp directory being lost and recreated mid-session.
+const SessionHealthScopeSandboxTmp = "sandbox_tmp"
+
 // CompactionFallbackUsed is the FallbackStatus of a compaction that ran on the fallback model.
 const CompactionFallbackUsed = "used"
 

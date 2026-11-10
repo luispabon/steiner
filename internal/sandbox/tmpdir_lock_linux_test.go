@@ -209,6 +209,19 @@ func TestRemoveDirIfUnlocked_SkipsUnprobeableDirs(t *testing.T) {
 	if removeDirIfUnlocked(t.TempDir(), cutoff) {
 		t.Error("expected a dir newer than the cutoff to be skipped")
 	}
+
+	// An unsupported platform lock also leaves the directory alone.
+	unsupported := t.TempDir()
+	if err := os.Chtimes(unsupported, past, past); err != nil {
+		t.Fatalf("chtimes unsupported dir: %v", err)
+	}
+	stubTmpDirLockAcquire(t, func(string) (*os.File, error) { return nil, errTmpDirLockUnsupported })
+	if removeDirIfUnlocked(unsupported, cutoff) {
+		t.Error("expected an unsupported lock probe to skip the dir")
+	}
+	if _, err := os.Stat(unsupported); err != nil {
+		t.Errorf("expected the dir with an unsupported lock probe to remain: %v", err)
+	}
 }
 
 func TestSandboxCleanup_LeavesReplacedDir(t *testing.T) {
@@ -331,7 +344,7 @@ func TestWrapCommandMode_ReprovisionsMissingTmpDir(t *testing.T) {
 	}
 }
 
-func TestWrapCommandMode_ForeignTmpDirIsNotBound(t *testing.T) {
+func TestWrapCommandMode_UnsafeTmpDirIsNotBound(t *testing.T) {
 	restore := stubSandboxHooks(t, func(string) (string, error) {
 		return "/usr/bin/bwrap", nil
 	}, func(string, int) (*sshOverlay, error) {
@@ -353,10 +366,10 @@ func TestWrapCommandMode_ForeignTmpDirIsNotBound(t *testing.T) {
 		t.Fatalf("read-only WrapCommandMode: %v", err)
 	}
 	if containsSeq(wrapped.Args, "--bind", tmpDir, "/tmp") {
-		t.Errorf("expected no bind of a foreign tmp dir, args: %v", wrapped.Args)
+		t.Errorf("expected no bind of an unsafe tmp dir, args: %v", wrapped.Args)
 	}
 	if !containsSeq(wrapped.Args, "--tmpfs", "/tmp") {
-		t.Errorf("expected tmpfs /tmp for a foreign tmp dir, args: %v", wrapped.Args)
+		t.Errorf("expected tmpfs /tmp for an unsafe tmp dir, args: %v", wrapped.Args)
 	}
 
 	if _, err := s.WrapCommandMode(exec.CommandContext(context.Background(), "echo"), false); !errors.Is(err, errTmpDirNotOwned) {
@@ -416,5 +429,118 @@ func TestResetTmp_KeepsLockForPresentDir(t *testing.T) {
 	}
 	if _, err := acquireTmpDirLock(tmpDir); !errors.Is(err, errTmpDirLockBusy) {
 		t.Errorf("expected the dir to stay locked: acquire error = %v, want errTmpDirLockBusy", err)
+	}
+}
+
+func TestEnsureTmpDir_AdoptsRecreatedDir(t *testing.T) {
+	root, tmpDir := testTmpDirRoot(t, true)
+	s := New(config.SandboxConfig{}, config.PermissionsConfig{}, root, root, "", tmpDir)
+	if err := s.LockTmpDir(); err != nil {
+		t.Fatalf("LockTmpDir: %v", err)
+	}
+	var messages []string
+	s.SetTmpReprovisionHandler(func(message string) { messages = append(messages, message) })
+
+	// A tool removed the tmp dir and recreated the same path with MkdirAll.
+	if err := os.RemoveAll(tmpDir); err != nil {
+		t.Fatalf("remove original dir: %v", err)
+	}
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("recreate replacement dir: %v", err)
+	}
+	written := filepath.Join(tmpDir, "written.txt")
+	if err := os.WriteFile(written, []byte("kept"), 0o644); err != nil {
+		t.Fatalf("write replacement file: %v", err)
+	}
+
+	bindable, err := s.ensureTmpDir()
+	if err != nil || !bindable {
+		t.Fatalf("ensureTmpDir on a recreated dir = (%v, %v), want (true, nil)", bindable, err)
+	}
+	if _, err := os.Stat(written); err != nil {
+		t.Fatalf("expected replacement contents to survive adoption: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("warning handler calls = %d (%v), want 1", len(messages), messages)
+	}
+	if _, err := acquireTmpDirLock(tmpDir); !errors.Is(err, errTmpDirLockBusy) {
+		t.Errorf("replacement is not locked by the sandbox: acquire error = %v, want errTmpDirLockBusy", err)
+	}
+
+	if err := s.Cleanup(); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+	if _, err := os.Stat(tmpDir); !os.IsNotExist(err) {
+		t.Errorf("expected the adopted dir to be removed by Cleanup, stat err=%v", err)
+	}
+}
+
+func TestWrapCommandMode_ReplacementLockedElsewhereFails(t *testing.T) {
+	restore := stubSandboxHooks(t, func(string) (string, error) {
+		return "/usr/bin/bwrap", nil
+	}, func(string, int) (*sshOverlay, error) {
+		return nil, nil
+	})
+	defer restore()
+
+	root, tmpDir := testTmpDirRoot(t, true)
+	s := New(config.SandboxConfig{Enabled: true}, config.PermissionsConfig{}, root, root, "", tmpDir)
+	if err := s.LockTmpDir(); err != nil {
+		t.Fatalf("LockTmpDir: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cleanup() })
+	if err := os.RemoveAll(tmpDir); err != nil {
+		t.Fatalf("remove original dir: %v", err)
+	}
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("recreate replacement dir: %v", err)
+	}
+	other, err := acquireTmpDirLock(tmpDir)
+	if err != nil {
+		t.Fatalf("lock replacement: %v", err)
+	}
+	defer func() { _ = other.Close() }()
+
+	if _, err := s.WrapCommandMode(exec.CommandContext(context.Background(), "echo"), false); !errors.Is(err, errTmpDirLockBusy) {
+		t.Errorf("build-mode error = %v, want errTmpDirLockBusy", err)
+	}
+
+	wrapped, err := s.WrapCommandMode(exec.CommandContext(context.Background(), "echo"), true)
+	if err != nil {
+		t.Fatalf("read-only WrapCommandMode: %v", err)
+	}
+	if containsSeq(wrapped.Args, "--bind", tmpDir, "/tmp") {
+		t.Errorf("expected no bind of a busy replacement, args: %v", wrapped.Args)
+	}
+	if !containsSeq(wrapped.Args, "--tmpfs", "/tmp") {
+		t.Errorf("expected tmpfs /tmp when the replacement is busy, args: %v", wrapped.Args)
+	}
+}
+
+func TestResetTmp_AdoptsUnlockedReplacement(t *testing.T) {
+	root, tmpDir := testTmpDirRoot(t, true)
+	s := New(config.SandboxConfig{}, config.PermissionsConfig{}, root, root, "", tmpDir)
+	if err := s.LockTmpDir(); err != nil {
+		t.Fatalf("LockTmpDir: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cleanup() })
+	if err := os.RemoveAll(tmpDir); err != nil {
+		t.Fatalf("remove original dir: %v", err)
+	}
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("recreate replacement dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "stale"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	if err := s.ResetTmp(); err != nil {
+		t.Fatalf("ResetTmp: %v", err)
+	}
+	if entries, err := os.ReadDir(tmpDir); err != nil || len(entries) != 0 {
+		t.Errorf("expected the adopted dir to be emptied, entries=%d err=%v", len(entries), err)
+	}
+	if _, err := acquireTmpDirLock(tmpDir); !errors.Is(err, errTmpDirLockBusy) {
+		t.Errorf("adopted dir is not locked: acquire error = %v, want errTmpDirLockBusy", err)
 	}
 }
