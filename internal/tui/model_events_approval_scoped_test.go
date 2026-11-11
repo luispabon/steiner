@@ -327,8 +327,9 @@ func TestApprovalScopedContentKeepsRequestsOnTheirOwnPreview(t *testing.T) {
 	}
 }
 
-// The tray selection must stay with the displayed request: a scoped approval
-// never moves the selection of another pending tool call segment.
+// The tray selection must stay with the displayed request and be visible on it:
+// a scoped pill shows the selected action while another pending tool call is
+// left alone.
 func TestApprovalScopedSelectionStaysWithDisplayedRequest(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
@@ -338,10 +339,18 @@ func TestApprovalScopedSelectionStaysWithDisplayedRequest(t *testing.T) {
 	childIdentity := interactive.ApprovalIdentity("child-1", "call-1")
 	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", "call-1", `{"path":"child.txt"}`)})
 	m.approval = approvalState{active: true, identity: childIdentity, tool: "write", mode: "prompt", preview: `{"path":"child.txt"}`, kind: "path"}
+	childPill := findApprovalPill(t, &m.content, childIdentity)
+	if childPill == nil {
+		t.Fatalf("no approval pill with identity %q", childIdentity)
+	}
+	before := m.content.renderApprovalPill(childPill, 100)
 
 	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	if got, want := m.approval.selectedAction, 1; got != want {
 		t.Fatalf("selectedAction = %d, want %d", got, want)
+	}
+	if got, want := childPill.selectedAction, 1; got != want {
+		t.Fatalf("pill selectedAction = %d, want %d", got, want)
 	}
 	parentCall := findToolCallSegment(&m.content, "call-parent")
 	if parentCall == nil {
@@ -350,4 +359,71 @@ func TestApprovalScopedSelectionStaysWithDisplayedRequest(t *testing.T) {
 	if got, want := parentCall.approvalSelectedAction, 0; got != want {
 		t.Fatalf("parent approvalSelectedAction = %d, want %d", got, want)
 	}
+	after := m.content.renderApprovalPill(childPill, 100)
+	if after == before {
+		t.Fatal("pill render did not change with the tray selection")
+	}
+
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if got, want := childPill.selectedAction, 2; got != want {
+		t.Fatalf("pill selectedAction after second move = %d, want %d", got, want)
+	}
+	if got := m.content.renderApprovalPill(childPill, 100); got == after {
+		t.Fatal("pill render did not change again after the second move")
+	}
+}
+
+// A cached grant for one child emits requested and accepted events without
+// registering, so it must not displace the promptable FIFO head, reset the
+// composer, or notify.
+func TestApprovalScopedCachedGrantLeavesTrayAndQueueAlone(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	fn := &fakeNotifier{avail: true, notified: make(chan struct{}, 4)}
+	m := newModel(Config{WorkingDir: "/home/user/myproject", Controller: ctrl, Notifier: fn}, nil)
+
+	headIdentity := interactive.ApprovalIdentity("child-1", "call-head")
+	headCh := coordinator.Begin(headIdentity, "write", "", "path", "child-1")
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", "call-head", `{"path":"head.txt"}`)})
+	if !m.approval.active || m.approval.identity != headIdentity {
+		t.Fatalf("tray identity = %q, want %q", m.approval.identity, headIdentity)
+	}
+	_ = fn.waitForCall(t)
+	fn.reset()
+
+	m.input.SetValue("draft instruction")
+	m.input.Focus()
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-2", "call-cached", `{"path":"cached.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalDecisionEvent("child-2", true, "call-cached", `{"path":"cached.txt"}`)})
+
+	if !m.approval.active {
+		t.Fatal("cached grant closed the active tray")
+	}
+	if got, want := m.approval.identity, headIdentity; got != want {
+		t.Fatalf("approval.identity = %q, want %q", got, want)
+	}
+	if got, want := m.approval.preview, `{"path":"head.txt"}`; got != want {
+		t.Fatalf("approval.preview = %q, want %q", got, want)
+	}
+	if got, want := m.status.mode, "approval"; got != want {
+		t.Fatalf("status mode = %q, want %q", got, want)
+	}
+	if got, want := m.input.Value(), "draft instruction"; got != want {
+		t.Fatalf("input value = %q, want %q", got, want)
+	}
+	if got, want := coordinator.HeadIdentity(), headIdentity; got != want {
+		t.Fatalf("coordinator head = %q, want %q", got, want)
+	}
+
+	cachedIdentity := interactive.ApprovalIdentity("child-2", "call-cached")
+	if pill := findApprovalPill(t, &m.content, cachedIdentity); pill == nil || !pill.resolved || !pill.accepted {
+		t.Fatalf("cached grant pill = %#v, want resolved and accepted", pill)
+	}
+	if pill := findApprovalPill(t, &m.content, headIdentity); pill == nil || pill.resolved {
+		t.Fatalf("head pill = %#v, want still pending", pill)
+	}
+	fn.expectNoCall(t)
+
+	coordinator.Finish(headCh)
 }

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -13,6 +14,38 @@ func (b *contentBuffer) renderApprovalPillSegment(segment contentSegment, width 
 		return ""
 	}
 	return b.renderApprovalPill(segment.approvalData, width)
+}
+
+// renderApprovalPillButtons renders the pill's decision buttons in decision
+// order and highlights the selected action the way the embedded tool-call tray
+// highlights its buttons. The compact pill layout keeps its existing width.
+func (b *contentBuffer) renderApprovalPillButtons(ad *approvalPillData) string {
+	specs := []struct {
+		label string
+		key   string
+		idx   int
+	}{
+		{label: "approve", key: "y", idx: 0},
+		{label: "Allowed for session", key: "a", idx: 1},
+		{label: "deny", key: "n", idx: 2},
+	}
+	bgElev2C := lipgloss.Color(theme.BgElev2)
+	fgMuteC := lipgloss.Color(theme.FgMute)
+	fgDimC := lipgloss.Color(theme.FgDim)
+	accentFgC := lipgloss.Color(theme.Black)
+
+	items := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		selected := ad.selectedAction == spec.idx
+		bg, keyFg, labelFg := bgElev2C, fgMuteC, fgDimC
+		if selected {
+			bg, keyFg, labelFg = b.styles.AccentColor, accentFgC, accentFgC
+		}
+		key := lipgloss.NewStyle().Background(bg).Foreground(keyFg).Bold(selected).Render("[" + spec.key + "]")
+		label := lipgloss.NewStyle().Background(bg).Foreground(labelFg).Bold(selected).Render(" " + spec.label)
+		items = append(items, key+label)
+	}
+	return strings.Join(items, " ")
 }
 
 func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) string {
@@ -60,19 +93,7 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 
 	bar := b.styles.Accent.Render("│")
 
-	accentSoft := b.styles.AccentSoft.GetForeground()
-	bgElev2C := lipgloss.Color(theme.BgElev2)
-	fgMuteC := lipgloss.Color(theme.FgMute)
-	fgDimC := lipgloss.Color(theme.FgDim)
-	accentC := b.styles.AccentColor
-
-	btnApprove := lipgloss.NewStyle().Background(accentSoft).Foreground(fgMuteC).Render("[y]") +
-		lipgloss.NewStyle().Background(accentSoft).Foreground(accentC).Render(" approve")
-	btnDeny := lipgloss.NewStyle().Background(bgElev2C).Foreground(fgMuteC).Render("[n]") +
-		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" deny")
-	btnAlways := lipgloss.NewStyle().Background(bgElev2C).Foreground(fgMuteC).Render("[a]") +
-		lipgloss.NewStyle().Background(bgElev2C).Foreground(fgDimC).Render(" Allowed for session")
-	buttons := btnApprove + " " + btnDeny + " " + btnAlways
+	buttons := b.renderApprovalPillButtons(ad)
 	buttonsW := lipgloss.Width(buttons)
 
 	bgW := innerWidth - 1

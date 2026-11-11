@@ -58,7 +58,8 @@ func newApprovalResponder(coordinator *ApprovalCoordinator, events output.EventS
 
 // RequestApproval registers a user-input approval with the coordinator before
 // its requested event is emitted, so an event subscriber can respond
-// synchronously. Cached grants and an unavailable coordinator skip registration.
+// synchronously. Cached grants, uncorrelatable requests, and an unavailable
+// coordinator skip registration.
 func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
 		return fmt.Errorf("approval response channel is required")
@@ -84,7 +85,18 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 	}
 
 	agentID := tool.ApprovalAgentScope(ctx)
-	responseCh := h.coordinator.Begin(ApprovalIdentity(agentID, req.CallID), toolName, "", string(req.Kind), agentID)
+	identity := ApprovalIdentity(agentID, req.CallID)
+	if identity == "" {
+		// Without a call ID the request has no identity a decision could ever
+		// match. Registering it would leave an unpromptable FIFO head blocking
+		// every later request, so fail closed without touching the queue.
+		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
+			inner.Response <- tool.ApprovalResponse{Allow: false, Message: approvalMissingCallIDMessage}
+			return nil
+		})
+	}
+
+	responseCh := h.coordinator.Begin(identity, toolName, "", string(req.Kind), agentID)
 	return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 		// Finish runs before the eventing wrapper emits a denied event for an error return.
 		defer h.coordinator.Finish(responseCh)
@@ -138,6 +150,10 @@ func approvalResponseForDecision(decision string) tool.ApprovalResponse {
 		return tool.ApprovalResponse{Allow: false, Message: "denied"}
 	}
 }
+
+// approvalMissingCallIDMessage is the denial message for an approval request
+// that has no tool call ID, so no decision could ever be correlated with it.
+const approvalMissingCallIDMessage = "approval request has no tool call ID"
 
 type workflowHandoffResponder struct {
 	coordinator *WorkflowHandoffCoordinator

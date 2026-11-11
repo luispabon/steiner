@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -206,39 +207,141 @@ func TestApprovalResponderParentCallIDCannotClaimScopedRequest(t *testing.T) {
 	}
 }
 
-// TestApprovalResponderScopedEmptyCallIDIsNotSubmittable proves a scoped request
-// without a call ID registers no matchable identity, so it can never be
-// authorized as if it were a real request.
-func TestApprovalResponderScopedEmptyCallIDIsNotSubmittable(t *testing.T) {
+// TestApprovalResponderEmptyCallIDFailsClosedWithoutStallingQueue proves a
+// request without a call ID has no identity to match, so it is denied without
+// registering. Registering it would leave an unpromptable FIFO head and block
+// every later request.
+func TestApprovalResponderEmptyCallIDFailsClosedWithoutStallingQueue(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		ctx       func() context.Context
+		wantScope string
+	}{
+		{name: "parent", ctx: context.Background},
+		{name: "scoped child", wantScope: "child-1", ctx: func() context.Context {
+			return tool.WithApprovalAgentScope(context.Background(), "child-1")
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			coordinator := &ApprovalCoordinator{}
+			eventCh := make(chan output.Event, 4)
+			responder := newApprovalResponder(coordinator, output.SinkFunc(func(event output.Event) {
+				eventCh <- event
+			}))
+
+			responseCh := make(chan tool.ApprovalResponse, 1)
+			if err := responder.RequestApproval(tt.ctx(), tool.ApprovalRequest{
+				Tool:     tool.ToolDef{Name: "write"},
+				Reason:   "sandbox_violation",
+				Response: responseCh,
+				Kind:     tool.ApprovalKindPath,
+			}); err != nil {
+				t.Fatalf("RequestApproval() error = %v", err)
+			}
+			if got, want := <-responseCh, (tool.ApprovalResponse{Allow: false, Message: approvalMissingCallIDMessage}); got != want {
+				t.Fatalf("response = %#v, want %#v", got, want)
+			}
+			if coordinator.HasPending() {
+				t.Fatalf("pending depth = %d, want 0 for an uncorrelatable request", coordinator.PendingDepth())
+			}
+
+			var events []output.Event
+			for len(events) < 2 {
+				select {
+				case event := <-eventCh:
+					events = append(events, event)
+				case <-time.After(2 * time.Second):
+					t.Fatalf("timed out waiting for approval events: %#v", events)
+				}
+			}
+			if events[0].Type != output.EventTypeApprovalRequested || events[1].Type != output.EventTypeApprovalDenied {
+				t.Fatalf("events = %#v, want requested then denied", events)
+			}
+			if got := events[0].Scope.AgentID; got != tt.wantScope {
+				t.Fatalf("requested event scope = %q, want %q", got, tt.wantScope)
+			}
+
+			// A later valid request still heads and resolves the queue.
+			validCh := make(chan tool.ApprovalResponse, 1)
+			validDone := make(chan error, 1)
+			go func() {
+				validDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+					Tool:     tool.ToolDef{Name: "write"},
+					CallID:   "call-after-empty",
+					Reason:   "sandbox_violation",
+					Response: validCh,
+					Kind:     tool.ApprovalKindPath,
+				})
+			}()
+			waitForPendingApproval(t, coordinator)
+			wantIdentity := ApprovalIdentity("", "call-after-empty")
+			if got := coordinator.HeadIdentity(); got != wantIdentity {
+				t.Fatalf("head identity = %q, want %q", got, wantIdentity)
+			}
+			coordinator.Submit(SubmitApproval{Identity: wantIdentity, Tool: "write", Mode: "prompt", Decision: "allow_once"})
+			if err := <-validDone; err != nil {
+				t.Fatalf("valid RequestApproval() error = %v", err)
+			}
+			if got, want := <-validCh, (tool.ApprovalResponse{Allow: true, Message: "approved"}); got != want {
+				t.Fatalf("valid response = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+// TestApprovalResponderScopedCachedGrantSkipsRegistration pins the existing
+// session-wide always-allow contract: an explicit always_allow decision caches
+// the granted tool for the session, so a later request from another agent is
+// served without registering and without touching the FIFO.
+func TestApprovalResponderScopedCachedGrantSkipsRegistration(t *testing.T) {
 	t.Parallel()
 	coordinator := &ApprovalCoordinator{}
 	responder := newApprovalResponder(coordinator, nil)
 
-	ctx, cancel := context.WithCancel(tool.WithApprovalAgentScope(context.Background(), "child-1"))
-	defer cancel()
-	responseCh := make(chan tool.ApprovalResponse, 1)
-	done := make(chan error, 1)
+	firstResponse := make(chan tool.ApprovalResponse, 1)
+	firstDone := make(chan error, 1)
 	go func() {
-		done <- responder.RequestApproval(ctx, tool.ApprovalRequest{
-			Tool:     tool.ToolDef{Name: "write"},
-			Reason:   "sandbox_violation",
-			Response: responseCh,
-			Kind:     tool.ApprovalKindPath,
-		})
+		firstDone <- responder.RequestApproval(
+			tool.WithApprovalAgentScope(context.Background(), "child-1"),
+			tool.ApprovalRequest{
+				Tool:     tool.ToolDef{Name: "write"},
+				CallID:   "call-first",
+				Reason:   "sandbox_violation",
+				Response: firstResponse,
+				Kind:     tool.ApprovalKindPath,
+			},
+		)
 	}()
 	waitForPendingApproval(t, coordinator)
-
-	if got := coordinator.HeadIdentity(); got != "" {
-		t.Fatalf("head identity = %q, want empty for a scoped request without a call ID", got)
+	coordinator.Submit(SubmitApproval{Identity: coordinator.HeadIdentity(), Tool: "write", Mode: "prompt", Decision: "always_allow"})
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first RequestApproval() error = %v", err)
 	}
-	coordinator.Submit(SubmitApproval{Identity: ApprovalIdentity("child-1", ""), Tool: "write", Mode: "prompt", Decision: "allow_once"})
-	assertNoApprovalResponse(t, responseCh)
+	if got, want := <-firstResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
+		t.Fatalf("first response = %#v, want %#v", got, want)
+	}
 
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("RequestApproval() did not return after cancellation")
+	secondResponse := make(chan tool.ApprovalResponse, 1)
+	if err := responder.RequestApproval(
+		tool.WithApprovalAgentScope(context.Background(), "child-2"),
+		tool.ApprovalRequest{
+			Tool:     tool.ToolDef{Name: "write"},
+			CallID:   "call-second",
+			Reason:   "sandbox_violation",
+			Response: secondResponse,
+			Kind:     tool.ApprovalKindPath,
+		},
+	); err != nil {
+		t.Fatalf("cached scoped RequestApproval() error = %v", err)
+	}
+	if got, want := <-secondResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
+		t.Fatalf("cached scoped response = %#v, want %#v", got, want)
+	}
+	if coordinator.HasPending() {
+		t.Fatalf("cached scoped request registered: pending depth = %d", coordinator.PendingDepth())
 	}
 }
 

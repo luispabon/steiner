@@ -102,8 +102,11 @@ type approvalPillData struct {
 	agentID     string
 	identity    string
 	queueDepth  int
-	resolved    bool
-	accepted    bool
+	// selectedAction mirrors the tray selection for this request: 0=allow
+	// once, 1=always allow, 2=deny.
+	selectedAction int
+	resolved       bool
+	accepted       bool
 }
 
 type compactionBannerData struct {
