@@ -119,14 +119,14 @@ func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
 	call := &toolCallSegment{tool: "bash", callID: "call-normal"}
 	b.segments = []contentSegment{{kind: segmentToolCall, toolData: call}}
 	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-normal"}})
-	if call.approvalIdentity != "call-normal" {
-		t.Fatalf("tool call identity = %q, want call-normal", call.approvalIdentity)
+	if got, want := call.approvalIdentity, parentApprovalIdentity("call-normal"); got != want {
+		t.Fatalf("tool call identity = %q, want %q", got, want)
 	}
 
 	b.segments = nil
 	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-fallback"}})
-	if got := b.segments[0].approvalData.identity; got != "call-fallback" {
-		t.Fatalf("fallback identity = %q, want call-fallback", got)
+	if got, want := b.segments[0].approvalData.identity, parentApprovalIdentity("call-fallback"); got != want {
+		t.Fatalf("fallback identity = %q, want %q", got, want)
 	}
 }
 

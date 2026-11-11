@@ -11,14 +11,15 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// approvalHeadController reports a fixed approval head identity. The embedded
-// Controller is nil and is never called on these paths.
+// approvalHeadController reports a fixed parent approval head, encoded the way
+// the session's coordinator stores it. The embedded Controller is nil and is
+// never called on these paths.
 type approvalHeadController struct {
 	interactive.Controller
 	head string
 }
 
-func (c approvalHeadController) ApprovalHeadIdentity() string { return c.head }
+func (c approvalHeadController) ApprovalHeadIdentity() string { return parentApprovalIdentity(c.head) }
 
 func TestUpdateRoutesPhaseIndicatorEvent(t *testing.T) {
 	t.Parallel()
@@ -131,7 +132,7 @@ func TestUpdateApprovalRequestedRespectsHeadIdentity(t *testing.T) {
 			if m.approval.active != tc.wantActive {
 				t.Errorf("approval active = %t, want %t", m.approval.active, tc.wantActive)
 			}
-			if got := m.approvalRequestPromptable(tc.callID); got != tc.wantActive {
+			if got := m.approvalRequestPromptable(parentApprovalIdentity(tc.callID)); got != tc.wantActive {
 				t.Errorf("approvalRequestPromptable(%q) = %t, want %t", tc.callID, got, tc.wantActive)
 			}
 		})
@@ -154,7 +155,7 @@ func TestUpdateCachedApprovalRequestLeavesComposerAndTrayAlone(t *testing.T) {
 	if m.approval.active {
 		t.Fatal("cached grant activated the approval tray")
 	}
-	if m.approvalRequestPromptable("call-cached") {
+	if m.approvalRequestPromptable(parentApprovalIdentity("call-cached")) {
 		t.Error("approvalRequestPromptable(call-cached) = true, want false for a cached grant")
 	}
 	if got, want := m.input.Value(), "draft instruction"; got != want {
@@ -221,14 +222,14 @@ func TestUpdateApprovalPromotionDoesNotNotify(t *testing.T) {
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-B", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", "call-A", nil)})
-	bCh := coord.Begin("call-B", "write", "", "path", "")
-	aCh := coord.Begin("call-A", "read", "", "path", "")
+	bCh := coord.Begin(parentApprovalIdentity("call-B"), "write", "", "path", "")
+	aCh := coord.Begin(parentApprovalIdentity("call-A"), "read", "", "path", "")
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false for coordinator head call-B request")
 	}
-	if got, want := m.approval.identity, "call-B"; got != want {
+	if got, want := m.approval.identity, parentApprovalIdentity("call-B"); got != want {
 		t.Fatalf("approval.identity = %q, want %q", got, want)
 	}
 	// Only opening the tray notifies; the queued call-A request stayed silent.
@@ -246,13 +247,13 @@ func TestUpdateApprovalPromotionDoesNotNotify(t *testing.T) {
 	}
 
 	fn.reset()
-	coord.Submit(interactive.SubmitApproval{Identity: "call-B", Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	coord.Submit(interactive.SubmitApproval{Identity: parentApprovalIdentity("call-B"), Tool: "write", Mode: "prompt", Decision: "allow_once"})
 	coord.Finish(bCh)
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false after call-B promotion, want call-A")
 	}
-	if got, want := m.approval.identity, "call-A"; got != want {
+	if got, want := m.approval.identity, parentApprovalIdentity("call-A"); got != want {
 		t.Fatalf("approval.identity after promotion = %q, want %q", got, want)
 	}
 	fn.expectNoCall(t)
@@ -287,8 +288,8 @@ func TestDecisionPreservesActiveApproval(t *testing.T) {
 			} else {
 				m.controller = &testController{}
 			}
-			m.approval = approvalState{active: tc.active, identity: tc.activeID}
-			if got := m.decisionPreservesActiveApproval(tc.callID); got != tc.want {
+			m.approval = approvalState{active: tc.active, identity: parentApprovalIdentity(tc.activeID)}
+			if got := m.decisionPreservesActiveApproval(parentApprovalIdentity(tc.callID)); got != tc.want {
 				t.Errorf("decisionPreservesActiveApproval(%q) = %t, want %t", tc.callID, got, tc.want)
 			}
 		})
@@ -313,7 +314,7 @@ func TestUpdateUnrelatedApprovalDecisionPreservesTrayAndSelection(t *testing.T) 
 	if !m.approval.active {
 		t.Fatal("unrelated decision cleared the active tray")
 	}
-	if got, want := m.approval.identity, "call-A"; got != want {
+	if got, want := m.approval.identity, parentApprovalIdentity("call-A"); got != want {
 		t.Errorf("approval.identity = %q, want %q", got, want)
 	}
 	if got, want := m.approval.selectedAction, 1; got != want {

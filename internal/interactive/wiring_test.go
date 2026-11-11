@@ -476,8 +476,9 @@ func TestSessionApproverRegistersBeforeRequestedEvent(t *testing.T) {
 			if requested.eventType != string(output.EventTypeApprovalRequested) {
 				t.Fatalf("first event = %q, want %q", requested.eventType, output.EventTypeApprovalRequested)
 			}
-			if !requested.pending || requested.head != "call-bash-sync" {
-				t.Fatalf("at requested event pending = %t, head = %q; want pending call-bash-sync", requested.pending, requested.head)
+			wantHead := ApprovalIdentity("", "call-bash-sync")
+			if !requested.pending || requested.head != wantHead {
+				t.Fatalf("at requested event pending = %t, head = %q; want pending %q", requested.pending, requested.head, wantHead)
 			}
 
 			decision := next()

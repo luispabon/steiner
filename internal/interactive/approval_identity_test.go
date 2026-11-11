@@ -16,7 +16,7 @@ func TestApprovalIdentityQualifiesAgentScope(t *testing.T) {
 		callID  string
 		want    string
 	}{
-		{name: "parent keeps provider call ID", callID: "call-1", want: "call-1"},
+		{name: "parent is encoded too", callID: "call-1", want: "0::call-1"},
 		{name: "child is scope qualified", agentID: "child-1", callID: "call-1", want: "7:child-1:call-1"},
 		{name: "empty call ID has no identity", agentID: "child-1", want: ""},
 		{name: "empty parts have no identity", want: ""},
@@ -36,8 +36,10 @@ func TestApprovalIdentityIsInjectiveAcrossAgents(t *testing.T) {
 	t.Parallel()
 	pairs := [][2]string{
 		{"", "call-1"},
+		{"", "1:a:x"},
 		{"child-1", "call-1"},
 		{"child-2", "call-1"},
+		{"a", "x"},
 		{"child-1:call-1", ""},
 		{"a:b", "c:d"},
 		{"a", "b:c:d"},
@@ -50,6 +52,24 @@ func TestApprovalIdentityIsInjectiveAcrossAgents(t *testing.T) {
 			t.Fatalf("ApprovalIdentity(%q, %q) collides with ApprovalIdentity(%q, %q) at %q", pair[0], pair[1], previous[0], previous[1], identity)
 		}
 		seen[identity] = pair
+	}
+}
+
+// TestApprovalIdentityParentCallIDCannotImpersonateScopedRequest covers the
+// reviewed collision: a parent call ID that literally spells an encoded scoped
+// identity must not map to that child request's coordinator key.
+func TestApprovalIdentityParentCallIDCannotImpersonateScopedRequest(t *testing.T) {
+	t.Parallel()
+	parentIdentity := ApprovalIdentity("", "1:a:x")
+	childIdentity := ApprovalIdentity("a", "x")
+	if parentIdentity == childIdentity {
+		t.Fatalf("parent identity %q equals child identity %q", parentIdentity, childIdentity)
+	}
+	if got, want := parentIdentity, "0::1:a:x"; got != want {
+		t.Fatalf("parent identity = %q, want %q", got, want)
+	}
+	if got, want := childIdentity, "1:a:x"; got != want {
+		t.Fatalf("child identity = %q, want %q", got, want)
 	}
 }
 
@@ -121,6 +141,68 @@ func TestApprovalResponderRoutesSharedCallIDByAgentScope(t *testing.T) {
 	}
 	if coordinator.HasPending() {
 		t.Fatal("coordinator still has a pending approval")
+	}
+}
+
+// TestApprovalResponderParentCallIDCannotClaimScopedRequest proves a parent
+// call ID that spells a scoped encoding does not resolve that child request.
+func TestApprovalResponderParentCallIDCannotClaimScopedRequest(t *testing.T) {
+	t.Parallel()
+	coordinator := &ApprovalCoordinator{}
+	responder := newApprovalResponder(coordinator, nil)
+
+	request := func(ctx context.Context, callID string) (chan tool.ApprovalResponse, chan error) {
+		responseCh := make(chan tool.ApprovalResponse, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- responder.RequestApproval(ctx, tool.ApprovalRequest{
+				Tool:     tool.ToolDef{Name: "write"},
+				CallID:   callID,
+				Reason:   "sandbox_violation",
+				Response: responseCh,
+				Kind:     tool.ApprovalKindPath,
+			})
+		}()
+		return responseCh, done
+	}
+
+	childResponse, childDone := request(tool.WithApprovalAgentScope(context.Background(), "a"), "x")
+	waitForPendingApproval(t, coordinator)
+	parentResponse, parentDone := request(context.Background(), "1:a:x")
+	waitForApprovalDepth(t, coordinator, 2)
+
+	childIdentity := ApprovalIdentity("a", "x")
+	parentIdentity := ApprovalIdentity("", "1:a:x")
+	if childIdentity == parentIdentity {
+		t.Fatalf("parent and child identities are equal: %q", childIdentity)
+	}
+	if got := coordinator.HeadIdentity(); got != childIdentity {
+		t.Fatalf("head identity = %q, want %q", got, childIdentity)
+	}
+
+	// The raw colliding string names no registered request.
+	coordinator.Submit(SubmitApproval{Identity: "1:a:x", Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	if got := coordinator.PendingDepth(); got != 2 {
+		t.Fatalf("pending depth after colliding submission = %d, want 2", got)
+	}
+	assertNoApprovalResponse(t, childResponse)
+	assertNoApprovalResponse(t, parentResponse)
+
+	coordinator.Submit(SubmitApproval{Identity: childIdentity, Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	if err := <-childDone; err != nil {
+		t.Fatalf("child RequestApproval() error = %v", err)
+	}
+	if got, want := <-childResponse, (tool.ApprovalResponse{Allow: true, Message: "approved"}); got != want {
+		t.Fatalf("child response = %#v, want %#v", got, want)
+	}
+	assertNoApprovalResponse(t, parentResponse)
+
+	coordinator.Submit(SubmitApproval{Identity: parentIdentity, Tool: "write", Mode: "prompt", Decision: "deny"})
+	if err := <-parentDone; err != nil {
+		t.Fatalf("parent RequestApproval() error = %v", err)
+	}
+	if got, want := <-parentResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
+		t.Fatalf("parent response = %#v, want %#v", got, want)
 	}
 }
 

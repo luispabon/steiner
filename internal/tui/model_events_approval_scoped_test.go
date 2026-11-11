@@ -37,6 +37,12 @@ func scopedApprovalDecisionEvent(agentID string, accepted bool, callID, preview 
 	return output.WithAgentScope(output.NewApprovalDeniedEvent(params), agentID)
 }
 
+// parentApprovalIdentity returns the coordinator identity the TUI computes for
+// an unscoped (parent) approval with the given provider call ID.
+func parentApprovalIdentity(callID string) string {
+	return interactive.ApprovalIdentity("", callID)
+}
+
 func findApprovalPill(t *testing.T, buffer *contentBuffer, identity string) *approvalPillData {
 	t.Helper()
 	for i := range buffer.segments {
@@ -176,7 +182,8 @@ func TestApprovalScopedCancellationPromotesQueuedRequest(t *testing.T) {
 
 	childIdentity := interactive.ApprovalIdentity("child-1", "call-child")
 	childCh := coordinator.Begin(childIdentity, "write", "", "path", "child-1")
-	parentCh := coordinator.Begin("call-parent", "read", "", "path", "")
+	parentIdentity := parentApprovalIdentity("call-parent")
+	parentCh := coordinator.Begin(parentIdentity, "read", "", "path", "")
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-parent", Mode: "prompt", Preview: `{"path":"parent.txt"}`, Kind: "path"})})
 	if m.approval.active {
@@ -193,7 +200,7 @@ func TestApprovalScopedCancellationPromotesQueuedRequest(t *testing.T) {
 	if !m.approval.active {
 		t.Fatal("cancellation did not promote the queued parent request")
 	}
-	if got, want := m.approval.identity, "call-parent"; got != want {
+	if got, want := m.approval.identity, parentIdentity; got != want {
 		t.Fatalf("promoted approval.identity = %q, want %q", got, want)
 	}
 	if got, want := m.approval.preview, `{"path":"parent.txt"}`; got != want {
@@ -208,9 +215,65 @@ func TestApprovalScopedCancellationPromotesQueuedRequest(t *testing.T) {
 
 	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	submissions := ctrl.submitApprovals()
-	if len(submissions) != 1 || submissions[0].Identity != "call-parent" {
+	if len(submissions) != 1 || submissions[0].Identity != parentIdentity {
 		t.Fatalf("submissions = %+v, want the promoted parent submission", submissions)
 	}
+	coordinator.Finish(parentCh)
+}
+
+// A parent call ID that spells a scoped encoding must not be mistaken for that
+// child request: the parent keeps the FIFO head, and each decision resolves the
+// request whose preview it was shown with.
+func TestApprovalScopedParentCallIDCannotClaimChildRequest(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	childIdentity := interactive.ApprovalIdentity("a", "x")
+	parentIdentity := parentApprovalIdentity("1:a:x")
+	if childIdentity == parentIdentity {
+		t.Fatalf("parent and child identities are equal: %q", childIdentity)
+	}
+	childCh := coordinator.Begin(childIdentity, "write", "", "path", "a")
+	parentCh := coordinator.Begin(parentIdentity, "write", "", "path", "")
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "1:a:x", Mode: "prompt", Preview: `{"path":"parent.txt"}`, Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("a", "x", `{"path":"child.txt"}`)})
+	if !m.approval.active {
+		t.Fatal("child request did not open the tray")
+	}
+	if got, want := m.approval.identity, childIdentity; got != want {
+		t.Fatalf("approval.identity = %q, want %q", got, want)
+	}
+	if got, want := m.approval.preview, `{"path":"child.txt"}`; got != want {
+		t.Fatalf("approval.preview = %q, want %q", got, want)
+	}
+
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 || submissions[0].Identity != childIdentity {
+		t.Fatalf("submissions = %+v, want the child submission %q", submissions, childIdentity)
+	}
+	coordinator.Submit(interactive.SubmitApproval{Identity: childIdentity, Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	if got := <-childCh; got.Identity != childIdentity {
+		t.Fatalf("child channel received identity %q, want %q", got.Identity, childIdentity)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalDecisionEvent("a", true, "x", `{"path":"child.txt"}`)})
+	if !m.approval.active {
+		t.Fatal("queued parent request was not promoted")
+	}
+	if got, want := m.approval.identity, parentIdentity; got != want {
+		t.Fatalf("promoted approval.identity = %q, want %q", got, want)
+	}
+	if got, want := m.approval.preview, `{"path":"parent.txt"}`; got != want {
+		t.Fatalf("promoted approval.preview = %q, want %q", got, want)
+	}
+	if pill := findApprovalPill(t, &m.content, parentIdentity); pill == nil || pill.resolved {
+		t.Fatalf("parent pill = %#v, want still pending", pill)
+	}
+
 	coordinator.Finish(parentCh)
 }
 
@@ -224,13 +287,14 @@ func TestApprovalScopedContentKeepsRequestsOnTheirOwnPreview(t *testing.T) {
 
 	parentPreview := `{"path":"parent.txt"}`
 	buffer.appendApprovalRequestedEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: "write", CallID: "call-shared", Mode: "prompt", Preview: parentPreview, Kind: "path"}))
-	if !parentCall.approvalPending || parentCall.approvalIdentity != "call-shared" {
-		t.Fatalf("parent approval state = %#v, want pending call-shared", parentCall)
+	parentIdentity := parentApprovalIdentity("call-shared")
+	if !parentCall.approvalPending || parentCall.approvalIdentity != parentIdentity {
+		t.Fatalf("parent approval state = %#v, want pending %q", parentCall, parentIdentity)
 	}
 
 	childPreview := `{"path":"child.txt"}`
 	buffer.appendApprovalRequestedEvent(output.WithAgentScope(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: "write", CallID: "call-shared", Mode: "prompt", Preview: childPreview, Kind: "path"}), "child-1"))
-	if parentCall.approvalPreview != parentPreview || parentCall.approvalIdentity != "call-shared" {
+	if parentCall.approvalPreview != parentPreview || parentCall.approvalIdentity != parentIdentity {
 		t.Fatalf("scoped request overwrote the parent approval: %#v", parentCall)
 	}
 	childIdentity := interactive.ApprovalIdentity("child-1", "call-shared")
