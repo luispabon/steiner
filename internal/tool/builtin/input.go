@@ -91,6 +91,7 @@ const (
 	defaultReadLimit          = 200
 	maxReadLimit              = 1000
 	defaultGlobLimit          = 200
+	defaultGlobPattern        = "*"
 	maxGlobLimit              = 1000
 	defaultGrepHeadLimit      = 100
 	maxGrepHeadLimit          = 500

@@ -181,6 +181,15 @@ func TestGlobWalkPagesPastThousandMatches(t *testing.T) {
 			wantNext:  0,
 		},
 		{
+			name:      "exact remaining matches have no next offset",
+			limit:     100,
+			offset:    1100,
+			wantFirst: "file1100.txt",
+			wantLast:  "file1199.txt",
+			wantCount: 100,
+			wantNext:  0,
+		},
+		{
 			name:      "offset past the end",
 			limit:     10,
 			offset:    total + 5,
@@ -240,6 +249,12 @@ func TestGlobWalkPrunesDeeperLevels(t *testing.T) {
 		{
 			name:      "fixed depth pattern stops below its deepest level",
 			pattern:   "*.txt",
+			wantCalls: 4,
+			want:      []string{"top.txt"},
+		},
+		{
+			name:      "brace pattern prunes to its deepest form",
+			pattern:   "*.{go,txt}",
 			wantCalls: 4,
 			want:      []string{"top.txt"},
 		},

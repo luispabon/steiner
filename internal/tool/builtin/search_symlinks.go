@@ -53,17 +53,6 @@ func searchSymlinkEntry(d fs.DirEntry) bool {
 	return d.Type()&fs.ModeSymlink != 0
 }
 
-// eligible reports whether a walk entry may be searched or listed: every entry
-// that is not a symlink passes, and a symlink passes only when its target is an
-// eligible regular file.
-func (s searchSymlinkScope) eligible(d fs.DirEntry, path string) bool {
-	if !searchSymlinkEntry(d) {
-		return true
-	}
-	_, ok := s.target(path)
-	return ok
-}
-
 // target resolves the symlink at path and reports the canonical regular file to
 // read. It reports false for every entry the walk must not follow: a dangling
 // link, a link to a directory or special file, a target outside the walk root

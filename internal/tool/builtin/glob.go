@@ -85,11 +85,12 @@ type globWalkParams struct {
 // a trailing slash, and is returned with the trailing slash. The walk root is
 // never returned. Excluded directories are not traversed. Every entry is
 // validated through PathPolicy before it is traversed or matched, so denied
-// directories are pruned and denied or unresolvable entries fail closed. A
-// symlink is listed only when its target is an eligible regular file: dangling
-// links, directory links, special files, targets outside the walk root and
-// workspace, and denied or excluded targets are omitted, and the lexical link
-// name is what matches and is returned. Results follow filepath.WalkDir order.
+// directories are pruned and denied entries fail closed. Listing never opens an
+// entry: every symlink below the root is returned by its lexical name without a
+// trailing slash and is never followed or descended, and special files such as
+// devices, pipes, and sockets are returned by name. Only an entry whose own path
+// or resolved symlink target is blocked is omitted, and a root passed as a
+// symlink is walked through its target. Results follow filepath.WalkDir order.
 // The walk stops once the page and its next-offset signal are settled.
 func globWalk(ctx context.Context, p globWalkParams) (Result, error) {
 	if p.limit <= 0 {
@@ -112,7 +113,6 @@ func globWalk(ctx context.Context, p globWalkParams) (Result, error) {
 		matcher: matcher,
 		page:    make([]string, 0, p.limit),
 	}
-	walker.links = newSearchSymlinkScope(p.policy, &walker.params.excluder, p.root, p.lexicalRoot)
 
 	if err := filepath.WalkDir(p.root, func(path string, d fs.DirEntry, err error) error {
 		return walker.visit(ctx, path, d, err)
@@ -126,7 +126,6 @@ func globWalk(ctx context.Context, p globWalkParams) (Result, error) {
 type globWalker struct {
 	params     globWalkParams
 	matcher    globMatcher
-	links      searchSymlinkScope
 	page       []string
 	matched    int
 	nextOffset int
@@ -159,10 +158,6 @@ func (w *globWalker) visit(ctx context.Context, path string, d fs.DirEntry, err 
 	}
 
 	isDir := d.IsDir()
-	if !isDir && !w.links.eligible(d, path) {
-		return nil
-	}
-
 	relSlash := filepath.ToSlash(rel)
 	if line, ok := w.matcher.matchEntry(relSlash, isDir); ok && w.collect(line) {
 		w.nextOffset = w.params.offset + w.params.limit
@@ -179,12 +174,14 @@ func (w *globWalker) visit(ctx context.Context, path string, d fs.DirEntry, err 
 // workspace, and built-in directory names are matched relative to the walk root
 // so ancestors of the root (e.g. /srv/build/proj, .steiner/worktrees/x) never
 // blind the walk. A root reached through a symlink is validated in both its
-// resolved and lexical form so configured exclusions keep applying.
+// resolved and lexical form so configured exclusions keep applying. A blocked
+// path hides the entry, including a symlink whose resolved target is blocked;
+// special files are listed because listing never opens them.
 func (w *globWalker) denied(path string, d fs.DirEntry) bool {
 	if excludeSearchEntry(&w.params.excluder, w.params.policy, w.params.root, w.params.lexicalRoot, path, d.IsDir()) {
 		return true
 	}
-	return searchPathDenied(w.params.policy, path)
+	return searchListingDenied(w.params.policy, path)
 }
 
 // collect adds a match to the page and reports whether the walk can stop

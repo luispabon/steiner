@@ -49,22 +49,28 @@ func validateGlobBraces(pattern string) error {
 	return nil
 }
 
-// expandGlobBraces rewrites the first brace alternation, splitting on top-level
+// expandGlobBraces rewrites every brace alternation, splitting on top-level
 // commas while leaving escaped braces and braces inside character classes
-// alone, then recurses into each alternative. It validates the pattern first, so
-// an unmatched brace is an error and no returned form holds one. Recursion stays
-// valid because substituting a matched group keeps the rest balanced.
+// alone. It validates the pattern once up front, so an unmatched brace is an
+// error and the recursion below never rescans a pattern that substitution kept
+// balanced.
 func expandGlobBraces(pattern string) ([]string, error) {
 	if err := validateGlobBraces(pattern); err != nil {
 		return nil, err
 	}
+	return expandGlobBracesBalanced(pattern)
+}
+
+// expandGlobBracesBalanced rewrites the first brace alternation, then recurses
+// into each alternative.
+func expandGlobBracesBalanced(pattern string) ([]string, error) {
 	open, closing, alternatives, ok := splitGlobBraces(pattern)
 	if !ok {
 		return []string{pattern}, nil
 	}
 	var expanded []string
 	for _, alternative := range alternatives {
-		sub, err := expandGlobBraces(pattern[:open] + alternative + pattern[closing+1:])
+		sub, err := expandGlobBracesBalanced(pattern[:open] + alternative + pattern[closing+1:])
 		if err != nil {
 			return nil, err
 		}

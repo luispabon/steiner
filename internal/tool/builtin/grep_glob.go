@@ -30,7 +30,7 @@ func compileGrepFileGlob(fileGlob string) (glob.Glob, error) {
 		return nil, fmt.Errorf("invalid glob: %w", err)
 	}
 
-	var matcher grepGlobSet
+	var matcher globSet
 	compiled := make(map[string]struct{})
 	for _, form := range forms {
 		candidates := []string{form.pattern}
@@ -50,18 +50,6 @@ func compileGrepFileGlob(fileGlob string) (glob.Glob, error) {
 		}
 	}
 	return matcher, nil
-}
-
-// grepGlobSet matches a path when any compiled pattern matches it.
-type grepGlobSet []glob.Glob
-
-func (s grepGlobSet) Match(path string) bool {
-	for _, pattern := range s {
-		if pattern.Match(path) {
-			return true
-		}
-	}
-	return false
 }
 
 // grepGlobForm is one expanded file_glob alternative plus the root anchoring

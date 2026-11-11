@@ -17,10 +17,15 @@ func TestGlobMatcherDepthPruning(t *testing.T) {
 		{name: "trailing slash", pattern: "dir/", want: 1},
 		{name: "two segments", pattern: "src/*.go", want: 2},
 		{name: "two segments with trailing slash", pattern: "a/b/", want: 2},
+		{name: "leading dot slash", pattern: "./*/*", want: 2},
 		{name: "doublestar", pattern: "**/*.go", want: 0},
 		{name: "multiple doublestar", pattern: "a/**/b/**/c.go", want: 0},
-		{name: "brace with slash", pattern: "{src/lib,cmd}/*.go", want: 0},
-		{name: "nested braces", pattern: "a/{b,{c,d}}/x.go", want: 0},
+		{name: "brace alternatives at one depth", pattern: "*.{go,txt}", want: 1},
+		{name: "brace alternative with its own slash", pattern: "{a,b/c}", want: 2},
+		{name: "deepest brace alternative wins", pattern: "{src/lib,cmd}/*.go", want: 3},
+		{name: "nested braces", pattern: "a/{b,{c,d}}/x.go", want: 3},
+		{name: "brace alternative with a doublestar", pattern: "{a,**/b}", want: 0},
+		{name: "brace alternative with a class", pattern: "{a,[/]b}", want: 0},
 		{name: "escape", pattern: `a\*.go`, want: 0},
 		{name: "class spanning a separator", pattern: "a[!x]b", want: 0},
 		{name: "class in a later segment", pattern: "src[!x]lib/*.go", want: 0},
@@ -35,6 +40,74 @@ func TestGlobMatcherDepthPruning(t *testing.T) {
 				t.Errorf("pruneDepth = %d, want %d", matcher.pruneDepth, tt.want)
 			}
 		})
+	}
+}
+
+// TestGlobMatcherPatternNormalization pins the pattern rules: leading "./"
+// segments are ignored, an empty or bare-dot pattern falls back to the default,
+// and a pattern that leaves the named directory is rejected.
+func TestGlobMatcherPatternNormalization(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		want    string
+		wantErr bool
+	}{
+		{name: "leading dot slash", pattern: "./*.go", want: "x.go"},
+		{name: "repeated dot slash", pattern: "././x", want: "x"},
+		{name: "bare dot slash is the default", pattern: "./", want: "x.go"},
+		{name: "bare dot is the default", pattern: ".", want: "x.go"},
+		{name: "empty pattern is the default", pattern: "", want: "x.go"},
+		{name: "leading slash", pattern: "/x", wantErr: true},
+		{name: "leading dot dot segment", pattern: "../x", wantErr: true},
+		{name: "inner dot dot segment", pattern: "a/../b", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matcher, err := compileGlobMatcher(tt.pattern)
+			if tt.wantErr {
+				if !errors.Is(err, errGlobPatternNotRelative) {
+					t.Fatalf("compileGlobMatcher(%q) error = %v, want errGlobPatternNotRelative", tt.pattern, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compileGlobMatcher(%q): %v", tt.pattern, err)
+			}
+			if _, ok := matcher.matchEntry(tt.want, false); !ok {
+				t.Errorf("pattern %q does not match %q", tt.pattern, tt.want)
+			}
+		})
+	}
+}
+
+// TestGlobMatcherDedupesForms proves identical expanded forms compile once.
+func TestGlobMatcherDedupesForms(t *testing.T) {
+	matcher, err := compileGlobMatcher("{a,a}")
+	if err != nil {
+		t.Fatalf("compileGlobMatcher: %v", err)
+	}
+	if len(matcher.matchers) != 1 {
+		t.Errorf("matchers = %d, want 1 for duplicate brace alternatives", len(matcher.matchers))
+	}
+}
+
+// TestGlobMatcherQuestionMarkSpansNoSeparator pins that "?" matches one
+// character of a single path segment: a?b never matches the directory a/b, and
+// the pattern still prunes at its own depth.
+func TestGlobMatcherQuestionMarkSpansNoSeparator(t *testing.T) {
+	matcher, err := compileGlobMatcher("a?b")
+	if err != nil {
+		t.Fatalf("compileGlobMatcher: %v", err)
+	}
+	if _, ok := matcher.matchEntry("a/b", true); ok {
+		t.Error(`pattern "a?b" matched directory "a/b"`)
+	}
+	if _, ok := matcher.matchEntry("axb", false); !ok {
+		t.Error(`pattern "a?b" did not match "axb"`)
+	}
+	if matcher.pruneDepth != 1 {
+		t.Errorf("pruneDepth = %d, want 1", matcher.pruneDepth)
 	}
 }
 
