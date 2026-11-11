@@ -187,13 +187,25 @@ func TestBuildInteractiveRuntimeWiresMCPApprover(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Without a tool call ID the request cannot be correlated with a decision,
+	// so the approver fails closed instead of hanging on the prompt.
+	env, handlerErr := def.Handler(ctx, map[string]any{"text": "hi"})
+	envelope, isEnv := env.(tool.JSONEnvelope)
+	if !isEnv || envelope.Error == nil || envelope.Error.Kind != "approval_denied" {
+		t.Fatalf("no-call-ID handler result = %#v (err %v), want approval_denied", env, handlerErr)
+	}
+
+	// A real call ID reaches the interactive approver wired before registry
+	// construction and blocks on the approval prompt.
+	callCtx := context.WithValue(ctx, tool.ExecutionCallIDKey{}, "call-mcp-approval")
+
 	type outcome struct {
 		env any
 		err error
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		env, handlerErr := def.Handler(ctx, map[string]any{"text": "hi"})
+		env, handlerErr := def.Handler(callCtx, map[string]any{"text": "hi"})
 		done <- outcome{env: env, err: handlerErr}
 	}()
 

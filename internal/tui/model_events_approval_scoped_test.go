@@ -475,3 +475,81 @@ func TestApprovalPromotionSyncsDisplayedSelection(t *testing.T) {
 		t.Fatalf("promoted pill selectedAction = %d, want %d", got, want)
 	}
 }
+
+// An async child can still be waiting on approval when the top-level run
+// finishes. The run-finished reset must preserve that head, its content and its
+// tray instead of orphaning the child.
+func TestApprovalAsyncChildSurvivesRunFinishedReset(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	childID, childCh := coordinator.Begin("write", "", "path", "child-1")
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", childID, `{"path":"child.txt"}`)})
+	if !m.approval.active || m.approval.identity != childID {
+		t.Fatalf("tray identity = %q, want %q", m.approval.identity, childID)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "complete", "", "", nil)})
+
+	if !m.approval.active {
+		t.Fatal("run-finished reset orphaned the pending async child approval")
+	}
+	if got, want := m.approval.identity, childID; got != want {
+		t.Fatalf("tray identity after reset = %q, want %q", got, want)
+	}
+	if got, want := m.status.mode, "approval"; got != want {
+		t.Fatalf("status mode after reset = %q, want %q", got, want)
+	}
+	pill := findApprovalPill(t, &m.content, childID)
+	if pill == nil || pill.cleared {
+		t.Fatalf("child pill = %#v, want preserved and rendered", pill)
+	}
+
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 || submissions[0].Identity != childID {
+		t.Fatalf("submissions = %+v, want the preserved child %q", submissions, childID)
+	}
+	coordinator.Finish(childCh)
+}
+
+// A stale cancellation for a request that finished before the reset must not
+// clear or replace the preserved async child head.
+func TestApprovalStaleCancellationAfterResetKeepsChildHead(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	parentID, parentCh := coordinator.Begin("read", "", "path", "")
+	childID, childCh := coordinator.Begin("write", "", "path", "child-1")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-parent", RequestID: parentID, Mode: "prompt", Preview: `{"path":"parent.txt"}`, Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", childID, `{"path":"child.txt"}`)})
+	if !m.approval.active || m.approval.identity != parentID {
+		t.Fatalf("tray identity = %q, want parent head %q", m.approval.identity, parentID)
+	}
+
+	// The parent request finishes; the still-running child becomes the head.
+	coordinator.Finish(parentCh)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "complete", "", "", nil)})
+	if !m.approval.active || m.approval.identity != childID {
+		t.Fatalf("tray identity after reset = %q, want child %q", m.approval.identity, childID)
+	}
+
+	// A stale denial for the finished parent request arrives late.
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalDeniedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-parent", RequestID: parentID, Mode: "prompt", Preview: `{"path":"parent.txt"}`, Kind: "path"})})
+
+	if !m.approval.active {
+		t.Fatal("stale cancellation cleared the preserved child tray")
+	}
+	if got, want := m.approval.identity, childID; got != want {
+		t.Fatalf("tray identity after stale cancellation = %q, want %q", got, want)
+	}
+	if pill := findApprovalPill(t, &m.content, childID); pill == nil || pill.cleared || pill.resolved {
+		t.Fatalf("child pill = %#v, want still pending", pill)
+	}
+
+	coordinator.Finish(childCh)
+}

@@ -341,38 +341,69 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 	})
 }
 
-// clearApprovalState resets approval state on all tool call and tool call group
-// segments, and drops unresolved approval pills. Used when a run ends or is
-// stopped to clear stale pending approvals from the content buffer. Resolved
-// pills keep their outcome line.
+// clearApprovalState clears stale pending approvals from the content buffer.
 func (b *contentBuffer) clearApprovalState() {
+	b.clearApprovalStateExcept("")
+}
+
+// clearApprovalStateExcept resets approval state on tool call and tool call
+// group segments, and drops unresolved approval pills, except for the pending
+// request whose identity must be preserved. A top-level terminal reset uses it
+// to keep an async child approval that is still the coordinator head. Resolved
+// pills keep their outcome line.
+func (b *contentBuffer) clearApprovalStateExcept(preserve string) {
 	b.gen++
 	for i := range b.segments {
 		seg := &b.segments[i]
 		switch seg.kind {
 		case segmentApprovalPill:
-			if seg.approvalData != nil && !seg.approvalData.resolved && !seg.approvalData.cleared {
-				seg.approvalData.cleared = true
-				seg.renderDirty = true
-			}
+			clearApprovalPill(seg, preserve)
 		case segmentToolCall:
-			if seg.toolData != nil {
-				seg.toolData.approvalPending = false
-				seg.toolData.approvalResolved = false
-				seg.renderDirty = true
-			}
+			clearToolCallApproval(seg, preserve)
 		case segmentToolCallGroup:
-			if seg.toolGroupData != nil {
-				for _, entry := range seg.toolGroupData.entries {
-					if entry != nil {
-						entry.approvalPending = false
-						entry.approvalResolved = false
-					}
-				}
-				seg.renderDirty = true
-			}
+			clearToolGroupApproval(seg, preserve)
 		}
 	}
+}
+
+func clearApprovalPill(seg *contentSegment, preserve string) {
+	if seg.approvalData == nil || seg.approvalData.resolved || seg.approvalData.cleared {
+		return
+	}
+	if preserve != "" && seg.approvalData.identity == preserve {
+		return
+	}
+	seg.approvalData.cleared = true
+	seg.renderDirty = true
+}
+
+func clearToolCallApproval(seg *contentSegment, preserve string) {
+	if seg.toolData == nil {
+		return
+	}
+	if preserve != "" && seg.toolData.approvalIdentity == preserve {
+		return
+	}
+	seg.toolData.approvalPending = false
+	seg.toolData.approvalResolved = false
+	seg.renderDirty = true
+}
+
+func clearToolGroupApproval(seg *contentSegment, preserve string) {
+	if seg.toolGroupData == nil {
+		return
+	}
+	for _, entry := range seg.toolGroupData.entries {
+		if entry == nil {
+			continue
+		}
+		if preserve != "" && entry.approvalIdentity == preserve {
+			continue
+		}
+		entry.approvalPending = false
+		entry.approvalResolved = false
+	}
+	seg.renderDirty = true
 }
 
 // queuedApproval pairs a pending approval's identity with its depth field so

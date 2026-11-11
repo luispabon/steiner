@@ -231,8 +231,17 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 }
 
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
+	// An async child can still be waiting on approval after the top-level run
+	// finishes. Preserve the coordinator head's request so its tray and content
+	// survive the reset and it is re-promoted below.
+	head, coordinated := m.approvalHead()
+	if !coordinated {
+		head = ""
+	}
 	m.approval = approvalState{}
-	m.content.clearApprovalState()
+	m.content.clearApprovalStateExcept(head)
+	m.content.approvalHead = head
+	m.content.recomputeApprovalQueueDepths()
 	m.content.ResetAdvisorSegment()
 	if m.workflowHandoff.IsOpen() {
 		m.workflowHandoff = m.workflowHandoff.close()
@@ -240,7 +249,9 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	if clearInterrupt {
 		m.interruptPending = false
 	}
-	m.input.Focus()
+	if head == "" || !m.promoteNextApproval() {
+		m.input.Focus()
+	}
 	m.syncInputChrome()
 	m.relayoutInput()
 	m.syncSidebar()
