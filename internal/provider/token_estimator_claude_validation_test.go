@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -289,6 +291,46 @@ func claudeGateActiveModels(reports []claudeGateReport) []string {
 	return active
 }
 
+// TestClaudeTokenReplay replays the committed evidence. The pins must match the
+// fixtures, and the stored report must equal the recomputed report. With no
+// attempts every candidate model must be inactive with a missing-slot failure.
+// Populated evidence is replayed by the synthetic tests in
+// token_estimator_claude_gate_replay_test.go.
+func TestClaudeTokenReplay(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	ev, err := claudeGateLoadEvidence(filepath.Join(claudeFixtureDir, claudeGateEvidenceName))
+	if err != nil {
+		t.Fatalf("load claude gate evidence: %v", err)
+	}
+	if !claudeGatePinsMatch(set, ev) {
+		t.Fatal("committed evidence pins do not match the fixtures")
+	}
+	reports, err := claudeGateEvaluate(context.Background(), set, ev)
+	if err != nil {
+		t.Fatalf("evaluate claude gate: %v", err)
+	}
+	if err := claudeGateStoredReportMatches(ev, reports); err != nil {
+		t.Fatalf("committed evidence: %v", err)
+	}
+	if len(ev.Attempts) == 0 {
+		for _, rep := range reports {
+			if rep.Active {
+				t.Errorf("%s is active with empty evidence", rep.Model)
+			}
+			if !slices.Contains(rep.Failures, claudeGateFailMissing) {
+				t.Errorf("%s failures %q lack %q", rep.Model, rep.Failures, claudeGateFailMissing)
+			}
+		}
+	}
+	// The active set and the production ctok table must hold the same IDs.
+	active := slices.Sorted(slices.Values(claudeGateActiveModels(reports)))
+	table := sortedCtokTableIDs()
+	if !slices.Equal(active, table) {
+		t.Errorf("active models %q != production ctok table %q", active, table)
+	}
+}
+
 // TestClaudeTokenGateBuilderRequests checks every model and slot against the authored
 // request contract, then renders it through the production CLI helpers that step 5
 // uses. The system text is the fixture system text plus the raw payload with no
@@ -409,18 +451,17 @@ func claudeGateCheckClean(t *testing.T, what string, data []byte) {
 	}
 }
 
-// TestClaudeTokenGateEvidenceSanitized checks the synthetic evidence, the authored
+// TestClaudeTokenGateEvidenceSanitized checks the committed evidence, the authored
 // requests, and the reports for absolute paths and credential or CLI-output keys.
-// It also checks that the encoded evidence holds exactly the documented top-level
-// keys, so no CLI result usage can be stored, and that every failure code is a fixed
-// gate code.
+// It also checks that the evidence holds exactly the documented top-level keys, so
+// no CLI result usage can be stored, and that every failure code is a fixed gate code.
 func TestClaudeTokenGateEvidenceSanitized(t *testing.T) {
 	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
-	ev := claudeGateSyntheticEvidence(t, set)
-	raw, err := json.Marshal(ev)
+	path := filepath.Join(claudeFixtureDir, claudeGateEvidenceName)
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("encode claude gate evidence: %v", err)
+		t.Fatalf("read claude gate evidence: %v", err)
 	}
 	claudeGateCheckClean(t, "evidence", raw)
 	var top map[string]json.RawMessage
@@ -448,6 +489,10 @@ func TestClaudeTokenGateEvidenceSanitized(t *testing.T) {
 			}
 			claudeGateCheckClean(t, fmt.Sprintf("%s %s request", model, slot), data)
 		}
+	}
+	ev, err := claudeGateLoadEvidence(path)
+	if err != nil {
+		t.Fatalf("load claude gate evidence: %v", err)
 	}
 	reports, err := claudeGateEvaluate(context.Background(), set, ev)
 	if err != nil {

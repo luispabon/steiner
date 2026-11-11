@@ -11,15 +11,6 @@ import (
 	"testing"
 )
 
-// claudeGeneratedExtraName is the non-capture fixture file the generation guard
-// treats as a destination.
-const claudeGeneratedExtraName = "notes.json"
-
-// claudeCaptureFile is one generated fixture file, relative to the fixture directory.
-type claudeCaptureFile struct {
-	Path string
-}
-
 // claudeResolvePath returns the absolute form of p with symbolic links resolved. The
 // part of p that does not exist yet is kept as written, after its existing ancestor is
 // resolved. A dangling symbolic link is an error, because creating its target could
@@ -220,12 +211,12 @@ func TestClaudeTokenGenerateDestinations(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(fixture, "captures"), 0o755); err != nil {
 		t.Fatalf("create fixture: %v", err)
 	}
-	for _, name := range []string{filepath.Join("captures", "attempt-01.jsonl"), claudeGeneratedExtraName} {
+	for _, name := range []string{filepath.Join("captures", "attempt-01.jsonl"), claudeProvenanceName} {
 		if err := os.WriteFile(filepath.Join(fixture, name), []byte("fixture\n"), 0o644); err != nil {
 			t.Fatalf("write fixture %s: %v", name, err)
 		}
 	}
-	files := []claudeCaptureFile{{Path: "captures/attempt-01.jsonl"}, {Path: claudeGeneratedExtraName}}
+	files := []claudeCaptureFile{{Path: "captures/attempt-01.jsonl"}, {Path: claudeProvenanceName}}
 	tests := []struct {
 		name    string
 		out     string
@@ -234,8 +225,8 @@ func TestClaudeTokenGenerateDestinations(t *testing.T) {
 	}{
 		{"empty output", filepath.Join(base, "clean"), nil, false},
 		{"captures symlink into fixture", filepath.Join(base, "captures-link"), map[string]string{"captures": filepath.Join(fixture, "captures")}, true},
-		{"extra file symlink into fixture", filepath.Join(base, "prov-link"), map[string]string{claudeGeneratedExtraName: filepath.Join(fixture, claudeGeneratedExtraName)}, true},
-		{"extra file symlink outside fixture", filepath.Join(base, "outside-link"), map[string]string{claudeGeneratedExtraName: filepath.Join(base, "elsewhere.json")}, true},
+		{"provenance symlink into fixture", filepath.Join(base, "prov-link"), map[string]string{claudeProvenanceName: filepath.Join(fixture, claudeProvenanceName)}, true},
+		{"provenance symlink outside fixture", filepath.Join(base, "outside-link"), map[string]string{claudeProvenanceName: filepath.Join(base, "elsewhere.json")}, true},
 		{"output is the fixture", fixture, nil, true},
 		{"output inside the fixture", filepath.Join(fixture, "captures", "nested"), nil, true},
 	}

@@ -27,51 +27,13 @@ type claudeGatePinnedCounts struct {
 	oldMixed, newMixed       int64
 }
 
-// claudeGateEstimatorGoldens holds the literal full-request counts the old tiktoken
-// counter and the candidate ctok counter produce for the authored payloads and the
-// synthetic tool schemas. They are estimator-generated regression goldens: no provider
-// was called, nothing is recorded provider evidence, and they say nothing about
-// estimation accuracy on any provider. An intentional change to a payload, a synthetic
-// schema, or either counter changes them, and the failure output of
-// TestClaudeTokenGateEstimatorGoldens prints the new values.
-var claudeGateEstimatorGoldens = map[string]claudeGatePinnedCounts{
-	"claude-opus-5-5":   {28, 37, 367, 474, 1120, 1528},
-	"claude-sonnet-5-5": {28, 37, 367, 474, 1120, 1528},
-	"claude-haiku-5-5":  {28, 37, 367, 474, 1120, 1528},
-}
-
-// TestClaudeTokenGateEstimatorGoldens checks the old and new full-request counts of
-// the baseline, tools, and mixed slots against the estimator-generated goldens.
-func TestClaudeTokenGateEstimatorGoldens(t *testing.T) {
-	t.Parallel()
-	set := loadClaudeFixtureForTest(t)
-	ctx := context.Background()
-	for _, model := range claudeLedgerModels {
-		oldC, _, err := claudeGateOldCounter(model)
-		if err != nil {
-			t.Fatalf("old counter for %s: %v", model, err)
-		}
-		newC, err := claudeFixtureCounter(model)
-		if err != nil {
-			t.Fatalf("new counter for %s: %v", model, err)
-		}
-		full := func(slot claudeLedgerSlot, counter textCounter) int64 {
-			t.Helper()
-			n, err := claudeGateFullCount(ctx, set, model, slot, counter)
-			if err != nil {
-				t.Fatalf("count %s %s: %v", model, slot, err)
-			}
-			return n
-		}
-		got := claudeGatePinnedCounts{
-			oldBaseline: full(claudeLedgerSlotBaseline, oldC), newBaseline: full(claudeLedgerSlotBaseline, newC),
-			oldTools: full(claudeLedgerSlotTools, oldC), newTools: full(claudeLedgerSlotTools, newC),
-			oldMixed: full(claudeLedgerSlotMixedTools, oldC), newMixed: full(claudeLedgerSlotMixedTools, newC),
-		}
-		if want := claudeGateEstimatorGoldens[model]; got != want {
-			t.Errorf("%s estimator goldens = %+v, want %+v", model, got, want)
-		}
-	}
+// claudeGatePinnedPredictions holds the literal counts for the current fixtures.
+// A change to a payload, to tools.json, or to either counter fails
+// TestClaudeTokenGatePinnedPredictions.
+var claudeGatePinnedPredictions = map[string]claudeGatePinnedCounts{
+	"claude-opus-5-5":   {25, 31, 2182, 3067, 2935, 4121},
+	"claude-sonnet-5-5": {25, 31, 2182, 3067, 2935, 4121},
+	"claude-haiku-5-5":  {25, 31, 2182, 3067, 2935, 4121},
 }
 
 // claudeGateEncodeEvidence returns the canonical evidence document for ev with
@@ -105,6 +67,40 @@ func claudeGateStoredReportMatches(ev claudeGateEvidence, reports []claudeGateRe
 		return errors.New("stored claude gate report differs from the recomputed report")
 	}
 	return nil
+}
+
+// TestClaudeTokenGatePinnedPredictions checks the old and new full-request counts
+// of the baseline, tools, and mixed slots against literal values.
+func TestClaudeTokenGatePinnedPredictions(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	ctx := context.Background()
+	for _, model := range claudeLedgerModels {
+		oldC, _, err := claudeGateOldCounter(model)
+		if err != nil {
+			t.Fatalf("old counter for %s: %v", model, err)
+		}
+		newC, err := claudeFixtureCounter(model)
+		if err != nil {
+			t.Fatalf("new counter for %s: %v", model, err)
+		}
+		full := func(slot claudeLedgerSlot, counter textCounter) int64 {
+			t.Helper()
+			n, err := claudeGateFullCount(ctx, set, model, slot, counter)
+			if err != nil {
+				t.Fatalf("count %s %s: %v", model, slot, err)
+			}
+			return n
+		}
+		got := claudeGatePinnedCounts{
+			oldBaseline: full(claudeLedgerSlotBaseline, oldC), newBaseline: full(claudeLedgerSlotBaseline, newC),
+			oldTools: full(claudeLedgerSlotTools, oldC), newTools: full(claudeLedgerSlotTools, newC),
+			oldMixed: full(claudeLedgerSlotMixedTools, oldC), newMixed: full(claudeLedgerSlotMixedTools, newC),
+		}
+		if want := claudeGatePinnedPredictions[model]; got != want {
+			t.Errorf("%s predictions = %+v, want %+v", model, got, want)
+		}
+	}
 }
 
 // TestClaudeTokenGateStoredReportReplay writes populated synthetic evidence with its
@@ -202,6 +198,33 @@ func TestClaudeTokenGateStoredReportReplay(t *testing.T) {
 				t.Error("stored report passed replay")
 			}
 		})
+	}
+}
+
+// TestClaudeTokenGateCommittedEvidenceIsCanonical checks that the committed file is
+// the canonical encoding of its evidence and recomputed reports, byte for byte.
+func TestClaudeTokenGateCommittedEvidenceIsCanonical(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	path := filepath.Join(claudeFixtureDir, claudeGateEvidenceName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read claude gate evidence: %v", err)
+	}
+	ev, err := claudeGateLoadEvidence(path)
+	if err != nil {
+		t.Fatalf("load claude gate evidence: %v", err)
+	}
+	reports, err := claudeGateEvaluate(context.Background(), set, ev)
+	if err != nil {
+		t.Fatalf("evaluate claude gate: %v", err)
+	}
+	data, err := claudeGateEncodeEvidence(ev, reports)
+	if err != nil {
+		t.Fatalf("encode claude gate evidence: %v", err)
+	}
+	if !bytes.Equal(data, raw) {
+		t.Error("committed evidence is not the canonical encoding of its reports")
 	}
 }
 

@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "observations": {
+    "path": "observations.json",
+    "sha256": "61ce15a4ce298a017bf1c592d85e80b96c6304b8ac39370e9b0b151fcbb74fe3",
+    "schema_version": 3,
+    "evaluator_commit": "643bfe916d84ed8dc5083044d0d154dc346132f1"
+  },
+  "ledger": {
+    "location": ".steiner/tmp/claude-token-validation/attempts.json",
+    "sha256": "804b66c77a1e0b00041833956a20e006eee2967ab55cd487148491a5d4c29ec1",
+    "attempts": 18
+  },
+  "originals": {
+    "location": ".steiner/tmp/claude-token-validation/raw",
+    "files": 19,
+    "excluded": {
+      "role": "preflight control_response, metadata only",
+      "bytes": 43334,
+      "sha256": "d30e4e3ec2c6679f7d280fabb4014138fce71294909425b35135436372639eff"
+    }
+  },
+  "negative_streams": [
+    {
+      "path": "streams/cache_presence.jsonl",
+      "bytes": 1417,
+      "sha256": "ff075cfa5907c5492ef950186f52e8b3d2dcf327ceed5b40c46e7429946c8b70"
+    },
+    {
+      "path": "streams/model_ambiguous.jsonl",
+      "bytes": 623,
+      "sha256": "56c98760a508a12e42939464c4ee931c1583807b0a0b123bc70bd911ee0f65b8"
+    },
+    {
+      "path": "streams/model_wrong.jsonl",
+      "bytes": 1360,
+      "sha256": "510d3198ae6a7288669ead58ecf7f8eef648b1446126c23e43c257601037a2f5"
+    },
+    {
+      "path": "streams/prompt_nonpositive.jsonl",
+      "bytes": 1401,
+      "sha256": "85ca6c4c95060d7263f356d90099a899a9602aa4e438e14b226845db788c4814"
+    },
+    {
+      "path": "streams/usage_missing.jsonl",
+      "bytes": 1286,
+      "sha256": "ffc3306285c2a48bc671444d4f4d420b2420e00d4c4fac583223bfed95be37ea"
+    },
+    {
+      "path": "streams/usage_no_input.jsonl",
+      "bytes": 1352,
+      "sha256": "1a0049c3b4372820b1712889d82ec36d2381e3eb01d8a30a81afff1111113aa2"
+    },
+    {
+      "path": "streams/usage_split_model.jsonl",
+      "bytes": 1798,
+      "sha256": "c8949d68218639ce6d36cf22d11d2455d9b13f54423d172394cd329e4e9391f2"
+    }
+  ],
+  "captures": [
+    {
+      "attempt_id": 1,
+      "path": "captures/attempt-01.jsonl",
+      "bytes": 1684,
+      "sha256": "7660cfec16f24234e12deae22411b4ab6281ef55f8d201b48d97fa387078b993",
+      "model": "claude-opus-5-5",
+      "slot": "baseline",
+      "prompt_total_tokens": 657,
+      "source_bytes": 9528,
+      "source_sha256": "c6990a87bac358d10bd9401bd192e856ac0ca7ccda2a0c8dcc87debc4d002271"
+    },
+    {
+      "attempt_id": 2,
+      "path": "captures/attempt-02.jsonl",
+      "bytes": 1686,
+      "sha256": "34a3c4593b0d0a3717e3373b654a558bdc48cab79ea92afe5b8cdf7cc5c047e6",
+      "model": "claude-opus-5-5",
+      "slot": "codeJSON",
+      "prompt_total_tokens": 2175,
+      "source_bytes": 9540,
+      "source_sha256": "422fbf97cd57842d9d2a2f1f60a04738715db1b22a6e407203e7841002c03633"
+    },
+    {
+      "attempt_id": 3,
+      "path": "captures/attempt-03.jsonl",
+      "bytes": 1897,
+      "sha256": "4252a7348eb55fcc205412fda8e820c144bdd6d472e1dbb4e1d4e9a610771e39",
+      "model": "claude-opus-5-5",
+      "slot": "markdown",
+      "prompt_total_tokens": 1994,
+      "source_bytes": 9825,
+      "source_sha256": "06bb46f65698252bb78bc36112fbd4f2ece8f1084bb9e7006895138d20ec2599"
+    },
+    {
+      "attempt_id": 4,
+      "path": "captures/attempt-04.jsonl",
+      "bytes": 1686,
+      "sha256": "9ed71099ad927ca34d1853b063e3612cd80a85a4bdbc6187b41eeb7759505c36",
+      "model": "claude-opus-5-5",
+      "slot": "Unicode",
+      "prompt_total_tokens": 1839,
+      "source_bytes": 9213,
+      "source_sha256": "eeba1652a3c32bfddecc2aaa1710cce709c45064fe3f057624c4fb2be3deb14c"
+    },
+    {
+      "attempt_id": 5,
+      "path": "captures/attempt-05.jsonl",
+      "bytes": 1686,
+      "sha256": "3e8bdeddfd62f29351c2db7382483a913db2c0f44eac3c1869317786efab8467",
+      "model": "claude-opus-5-5",
+      "slot": "tools",
+      "prompt_total_tokens": 4818,
+      "source_bytes": 9485,
+      "source_sha256": "af7d97a03ef6eda195b40c03574f38c5e2e01e073ebb9df969edf99c514f6539"
+    },
+    {
+      "attempt_id": 6,
+      "path": "captures/attempt-06.jsonl",
+      "bytes": 1692,
+      "sha256": "776a8c097461ee235a607ffef9523bc1360a128bbe2063e913456b35501b4876",
+      "model": "claude-opus-5-5",
+      "slot": "mixedtools",
+      "prompt_total_tokens": 5871,
+      "source_bytes": 9507,
+      "source_sha256": "43930dd50eb15e685f435fec57d309120cee81add843c6f38a8c961b1d93a7eb"
+    },
+    {
+      "attempt_id": 7,
+      "path": "captures/attempt-07.jsonl",
+      "bytes": 1688,
+      "sha256": "18c5cc1dce514a89f33ee47124cd9238f258bfda5dfb9ffab2a34b8e3071a958",
+      "model": "claude-sonnet-5-5",
+      "slot": "baseline",
+      "prompt_total_tokens": 660,
+      "source_bytes": 9205,
+      "source_sha256": "4d815e94d2e7ee545394b775cb2a48cbcbf17fb19d5d8bd057f949e3d8577e20"
+    },
+    {
+      "attempt_id": 8,
+      "path": "captures/attempt-08.jsonl",
+      "bytes": 1690,
+      "sha256": "2aa7a7ecdb599cb279781274112c7d53994e5ce8fd31ce1354ee1cbc1179d534",
+      "model": "claude-sonnet-5-5",
+      "slot": "codeJSON",
+      "prompt_total_tokens": 2179,
+      "source_bytes": 9248,
+      "source_sha256": "73e485a91a00afb0a2c59b0aa5ef9d0a73980994dd8fea17695f077651d3b9f2"
+    },
+    {
+      "attempt_id": 9,
+      "path": "captures/attempt-09.jsonl",
+      "bytes": 1690,
+      "sha256": "2a663b114fd8ea98b38170e0731a44bd3cb10f424f5bc3756f795cefb78b870d",
+      "model": "claude-sonnet-5-5",
+      "slot": "markdown",
+      "prompt_total_tokens": 1998,
+      "source_bytes": 9224,
+      "source_sha256": "ec2bd2a1a87c8f21bc7f0c040fb31699682e0b04a7f77e5dfd6b5f253f55b917"
+    },
+    {
+      "attempt_id": 10,
+      "path": "captures/attempt-10.jsonl",
+      "bytes": 1690,
+      "sha256": "ec7fc5279c8e6b24c408a9a4c0b29a70b624c341bd7032598d5041b0679355eb",
+      "model": "claude-sonnet-5-5",
+      "slot": "Unicode",
+      "prompt_total_tokens": 1843,
+      "source_bytes": 9223,
+      "source_sha256": "3cf248b6d3f9f38278749774e151dfdd4d2d8249ef8bcfeea40a5b679a15ca16"
+    },
+    {
+      "attempt_id": 11,
+      "path": "captures/attempt-11.jsonl",
+      "bytes": 1690,
+      "sha256": "55869108c1cd3b5e01df34dcc52ba057939bae6fd558a5fd521048c2f55fba61",
+      "model": "claude-sonnet-5-5",
+      "slot": "tools",
+      "prompt_total_tokens": 4822,
+      "source_bytes": 9519,
+      "source_sha256": "8689f0f8c0addab1d4462ae3f9b3743444f192d01d3a5ce2874712b4d29e2699"
+    },
+    {
+      "attempt_id": 12,
+      "path": "captures/attempt-12.jsonl",
+      "bytes": 1696,
+      "sha256": "a10d32dee5af2e22c484499d39c4f2ac6068dd3a34a1643db21acf45a66e0fb8",
+      "model": "claude-sonnet-5-5",
+      "slot": "mixedtools",
+      "prompt_total_tokens": 5876,
+      "source_bytes": 9518,
+      "source_sha256": "64f9869014f3a98ff1a5f8c65a6f307ada5dae5f1a421867e8f37e2e89af8e58"
+    },
+    {
+      "attempt_id": 13,
+      "path": "captures/attempt-13.jsonl",
+      "bytes": 1897,
+      "sha256": "b63730eb1c760b87fadbb8ffc4aa5c68de18655f417f754f901fd2b9d041b8f3",
+      "model": "claude-haiku-5-5",
+      "slot": "baseline",
+      "prompt_total_tokens": 658,
+      "source_bytes": 9513,
+      "source_sha256": "5fcf9c1a7e422fc888a98fd184716913984876aac5df16cc1dd1c9f44a718289"
+    },
+    {
+      "attempt_id": 14,
+      "path": "captures/attempt-14.jsonl",
+      "bytes": 1899,
+      "sha256": "d25b4ea5c1306eff532114e095b64b33e6fcafaf6c2daa0fc7c70c0be8245a56",
+      "model": "claude-haiku-5-5",
+      "slot": "codeJSON",
+      "prompt_total_tokens": 2177,
+      "source_bytes": 9505,
+      "source_sha256": "145b29691b4bb3907b6a29782e213870a959b92645cfa27d03c394061350652f"
+    },
+    {
+      "attempt_id": 15,
+      "path": "captures/attempt-15.jsonl",
+      "bytes": 1899,
+      "sha256": "974744a1647a96bf0e0734445271b2a80b9add1bf260097f42a9eaf09197fc5f",
+      "model": "claude-haiku-5-5",
+      "slot": "markdown",
+      "prompt_total_tokens": 1996,
+      "source_bytes": 9526,
+      "source_sha256": "0849d9415eed63733e60c5f88f72f715303492c59524f505ff76dac56c0e6232"
+    },
+    {
+      "attempt_id": 16,
+      "path": "captures/attempt-16.jsonl",
+      "bytes": 1899,
+      "sha256": "35fdc2f8b6af2099c1fb26288d51130da46aabd2bd0ca80546a94afe28b05fd9",
+      "model": "claude-haiku-5-5",
+      "slot": "Unicode",
+      "prompt_total_tokens": 1842,
+      "source_bytes": 9526,
+      "source_sha256": "34ada30bed6b2524a0e82055509f98dc90b5f0ea56967babdd4857ea4c9c4fd1"
+    },
+    {
+      "attempt_id": 17,
+      "path": "captures/attempt-17.jsonl",
+      "bytes": 1899,
+      "sha256": "8408bd1b27ba9f31a1f1bce9615a0f555e66a8d2f6c3ef9bd6dc7d5a0484ee2b",
+      "model": "claude-haiku-5-5",
+      "slot": "tools",
+      "prompt_total_tokens": 4820,
+      "source_bytes": 9801,
+      "source_sha256": "4bd4fa8e87d5b8606924972a92c51f44cfef8bdd9f6ede7945b0c73a4a7943f5"
+    },
+    {
+      "attempt_id": 18,
+      "path": "captures/attempt-18.jsonl",
+      "bytes": 1905,
+      "sha256": "56b00516b1d99fc7ce686c53cdafe047f3277a365a4abefd7bc55e744c23ab3f",
+      "model": "claude-haiku-5-5",
+      "slot": "mixedtools",
+      "prompt_total_tokens": 5873,
+      "source_bytes": 9817,
+      "source_sha256": "340793899aa16c981410926756fb696bfd4f4bd543966ee00d6ce28048b94619"
+    }
+  ]
+}

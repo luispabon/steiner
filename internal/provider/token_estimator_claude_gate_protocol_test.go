@@ -20,7 +20,7 @@ import (
 // measurement and acceptance rules are in token_estimator_claude_validation_test.go.
 
 const (
-	claudeGateEvidenceName = "evidence.json"
+	claudeGateEvidenceName = "observations.json"
 	// claudeGateSchemaVersion is the only evidence schema this code reads.
 	claudeGateSchemaVersion = 3
 	// claudeGateMaxOutputTokens is the output cap requested for every launch. The
@@ -349,7 +349,7 @@ func claudeGateSameRequest(recorded json.RawMessage, want []byte) bool {
 func TestClaudeTokenGateJSONOmittedMatchesChatRequest(t *testing.T) {
 	t.Parallel()
 	// RawPromptTokenEstimate carries the pre-send estimate to post-response
-	// calibration. It is not a launch control, so the pinned protocol does not
+	// calibration. It is not a launch control, so the frozen evidence does not
 	// name it.
 	nonLaunch := map[string]struct{}{"RawPromptTokenEstimate": {}}
 	var omitted []string

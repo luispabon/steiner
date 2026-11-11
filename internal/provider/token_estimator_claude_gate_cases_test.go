@@ -12,7 +12,7 @@ import (
 )
 
 // The gate cases are offline and synthetic. Each case builds its evidence or report
-// in memory, and none of them writes an evidence file. Judge cases use fixed
+// in memory, and none of them writes observations.json. Judge cases use fixed
 // numbers, so each gate and each exact threshold is checked on its own.
 
 // claudeGateBaseReport returns a passing report with fixed numbers. Judge cases
@@ -741,33 +741,5 @@ func TestClaudeTokenGateEvaluateCancelled(t *testing.T) {
 	}
 	if reports != nil {
 		t.Errorf("reports = %d, want none", len(reports))
-	}
-}
-
-// TestClaudeTokenGateNoAttempts checks that evidence with no attempts leaves every
-// candidate model inactive with a missing-slot failure, and that no model is measured
-// without its six records.
-func TestClaudeTokenGateNoAttempts(t *testing.T) {
-	t.Parallel()
-	set := loadClaudeFixtureForTest(t)
-	ev := claudeGateSyntheticEvidence(t, set)
-	ev.Attempts = []claudeLedgerRecord{}
-	reports, err := claudeGateEvaluate(context.Background(), set, ev)
-	if err != nil {
-		t.Fatalf("evaluate empty evidence: %v", err)
-	}
-	if len(reports) != len(claudeLedgerModels) {
-		t.Fatalf("reports = %d, want %d", len(reports), len(claudeLedgerModels))
-	}
-	for _, rep := range reports {
-		if rep.Active {
-			t.Errorf("%s is active with empty evidence", rep.Model)
-		}
-		if !slices.Contains(rep.Failures, claudeGateFailMissing) {
-			t.Errorf("%s failures %q lack %q", rep.Model, rep.Failures, claudeGateFailMissing)
-		}
-	}
-	if got := claudeGateActiveModels(reports); len(got) != 0 {
-		t.Errorf("active models = %q, want none", got)
 	}
 }

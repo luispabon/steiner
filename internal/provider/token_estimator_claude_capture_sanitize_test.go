@@ -6,16 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 )
 
-// The sanitizer rewrites one raw CLI capture as a stream that
-// claudeLedgerObserveStream reads. It keeps only the fields the observer reads, with
-// synthetic IDs. It rejects every envelope or event kind it does not list, and any
-// thinking content, so no rejected kind can reach a fixture.
+// The sanitizer derives each captures/attempt-NN.jsonl from one retained original
+// capture. It keeps only the fields claudeLedgerObserveStream reads, with synthetic
+// IDs. It rejects every envelope or event kind it does not list, and any thinking
+// content, so no rejected kind can reach a fixture.
 
 // errClaudeCaptureSanitize marks a capture the sanitizer will not derive from.
 var errClaudeCaptureSanitize = errors.New("claude capture sanitize rejected")
@@ -302,9 +304,9 @@ func claudeCaptureIndex(ev map[string]any) (json.Number, error) {
 	return n, nil
 }
 
-// claudeCaptureTextAllow lists the text fragments a sanitized capture may hold. Any
-// other text fails the capture, so text from a future output cannot reach a fixture
-// unnoticed.
+// claudeCaptureTextAllow lists the text fragments a sanitized capture may hold. These
+// are the fragments the committed captures hold. Any other text fails the capture, so
+// text from a future output cannot reach a fixture unnoticed.
 var claudeCaptureTextAllow = []string{"", "O", "K", "OK"}
 
 // claudeCaptureTextOK reports whether text is one of claudeCaptureTextAllow.
@@ -332,6 +334,70 @@ func claudeCaptureString(obj map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("%s is not a string", key)
 	}
 	return s, nil
+}
+
+// claudeCaptureSource is one original capture after sanitizing and matching.
+type claudeCaptureSource struct {
+	Attempt      claudeLedgerRecord
+	SourceSHA256 string
+	SourceBytes  int
+	Data         []byte
+}
+
+// claudeCaptureSanitizeDir sanitizes every original capture in dir except the control
+// file, which its pinned digest excludes. Each original is hashed before it is
+// sanitized. Each sanitized capture must replay to one succeeded attempt, matched by
+// model and prompt total, with that attempt's identity, usage, and thinking flag. The
+// result is sorted by attempt ID.
+func claudeCaptureSanitizeDir(dir string, attempts []claudeLedgerRecord) ([]claudeCaptureSource, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read original captures: %w", err)
+	}
+	var (
+		srcs []claudeCaptureSource
+		keys []claudeCaptureKey
+		obs  []claudeLedgerObservation
+	)
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".jsonl" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("read original capture: %w", err)
+		}
+		digest := claudeGateSHA256(raw)
+		if digest == claudeProvenanceControlSHA256 {
+			continue
+		}
+		clean, err := sanitizeClaudeCapture(raw)
+		if err != nil {
+			return nil, fmt.Errorf("sanitize original %s: %w", digest, err)
+		}
+		o, err := claudeCaptureReplayAny(clean)
+		if err != nil {
+			return nil, fmt.Errorf("replay original %s: %w", digest, err)
+		}
+		keys = append(keys, claudeCaptureKey{Model: o.ObservedModel, PromptTotal: o.PromptTotal})
+		obs = append(obs, o)
+		srcs = append(srcs, claudeCaptureSource{SourceSHA256: digest, SourceBytes: len(raw), Data: clean})
+	}
+	matched, err := claudeCaptureMatch(attempts, keys)
+	if err != nil {
+		return nil, err
+	}
+	for c := range srcs {
+		rec := attempts[matched[c]]
+		if err := claudeCaptureCheckRecord(obs[c], rec); err != nil {
+			return nil, err
+		}
+		srcs[c].Attempt = rec
+	}
+	slices.SortFunc(srcs, func(a, b claudeCaptureSource) int {
+		return a.Attempt.AttemptID - b.Attempt.AttemptID
+	})
+	return srcs, nil
 }
 
 // claudeCaptureIDPattern matches the synthetic session and message IDs.
@@ -457,11 +523,23 @@ func TestClaudeTokenCaptureSanitizeKeepsStream(t *testing.T) {
 	}
 }
 
-// TestClaudeTokenCaptureSanitizeAllowlist checks a stored line in every position that
-// can hold a breach against the key allowlist, the forbidden-key and path rules, and
-// the synthetic ID form. Each breach kind must be reported.
+// TestClaudeTokenCaptureSanitizeAllowlist checks every committed capture against the
+// key allowlist, the forbidden-key and path rules, and the synthetic ID form. It also
+// checks that each breach kind is reported.
 func TestClaudeTokenCaptureSanitizeAllowlist(t *testing.T) {
 	t.Parallel()
+	paths, err := filepath.Glob(filepath.Join(claudeFixtureDir, "captures", "*.jsonl"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("list sanitized captures: %v (%d found)", err, len(paths))
+	}
+	for _, path := range paths {
+		data := claudeLedgerReadStream(t, path)
+		for i, line := range bytes.Split(bytes.TrimRight(data, "\n"), []byte("\n")) {
+			for _, msg := range claudeCaptureProblems(fmt.Sprintf("%s line %d", filepath.Base(path), i+1), line) {
+				t.Error(msg)
+			}
+		}
+	}
 	ids := `,"session_id":"00000000-0000-4000-8000-000000000001","uuid":"00000000-0000-4000-8000-000000000002"`
 	bad := []struct{ name, line string }{
 		{"forbidden key", `{"type":"system","subtype":"init","model":"claude-opus-5-5","apiKey":"x"` + ids + `}`},

@@ -1,7 +1,10 @@
 package provider
 
 import (
-	"context"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,87 +17,328 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 )
 
-// The Claude estimation fixtures under testdata/claude_token_estimation are
-// authored text payloads for synthetic requests. They hold no recorded API
-// traffic and no measured token counts.
+// The Claude token fixture is authored text plus pinned hashes and token deltas.
+// Loaders and helpers are per call and hold no package state.
 const (
-	claudeSyntheticDir    = "testdata/claude_token_estimation"
-	claudeSyntheticModel  = "claude-synthetic-estimation"
-	claudeSyntheticSystem = "Synthetic system prompt."
+	claudeFixtureDir    = "testdata/claude_token_estimation"
+	claudeFixtureSystem = "Reply only OK."
+	claudeFixtureUser   = "Reply OK."
+	claudeFixtureModel  = "claude-token-fixture"
 )
 
-// claudeSyntheticPayloadNames lists the authored payload files in report order.
-var claudeSyntheticPayloadNames = []string{"code_json", "markdown_prose", "unicode", "mixed"}
+// claudeFixtureManifest mirrors manifest.json.
+type claudeFixtureManifest struct {
+	Library        claudeFixtureLibrary      `json:"library"`
+	Model          string                    `json:"model"`
+	System         string                    `json:"system"`
+	User           string                    `json:"user"`
+	DeltaFormula   string                    `json:"delta_formula"`
+	BaselineTokens int                       `json:"baseline_tokens"`
+	Payloads       []claudeFixturePayloadPin `json:"payloads"`
+	Tools          claudeFixtureToolsPin     `json:"tools"`
+}
 
-// claudeSyntheticCounter returns a fresh ctok counter for the synthetic model.
-// It fails when selection falls back to a tiktoken codec instead of ctok.
-func claudeSyntheticCounter() (textCounter, error) {
-	counter, meta, err := selectTextCounter(claudeSyntheticModel, counterSelectOptions{
-		ids: map[string]struct{}{claudeSyntheticModel: {}},
+// claudeFixtureLibrary pins the ctok-go module version and commit.
+type claudeFixtureLibrary struct {
+	Module        string `json:"module"`
+	Version       string `json:"version"`
+	Commit        string `json:"commit"`
+	ReleaseCommit string `json:"release_commit"`
+}
+
+// claudeFixturePayloadPin pins one payload file and its token delta.
+type claudeFixturePayloadPin struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Bytes       int    `json:"bytes"`
+	SHA256      string `json:"sha256"`
+	DeltaTokens int    `json:"delta_tokens"`
+}
+
+// claudeFixtureToolsPin pins the tools.json bytes, hash, and scope.
+type claudeFixtureToolsPin struct {
+	Path   string `json:"path"`
+	Bytes  int    `json:"bytes"`
+	SHA256 string `json:"sha256"`
+	Scope  string `json:"scope"`
+}
+
+// claudeFixturePayload is one hash-verified payload. DeltaTokens is
+// CountContent(claudeFixtureSystem+payload) minus CountContent(claudeFixtureSystem).
+type claudeFixturePayload struct {
+	Name        string
+	Path        string
+	Bytes       []byte
+	SHA256      string
+	DeltaTokens int
+}
+
+// claudeFixtureSet is the loaded fixture contract for the offline evaluator and benchmark.
+type claudeFixtureSet struct {
+	Manifest       claudeFixtureManifest
+	BaselineTokens int
+	Payloads       []claudeFixturePayload
+	Tools          []ToolSpec
+	ToolsBytes     []byte
+}
+
+// claudeFixtureCounter selects the ctok counter for model with a fresh, local
+// counter. A tiktoken codec is never loaded for the fixture model.
+func claudeFixtureCounter(model string) (textCounter, error) {
+	counter, meta, err := selectTextCounter(model, counterSelectOptions{
+		ids: map[string]struct{}{model: {}},
 		codecLoader: func(string) (tokenizer.Codec, error) {
-			return nil, errors.New("synthetic claude model must not load a tiktoken codec")
+			return nil, errors.New("claude fixture model must not load a tiktoken codec")
 		},
 		candidate: &claudeTextCounter{},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("select synthetic claude counter: %w", err)
+		return nil, fmt.Errorf("select claude fixture counter: %w", err)
 	}
 	if meta.strategy != TokenizerStrategyCtok {
-		return nil, fmt.Errorf("synthetic claude strategy = %q, want %q", meta.strategy, TokenizerStrategyCtok)
+		return nil, fmt.Errorf("claude fixture strategy = %q, want %q", meta.strategy, TokenizerStrategyCtok)
 	}
 	return counter, nil
 }
 
-// loadClaudeSyntheticPayloads reads the authored payload files in dir.
-func loadClaudeSyntheticPayloads(dir string) (map[string]string, error) {
-	payloads := make(map[string]string, len(claudeSyntheticPayloadNames))
-	for _, name := range claudeSyntheticPayloadNames {
-		path := filepath.Join(dir, "payloads", name+".txt")
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read claude synthetic payload %s: %w", name, err)
-		}
-		if len(data) == 0 {
-			return nil, fmt.Errorf("read claude synthetic payload %s: file is empty", name)
-		}
-		payloads[name] = string(data)
-	}
-	return payloads, nil
-}
-
-// mustClaudeSyntheticPayloads loads the payloads or stops the test.
-func mustClaudeSyntheticPayloads(t testing.TB) map[string]string {
-	t.Helper()
-	payloads, err := loadClaudeSyntheticPayloads(claudeSyntheticDir)
+// claudeFixtureDelta returns CountContent(claudeFixtureSystem+payload) minus
+// baseline. The payload is counted verbatim, with no trimming, separator, or
+// line-ending normalization.
+func claudeFixtureDelta(counter textCounter, baseline int, payload string) (int, error) {
+	total, err := counter.Count(claudeFixtureSystem + payload)
 	if err != nil {
-		t.Fatal(err)
-	}
-	return payloads
-}
-
-// claudeSyntheticDelta returns CountContent(claudeSyntheticSystem+payload) minus
-// baseline. The payload is counted verbatim, with no trimming or normalization.
-func claudeSyntheticDelta(counter textCounter, baseline int, payload string) (int, error) {
-	total, err := counter.Count(claudeSyntheticSystem + payload)
-	if err != nil {
-		return 0, fmt.Errorf("count claude synthetic payload: %w", err)
+		return 0, fmt.Errorf("count claude fixture payload: %w", err)
 	}
 	return total - baseline, nil
 }
 
-// claudeSyntheticRecordingCounter counts text as its byte length and records each input.
-type claudeSyntheticRecordingCounter struct {
+// loadClaudeFixture reads the manifest, verifies every payload and tools.json
+// against their pinned length and SHA-256, and measures each payload's token delta.
+func loadClaudeFixture(dir string) (claudeFixtureSet, error) {
+	var set claudeFixtureSet
+	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return set, fmt.Errorf("read claude fixture manifest: %w", err)
+	}
+	if err := json.Unmarshal(raw, &set.Manifest); err != nil {
+		return set, fmt.Errorf("parse claude fixture manifest: %w", err)
+	}
+	counter, err := claudeFixtureCounter(set.Manifest.Model)
+	if err != nil {
+		return set, err
+	}
+	baseline, err := counter.Count(claudeFixtureSystem)
+	if err != nil {
+		return set, fmt.Errorf("count claude fixture baseline: %w", err)
+	}
+	set.BaselineTokens = baseline
+	for _, pin := range set.Manifest.Payloads {
+		data, err := claudeFixtureReadVerified(dir, pin.Path, pin.Bytes, pin.SHA256)
+		if err != nil {
+			return set, err
+		}
+		delta, err := claudeFixtureDelta(counter, baseline, string(data))
+		if err != nil {
+			return set, fmt.Errorf("claude fixture payload %s: %w", pin.Name, err)
+		}
+		set.Payloads = append(set.Payloads, claudeFixturePayload{
+			Name:        pin.Name,
+			Path:        pin.Path,
+			Bytes:       data,
+			SHA256:      pin.SHA256,
+			DeltaTokens: delta,
+		})
+	}
+	tools := set.Manifest.Tools
+	data, err := claudeFixtureReadVerified(dir, tools.Path, tools.Bytes, tools.SHA256)
+	if err != nil {
+		return set, err
+	}
+	if err := json.Unmarshal(data, &set.Tools); err != nil {
+		return set, fmt.Errorf("parse claude fixture tools: %w", err)
+	}
+	set.ToolsBytes = data
+	return set, nil
+}
+
+// claudeFixtureReadVerified reads dir/rel and checks its length and SHA-256.
+func claudeFixtureReadVerified(dir, rel string, wantBytes int, wantSHA256 string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(dir, rel))
+	if err != nil {
+		return nil, fmt.Errorf("read claude fixture %s: %w", rel, err)
+	}
+	if len(data) != wantBytes {
+		return nil, fmt.Errorf("claude fixture %s has %d bytes, want %d", rel, len(data), wantBytes)
+	}
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != wantSHA256 {
+		return nil, fmt.Errorf("claude fixture %s sha256 = %s, want %s", rel, got, wantSHA256)
+	}
+	return data, nil
+}
+
+func loadClaudeFixtureForTest(t *testing.T) claudeFixtureSet {
+	t.Helper()
+	set, err := loadClaudeFixture(claudeFixtureDir)
+	if err != nil {
+		t.Fatalf("load claude fixture: %v", err)
+	}
+	return set
+}
+
+// claudeFixtureGoModVersion returns the version go.mod requires for module.
+func claudeFixtureGoModVersion(t *testing.T, module string) string {
+	t.Helper()
+	raw, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if fields := strings.Fields(line); len(fields) == 2 && fields[0] == module {
+			return fields[1]
+		}
+	}
+	t.Fatalf("go.mod has no requirement for %s", module)
+	return ""
+}
+
+func TestClaudeTokenFixtureManifestPinsLibraryAndBaseline(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	m := set.Manifest
+	const commit = "7969144b7665d73ae1e20daee102cf1c5e0947a1"
+	if m.Library.Module != "github.com/luispabon/ctok-go" {
+		t.Errorf("library module = %q", m.Library.Module)
+	}
+	if m.Library.Commit != commit {
+		t.Errorf("library commit = %q, want %q", m.Library.Commit, commit)
+	}
+	// Tag v0.2.0 is lightweight and points directly at releaseCommit. Its
+	// embedded data and count behavior match commit, the live-test commit, so the
+	// payload and tools pins still describe the released source.
+	const releaseVersion = "v0.2.0"
+	const releaseCommit = "3359446f1c322f3ac6bc8237dd6f47e8ec918b5a"
+	if m.Library.Version != releaseVersion {
+		t.Errorf("library version = %q, want %q", m.Library.Version, releaseVersion)
+	}
+	if m.Library.ReleaseCommit != releaseCommit {
+		t.Errorf("library release commit = %q, want %q", m.Library.ReleaseCommit, releaseCommit)
+	}
+	if got := claudeFixtureGoModVersion(t, m.Library.Module); got != m.Library.Version {
+		t.Errorf("go.mod requires %s, manifest pins %s", got, m.Library.Version)
+	}
+	if m.Model != claudeFixtureModel {
+		t.Errorf("manifest model = %q, want %q", m.Model, claudeFixtureModel)
+	}
+	if m.System != claudeFixtureSystem {
+		t.Errorf("manifest system = %q, want %q", m.System, claudeFixtureSystem)
+	}
+	if m.User != claudeFixtureUser {
+		t.Errorf("manifest user = %q, want %q", m.User, claudeFixtureUser)
+	}
+	const deltaFormula = "CountContent(system + payload) - CountContent(system)"
+	if m.DeltaFormula != deltaFormula {
+		t.Errorf("manifest delta_formula = %q, want %q", m.DeltaFormula, deltaFormula)
+	}
+	if set.BaselineTokens != m.BaselineTokens {
+		t.Errorf("baseline tokens = %d, manifest pins %d", set.BaselineTokens, m.BaselineTokens)
+	}
+}
+
+func TestClaudeTokenFixturePayloadsAreOrderedAndPinned(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	want := []string{"code_json", "markdown_prose", "unicode", "mixed"}
+	if len(set.Payloads) != len(want) {
+		t.Fatalf("payloads = %d, want %d", len(set.Payloads), len(want))
+	}
+	for i, name := range want {
+		p := set.Payloads[i]
+		if p.Name != name || p.Path != "payloads/"+name+".txt" {
+			t.Errorf("payload %d = %q at %q, want %q at payloads/%s.txt", i, p.Name, p.Path, name, name)
+		}
+		pin := set.Manifest.Payloads[i]
+		sum := sha256.Sum256(p.Bytes)
+		if got := hex.EncodeToString(sum[:]); p.SHA256 != pin.SHA256 || got != pin.SHA256 {
+			t.Errorf("%s sha256 = %s (loaded %s), manifest pins %s", p.Name, got, p.SHA256, pin.SHA256)
+		}
+		if len(p.Bytes) != pin.Bytes {
+			t.Errorf("%s has %d bytes, manifest pins %d", p.Name, len(p.Bytes), pin.Bytes)
+		}
+	}
+}
+
+func TestClaudeTokenFixturePayloadDeltasAreInRangeAndPinned(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	for i, p := range set.Payloads {
+		if p.DeltaTokens < 1000 || p.DeltaTokens > 2000 {
+			t.Errorf("%s delta = %d tokens, want 1000 to 2000", p.Name, p.DeltaTokens)
+		}
+		if want := set.Manifest.Payloads[i].DeltaTokens; p.DeltaTokens != want {
+			t.Errorf("%s delta = %d tokens, manifest pins %d", p.Name, p.DeltaTokens, want)
+		}
+	}
+}
+
+func TestClaudeTokenFixturePayloadsSurviveTrimSpace(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	for _, p := range set.Payloads {
+		raw := claudeFixtureSystem + string(p.Bytes)
+		if got := strings.TrimSpace(raw); got != raw {
+			t.Errorf("%s: strings.TrimSpace changes system+payload", p.Name)
+		}
+	}
+}
+
+// claudeFixtureRecordingCounter counts text as its byte length and records each input.
+type claudeFixtureRecordingCounter struct {
 	inputs []string
 }
 
-func (c *claudeSyntheticRecordingCounter) Count(text string) (int, error) {
+func (c *claudeFixtureRecordingCounter) Count(text string) (int, error) {
 	c.inputs = append(c.inputs, text)
 	return len(text), nil
 }
 
-func TestClaudeSyntheticPayloadFixtures(t *testing.T) {
+func TestClaudeTokenFixtureDeltaCountsRawPayload(t *testing.T) {
 	t.Parallel()
-	payloads := mustClaudeSyntheticPayloads(t)
+	tests := []struct {
+		name    string
+		payload string
+	}{
+		{"leading tab", "\tindented line\n"},
+		{"leading and trailing spaces", "  padded  \n\n"},
+		{"crlf line endings", "first\r\nsecond\r\n"},
+		{"tab and crlf mix", "col\tvalue\r\n\t\r\n"},
+		{"no final newline", "tail without newline"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter := &claudeFixtureRecordingCounter{}
+			delta, err := claudeFixtureDelta(counter, len(claudeFixtureSystem), tt.payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := claudeFixtureSystem + tt.payload
+			if len(counter.inputs) != 1 || counter.inputs[0] != want {
+				t.Fatalf("counted %q, want verbatim %q", counter.inputs, want)
+			}
+			if delta != len(tt.payload) {
+				t.Errorf("delta = %d, want %d raw payload bytes", delta, len(tt.payload))
+			}
+		})
+	}
+}
+
+func TestClaudeTokenFixturePayloadContentKinds(t *testing.T) {
+	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	texts := make(map[string]string, len(set.Payloads))
+	for _, p := range set.Payloads {
+		texts[p.Name] = string(p.Bytes)
+	}
 	needles := []struct {
 		payload string
 		want    []string
@@ -105,12 +349,12 @@ func TestClaudeSyntheticPayloadFixtures(t *testing.T) {
 	}
 	for _, n := range needles {
 		for _, sub := range n.want {
-			if !strings.Contains(payloads[n.payload], sub) {
+			if !strings.Contains(texts[n.payload], sub) {
 				t.Errorf("%s payload lacks %q", n.payload, sub)
 			}
 		}
 	}
-	runes := []rune(payloads["unicode"])
+	runes := []rune(texts["unicode"])
 	for _, check := range []struct {
 		name  string
 		match func(rune) bool
@@ -127,89 +371,58 @@ func TestClaudeSyntheticPayloadFixtures(t *testing.T) {
 	}
 }
 
-func TestClaudeSyntheticDeltaCountsRawPayload(t *testing.T) {
+// TestClaudeTokenFixtureToolsMatchRecordedSet checks tools.json against the
+// tool set recorded when the fixture was captured. Live core names are pinned
+// by the production test in token_estimator_claude_tools_test.go.
+func TestClaudeTokenFixtureToolsMatchRecordedSet(t *testing.T) {
 	t.Parallel()
+	set := loadClaudeFixtureForTest(t)
+	names := make([]string, 0, len(set.Tools))
+	for _, spec := range set.Tools {
+		if spec.Type != "function" {
+			t.Errorf("tool %q type = %q, want function", spec.Function.Name, spec.Type)
+		}
+		names = append(names, spec.Function.Name)
+	}
+	// tools.json is frozen Claude request evidence, so it still records the
+	// retired ls tool.
+	want := []string{"bash", "display_file", "fetch_url", "glob", "grep", "ls", "mutate", "read", "workflow_handoff"}
+	if !slices.Equal(names, want) {
+		t.Fatalf("tool names = %v, want %v", names, want)
+	}
+	canonical, err := json.MarshalIndent(set.Tools, "", "  ")
+	if err != nil {
+		t.Fatalf("encode tools: %v", err)
+	}
+	if !bytes.Equal(append(canonical, '\n'), set.ToolsBytes) {
+		t.Error("tools.json is not in canonical indented form")
+	}
+}
+
+func TestClaudeTokenFixtureReadVerifiedRejectsWrongPins(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sample.txt"), []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write sample: %v", err)
+	}
+	sum := sha256.Sum256([]byte("abc"))
+	goodSHA := hex.EncodeToString(sum[:])
+	if _, err := claudeFixtureReadVerified(dir, "sample.txt", 3, goodSHA); err != nil {
+		t.Fatalf("matching pins rejected: %v", err)
+	}
 	tests := []struct {
-		name    string
-		payload string
+		name  string
+		bytes int
+		sha   string
 	}{
-		{"leading tab", "\tindented line\n"},
-		{"leading and trailing spaces", "  padded  \n\n"},
-		{"crlf line endings", "first\r\nsecond\r\n"},
-		{"tab and crlf mix", "col\tvalue\r\n\t\r\n"},
-		{"no final newline", "tail without newline"},
+		{"wrong length", 4, goodSHA},
+		{"wrong hash", 3, strings.Repeat("0", 64)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			counter := &claudeSyntheticRecordingCounter{}
-			delta, err := claudeSyntheticDelta(counter, len(claudeSyntheticSystem), tt.payload)
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := claudeSyntheticSystem + tt.payload
-			if len(counter.inputs) != 1 || counter.inputs[0] != want {
-				t.Fatalf("counted %q, want verbatim %q", counter.inputs, want)
-			}
-			if delta != len(tt.payload) {
-				t.Errorf("delta = %d, want %d raw payload bytes", delta, len(tt.payload))
+			if _, err := claudeFixtureReadVerified(dir, "sample.txt", tt.bytes, tt.sha); err == nil {
+				t.Error("mismatched pins accepted")
 			}
 		})
-	}
-}
-
-func TestClaudeSyntheticEstimatesAreDeterministic(t *testing.T) {
-	t.Parallel()
-	payloads := mustClaudeSyntheticPayloads(t)
-	for _, name := range claudeSyntheticPayloadNames {
-		t.Run(name, func(t *testing.T) {
-			var firstBaseline, firstDelta int
-			for i := range 2 {
-				counter, err := claudeSyntheticCounter()
-				if err != nil {
-					t.Fatal(err)
-				}
-				baseline, err := counter.Count(claudeSyntheticSystem)
-				if err != nil {
-					t.Fatal(err)
-				}
-				delta, err := claudeSyntheticDelta(counter, baseline, payloads[name])
-				if err != nil {
-					t.Fatal(err)
-				}
-				if delta <= 0 {
-					t.Fatalf("delta = %d, want > 0", delta)
-				}
-				if i == 0 {
-					firstBaseline, firstDelta = baseline, delta
-					continue
-				}
-				if baseline != firstBaseline || delta != firstDelta {
-					t.Fatalf("second count = (%d, %d), want (%d, %d)", baseline, delta, firstBaseline, firstDelta)
-				}
-			}
-		})
-	}
-}
-
-func TestClaudeSyntheticRequestEstimateUsesContentCounter(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	payloads := mustClaudeSyntheticPayloads(t)
-	request := ChatRequest{
-		Model: "claude-opus-5-5",
-		Messages: []Message{
-			{Role: MessageRoleUser, Content: payloads["mixed"]},
-		},
-	}
-	got, err := EstimateChatRequestTokens(ctx, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err := countRequestWithCounter(ctx, request, &claudeTextCounter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != want {
-		t.Errorf("EstimateChatRequestTokens = %d, content count = %d", got, want)
 	}
 }

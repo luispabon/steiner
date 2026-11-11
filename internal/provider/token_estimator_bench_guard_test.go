@@ -5,18 +5,17 @@ package provider
 import "testing"
 
 // TestClaudeRequestEstimateResourceGuard measures the candidate ctok counter on
-// synthetic requests at 256KiB and 1MiB. It fails when the 1MiB run misses its
-// size, time, or allocation budget, or when 1MiB does not scale linearly from
-// 256KiB. The !race tag excludes it under race instrumentation, which distorts
-// timings.
+// whole requests at 256KiB and 1MiB. It fails when the 1MiB run misses its size,
+// time, or allocation budget, or when 1MiB does not scale linearly from 256KiB.
+// The !race tag excludes it under race instrumentation, which distorts timings.
 func TestClaudeRequestEstimateResourceGuard(t *testing.T) {
-	payloads := mustClaudeSyntheticPayloads(t)
-	counter, err := claudeSyntheticCounter()
+	set := loadClaudeFixtureForTest(t)
+	counter, err := claudeFixtureCounter(set.Manifest.Model)
 	if err != nil {
 		t.Fatal(err)
 	}
-	small := claudeBenchMeasureTarget(t, payloads, counter, claudeBenchSmallTarget)
-	large := claudeBenchMeasureTarget(t, payloads, counter, claudeBenchLargeTarget)
+	small := claudeBenchMeasureTarget(t, set, counter, claudeBenchSmallTarget)
+	large := claudeBenchMeasureTarget(t, set, counter, claudeBenchLargeTarget)
 	if err := claudeBenchCheckBudget(claudeBenchLargeTarget, large); err != nil {
 		t.Error(err)
 	}
@@ -27,9 +26,9 @@ func TestClaudeRequestEstimateResourceGuard(t *testing.T) {
 
 // claudeBenchMeasureTarget measures counter on the request sized to target and
 // logs the result. A failed measurement stops the test with the counter's error.
-func claudeBenchMeasureTarget(t *testing.T, payloads map[string]string, counter textCounter, target int64) claudeBenchMeasurement {
+func claudeBenchMeasureTarget(t *testing.T, set claudeFixtureSet, counter textCounter, target int64) claudeBenchMeasurement {
 	t.Helper()
-	request, semanticBytes, err := claudeBenchSizedRequest(payloads, target)
+	request, semanticBytes, err := claudeBenchSizedRequest(set, target)
 	if err != nil {
 		t.Fatal(err)
 	}
