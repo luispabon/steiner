@@ -36,6 +36,12 @@ Codex rejects `prompt_cache_retention`, so `responsesWire` never sends it. A Cod
 
 Transport selection and fallback are in [Codex settings](../user/configuration.md#providers-block). The WebSocket endpoint and beta header are marked unconfirmed in `codex_ws_protocol.go`, so WebSocket stays opt-in. Validation rejects `auto` and other unknown values.
 
+### Codex WebSocket provider cache
+
+`CodexWSCache` (`internal/provider/codex_ws_cache.go`) keeps one live Codex WebSocket provider per `<alias>|<promptCacheKey>`, so a session reuses its socket across turns instead of redialling. Entries are generation-scoped: the prompt cache key is the generation, and acquiring an entry for a new key retires every entry of the previous one. That is the bound on connection lifetime; there is no TTL, entry cap, or per-entry timer. Only `cliRunner.runtimeProvider` acquires entries, and one interactive live driver serialises run and compaction while rotation, clear, load and fork keep the driver idle, so a generation changes between runs, not during one. Same-generation acquisitions (another alias, or the same key) stay cached, and a failed request still evicts its own entry so the next lookup rebuilds and redials.
+
+Retirement detaches entries under the cache lock and retires them outside it. An idle entry closes its socket and joins its keepalive goroutine immediately. An entry with a request in flight is only marked retired: its connection closes when that request ends, so an active stream always runs to completion, and a caller queued behind it wakes to a cancellation or a retired-entry error. `cliRuntime.codexWSProviderCache` is closed by `closeRuntime`. `CodexWSCache.Close` is idempotent, does not wait for in-flight requests, and rejects later acquisition; a build that finishes after the close, or after another generation became current, is rejected without being stored, and its never-dialled provider is discarded.
+
 ## Codex conversation replay
 
 Codex replay preserves assistant message boundaries and per-message `phase` (`commentary` or `final_answer`), along with message and function-call order, in provider-native metadata on session messages. Distinct non-empty message items are joined by at least one blank line in flattened content. Streamed text is reconciled with completed output to recover missing text without duplication. Phase preservation does not guarantee narration before tool calls.

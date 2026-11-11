@@ -136,6 +136,26 @@ func TestCloseRuntimeClosesClaudeSubscriptionPool(t *testing.T) {
 	}
 }
 
+func TestCloseRuntimeClosesCodexWSCache(t *testing.T) {
+	cache := provider.NewCodexWSCache()
+	rt := cliRuntime{codexWSProviderCache: cache, events: output.NoopSink{}}
+	if _, err := provider.NewCachingCodexWS(cache, "gen-1", "codex|gen-1", func() (provider.Provider, error) {
+		return &fakeProvider{}, nil
+	}); err != nil {
+		t.Fatalf("NewCachingCodexWS: %v", err)
+	}
+
+	closeRuntime(&rt)
+	closeRuntime(&rt)
+
+	if _, err := provider.NewCachingCodexWS(cache, "gen-1", "codex|gen-1", func() (provider.Provider, error) {
+		t.Error("build called on a cache closed by closeRuntime")
+		return &fakeProvider{}, nil
+	}); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("acquisition after closeRuntime error = %v, want a closed-cache error", err)
+	}
+}
+
 // TestBuildInteractiveRuntimeWiresMCPApprover pins the ordering inside
 // buildInteractiveRuntime: the MCP approver must be installed BEFORE the
 // registry is built. The registry copies ToolDef values (handler closures

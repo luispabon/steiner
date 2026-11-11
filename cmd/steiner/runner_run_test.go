@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -231,6 +232,35 @@ func TestRuntimeProviderEvictsOnChatCompletionError(t *testing.T) {
 	}
 	if *callCount != 2 {
 		t.Fatalf("constructor calls after ChatCompletion error = %d, want 2 (cache evicted)", *callCount)
+	}
+}
+
+func TestRuntimeProviderRetiresPreviousCodexWSGeneration(t *testing.T) {
+	setupCodexAuthFixture(t)
+	callCount := stubCodexWSConstructors(t, func() provider.Provider { return &fakeProvider{} })
+
+	r := newCodexRunner(t, "cache-key-1")
+	rm := codexResolvedModel("codex")
+
+	first, err := r.runtimeProvider(rm)
+	if err != nil {
+		t.Fatalf("runtimeProvider() error = %v", err)
+	}
+
+	r.promptCacheKeyFn = func() string { return "cache-key-2" }
+	second, err := r.runtimeProvider(rm)
+	if err != nil {
+		t.Fatalf("runtimeProvider() after prompt cache key change error = %v", err)
+	}
+	if *callCount != 2 {
+		t.Fatalf("constructor calls after generation change = %d, want 2", *callCount)
+	}
+	if first == second {
+		t.Fatal("runtimeProvider() reused the previous generation's provider")
+	}
+
+	if _, err := first.ChatCompletion(context.Background(), provider.ChatRequest{}); err == nil || !strings.Contains(err.Error(), "evicted") {
+		t.Fatalf("previous-generation provider error = %v, want an evicted-entry error", err)
 	}
 }
 
