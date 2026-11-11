@@ -165,9 +165,9 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 // are delivered outside the session mutex, so a slow one can arrive after a
 // newer transition already landed: anything not newer than the highest sequence
 // applied for that server is dropped. A connected or reconnecting report that
-// arrives after Close is dropped too, even when its sequence is the newest
-// available: a closed manager never has a live server again, and an attempt can
-// commit just before shutdown and deliver its report just after. The
+// arrives once shutdown has started is dropped too, even when its sequence is the
+// newest available: a stopped manager never has a live server again, and an
+// attempt can commit just before shutdown and deliver its report just after. The
 // unavailable abort of an in-flight attempt still publishes. onStateChange fires
 // only when the status actually changed, so repeated reports of the same status
 // emit nothing; a same-status report still advances the sequence.
@@ -180,7 +180,7 @@ func (m *Manager) updateServerStatus(name string, report StatusReport, onStateCh
 		m.mu.Unlock()
 		return
 	}
-	if m.closed && (report.Status == ServerStatusConnected || report.Status == ServerStatusReconnecting) {
+	if m.stoppingLocked() && (report.Status == ServerStatusConnected || report.Status == ServerStatusReconnecting) {
 		m.mu.Unlock()
 		return
 	}
@@ -202,6 +202,15 @@ func (m *Manager) updateServerStatus(name string, report StatusReport, onStateCh
 		}
 	}
 	m.mu.Unlock()
+}
+
+// stoppingLocked reports whether the manager is shutting down: Close has started,
+// or the caller context Connect derives the manager context from is cancelled.
+// That parent can be cancelled without Close, and every session, reconnect
+// worker, and stdio process is bound to it, so no server can become live again.
+// m.ctx is never nil on a manager that owns sessions. Callers must hold mu.
+func (m *Manager) stoppingLocked() bool {
+	return m.closed || m.ctx.Err() != nil
 }
 
 // setServerState records s under the manager mutex, replacing any earlier
