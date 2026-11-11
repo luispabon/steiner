@@ -230,3 +230,32 @@ func TestSessionCloseUnblocksStalledPipeWrite(t *testing.T) {
 		t.Error("the stalled write was still running when Close returned")
 	}
 }
+
+// TestCompletedBeforeDeadlinePrefersCompleted pins that a handshake which
+// finished as the deadline arrived wins over cancellation. A plain select chooses
+// randomly when both channels are ready, which would tear down a usable session.
+func TestCompletedBeforeDeadlinePrefersCompleted(t *testing.T) {
+	t.Parallel()
+	done := make(chan struct{})
+	close(done)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	for range 100 {
+		if !completedBeforeDeadline(ctx, done) {
+			t.Fatal("a completed handshake lost to a deadline that ended at the same time")
+		}
+	}
+}
+
+// TestCompletedBeforeDeadlineReportsCancellation pins that an open handshake
+// yields to the deadline.
+func TestCompletedBeforeDeadlineReportsCancellation(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if completedBeforeDeadline(ctx, make(chan struct{})) {
+		t.Fatal("an unfinished handshake beat an ended deadline")
+	}
+}

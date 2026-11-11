@@ -14,14 +14,16 @@ import (
 // The graceful sequence runs in its own goroutine because an LSP frame write is
 // a blocking stream write: a server that stops draining its stdin wedges the
 // write and no request deadline interrupts it. When the first caller's ctx ends
-// before the sequence finishes, Close aborts: it terminates the process and
-// closes the connection, which releases the stalled write, and joins that
-// teardown before returning. The deadline therefore decides when the abort
-// starts; the return happens once the released write and teardown finish.
+// before the sequence finishes, Close aborts the transport: it kills the process
+// and closes the connection, which releases the stalled write, then joins the
+// graceful goroutine and the teardown. The deadline decides when the abort starts;
+// the return happens once the released write, the teardown and the joins finish,
+// so a stalled transport can delay it past the deadline.
 //
-// Close is idempotent. The first caller owns the sequence and always waits for
-// it to finish; later callers get the same result, or their own context error if
-// it ends first, while the owner still joins the teardown.
+// The first caller's context controls when that abort starts, so it must carry a
+// deadline; the manager always passes sessionCloseTimeout. Close is idempotent:
+// later callers get the owner's result, or their own context error if it ends
+// first, while the owner still joins the teardown.
 func (s *impl) Close(ctx context.Context) error {
 	owner := false
 	s.closeOnce.Do(func() {
@@ -46,9 +48,10 @@ func (s *impl) Close(ctx context.Context) error {
 	}
 }
 
-// shutdown runs the graceful sequence and aborts it when ctx ends before it
-// finishes, so a stalled stream write cannot outlive the caller's deadline. The
-// aborted teardown is joined before returning, so no goroutine outlives Close.
+// shutdown runs the graceful sequence and aborts the transport when ctx ends
+// before it finishes, so a stalled stream write cannot hold the caller past the
+// deadline. The aborted teardown is joined before returning, so no goroutine
+// outlives Close.
 func (s *impl) shutdown(ctx context.Context) error {
 	graceful := make(chan error, 1)
 	go func() { graceful <- s.gracefulClose(ctx) }()
@@ -57,12 +60,18 @@ func (s *impl) shutdown(ctx context.Context) error {
 	select {
 	case err = <-graceful:
 	case <-ctx.Done():
-		// Terminating the process and closing the connection is what unblocks a
-		// write the server will never drain; waiting for the graceful path alone
-		// could block forever.
-		s.abort(fmt.Errorf("shutdown interrupted: %w", ctx.Err())) //nolint:errcheck // the abort cause is the caller's deadline, reported below
-		<-graceful
-		err = ctx.Err()
+		// Prefer a sequence that finished as the deadline arrived: nothing is
+		// left to abort in that case.
+		select {
+		case err = <-graceful:
+		default:
+			// Killing the process and closing the connection together abort the
+			// transport, which releases a write the server will never drain;
+			// waiting for the graceful path alone could block forever.
+			s.abort(fmt.Errorf("shutdown interrupted: %w", ctx.Err())) //nolint:errcheck // the abort cause is the caller's deadline, reported below
+			<-graceful
+			err = ctx.Err()
+		}
 	}
 
 	s.awaitTeardown()
