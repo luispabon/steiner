@@ -407,8 +407,8 @@ func TestAuthResolverFlightErrorForOtherVersionResolves(t *testing.T) {
 	store := NewTokenStore(path)
 	saveRefreshDueTestToken(t, store)
 
-	// The token endpoint fails the refresh of the old version, after a delay that
-	// lets the second caller reach the flight before its error is published.
+	// The token endpoint fails the refresh of the old version, gated so the
+	// second caller can join the flight before its error is published.
 	requested := make(chan struct{})
 	release := make(chan struct{})
 	var requestedOnce sync.Once
@@ -420,7 +420,6 @@ func TestAuthResolverFlightErrorForOtherVersionResolves(t *testing.T) {
 		requests.Add(1)
 		requestedOnce.Do(func() { close(requested) })
 		<-release
-		time.Sleep(50 * time.Millisecond)
 		return nil, errors.New("token endpoint failed")
 	})}
 
@@ -430,19 +429,11 @@ func TestAuthResolverFlightErrorForOtherVersionResolves(t *testing.T) {
 	// two oauth2's auth-style probe would send.
 	conf.Endpoint.AuthStyle = oauth2.AuthStyleInParams
 
-	// Report when the second caller has statted the replaced file version.
-	var stats atomic.Int32
-	observed := make(chan struct{})
-	resolver.newTokenFile = func(store *TokenStore) tokenFile {
-		return &observedFile{
-			inner: storeTokenFile{store: store},
-			seen: func() {
-				if stats.Add(1) == 2 {
-					close(observed)
-				}
-			},
-		}
-	}
+	// Report the second caller's join, so the endpoint answers only once the
+	// waiter is on the flight.
+	joined := make(chan struct{})
+	var joinedOnce sync.Once
+	resolver.onFlightJoin = func() { joinedOnce.Do(func() { close(joined) }) }
 
 	type result struct {
 		token *oauth2.Token
@@ -465,7 +456,7 @@ func TestAuthResolverFlightErrorForOtherVersionResolves(t *testing.T) {
 		token, err := resolver.Resolve(context.Background(), store, conf, client)
 		second <- result{token: token, err: err}
 	}()
-	<-observed
+	<-joined
 	unblock()
 
 	if res := <-first; res.err == nil {

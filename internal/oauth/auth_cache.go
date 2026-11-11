@@ -78,6 +78,9 @@ type AuthResolver struct {
 	lockAcquire func(context.Context, string) (func(), error)
 	// now overrides the clock used for save-retry scheduling; tests set it.
 	now func() time.Time
+	// onFlightJoin runs when a caller joins an in-flight flight, before it
+	// waits; tests use it to know a waiter arrived.
+	onFlightJoin func()
 }
 
 // NewAuthResolver returns an empty AuthResolver.
@@ -277,6 +280,9 @@ func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file
 		}
 	} else {
 		entry.mu.Unlock()
+		if r.onFlightJoin != nil {
+			r.onFlightJoin()
+		}
 	}
 
 	select {
