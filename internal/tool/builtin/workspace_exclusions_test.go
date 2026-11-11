@@ -108,6 +108,18 @@ func TestWorkspaceExclusions_ApplyAcrossSearchTools(t *testing.T) {
 			want:            []string{"helper.go", "main.go"},
 		},
 		{
+			name:            "brace alternatives in exclusion patterns",
+			excludePatterns: []string{"src/{gen,other}"},
+			searchPath:      ".",
+			want:            []string{"src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},
+		},
+		{
+			name:            "malformed brace exclusion is ignored",
+			excludePatterns: []string{"gen{"},
+			searchPath:      ".",
+			want:            []string{"src/gen/out.go", "src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},
+		},
+		{
 			name:       "builtin directory excluded from workspace walk",
 			searchPath: ".",
 			want:       []string{"src/gen/out.go", "src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},

@@ -45,20 +45,29 @@ var builtinExcludeComponents = func() map[string]struct{} {
 //   - built-in directory names match walk-relative directory components only.
 //
 // Patterns may be prefixed with "./" or "/" and may end with separators;
-// these forms are normalised. A path segment that is exactly "**" matches zero
-// or more path segments, so "**/fixtures" matches both "fixtures" and
-// "a/fixtures". Character classes do not match separators, so "a[!x]b" matches
-// a single path segment. Invalid patterns are ignored.
+// these forms are normalised, and empty path segments left by a brace
+// alternative or a repeated separator are dropped. Brace alternations are
+// expanded before matching,
+// so "src/{gen,out}" matches "src/gen" and "src/out", and a slash-free
+// alternative of a slash pattern keeps the whole entry's workspace anchoring.
+// An empty alternative adds no segment, so "a/{b,}/c" matches "a/b/c" and
+// "a/c". A path segment that is exactly "**" matches zero or more path
+// segments, so "**/fixtures" matches both "fixtures" and "a/fixtures".
+// Character classes do not match separators, so "a[!x]b" matches a single path
+// segment. Malformed patterns are ignored and reported by
+// InvalidExcludePatterns.
 //
 // The zero value excludes nothing.
 type WorkspaceExcluder struct {
-	workspaceRoot     string
-	excludePaths      []string
-	slashPatterns     []workspacePattern
-	componentPatterns []glob.Glob
-	forceInclude      map[string]struct{}
-	builtins          bool
-	caseInsensitive   bool
+	workspaceRoot       string
+	excludePaths        []string
+	slashPatterns       []workspacePattern
+	componentPatterns   []glob.Glob
+	forceInclude        map[string]struct{}
+	builtins            bool
+	caseInsensitive     bool
+	invalidPatterns     []InvalidExcludePattern
+	invalidPatternCount int
 }
 
 // NewWorkspaceExcluder creates a WorkspaceExcluder with always-active built-in
@@ -91,7 +100,10 @@ func newWorkspaceExcluder(workspaceRoot string, excludePaths, excludePatterns, i
 		e.workspaceRoot = normalizeWorkspacePath(workspaceRoot, windows)
 	}
 	e.excludePaths = workspaceExcludePaths(e.workspaceRoot, excludePaths, windows)
-	e.slashPatterns, e.componentPatterns = compileWorkspaceExcludePatterns(excludePatterns, windows)
+	var invalid invalidExcludeReport
+	e.slashPatterns, e.componentPatterns, invalid = compileWorkspaceExcludePatterns(excludePatterns, windows)
+	e.invalidPatterns = invalid.entries
+	e.invalidPatternCount = invalid.count
 	if len(includeComponents) > 0 {
 		e.forceInclude = make(map[string]struct{}, len(includeComponents))
 		for _, component := range includeComponents {
@@ -315,35 +327,6 @@ func workspacePathIsAbs(path string, windows bool) bool {
 		return false
 	}
 	return path[2] == '/' || path[2] == '\\'
-}
-
-// compileWorkspaceExcludePatterns compiles configured patterns into
-// workspace-relative slash patterns and component patterns. Patterns that fail
-// to compile are skipped.
-func compileWorkspaceExcludePatterns(patterns []string, windows bool) ([]workspacePattern, []glob.Glob) {
-	var slashPatterns []workspacePattern
-	var componentPatterns []glob.Glob
-	for _, pattern := range patterns {
-		if pattern == "" {
-			continue
-		}
-		pattern = normalizeWorkspacePattern(pattern, windows)
-		if pattern == "" {
-			continue
-		}
-		if !strings.Contains(pattern, "/") {
-			matcher, err := glob.Compile(pattern)
-			if err != nil {
-				continue
-			}
-			componentPatterns = append(componentPatterns, matcher)
-			continue
-		}
-		if compiled, ok := compileWorkspaceSlashPattern(pattern); ok {
-			slashPatterns = append(slashPatterns, compiled)
-		}
-	}
-	return slashPatterns, componentPatterns
 }
 
 // exactPathMatch reports whether path equals prefix or sits beneath it. A

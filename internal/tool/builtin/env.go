@@ -21,6 +21,13 @@ type Env struct {
 	// non-positive caps or caps that are not an exact multiple of one second
 	// fall back to 120s.
 	BashTimeoutCap time.Duration
+	// GrepTimeout is the cooperative search deadline for the grep tool,
+	// normally sourced from limits.tool_timeouts["grep"]. The deadline is
+	// checked during traversal and before each file is scanned, so a long
+	// regex match on one file can overrun it. A non-positive value leaves the
+	// caller's deadline in place, and an earlier caller deadline always wins
+	// because context deadlines only tighten.
+	GrepTimeout time.Duration
 	// httpClient is a test seam, invoked once per fetch_url tool instance.
 	// Production callers use the SSRF-safe default. A client returned with a
 	// Jar has the jar dropped per call so cookies never leak between calls.

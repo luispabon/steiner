@@ -32,6 +32,7 @@ func coreToolDefinitions(cfg config.Config, workDir string, displaySink output.E
 		PathPolicy:               &pp,
 		Excluder:                 &excluder,
 		BashTimeoutCap:           time.Duration(cfg.Limits.ToolTimeouts["bash"].Duration()),
+		GrepTimeout:              time.Duration(cfg.Limits.ToolTimeouts["grep"].Duration()),
 		EventSink:                displaySink,
 		Interactive:              interactive,
 		WorkflowHandoffResponder: handoffResponder,

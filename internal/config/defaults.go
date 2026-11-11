@@ -75,7 +75,6 @@ func defaultConfig(env map[string]string) Config {
 			ToolTimeoutDefault: MustDuration("30s"),
 			ToolTimeouts: map[string]Duration{
 				"bash": MustDuration("600s"),
-				"read": MustDuration("5s"),
 				"grep": MustDuration("30s"),
 			},
 			ToolOutputMaxBytes: 65536,

@@ -68,8 +68,8 @@ Compact canonical reference for safe configuration edits.
 |`limits.max_turns`|int|`50`|Maximum turns; non-negative.|
 |`limits.max_tokens`|int|`500000`|Output (completion) tokens only; at least 1.|
 |`limits.model_call_timeout`|duration|`10m`|Single model-call limit; `0` disables it.|
-|`limits.tool_timeout_default`|duration|`30s`|Default tool and MCP timeout; positive.|
-|`limits.tool_timeouts.<tool>`|duration|per tool|Per-tool override; positive. Built-in `bash` allows at most `600s`.|
+|`limits.tool_timeout_default`|duration|`30s`|MCP fallback for tools without a `tool_timeouts` entry; positive.|
+|`limits.tool_timeouts.<tool>`|duration|per tool|Per-tool override; positive. `bash` default and max `600s`; `grep` `30s` (cooperative); `read` ignored.|
 |`limits.tool_output_max_bytes`|int|`65536`|Captured output per tool call; at least 1.|
 |`limits.max_parallel_tools`|int|`4`|Parallel-safe built-in, LSP, and MCP read-only-hint tools; at least 1.|
 |`sandbox`|block|see fields|Bubblewrap settings.|
@@ -101,7 +101,7 @@ Compact canonical reference for safe configuration edits.
 |`tools.<tool>.subcommand`|string|unset|First executable argument.|
 |`tools.<tool>.description`|string|unset|Description shown to the model.|
 |`tools.<tool>.parameters`|map[string]any|unset|JSON Schema input data.|
-|`tools.<tool>.timeout`|duration|unset|Required custom-tool timeout; positive. Script contract: [Tools](../../docs/user/tools.md).|
+|`tools.<tool>.timeout`|duration|unset|Required custom-tool timeout; positive; bounds each call, and `limits` timeouts do not apply. Script contract: [Tools](../../docs/user/tools.md).|
 |`project_context.max_bytes`|int|`8000`|Extra-context byte budget; at least 1.|
 |`project_context.max_tokens`|int|unset|Deprecated alias; converts to bytes when max_bytes is unset.|
 |`project_context.extra_files`|[]string|unset|Root-relative context files; directories are skipped; `~` expands.|

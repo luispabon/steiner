@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/gobwas/glob"
+
+	"github.com/luispabon/steiner/internal/globexpand"
 )
 
 // globMatcher holds the compiled forms of one glob pattern and the deepest
@@ -129,7 +131,7 @@ func splitGlobForm(form string) []string {
 		case '\\':
 			i++
 		case '[':
-			i = skipGlobClass(form, i)
+			i = globexpand.SkipClass(form, i)
 		case '/':
 			segments = append(segments, form[start:i])
 			start = i + 1
@@ -155,22 +157,22 @@ func globFormRootError(form string) error {
 }
 
 // expandGlobForms flattens brace alternations, then expands each alternative's
-// zero-directory doublestar forms, enforcing maxGlobExpansions across the whole
-// pattern. The shared brace expansion validates the raw pattern first, so a
+// zero-directory doublestar forms, enforcing globexpand.MaxExpansions across the
+// whole pattern. The shared brace expansion validates the raw pattern first, so a
 // malformed brace is an error and never reaches gobwas as a brace expression.
 func expandGlobForms(pattern string) ([]string, error) {
-	alternatives, err := expandGlobBraces(pattern)
+	alternatives, err := globexpand.ExpandBraces(pattern)
 	if err != nil {
 		return nil, err
 	}
 	var forms []string
 	for _, alternative := range alternatives {
-		expanded, err := expandGlobZeroDir(alternative)
+		expanded, err := globexpand.ExpandZeroDir(alternative)
 		if err != nil {
 			return nil, err
 		}
-		if len(forms)+len(expanded) > maxGlobExpansions {
-			return nil, errGlobTooComplex
+		if len(forms)+len(expanded) > globexpand.MaxExpansions {
+			return nil, globexpand.ErrTooComplex
 		}
 		forms = append(forms, expanded...)
 	}

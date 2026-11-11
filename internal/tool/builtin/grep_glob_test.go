@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/globexpand"
 )
 
 func TestCompileGrepFileGlobMatches(t *testing.T) {
@@ -255,7 +257,7 @@ func TestCompileGrepFileGlobMalformedPatterns(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "invalid glob") {
 					t.Fatalf("compileGrepFileGlob(%q) error = %v, want invalid glob error", tt.pattern, err)
 				}
-				if got := errors.Is(err, errGlobUnmatchedBrace); got != tt.unmatched {
+				if got := errors.Is(err, globexpand.ErrUnmatchedBrace); got != tt.unmatched {
 					t.Errorf("compileGrepFileGlob(%q) error = %v, errGlobUnmatchedBrace match = %v, want %v", tt.pattern, err, got, tt.unmatched)
 				}
 				if matcher != nil {

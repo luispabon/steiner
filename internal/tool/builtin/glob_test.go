@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/globexpand"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -571,7 +572,7 @@ func TestGlobToolMalformedBraces(t *testing.T) {
 				if err == nil || !strings.Contains(err.Error(), "glob: ") {
 					t.Fatalf("Handler(%q) error = %v, want glob-prefixed error", tt.pattern, err)
 				}
-				if got := errors.Is(err, errGlobUnmatchedBrace); got != tt.unmatched {
+				if got := errors.Is(err, globexpand.ErrUnmatchedBrace); got != tt.unmatched {
 					t.Errorf("Handler(%q) error = %v, errGlobUnmatchedBrace match = %v, want %v", tt.pattern, err, got, tt.unmatched)
 				}
 				return

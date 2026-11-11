@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/globexpand"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -192,8 +193,8 @@ func TestGrepGlobHandlerMalformedFileGlob(t *testing.T) {
 			}
 			if tt.wantErr {
 				_, err := toolDef.Handler(context.Background(), input)
-				if !errors.Is(err, errGlobUnmatchedBrace) {
-					t.Fatalf("grep handler error = %v, want errGlobUnmatchedBrace", err)
+				if !errors.Is(err, globexpand.ErrUnmatchedBrace) {
+					t.Fatalf("grep handler error = %v, want globexpand.ErrUnmatchedBrace", err)
 				}
 				if !strings.Contains(err.Error(), "invalid glob") {
 					t.Errorf("grep handler error = %q, want it to contain %q", err, "invalid glob")

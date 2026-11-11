@@ -2,7 +2,9 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -65,7 +67,10 @@ func NewGrepTool(env Env) tool.ToolDef {
 				showLines = *in.LineNumbers
 			}
 
-			files, stats, err := grepSearch(ctx, grepSearchParams{
+			searchCtx, cancel := grepContext(ctx, env.GrepTimeout)
+			defer cancel()
+
+			files, stats, err := grepSearch(searchCtx, grepSearchParams{
 				root:        absPath,
 				displayPath: searchPath,
 				pattern:     in.Pattern,
@@ -78,11 +83,39 @@ func NewGrepTool(env Env) tool.ToolDef {
 				window:      &grepPageWindow{mode: in.OutputMode, offset: in.Offset, headLimit: in.HeadLimit},
 			})
 			if err != nil {
-				return nil, fmt.Errorf("grep: %w", err)
+				return nil, fmt.Errorf("grep: %w", grepSearchError(searchCtx, err))
 			}
 
 			result := buildGrepResult(files, stats, in.OutputMode, showLines, in.BeforeContext, in.AfterContext, in.Offset, in.HeadLimit)
 			return result, nil
 		},
 	}
+}
+
+// errGrepTimeout marks a search canceled because limits.tool_timeouts["grep"]
+// expired, so the handler can attribute the failure to that setting.
+var errGrepTimeout = errors.New(`limits.tool_timeouts["grep"] expired`)
+
+// grepContext applies the configured grep deadline to ctx. A non-positive
+// timeout leaves ctx untouched; a positive one can only tighten an earlier
+// caller deadline. The deadline is cooperative: it is checked during traversal
+// and before each file is scanned, so a long regex match on one file can
+// overrun it.
+func grepContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeoutCause(ctx, timeout, fmt.Errorf("%w after %s", errGrepTimeout, timeout))
+}
+
+// grepSearchError labels a search failure that the configured grep deadline
+// caused. Caller cancellation and caller deadlines keep their own cause and
+// pass through unchanged. The returned error wraps err so errors.Is keeps
+// working.
+func grepSearchError(searchCtx context.Context, err error) error {
+	cause := context.Cause(searchCtx)
+	if !errors.Is(cause, errGrepTimeout) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", err, cause)
 }
