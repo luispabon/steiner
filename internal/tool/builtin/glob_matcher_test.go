@@ -46,14 +46,15 @@ func TestGlobMatcherDepthPruning(t *testing.T) {
 // TestGlobMatcherPatternNormalization pins the pattern rules: "." segments are
 // dropped, including inside a brace alternative, an alternative left with
 // nothing matches nothing while an empty pattern, ".", or "./" means the
-// default pattern, and a pattern that leaves the named directory is rejected. A
-// name that merely starts with a dot is not a dot segment.
+// default pattern, and a pattern that leaves the named directory is rejected
+// with an error naming the cause: an absolute pattern or a ".." segment. A name
+// that merely starts with a dot is not a dot segment.
 func TestGlobMatcherPatternNormalization(t *testing.T) {
 	tests := []struct {
 		name    string
 		pattern string
 		want    []string
-		wantErr bool
+		wantErr error
 	}{
 		{name: "leading dot slash", pattern: "./*.go", want: []string{"x.go"}},
 		{name: "repeated dot slash", pattern: "././x", want: []string{"x"}},
@@ -68,16 +69,18 @@ func TestGlobMatcherPatternNormalization(t *testing.T) {
 		{name: "bare dot slash is the default", pattern: "./", want: []string{"x.go"}},
 		{name: "bare dot is the default", pattern: ".", want: []string{"x.go"}},
 		{name: "empty pattern is the default", pattern: "", want: []string{"x.go"}},
-		{name: "leading slash", pattern: "/x", wantErr: true},
-		{name: "leading dot dot segment", pattern: "../x", wantErr: true},
-		{name: "inner dot dot segment", pattern: "a/../b", wantErr: true},
+		{name: "leading slash", pattern: "/abs", wantErr: errGlobPatternAbsolute},
+		{name: "absolute brace alternative left with a slash", pattern: "{.//,a}", wantErr: errGlobPatternAbsolute},
+		{name: "leading dot dot segment", pattern: "../x", wantErr: errGlobPatternParent},
+		{name: "inner dot dot segment", pattern: "a/../b", wantErr: errGlobPatternParent},
+		{name: "dot dot segment inside a brace alternative", pattern: "{a,../b}", wantErr: errGlobPatternParent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			matcher, err := compileGlobMatcher(tt.pattern)
-			if tt.wantErr {
-				if !errors.Is(err, errGlobPatternNotRelative) {
-					t.Fatalf("compileGlobMatcher(%q) error = %v, want errGlobPatternNotRelative", tt.pattern, err)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("compileGlobMatcher(%q) error = %v, want %v", tt.pattern, err, tt.wantErr)
 				}
 				return
 			}

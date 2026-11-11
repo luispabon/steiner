@@ -36,9 +36,13 @@ func (s globSet) Match(path string) bool {
 	return false
 }
 
-// errGlobPatternNotRelative reports a pattern that would escape the directory
-// the caller named.
-var errGlobPatternNotRelative = errors.New(`pattern must be relative to path and must not contain ".." segments; put the directory in path`)
+// errGlobPatternAbsolute reports a pattern that starts at the filesystem root
+// instead of inside the directory the caller named.
+var errGlobPatternAbsolute = errors.New(`pattern must be relative to path; put the directory in path`)
+
+// errGlobPatternParent reports a pattern that climbs above the search root with
+// a ".." segment.
+var errGlobPatternParent = errors.New(`pattern must not contain ".." segments; put the directory in path`)
 
 func compileGlobMatcher(pattern string) (globMatcher, error) {
 	pattern = normalizeGlobPattern(pattern)
@@ -58,8 +62,8 @@ func compileGlobMatcher(pattern string) (globMatcher, error) {
 	}
 	seen := make(map[string]struct{}, len(forms))
 	for _, form := range forms {
-		if globFormEscapesRoot(form) {
-			return globMatcher{}, errGlobPatternNotRelative
+		if err := globFormRootError(form); err != nil {
+			return globMatcher{}, err
 		}
 		if _, ok := seen[form]; ok {
 			continue
@@ -134,18 +138,20 @@ func splitGlobForm(form string) []string {
 	return append(segments, form[start:])
 }
 
-// globFormEscapesRoot reports whether an expanded form is absolute or climbs
-// above the search root with a ".." segment.
-func globFormEscapesRoot(form string) bool {
+// globFormRootError reports why an expanded form escapes the search root: a
+// leading "/" makes it absolute, and a ".." segment climbs above the root. The
+// absolute check comes first so a form that is both names its leading slash. It
+// returns nil when the form stays inside the root.
+func globFormRootError(form string) error {
 	if strings.HasPrefix(form, "/") {
-		return true
+		return errGlobPatternAbsolute
 	}
 	for _, segment := range strings.Split(form, "/") {
 		if segment == ".." {
-			return true
+			return errGlobPatternParent
 		}
 	}
-	return false
+	return nil
 }
 
 // expandGlobForms flattens brace alternations, then expands each alternative's
