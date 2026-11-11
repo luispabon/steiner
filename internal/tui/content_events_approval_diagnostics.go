@@ -343,15 +343,16 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 
 // clearApprovalState clears stale pending approvals from the content buffer.
 func (b *contentBuffer) clearApprovalState() {
-	b.clearApprovalStateExcept("")
+	b.clearApprovalStateExcept(nil)
 }
 
 // clearApprovalStateExcept resets approval state on tool call and tool call
 // group segments, and drops unresolved approval pills, except for the pending
-// request whose identity must be preserved. A top-level terminal reset uses it
-// to keep an async child approval that is still the coordinator head. Resolved
-// pills keep their outcome line.
-func (b *contentBuffer) clearApprovalStateExcept(preserve string) {
+// requests whose identities are listed in preserve. A top-level terminal reset
+// passes every request the coordinator still has registered, so live async
+// child approvals keep their control and unregistered ones do not survive.
+// Resolved pills keep their outcome line.
+func (b *contentBuffer) clearApprovalStateExcept(preserve map[string]struct{}) {
 	b.gen++
 	for i := range b.segments {
 		seg := &b.segments[i]
@@ -366,22 +367,32 @@ func (b *contentBuffer) clearApprovalStateExcept(preserve string) {
 	}
 }
 
-func clearApprovalPill(seg *contentSegment, preserve string) {
+// approvalIdentityPreserved reports whether the pending request identity is
+// still registered and must keep its control.
+func approvalIdentityPreserved(preserve map[string]struct{}, identity string) bool {
+	if identity == "" {
+		return false
+	}
+	_, ok := preserve[identity]
+	return ok
+}
+
+func clearApprovalPill(seg *contentSegment, preserve map[string]struct{}) {
 	if seg.approvalData == nil || seg.approvalData.resolved || seg.approvalData.cleared {
 		return
 	}
-	if preserve != "" && seg.approvalData.identity == preserve {
+	if approvalIdentityPreserved(preserve, seg.approvalData.identity) {
 		return
 	}
 	seg.approvalData.cleared = true
 	seg.renderDirty = true
 }
 
-func clearToolCallApproval(seg *contentSegment, preserve string) {
+func clearToolCallApproval(seg *contentSegment, preserve map[string]struct{}) {
 	if seg.toolData == nil {
 		return
 	}
-	if preserve != "" && seg.toolData.approvalIdentity == preserve {
+	if approvalIdentityPreserved(preserve, seg.toolData.approvalIdentity) {
 		return
 	}
 	seg.toolData.approvalPending = false
@@ -389,7 +400,7 @@ func clearToolCallApproval(seg *contentSegment, preserve string) {
 	seg.renderDirty = true
 }
 
-func clearToolGroupApproval(seg *contentSegment, preserve string) {
+func clearToolGroupApproval(seg *contentSegment, preserve map[string]struct{}) {
 	if seg.toolGroupData == nil {
 		return
 	}
@@ -397,7 +408,7 @@ func clearToolGroupApproval(seg *contentSegment, preserve string) {
 		if entry == nil {
 			continue
 		}
-		if preserve != "" && entry.approvalIdentity == preserve {
+		if approvalIdentityPreserved(preserve, entry.approvalIdentity) {
 			continue
 		}
 		entry.approvalPending = false

@@ -553,3 +553,215 @@ func TestApprovalStaleCancellationAfterResetKeepsChildHead(t *testing.T) {
 
 	coordinator.Finish(childCh)
 }
+
+// terminalResetCase names an event that resets terminal state and clears the
+// tray apart from requests the coordinator still has registered.
+type terminalResetCase struct {
+	name  string
+	event output.Event
+}
+
+func terminalResetCases() []terminalResetCase {
+	return []terminalResetCase{
+		{name: "run finished", event: output.NewRunFinishedEvent(1, "complete", "", "", nil)},
+		{name: "stop reason", event: output.NewStopReasonEvent(1, "cancelled", nil)},
+	}
+}
+
+// A review reproduction of the terminal reset bug: a registered head pill and a
+// registered tail tool call. The reset must keep both controls live, leave the
+// queue depth on the head, and promote the tail with its own preview once the
+// head is decided.
+func TestApprovalTerminalResetPreservesRegisteredHeadPillAndToolCallTail(t *testing.T) {
+	t.Parallel()
+	for _, tc := range terminalResetCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			coordinator := &interactive.ApprovalCoordinator{}
+			ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+			m := newModel(Config{Controller: ctrl}, nil)
+
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-tail", nil)})
+			headID, headCh := coordinator.Begin("write", "", "path", "child-1")
+			tailID, tailCh := coordinator.Begin("write", "", "path", "")
+			m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", headID, `{"path":"head.txt"}`)})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-tail", RequestID: tailID, Mode: "prompt", Preview: `{"path":"tail.txt"}`, Kind: "path"})})
+			if !m.approval.active || m.approval.identity != headID {
+				t.Fatalf("tray identity = %q, want head %q", m.approval.identity, headID)
+			}
+
+			m = updateModel(t, m, runtimeEventMsg{Event: tc.event})
+
+			if !m.approval.active || m.approval.identity != headID {
+				t.Fatalf("tray identity after reset = %q, want head %q", m.approval.identity, headID)
+			}
+			if got, want := m.approval.preview, `{"path":"head.txt"}`; got != want {
+				t.Fatalf("tray preview after reset = %q, want %q", got, want)
+			}
+			if got, want := m.status.mode, "approval"; got != want {
+				t.Fatalf("status mode after reset = %q, want %q", got, want)
+			}
+			headPill := findApprovalPill(t, &m.content, headID)
+			if headPill == nil || headPill.cleared || headPill.resolved {
+				t.Fatalf("head pill = %#v, want preserved and pending", headPill)
+			}
+			if got, want := headPill.queueDepth, 1; got != want {
+				t.Fatalf("head queue depth = %d, want %d", got, want)
+			}
+			tailCall := findToolCallSegment(&m.content, "call-tail")
+			if tailCall == nil || !tailCall.approvalPending || tailCall.approvalResolved || tailCall.approvalIdentity != tailID {
+				t.Fatalf("tail tool call = %#v, want pending request %q", tailCall, tailID)
+			}
+			if got, want := tailCall.approvalQueueDepth, 0; got != want {
+				t.Fatalf("tail queue depth = %d, want %d", got, want)
+			}
+
+			updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			submissions := ctrl.submitApprovals()
+			if len(submissions) != 1 || submissions[0].Identity != headID {
+				t.Fatalf("submissions = %+v, want the head %q", submissions, headID)
+			}
+
+			coordinator.Submit(interactive.SubmitApproval{Identity: headID, Tool: "write", Decision: "allow_once"})
+			coordinator.Finish(headCh)
+			m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalDecisionEvent("child-1", true, headID, `{"path":"head.txt"}`)})
+
+			if !m.approval.active || m.approval.identity != tailID {
+				t.Fatalf("tray identity after head decision = %q, want tail %q", m.approval.identity, tailID)
+			}
+			if got, want := m.approval.preview, `{"path":"tail.txt"}`; got != want {
+				t.Fatalf("tail tray preview = %q, want %q", got, want)
+			}
+			updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			submissions = ctrl.submitApprovals()
+			if len(submissions) != 2 || submissions[1].Identity != tailID {
+				t.Fatalf("submissions = %+v, want the tail %q second", submissions, tailID)
+			}
+
+			coordinator.Submit(interactive.SubmitApproval{Identity: tailID, Tool: "write", Decision: "allow_once"})
+			coordinator.Finish(tailCh)
+		})
+	}
+}
+
+// A registered pill behind a registered embedded approval must stay visible and
+// then prompt when it becomes the FIFO head. Previously the reset cleared it, so
+// promotion showed nothing and the selection could not match the request.
+func TestApprovalTerminalResetPromotesPreservedPillTail(t *testing.T) {
+	t.Parallel()
+	for _, tc := range terminalResetCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			coordinator := &interactive.ApprovalCoordinator{}
+			ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+			m := newModel(Config{Controller: ctrl}, nil)
+
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-head", nil)})
+			headID, headCh := coordinator.Begin("write", "", "path", "")
+			tailID, tailCh := coordinator.Begin("write", "", "path", "child-2")
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-head", RequestID: headID, Mode: "prompt", Preview: `{"path":"head.txt"}`, Kind: "path"})})
+			m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-2", tailID, `{"path":"tail-pill.txt"}`)})
+			if !m.approval.active || m.approval.identity != headID {
+				t.Fatalf("tray identity = %q, want head %q", m.approval.identity, headID)
+			}
+
+			m = updateModel(t, m, runtimeEventMsg{Event: tc.event})
+
+			headCall := findToolCallSegment(&m.content, "call-head")
+			if headCall == nil || !headCall.approvalPending || headCall.approvalResolved {
+				t.Fatalf("head tool call = %#v, want preserved and pending", headCall)
+			}
+			if got, want := headCall.approvalQueueDepth, 1; got != want {
+				t.Fatalf("head queue depth = %d, want %d", got, want)
+			}
+			tailPill := findApprovalPill(t, &m.content, tailID)
+			if tailPill == nil || tailPill.cleared || tailPill.resolved {
+				t.Fatalf("tail pill = %#v, want preserved and pending", tailPill)
+			}
+			if got, want := tailPill.queueDepth, 0; got != want {
+				t.Fatalf("tail queue depth = %d, want %d", got, want)
+			}
+
+			coordinator.Submit(interactive.SubmitApproval{Identity: headID, Tool: "write", Decision: "allow_once"})
+			coordinator.Finish(headCh)
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-head", RequestID: headID, Mode: "prompt", Preview: `{"path":"head.txt"}`, Message: "ok", Kind: "path"})})
+
+			if !m.approval.active || m.approval.identity != tailID {
+				t.Fatalf("tray identity after head decision = %q, want tail %q", m.approval.identity, tailID)
+			}
+			if got, want := m.approval.preview, `{"path":"tail-pill.txt"}`; got != want {
+				t.Fatalf("tail tray preview = %q, want %q", got, want)
+			}
+			tailPill = findApprovalPill(t, &m.content, tailID)
+			if tailPill == nil || tailPill.cleared {
+				t.Fatalf("promoted tail pill = %#v, want rendered", tailPill)
+			}
+			if got, want := tailPill.selectedAction, m.approval.selectedAction; got != want {
+				t.Fatalf("pill selection = %d, want the tray selection %d", got, want)
+			}
+
+			updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			submissions := ctrl.submitApprovals()
+			if len(submissions) != 1 || submissions[0].Identity != tailID {
+				t.Fatalf("submissions = %+v, want the tail %q", submissions, tailID)
+			}
+
+			coordinator.Submit(interactive.SubmitApproval{Identity: tailID, Tool: "write", Decision: "allow_once"})
+			coordinator.Finish(tailCh)
+		})
+	}
+}
+
+// A control whose request is no longer registered is stale: the terminal reset
+// must clear it, keep it out of the queue depth, and never leave a tray open for
+// it. Without a coordinator nothing is registered, so the same reset applies.
+func TestApprovalTerminalResetClearsUnregisteredControls(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		coordinated bool
+	}{
+		{name: "coordinated", coordinated: true},
+		{name: "no coordinator"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			base := &testController{}
+			var controller interactive.Controller = base
+			var coordinator *interactive.ApprovalCoordinator
+			if tc.coordinated {
+				coordinator = &interactive.ApprovalCoordinator{}
+				controller = &approvalCoordinatorController{testController: base, coordinator: coordinator}
+			}
+			m := newModel(Config{Controller: controller}, nil)
+
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-stale", nil)})
+			staleID := "approval-stale"
+			if coordinator != nil {
+				// The request unregisters before its event is applied, so the
+				// reset sees a control with no live registration.
+				var ch chan interactive.SubmitApproval
+				staleID, ch = coordinator.Begin("write", "", "path", "")
+				coordinator.Finish(ch)
+			}
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-stale", RequestID: staleID, Mode: "prompt", Preview: `{"path":"stale.txt"}`, Kind: "path"})})
+
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "complete", "", "", nil)})
+
+			stale := findToolCallSegment(&m.content, "call-stale")
+			if stale == nil || stale.approvalPending || stale.approvalResolved {
+				t.Fatalf("stale tool call = %#v, want cleared", stale)
+			}
+			if got, want := stale.approvalQueueDepth, 0; got != want {
+				t.Fatalf("stale queue depth = %d, want %d", got, want)
+			}
+			if m.approval.active {
+				t.Fatalf("tray identity = %q, want no prompt for an unregistered request", m.approval.identity)
+			}
+			if got := base.submitApprovals(); len(got) != 0 {
+				t.Fatalf("submissions = %+v, want none", got)
+			}
+		})
+	}
+}

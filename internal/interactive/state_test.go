@@ -141,6 +141,73 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	}
 }
 
+// PendingIdentities snapshots every registered request in FIFO order so a
+// terminal reset can preserve all live controls, including claimed requests
+// that have not unregistered yet.
+func TestApprovalCoordinatorPendingIdentities(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	headID, head := coord.Begin("head", "", "", "code")
+	middleID, middle := coord.Begin("middle", "", "", "review")
+	tailID, tail := coord.Begin("tail", "", "", "plan")
+
+	assertIdentities := func(stage string, want ...string) {
+		t.Helper()
+		got := coord.PendingIdentities()
+		if len(got) != len(want) {
+			t.Fatalf("%s: identities = %v, want %v", stage, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s: identities = %v, want %v", stage, got, want)
+			}
+		}
+	}
+	assertIdentities("all registered", headID, middleID, tailID)
+
+	coord.Submit(SubmitApproval{Identity: middleID, Tool: "middle", Decision: "allow_once"})
+	assertIdentities("claimed stays registered", headID, middleID, tailID)
+
+	// A snapshot is a copy: later registrations and finishes do not mutate it.
+	snapshot := coord.PendingIdentities()
+	coord.Finish(middle)
+	assertIdentities("after middle Finish", headID, tailID)
+	if len(snapshot) != 3 {
+		t.Fatalf("earlier snapshot = %v, want the three registrations it was taken with", snapshot)
+	}
+
+	coord.Finish(head)
+	coord.Finish(tail)
+	assertIdentities("after all Finish")
+}
+
+// A snapshot taken while requests register and finish must stay coherent: it
+// never repeats an identity and never observes one that already unregistered.
+func TestApprovalCoordinatorPendingIdentitiesConcurrentFinish(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	const rounds = 64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < rounds; i++ {
+			_, ch := coord.Begin("write", "", "", "")
+			coord.Finish(ch)
+		}
+	}()
+	for i := 0; i < rounds; i++ {
+		seen := make(map[string]bool)
+		for _, identity := range coord.PendingIdentities() {
+			if seen[identity] {
+				t.Fatalf("snapshot repeated identity %q", identity)
+			}
+			seen[identity] = true
+		}
+	}
+	<-done
+	if got := coord.PendingIdentities(); len(got) != 0 {
+		t.Fatalf("identities after every Finish = %v, want none", got)
+	}
+}
+
 func TestApprovalCoordinatorDuplicateSubmitClaimsOnlyHead(t *testing.T) {
 	coord := &ApprovalCoordinator{}
 	headID, head := coord.Begin("head", "", "", "")

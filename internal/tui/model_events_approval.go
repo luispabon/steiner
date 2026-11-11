@@ -55,14 +55,44 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 	}
 }
 
+// approvalCoordinatorView is the controller surface that keeps the tray and the
+// terminal reset aligned with the coordinator's FIFO queue. A controller that
+// does not implement it leaves the event stream in charge of the tray.
+type approvalCoordinatorView interface {
+	ApprovalHeadIdentity() string
+	ApprovalPendingIdentities() []string
+}
+
 // approvalHead returns the coordinator's FIFO head identity and reports whether
 // the controller coordinates approvals at all.
 func (m *Model) approvalHead() (head string, coordinated bool) {
-	coordinator, ok := m.controller.(interface{ ApprovalHeadIdentity() string })
+	coordinator, ok := m.controller.(approvalCoordinatorView)
 	if !ok {
 		return "", false
 	}
 	return coordinator.ApprovalHeadIdentity(), true
+}
+
+// approvalSnapshot returns the coordinator's FIFO head and the identities it
+// still has registered, reporting false when the controller does not coordinate
+// approvals. A terminal reset preserves exactly that registered set, so no live
+// request loses its control and no unregistered control survives. The set is
+// read before the head: a request that registers concurrently is preserved,
+// while an identity left behind by a concurrent Finish is harmless because its
+// decision event resolves the control.
+func (m *Model) approvalSnapshot() (head string, preserve map[string]struct{}, coordinated bool) {
+	coordinator, ok := m.controller.(approvalCoordinatorView)
+	if !ok {
+		return "", nil, false
+	}
+	registered := coordinator.ApprovalPendingIdentities()
+	preserve = make(map[string]struct{}, len(registered))
+	for _, identity := range registered {
+		if identity != "" {
+			preserve[identity] = struct{}{}
+		}
+	}
+	return coordinator.ApprovalHeadIdentity(), preserve, true
 }
 
 // approvalRequestPromptable reports whether a requested approval should open the
@@ -95,9 +125,17 @@ func (m *Model) decisionPreservesActiveApproval(identity string) bool {
 
 //nolint:gocyclo // approval segment variants stay centralized
 func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
-	identity, _ := m.approvalHead()
-	if identity == "" && len(resolvedIdentities) > 0 {
-		identity = resolvedIdentities[0]
+	identity, coordinated := m.approvalHead()
+	if identity == "" {
+		// A coordinator with no unclaimed request has nothing to promote.
+		// Falling back to transcript order could re-prompt a request that was
+		// already decided.
+		if coordinated {
+			return false
+		}
+		if len(resolvedIdentities) > 0 {
+			identity = resolvedIdentities[0]
+		}
 	}
 	for i := range m.content.segments {
 		seg := &m.content.segments[i]
@@ -120,7 +158,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 				}
 			}
 		}
-		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && (identity == "" || seg.approvalData.identity == identity) {
+		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && !seg.approvalData.cleared && (identity == "" || seg.approvalData.identity == identity) {
 			ad := seg.approvalData
 			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
 			m.status.mode = "approval"

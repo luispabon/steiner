@@ -20,6 +20,13 @@ type approvalHeadController struct {
 
 func (c approvalHeadController) ApprovalHeadIdentity() string { return c.head }
 
+func (c approvalHeadController) ApprovalPendingIdentities() []string {
+	if c.head == "" {
+		return nil
+	}
+	return []string{c.head}
+}
+
 func TestUpdateRoutesPhaseIndicatorEvent(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

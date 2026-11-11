@@ -335,6 +335,20 @@ func (c *ApprovalCoordinator) HeadIdentity() string {
 	return ""
 }
 
+// PendingIdentities returns the identities of every registered approval request
+// in FIFO order, including requests already claimed by a decision but not yet
+// unregistered. The returned slice is a snapshot, so a concurrent Finish cannot
+// mutate it.
+func (c *ApprovalCoordinator) PendingIdentities() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	identities := make([]string, 0, len(c.queue))
+	for _, pending := range c.queue {
+		identities = append(identities, pending.identity)
+	}
+	return identities
+}
+
 // HasPending reports whether an approval request is currently awaiting a
 // decision.
 func (c *ApprovalCoordinator) HasPending() bool {

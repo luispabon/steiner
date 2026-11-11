@@ -231,15 +231,16 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 }
 
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
-	// An async child can still be waiting on approval after the top-level run
-	// finishes. Preserve the coordinator head's request so its tray and content
-	// survive the reset and it is re-promoted below.
-	head, coordinated := m.approvalHead()
+	// Async children can still be waiting on approval after the top-level run
+	// finishes. Preserve every request the coordinator still has registered so
+	// each control survives the reset; the head is re-promoted below and the
+	// rest prompt as they reach the front of the FIFO.
+	head, registered, coordinated := m.approvalSnapshot()
 	if !coordinated {
 		head = ""
 	}
 	m.approval = approvalState{}
-	m.content.clearApprovalStateExcept(head)
+	m.content.clearApprovalStateExcept(registered)
 	m.content.approvalHead = head
 	m.content.recomputeApprovalQueueDepths()
 	m.content.ResetAdvisorSegment()
