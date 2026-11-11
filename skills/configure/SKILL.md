@@ -69,7 +69,7 @@ Compact canonical reference for safe configuration edits.
 |`limits.max_tokens`|int|`500000`|Output (completion) tokens only; at least 1.|
 |`limits.model_call_timeout`|duration|`10m`|Single model-call limit; `0` disables it.|
 |`limits.tool_timeout_default`|duration|`30s`|MCP fallback for tools without a `tool_timeouts` entry; positive.|
-|`limits.tool_timeouts.<tool>`|duration|per tool|Per-tool override; positive. Defaults `bash` `600s`, `grep` `30s`; `grep` is enforced cooperatively; `read` has no effect. Built-in `bash` allows at most `600s`.|
+|`limits.tool_timeouts.<tool>`|duration|per tool|Per-tool override; positive. `bash` default and max `600s`; `grep` `30s` (cooperative); `read` ignored.|
 |`limits.tool_output_max_bytes`|int|`65536`|Captured output per tool call; at least 1.|
 |`limits.max_parallel_tools`|int|`4`|Parallel-safe built-in, LSP, and MCP read-only-hint tools; at least 1.|
 |`sandbox`|block|see fields|Bubblewrap settings.|
