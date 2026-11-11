@@ -151,6 +151,10 @@ type Config struct {
 	// ConfigWarnings are user-facing configuration warnings shown once at
 	// startup in the content view (for example, deprecated config keys).
 	ConfigWarnings []string
+	// DevLogWarnings are recorded once in the developer error log at startup.
+	// They appear nowhere else: not in the content view, stdout, or tool
+	// results.
+	DevLogWarnings []string
 	// MCPEnabled reports whether MCP is switched on in config, distinguishing
 	// "MCP off" from "MCP on but nothing configured".
 	MCPEnabled bool

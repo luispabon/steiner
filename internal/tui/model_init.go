@@ -445,6 +445,7 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.lspOverlay = newLSPOverlay(m.styles)
 	m.devLogOverlay = newDevLogOverlay(m.styles)
 	m.devLog.sink = cfg.Diagnostics
+	m.seedDevLogWarnings(cfg.DevLogWarnings)
 	m.usageOverlay = newUsageOverlay(m.styles, cfg.Quota, cfg.QuotaRefreshInterval)
 	m.filePicker = newFilePickerOverlay(m.styles)
 	m.filePicker.width = m.width
@@ -487,6 +488,16 @@ func (m *Model) initializeOverlays(cfg Config) {
 	m.slashOverlay.height = m.height
 
 	m.workflowHandoff = workflowHandoffModalState{}
+}
+
+// seedDevLogWarnings records startup warnings that belong only in the developer
+// error log. It runs once per model, after the diagnostics sink is attached, so
+// seeded entries also reach the internal stream. Callers pass fixed text: a
+// seeded warning never restates a configured value.
+func (m *Model) seedDevLogWarnings(warnings []string) {
+	for _, warning := range warnings {
+		m.recordDevLog(devLogParams{Severity: devLogWarning, Source: "config", Message: warning})
+	}
 }
 
 func tickCmd() tea.Cmd {

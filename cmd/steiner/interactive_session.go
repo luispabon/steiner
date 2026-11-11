@@ -25,6 +25,7 @@ import (
 	"github.com/luispabon/steiner/internal/quota"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/skill"
+	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui"
 	"github.com/luispabon/steiner/internal/update"
 )
@@ -189,6 +190,27 @@ func startupTUIModelConfig(cfg config.Config) (tui.Config, config.ModelConfig) {
 	return tui.Config{Model: activeModel, CurrentModelAlias: activeModel}, interactive.SelectedModelConfig(cfg)
 }
 
+// excludePatternDevLogWarnings formats the malformed paths.exclude_patterns
+// entries for the TUI developer error log. Positions are one-based and reasons
+// are the fixed strings from internal/tool, so no configured pattern text
+// appears; reports are capped and the overflow becomes a count. The warnings go
+// only to the error log: they are not emitted as events, so they never reach
+// the conversation, stdout, or a tool result.
+func excludePatternDevLogWarnings(patterns []string) []string {
+	invalid, total := tool.InvalidWorkspaceExcludePatterns(patterns)
+	if total == 0 {
+		return nil
+	}
+	warnings := make([]string, 0, len(invalid)+1)
+	for _, entry := range invalid {
+		warnings = append(warnings, fmt.Sprintf("paths.exclude_patterns entry %d: %s; the entry is ignored", entry.Index+1, entry.Reason))
+	}
+	if remaining := total - len(invalid); remaining > 0 {
+		warnings = append(warnings, fmt.Sprintf("paths.exclude_patterns: %d more invalid entries not listed", remaining))
+	}
+	return warnings
+}
+
 // primeQuota registers the configured quota accounts and loads the quota store.
 // Load reads the store here, so store I/O stays out of the TUI's Update and
 // View. quotaService may be nil.
@@ -253,6 +275,7 @@ func buildInteractiveApp(cmd *cobra.Command, flags *cliFlags, rt cliRuntime, ses
 		SteerQueue:          sess.ActiveRunController().SteerQueue(),
 		SandboxStatus:       rt.sandboxStatus,
 		ConfigWarnings:      rt.configWarnings,
+		DevLogWarnings:      excludePatternDevLogWarnings(rt.cfg.Paths.ExcludePatterns),
 		WorktreeCleanup:     rt.worktreeCleanup,
 		SubAgentsEnabled:    rt.cfg.SubAgent.Enabled,
 		OrchestrationLevel:  string(sess.OrchestrationLevel()),
