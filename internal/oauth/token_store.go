@@ -112,9 +112,9 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 // holds for its read-refresh-save cycle, so a login save serializes with a
 // refresh already in progress and is not overwritten by it.
 //
-// ctx bounds the wait for the lock and the pre-acquire check: a ctx cancelled
-// before the lock is acquired saves nothing. Cancellation racing a successful
-// acquisition is not checked, so a save that already holds the lock writes.
+// An already-cancelled ctx, or one cancelled while waiting on a contended
+// lock, prevents the save. Cancellation racing ensureDir or the first
+// successful flock attempt is not checked, so that save may still be written.
 //
 // Save itself takes no lock, because refresh calls it while already holding the
 // token lock; locking there would deadlock.
