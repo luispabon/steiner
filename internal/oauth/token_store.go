@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -106,6 +107,29 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 	}
 
 	return nil
+}
+
+// SaveLocked writes token under the cross-process token lock that refresh
+// holds for its read-refresh-save cycle, so a login save serializes with a
+// refresh already in progress and is not overwritten by it. ctx bounds the wait
+// for the lock; a cancelled ctx saves nothing.
+//
+// Save itself takes no lock, because refresh calls it while already holding the
+// token lock; locking there would deadlock.
+func (s *TokenStore) SaveLocked(ctx context.Context, token *oauth2.Token) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("save token under lock: %w", err)
+	}
+	unlock, err := acquireTokenLock(ctx, s.path)
+	if err != nil {
+		return fmt.Errorf("save token under lock: %w", err)
+	}
+	defer unlock()
+
+	return s.Save(token)
 }
 
 // Load reads and unmarshals the token from disk.

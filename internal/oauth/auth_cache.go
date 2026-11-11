@@ -309,7 +309,8 @@ func (r *AuthResolver) loadOrRefresh(store *TokenStore, file tokenFile, conf *oa
 		}
 
 		// The save is skipped when the file is gone, but a removal racing the write
-		// can still be overwritten: login and other writers do not take the lock.
+		// can still be overwritten: writers that do not take the token lock are
+		// not excluded.
 		// Any other stat failure also skips the save and keeps the refreshed token
 		// in memory, since returning nil would leave the process presenting the
 		// refresh token the endpoint has just invalidated.

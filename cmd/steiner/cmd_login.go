@@ -83,7 +83,10 @@ func newLoginCodexCommand() *cobra.Command {
 			}
 			token = withOptionalCodexAPIKey(ctx, token)
 
-			if err := store.Save(token); err != nil {
+			// The save takes the token lock that refresh holds, so signing in while a
+			// refresh is running cannot lose either write. The browser-auth timeout
+			// above does not bound it; cancelling the command still does.
+			if err := store.SaveLocked(cmd.Context(), token); err != nil {
 				return fmt.Errorf("save token: %w", err)
 			}
 
