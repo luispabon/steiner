@@ -19,7 +19,8 @@ const (
 // progress cycle completes, when ReadyGracePeriod elapses without any begin,
 // or when ReadyTimeout elapses with an incomplete begin/end cycle.
 // The state is read-only after readyCh closes.
-// State transitions are owned exclusively by trackReadiness; awaitReady is a passive observer.
+// State transitions are owned exclusively by trackReadiness; awaitReadySession
+// is a passive observer.
 type readiness struct {
 	state        readinessState
 	readyCh      chan struct{}
@@ -59,23 +60,25 @@ func (r *readiness) isTerminal() bool {
 	return r.state != readinessNotReady
 }
 
-// awaitReady blocks until the entry's session has loaded, timeout expires,
-// or the caller's context is cancelled. It returns immediately if readiness
-// is already determined.
+// awaitReadySession blocks until the caller's session has loaded, timeout
+// expires, or the caller's context is cancelled. It returns immediately if
+// readiness is already determined. sess must be the session the caller acquired
+// with its lease: entry.session can be cleared by a concurrent crashed-session
+// retirement while the readiness of the dead session is still installed, so
+// reading it here would observe a nil session.
 //
-// If ReadyTimeout expires before a complete begin/end cycle, awaitReady
+// If ReadyTimeout expires before a complete begin/end cycle, awaitReadySession
 // returns incomplete=true with err=nil, allowing the request to proceed anyway.
 // If the server exits while notReady, it returns the server's exit error.
 // Cancellation of ctx returns ctx.Err().
 //
 // Navigation, hover, and symbol queries await readiness; diagnostics does not.
-func (m *Manager) awaitReady(ctx context.Context, e *entry) (incomplete bool, err error) {
+func (m *Manager) awaitReadySession(ctx context.Context, e *entry, sess session) (incomplete bool, err error) {
 	e.mu.Lock()
 	r := e.readiness
-	sess := e.session
 	e.mu.Unlock()
 
-	if r == nil {
+	if r == nil || sess == nil {
 		return false, nil
 	}
 
@@ -153,7 +156,7 @@ func finishReadinessAfterTimer(e *entry, r *readiness, gracePeriodFired, gracePe
 // becomes live. It is responsible for closing e.readiness.readyCh when
 // readiness is determined (ready or timedOut) via markReady() or markTimedOut().
 // It exits cleanly when the session ends or the manager context is cancelled,
-// leaving the state unmodified for those cases; awaitReady independently
+// leaving the state unmodified for those cases; awaitReadySession independently
 // observes sess.Exited() or caller ctx.Done() to signal early exit.
 func (m *Manager) trackReadiness(e *entry, sess session, r *readiness) {
 	gracePeriodTimer := time.NewTimer(time.Duration(m.cfg.ReadyGracePeriod.Duration()))

@@ -80,7 +80,7 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 	}
 	defer lease.Release()
 
-	incomplete, err := m.awaitReady(ctx, ent)
+	incomplete, err := m.awaitReadySession(ctx, ent, sess)
 	if err != nil {
 		return Result{}, err
 	}
@@ -162,7 +162,7 @@ func (m *Manager) Hover(ctx context.Context, file string, line, col int) (HoverR
 	defer lease.Release()
 
 	// Await readiness (but don't hold the lock during the wait).
-	incomplete, err := m.awaitReady(ctx, ent)
+	incomplete, err := m.awaitReadySession(ctx, ent, sess)
 	if err != nil {
 		return HoverResult{}, err
 	}
@@ -287,7 +287,7 @@ func (m *Manager) fetchDocumentSymbols(ctx context.Context, file string) ([]Symb
 	}
 	defer lease.Release()
 
-	incomplete, err := m.awaitReady(ctx, ent)
+	incomplete, err := m.awaitReadySession(ctx, ent, sess)
 	if err != nil {
 		return nil, false, err
 	}
@@ -391,7 +391,7 @@ func (m *Manager) workspaceSymbolsForServer(ctx context.Context, name, query str
 	}
 	defer lease.Release()
 
-	incomplete, err = m.awaitReady(ctx, ent)
+	incomplete, err = m.awaitReadySession(ctx, ent, sess)
 	if err != nil {
 		return nil, false, false
 	}

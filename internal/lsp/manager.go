@@ -29,8 +29,9 @@ var errManagerClosed = errors.New("lsp manager closed")
 const spawnFailureBackoff = 30 * time.Second
 
 // sessionCloseTimeout bounds every session close the manager owns: idle reaping,
-// crash cleanup, late-spawn cleanup and shutdown. Callers must not hold the
-// manager or an entry lock while it elapses.
+// crash cleanup, late-spawn cleanup and shutdown. Closes of independent sessions
+// run concurrently, so a pass over many sessions still waits at most this long.
+// Callers must not hold the manager or an entry lock while it elapses.
 const sessionCloseTimeout = 5 * time.Second
 
 // Manager owns the language server processes for a session.
@@ -234,7 +235,17 @@ func (m *Manager) acquireEntryForKey(ctx context.Context, serverName string, srv
 			ent.state.StartedAt = time.Now()
 			fallthrough
 		case ServerStatusDeclared, ServerStatusStopped:
-			return m.spawnEntry(ctx, ent, serverName, srv, key.root)
+			// Claim the spawn under m.mu then ent.mu (see claimSpawn). ent.mu is
+			// released first because the manager lock is always taken first.
+			ent.mu.Unlock()
+			ready, claimed, err := m.claimSpawn(ent)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if !claimed {
+				continue
+			}
+			return m.spawnEntry(ctx, ent, ready, serverName, srv, key.root)
 		default:
 			status := ent.state.Status
 			ent.mu.Unlock()
@@ -306,18 +317,40 @@ func (m *Manager) readyEntry(ent *entry) (sess session, lease *entryLease, retry
 	return sess, lease, false
 }
 
-// spawnEntry starts the server for ent. The caller must hold ent.mu with the
-// entry in Declared, Stopped or Failed-after-backoff. spawnEntry marks the entry
-// Starting, releases ent.mu for the spawn, then publishes the session (Ready)
-// with the caller's lease or the failure (Failed) and wakes waiters on
-// ent.ready. It returns with ent.mu released.
-func (m *Manager) spawnEntry(ctx context.Context, ent *entry, serverName string, srv config.LSPServerConfig, root string) (*entry, session, *entryLease, error) {
+// claimSpawn moves ent from Declared or Stopped to Starting and returns the
+// ready channel waiters select on. The transition happens under m.mu then ent.mu
+// (the manager's lock order), so a spawn cannot be claimed once Close has set
+// closing: either the claim lands first and Close's sweep sees Starting, or the
+// claim observes closing and returns errManagerClosed without spawning. claimed
+// is false when another caller won the race; the caller loops. The caller must
+// not hold ent.mu or m.mu.
+func (m *Manager) claimSpawn(ent *entry) (ready chan struct{}, claimed bool, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closing {
+		return nil, false, errManagerClosed
+	}
+
+	ent.mu.Lock()
+	defer ent.mu.Unlock()
+	switch ent.state.Status {
+	case ServerStatusDeclared, ServerStatusStopped:
+	default:
+		return nil, false, nil
+	}
+
 	ent.state.Status = ServerStatusStarting
 	ent.state.StartedAt = time.Now()
 	ent.ready = make(chan struct{})
-	ready := ent.ready
-	ent.mu.Unlock()
+	return ent.ready, true, nil
+}
 
+// spawnEntry starts the server for an entry already claimed as Starting by
+// claimSpawn, then publishes the session (Ready) with the caller's lease or the
+// failure (Failed) and wakes waiters on ready. It returns with no locks held.
+// A spawn claimed before Close started still runs under the cancelled spawn
+// context, and its session is rejected by completeSpawn.
+func (m *Manager) spawnEntry(ctx context.Context, ent *entry, ready chan struct{}, serverName string, srv config.LSPServerConfig, root string) (*entry, session, *entryLease, error) {
 	sess, spawnErr := m.spawnServer(ctx, serverName, srv, root)
 	r := newReadiness()
 
@@ -570,7 +603,8 @@ func (m *Manager) close() {
 
 	// stopReaper is closed exactly once because close runs under closeOnce. Join
 	// the reaper so a reap already in progress finishes its bounded session
-	// closes before shutdown returns.
+	// closes before shutdown returns. doReap closes its batch concurrently, so
+	// this join is bounded by one sessionCloseTimeout rather than one per entry.
 	if m.reapTicker != nil {
 		m.reapTicker.Stop()
 		close(m.stopReaper)
@@ -624,7 +658,9 @@ func (m *Manager) reapIdle() {
 // doReap closes sessions whose LastUsed exceeds IdleTimeout. Entries with an
 // outstanding lease are skipped: a document cycle is using them, whether it is
 // waiting for readiness, queued on cycleMu, or issuing its request. The claim is
-// made under ent.mu, so it cannot race a lease acquired with the session.
+// made under ent.mu, so it cannot race a lease acquired with the session. The
+// claimed sessions are closed concurrently, so one reap pass is bounded by
+// sessionCloseTimeout however many sessions it claims.
 func (m *Manager) doReap() {
 	m.mu.Lock()
 	if m.closing {
@@ -647,7 +683,13 @@ func (m *Manager) doReap() {
 	}
 	m.mu.Unlock()
 
+	var wg sync.WaitGroup
 	for _, sess := range toClose {
-		closeSession(sess)
+		wg.Add(1)
+		go func(sess session) {
+			defer wg.Done()
+			closeSession(sess)
+		}(sess)
 	}
+	wg.Wait()
 }

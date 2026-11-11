@@ -384,3 +384,126 @@ func TestCloseJoinsReaperAndConcurrentClose(t *testing.T) {
 		t.Errorf("status after close = %q, want stopped", status)
 	}
 }
+
+// newLeasedReadyEntry installs a Ready entry for the given session and returns
+// the manager plus what acquireEntry handed out.
+func newLeasedReadyEntry(t *testing.T, sess *blockingSession, r *readiness) (*Manager, *entry, session, *entryLease) {
+	t.Helper()
+	tmpdir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpdir, "go.mod"), []byte(""), 0o644); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	cfg := config.LSPConfig{
+		Enabled:      true,
+		IdleTimeout:  config.MustDuration("1m"),
+		ReadyTimeout: config.MustDuration("500ms"),
+		Servers: map[string]config.LSPServerConfig{
+			"go": {Enabled: true, FileExtensions: []string{".go"}, RootMarkers: []string{"go.mod"}},
+		},
+	}
+	m := NewManager(cfg, tmpdir, nil, ManagerOptions{})
+
+	ent := &entry{
+		state: ServerState{
+			Name: "go", Root: tmpdir, Status: ServerStatusReady,
+			StartedAt: time.Now(), LastUsed: time.Now(),
+		},
+		session:   sess,
+		readiness: r,
+	}
+	m.mu.Lock()
+	m.sessions[sessionKey{server: "go", root: tmpdir}] = ent
+	m.mu.Unlock()
+
+	gotEnt, live, lease, err := m.acquireEntry(context.Background(), filepath.Join(tmpdir, "file.go"))
+	if err != nil {
+		t.Fatalf("acquireEntry: %v", err)
+	}
+	return m, gotEnt, live, lease
+}
+
+// TestAwaitReadyWithRetiredSession pins that readiness waiting uses the session
+// the caller acquired. A concurrent crashed-session retirement clears
+// entry.session while leaving the dead session's readiness installed, which used
+// to make awaitReady call Exited on a nil session.
+func TestAwaitReadyWithRetiredSession(t *testing.T) {
+	t.Parallel()
+	var closeCount atomic.Int32
+	r := newReadiness()
+	r.markReady()
+
+	m, ent, sess, lease := newLeasedReadyEntry(t, newCountingSession(&closeCount), r)
+	defer func() {
+		lease.Release()
+		_ = m.Close()
+	}()
+	if sess == nil {
+		t.Fatal("acquireEntry returned a nil session")
+	}
+
+	// Retirement by a concurrent caller (readyEntry) or by Close.
+	ent.mu.Lock()
+	ent.session = nil
+	ent.state.Status = ServerStatusStopped
+	ent.mu.Unlock()
+
+	incomplete, err := m.awaitReadySession(context.Background(), ent, sess)
+	if err != nil {
+		t.Fatalf("awaitReadySession: %v", err)
+	}
+	if incomplete {
+		t.Error("awaitReadySession returned incomplete=true, want false")
+	}
+}
+
+// TestAwaitReadyObservesAcquiredSessionExit pins that an exit observed through
+// the acquired session is reported even after the entry dropped that session.
+func TestAwaitReadyObservesAcquiredSessionExit(t *testing.T) {
+	t.Parallel()
+	var closeCount atomic.Int32
+	live := newCountingSession(&closeCount)
+
+	m, ent, sess, lease := newLeasedReadyEntry(t, live, newReadiness())
+	defer func() {
+		lease.Release()
+		_ = m.Close()
+	}()
+
+	ent.mu.Lock()
+	ent.session = nil
+	ent.state.Status = ServerStatusStopped
+	ent.mu.Unlock()
+	close(live.exited)
+
+	if _, err := m.awaitReadySession(context.Background(), ent, sess); !errors.Is(err, errServerExited) {
+		t.Fatalf("awaitReadySession error = %v, want errServerExited", err)
+	}
+}
+
+// TestClaimSpawnRejectsAfterClose pins that a spawn cannot be claimed once
+// shutdown started: the closing check and the Starting transition share the
+// manager lock, so no server is spawned after Close.
+func TestClaimSpawnRejectsAfterClose(t *testing.T) {
+	t.Parallel()
+	m := NewManager(config.LSPConfig{}, t.TempDir(), nil, ManagerOptions{})
+	if err := m.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	ent := &entry{state: ServerState{Name: "go", Status: ServerStatusDeclared}}
+	ready, claimed, err := m.claimSpawn(ent)
+	if !errors.Is(err, errManagerClosed) {
+		t.Fatalf("claimSpawn error = %v, want errManagerClosed", err)
+	}
+	if claimed || ready != nil {
+		t.Errorf("claimSpawn returned claimed=%v ready=%v after Close", claimed, ready)
+	}
+
+	ent.mu.Lock()
+	status := ent.state.Status
+	ent.mu.Unlock()
+	if status == ServerStatusStarting {
+		t.Error("claimSpawn moved the entry to starting after Close")
+	}
+}

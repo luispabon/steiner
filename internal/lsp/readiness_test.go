@@ -60,6 +60,17 @@ func (s *readinessTestSession) Exited() <-chan struct{} { return s.exited }
 
 func (s *readinessTestSession) Close(context.Context) error { return nil }
 
+// awaitReady is the test shim for awaitReadySession: it reads the entry's
+// current session under ent.mu, matching what the manager did before callers
+// started passing the session they acquired. Production callers always pass
+// their acquired session instead.
+func (m *Manager) awaitReady(ctx context.Context, e *entry) (bool, error) {
+	e.mu.Lock()
+	sess := e.session
+	e.mu.Unlock()
+	return m.awaitReadySession(ctx, e, sess)
+}
+
 // TestReadinessQueuedProgressTakesPrecedenceAtTimeout verifies that a queued
 // complete cycle is processed when the readiness timeout is already ready.
 func TestReadinessQueuedProgressTakesPrecedenceAtTimeout(t *testing.T) {
