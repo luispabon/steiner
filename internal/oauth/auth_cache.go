@@ -55,8 +55,11 @@ var errRefreshedTokenInvalid = errors.New("refreshed token is not valid")
 // oauth2.Token.Valid; it is served as stored.
 //
 // A refreshed token that cannot be saved is kept in memory and served by later
-// calls; the next refresh starts from it and retries the save, and the save
-// error is reported to the caller that triggered it.
+// calls. A later call retries the save without refreshing, at most
+// saveRetryAttempts times with a growing pause; while the retained token is
+// valid a failed retry does not fail the call, and a busy token lock skips the
+// try after a short wait. The next refresh also starts from the retained token
+// and retries the save.
 type AuthResolver struct {
 	mu      sync.Mutex
 	entries map[string]*authEntry
@@ -66,6 +69,8 @@ type AuthResolver struct {
 	newTokenFile func(*TokenStore) tokenFile
 	// lockAcquire overrides the cross-process token lock; tests set it.
 	lockAcquire func(context.Context, string) (func(), error)
+	// now overrides the clock used for save-retry scheduling; tests set it.
+	now func() time.Time
 }
 
 // NewAuthResolver returns an empty AuthResolver.
@@ -83,11 +88,16 @@ type authEntry struct {
 	stamp     fileStamp
 	valid     bool
 	persisted bool
-	flight    *authFlight
+	// saveAttempts counts the failed saves of the cached token, and saveAfter
+	// is the earliest time of the next save-only retry.
+	saveAttempts int
+	saveAfter    time.Time
+	flight       *authFlight
 }
 
-// authFlight is one detached refresh. Its fields are written before done is
-// closed, so waiters read them only after receiving from done.
+// authFlight is one detached refresh, or one save-only retry of a retained
+// token. Its fields are written before done is closed, so waiters read them only
+// after receiving from done.
 type authFlight struct {
 	done  chan struct{}
 	token *oauth2.Token
@@ -101,8 +111,11 @@ type authFlight struct {
 //
 // httpClient, when non-nil, serves the refresh started by this call. A caller
 // that joins a refresh already in flight uses the client of the caller that
-// started it. ctx cancels only this caller's wait for the refresh; the refresh
+// started it. ctx cancels only this caller's wait for the flight; the flight
 // itself runs to completion for the other callers.
+//
+// A call whose cached token a refresh could not save retries that save once the
+// pause between retries ends, without contacting the token endpoint.
 func (r *AuthResolver) Resolve(ctx context.Context, store *TokenStore, conf *oauth2.Config, httpClient *http.Client) (*oauth2.Token, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -121,10 +134,10 @@ func (r *AuthResolver) Resolve(ctx context.Context, store *TokenStore, conf *oau
 		// rotated refresh token is the only usable credential.
 		return nil, fmt.Errorf("stat token file: %w", err)
 	}
-	if token, ok := entry.cached(stamp); ok {
+	if token, ok := entry.cached(stamp, r.clock()); ok {
 		return token, nil
 	}
-	return r.waitForRefresh(ctx, entry, file, conf, httpClient)
+	return r.waitForFlight(ctx, entry, file, conf, httpClient, stamp)
 }
 
 // tokenFile is the token file access a stable read needs. TokenStore backs it in
@@ -165,15 +178,20 @@ func (r *AuthResolver) entry(path string) *authEntry {
 }
 
 // cached returns the cached token when stamp still describes the file version
-// it was loaded from and the token does not need a refresh.
-func (e *authEntry) cached(stamp fileStamp) (*oauth2.Token, bool) {
+// it was loaded from and the token does not need a refresh. A retained token
+// whose save retry is due is left to the flight, so concurrent callers share
+// one retry; between retries it is served from memory.
+func (e *authEntry) cached(stamp fileStamp, now time.Time) (*oauth2.Token, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.flight != nil || !e.valid || !e.stamp.equal(stamp) {
 		return nil, false
 	}
-	if tokenNeedsRefresh(e.token, time.Now()) {
+	if tokenNeedsRefresh(e.token, now) {
+		return nil, false
+	}
+	if e.saveRetryDueLocked(now) {
 		return nil, false
 	}
 	return cloneToken(e.token), true
@@ -185,22 +203,46 @@ func (e *authEntry) invalidate() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	e.clearLocked()
+}
+
+// clearLocked drops the cached token and its save-retry schedule.
+func (e *authEntry) clearLocked() {
 	e.token = nil
 	e.stamp = fileStamp{}
 	e.valid = false
 	e.persisted = false
+	e.saveAttempts = 0
+	e.saveAfter = time.Time{}
 }
 
-// waitForRefresh joins the in-flight refresh for entry, starting one when none
-// is running.
-func (r *AuthResolver) waitForRefresh(ctx context.Context, entry *authEntry, file tokenFile, conf *oauth2.Config, httpClient *http.Client) (*oauth2.Token, error) {
+// setLocked publishes token as the credential cached for stamp. A persisted
+// token ends the save-retry schedule.
+func (e *authEntry) setLocked(token *oauth2.Token, stamp fileStamp, persisted bool) {
+	e.token = cloneToken(token)
+	e.stamp = stamp
+	e.valid = true
+	e.persisted = persisted
+	e.saveAttempts = 0
+	e.saveAfter = time.Time{}
+}
+
+// waitForFlight joins the in-flight work for entry, starting it when none is
+// running: a save-only retry of the retained token when one is due at stamp,
+// and a refresh otherwise.
+func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file tokenFile, conf *oauth2.Config, httpClient *http.Client, stamp fileStamp) (*oauth2.Token, error) {
 	entry.mu.Lock()
 	flight := entry.flight
 	if flight == nil {
 		flight = &authFlight{done: make(chan struct{})}
 		entry.flight = flight
+		retryToken, retryStamp, retry := entry.pendingSaveLocked(r.clock(), stamp)
 		entry.mu.Unlock()
-		go r.refresh(entry, flight, file, conf, httpClient)
+		if retry {
+			go r.saveRetained(entry, flight, file, conf, httpClient, retryToken, retryStamp)
+		} else {
+			go r.refresh(entry, flight, file, conf, httpClient)
+		}
 	} else {
 		entry.mu.Unlock()
 	}
@@ -227,8 +269,9 @@ func (r *AuthResolver) waitForRefresh(ctx context.Context, entry *authEntry, fil
 // the token of a refresh that could not be saved: the refresh token was rotated
 // server-side, so that token is the only usable credential left for this
 // process even though the save error is still reported to the caller. An unsaved
-// token is marked unpersisted, so the next refresh starts from it and retries
-// the save instead of using the older refresh token on disk.
+// token is marked unpersisted, so a later call retries the save without
+// refreshing and the next refresh starts from the rotated token instead of the
+// older one on disk.
 func (r *AuthResolver) refresh(entry *authEntry, flight *authFlight, file tokenFile, conf *oauth2.Config, httpClient *http.Client) {
 	defer close(flight.done)
 
@@ -238,9 +281,12 @@ func (r *AuthResolver) refresh(entry *authEntry, flight *authFlight, file tokenF
 	entry.mu.Lock()
 	switch {
 	case token != nil && stamp.exists:
-		entry.token, entry.stamp, entry.valid, entry.persisted = cloneToken(token), stamp, true, persisted
+		entry.setLocked(token, stamp, persisted)
+		if !persisted {
+			entry.awaitSaveRetryLocked(r.clock())
+		}
 	case errors.Is(err, ErrNoToken):
-		entry.token, entry.stamp, entry.valid, entry.persisted = nil, fileStamp{}, false, false
+		entry.clearLocked()
 	}
 	entry.flight = nil
 	entry.mu.Unlock()
@@ -415,6 +461,14 @@ func (r *AuthResolver) timeout() time.Duration {
 		return r.refreshTimeout
 	}
 	return codexRefreshTimeout
+}
+
+// clock returns the time used for save-retry scheduling.
+func (r *AuthResolver) clock() time.Time {
+	if r.now != nil {
+		return r.now()
+	}
+	return time.Now()
 }
 
 // withHTTPClient returns ctx carrying client for the token endpoint request. A
