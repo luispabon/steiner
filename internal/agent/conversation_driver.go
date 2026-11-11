@@ -252,10 +252,11 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		d.unlockEmit()
 		return false
 	}
-	if d.held || !d.wakeReadyLocked() {
-		// A stop or a taken-back steer in the PrepareTurn gap withdrew the
-		// wake. Keep buffered items for the next wake instead of starting a
-		// run the check before the gap approved.
+	if d.held {
+		// A stop in the PrepareTurn gap withdrew the wake. Keep buffered items
+		// for the next prompt instead of starting the run the check before the
+		// gap approved. A take-back only withdraws its own item, so the drain
+		// below still settles or starts on whatever is left.
 		return d.notReadyLocked(ctx, between)
 	}
 	drain, steer := d.drainItemsLocked(parts)

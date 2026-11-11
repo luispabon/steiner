@@ -169,6 +169,80 @@ func TestConversationDriverStopDuringPrepareTurnEndsSequenceHeld(t *testing.T) {
 	h.waitQuiescent()
 }
 
+func TestConversationDriverWithdrawnSteerDuringPrepareTurnKeepsBufferedCompletion(t *testing.T) {
+	t.Parallel()
+	gate := newGatedPrepare(0)
+	h := newDriverHarness(t, nil, gate.prepare)
+	h.bg.setPending("a", "b")
+	h.bg.markFinished("a")
+	h.start()
+	t.Cleanup(gate.open)
+
+	// The finished sibling waits behind the coalescing window while b runs, so
+	// only the steer makes the inbox ready.
+	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	if got := h.clock.armed(); got != 1 {
+		t.Fatalf("armed timers = %d, want the window armed by the finished sibling", got)
+	}
+	h.noRun()
+	h.steers.Add(SteerMessage{Text: "take me back"})
+	h.d.NotifySteer()
+	gate.waitEntered(t)
+	// The user takes the steer back into the input box while the driver is
+	// preparing the run.
+	if drained := h.steers.Drain(); len(drained) != 1 {
+		t.Fatalf("drained steers = %v, want the steer taken back", drained)
+	}
+	gate.open()
+
+	// The withdrawn steer does not cancel the run: the buffered completion
+	// still starts one, as it did before the stop fix.
+	call := h.nextRun()
+	if msg := lastContent(call); !strings.Contains(msg, `agent_id="a"`) || strings.Contains(msg, "take me back") {
+		t.Fatalf("message = %q, want the buffered sibling envelope without the withdrawn steer", msg)
+	}
+	if got := h.clock.armed(); got != 0 {
+		t.Fatalf("armed timers = %d, want the window disarmed by the drain", got)
+	}
+	call.finish()
+	h.waitSettled(DriverWaiting, false)
+	h.noRun()
+}
+
+func TestConversationDriverWithdrawnSteerDuringPrepareTurnSettlesAndSaves(t *testing.T) {
+	t.Parallel()
+	gate := newGatedPrepare(0)
+	h := newDriverHarness(t, nil, gate.prepare)
+	h.start()
+	t.Cleanup(gate.open)
+
+	h.steers.Add(SteerMessage{Text: "withdraw me"})
+	h.d.NotifySteer()
+	gate.waitEntered(t)
+	if drained := h.steers.Drain(); len(drained) != 1 {
+		t.Fatalf("drained steers = %v, want the steer taken back", drained)
+	}
+	released := h.changedChan()
+	gate.open()
+	waitClosed(t, released)
+
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	if err := h.d.WaitIdle(ctx); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
+	h.noRun()
+	h.mu.Lock()
+	saves := len(h.saves)
+	h.mu.Unlock()
+	if saves != 1 {
+		t.Fatalf("saves = %d, want the one settle save an emptied inbox records", saves)
+	}
+	if conv := h.d.Snapshot().Conversation; len(conv) != 0 {
+		t.Fatalf("conversation = %+v, want nothing delivered", conv)
+	}
+}
+
 func TestConversationDriverSubmitDuringPrepareTurnStartsRun(t *testing.T) {
 	t.Parallel()
 	gate := newGatedPrepare(0)
