@@ -84,7 +84,7 @@ Research may be skipped when the task is repo-local, stable, and sufficiently un
 
 **Delegation.** If research is approved, delegate it — do not substitute the planner's own reasoning. Call Steiner's `sub_agent` tool with type `research` and a self-contained brief framed around the exact questions to answer. When delegation is available, follow the briefing template in your system prompt. If `sub_agent` type `research` is unavailable, report that and ask whether to continue without it or use the best available fallback. Share a `group` across parallel research calls; end the turn and continue when results arrive. Research is complete once the delegated result is received and reviewed.
 
-Write `research.md` (or `research_001.md`, etc.) from the delegated result. Do not require the researcher to write files. Then communicate findings with an inline summary of 3 to 5 bullets covering key findings, implications, and any surprises or risks, and a Markdown link to the artifact's actual path so the complete findings are available for review. Do not skip either the summary or the link.
+If useful, write `research.md` (or `research_001.md`, etc.) from the delegated result. Do not require the researcher to write files. Always summarize findings inline in 3 to 5 bullets covering findings, implications, surprises, and risks. If written, link the full artifact's actual path in Markdown.
 
 ### Stage 3 — Approach
 
@@ -101,7 +101,7 @@ Close with a **Recommendation**: name the proposal you recommend and explain why
 
 **Approach checkpoint ▸ GATE.** Present all proposals and the recommendation, then halt until the user explicitly picks one (or asks for refinements or more alternatives).
 
-**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. Write findings to `research_approach.md` (or append to the existing research artifact if one already exists). Communicate findings the same way as Stage 2: a substantive inline summary and a Markdown link to the actual artifact path so the complete findings are available for review. Only after auto-research is complete (or if none was needed) proceed to Stage 4.
+**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. If useful, write findings to `research_approach.md` (or append to an existing research artifact). As in Stage 2, always summarize findings inline and link the full artifact's actual path in Markdown if written. Proceed to Stage 4 only after auto-research is complete (or if none was needed).
 
 ### Stage 4 — Overview
 
