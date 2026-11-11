@@ -8,7 +8,7 @@ import (
 )
 
 // ctokActiveModelIDs lists the exact, whitespace-trimmed model IDs that count
-// with ctok. Each ID passed the token gate recorded in observations.json.
+// with ctok. Every other model ID keeps the default tokenizer selection.
 var ctokActiveModelIDs = map[string]struct{}{
 	"claude-opus-5-5":   {},
 	"claude-sonnet-5-5": {},

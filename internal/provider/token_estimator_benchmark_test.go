@@ -12,8 +12,8 @@ import (
 )
 
 // Sizes are semantic bytes: the sum of every text input the estimator passes
-// to the counter, as recorded by claudeFixtureRecordingCounter. JSON wire bytes
-// are not measured.
+// to the counter, as recorded by claudeSyntheticRecordingCounter. JSON wire
+// bytes are not measured.
 const (
 	claudeBenchKiB = 1 << 10
 	claudeBenchMiB = 1 << 20
@@ -134,22 +134,71 @@ func claudeBenchCheckScaling(small, large claudeBenchMeasurement) error {
 	return nil
 }
 
-// claudeBenchPayloads maps each fixture payload name to its text.
-func claudeBenchPayloads(set claudeFixtureSet) (map[string]string, error) {
-	payloads := make(map[string]string, len(set.Payloads))
-	for _, p := range set.Payloads {
-		payloads[p.Name] = string(p.Bytes)
+// claudeBenchToolSpecs returns synthetic provider tool schemas for benchmark
+// requests. They are representative shapes, not recorded builtin schemas.
+func claudeBenchToolSpecs() []ToolSpec {
+	return []ToolSpec{
+		{Type: "function", Function: ToolFunctionSpec{
+			Name:        "synthetic_search",
+			Description: "Search tracked files for a regular expression and return matching lines with surrounding context.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": map[string]any{"type": "string", "description": "Regular expression to search for."},
+					"path":    map[string]any{"type": "string", "description": "Directory to search, relative to the project root."},
+					"options": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"context":     map[string]any{"type": "integer", "description": "Context lines to include around each match."},
+							"ignore_case": map[string]any{"type": "boolean", "description": "Match case-insensitively."},
+						},
+						"additionalProperties": false,
+					},
+				},
+				"required":             []any{"pattern"},
+				"additionalProperties": false,
+			},
+		}},
+		{Type: "function", Function: ToolFunctionSpec{
+			Name:        "synthetic_read",
+			Description: "Read a range of lines from a UTF-8 text file.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{"type": "string", "description": "File to read."},
+					"options": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"offset": map[string]any{"type": "integer", "description": "First line to read, 1-based."},
+							"limit":  map[string]any{"type": "integer", "description": "Maximum number of lines to read."},
+						},
+						"additionalProperties": false,
+					},
+				},
+				"required":             []any{"path"},
+				"additionalProperties": false,
+			},
+		}},
+		{Type: "function", Function: ToolFunctionSpec{
+			Name:        "synthetic_edit",
+			Description: "Replace one exact string in a file and report the changed line range.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path":    map[string]any{"type": "string", "description": "File to modify."},
+					"old":     map[string]any{"type": "string", "description": "Exact text to replace."},
+					"new":     map[string]any{"type": "string", "description": "Replacement text."},
+					"replace": map[string]any{"type": "boolean", "description": "Replace every match instead of exactly one."},
+				},
+				"required":             []any{"path", "old", "new"},
+				"additionalProperties": false,
+			},
+		}},
 	}
-	for _, name := range []string{"code_json", "markdown_prose", "unicode", "mixed"} {
-		if _, ok := payloads[name]; !ok {
-			return nil, fmt.Errorf("claude fixture has no %q payload", name)
-		}
-	}
-	return payloads, nil
 }
 
 // claudeBenchCycle is one repeat of a coding conversation: a user code payload,
-// an assistant turn calling grep and read with nested arguments, the two tool
+// an assistant turn calling two tools with nested arguments, the two tool
 // results (Markdown prose and mixed text), and an assistant Unicode reply. Call
 // IDs are fixed, so every repeat has the same semantic bytes.
 func claudeBenchCycle(p map[string]string) []Message {
@@ -158,41 +207,37 @@ func claudeBenchCycle(p map[string]string) []Message {
 		{
 			Role: MessageRoleAssistant,
 			ToolCalls: []ToolCall{
-				{ID: "call_grep", Name: "grep", Arguments: map[string]any{
+				{ID: "call_search", Name: "synthetic_search", Arguments: map[string]any{
 					"pattern": "func (l *Ledger) Add",
 					"path":    "internal/ledger",
 					"options": map[string]any{"context": 2, "ignore_case": false},
 				}},
-				{ID: "call_read", Name: "read", Arguments: map[string]any{
+				{ID: "call_read", Name: "synthetic_read", Arguments: map[string]any{
 					"path":    "internal/ledger/ledger.go",
 					"options": map[string]any{"offset": 1, "limit": 200},
 				}},
 			},
 		},
-		{Role: MessageRoleTool, ToolCallID: "call_grep", Name: "grep", Content: p["markdown_prose"]},
-		{Role: MessageRoleTool, ToolCallID: "call_read", Name: "read", Content: p["mixed"]},
+		{Role: MessageRoleTool, ToolCallID: "call_search", Name: "synthetic_search", Content: p["markdown_prose"]},
+		{Role: MessageRoleTool, ToolCallID: "call_read", Name: "synthetic_read", Content: p["mixed"]},
 		{Role: MessageRoleAssistant, Content: p["unicode"]},
 	}
 }
 
-// claudeBenchRequest returns the fixture system prompt, the pinned production
-// core tools, and repeats copies of the realistic cycle.
-func claudeBenchRequest(set claudeFixtureSet, repeats int) (ChatRequest, error) {
-	payloads, err := claudeBenchPayloads(set)
-	if err != nil {
-		return ChatRequest{}, err
-	}
-	messages := []Message{{Role: MessageRoleSystem, Content: claudeFixtureSystem}}
+// claudeBenchRequest returns the synthetic system prompt, synthetic tool
+// schemas, and repeats copies of the coding cycle.
+func claudeBenchRequest(payloads map[string]string, repeats int) ChatRequest {
+	messages := []Message{{Role: MessageRoleSystem, Content: claudeSyntheticSystem}}
 	for range repeats {
 		messages = append(messages, claudeBenchCycle(payloads)...)
 	}
-	return ChatRequest{Model: set.Manifest.Model, Messages: messages, Tools: set.Tools}, nil
+	return ChatRequest{Model: claudeSyntheticModel, Messages: messages, Tools: claudeBenchToolSpecs()}
 }
 
 // claudeBenchSemanticBytes returns the bytes of every text input the estimator
 // counts for request.
 func claudeBenchSemanticBytes(request ChatRequest) (int64, error) {
-	recorder := &claudeFixtureRecordingCounter{}
+	recorder := &claudeSyntheticRecordingCounter{}
 	if _, err := countRequestWithCounter(context.Background(), request, recorder); err != nil {
 		return 0, fmt.Errorf("count claude bench request: %w", err)
 	}
@@ -205,20 +250,12 @@ func claudeBenchSemanticBytes(request ChatRequest) (int64, error) {
 
 // claudeBenchCycleBytes returns the semantic bytes of the request with no cycles
 // (base) and the bytes that one cycle adds.
-func claudeBenchCycleBytes(set claudeFixtureSet) (int64, int64, error) {
-	empty, err := claudeBenchRequest(set, 0)
+func claudeBenchCycleBytes(payloads map[string]string) (int64, int64, error) {
+	base, err := claudeBenchSemanticBytes(claudeBenchRequest(payloads, 0))
 	if err != nil {
 		return 0, 0, err
 	}
-	base, err := claudeBenchSemanticBytes(empty)
-	if err != nil {
-		return 0, 0, err
-	}
-	one, err := claudeBenchRequest(set, 1)
-	if err != nil {
-		return 0, 0, err
-	}
-	withOne, err := claudeBenchSemanticBytes(one)
+	withOne, err := claudeBenchSemanticBytes(claudeBenchRequest(payloads, 1))
 	if err != nil {
 		return 0, 0, err
 	}
@@ -247,11 +284,11 @@ func claudeBenchFiller(n int64) string {
 // appends one user message of filler for the remaining bytes. The user role adds
 // semantic bytes of its own, so the bytes are measured again after the append, and
 // the result must pass claudeBenchCheckSemanticBytes.
-func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, int64, error) {
+func claudeBenchSizedRequest(payloads map[string]string, target int64) (ChatRequest, int64, error) {
 	if target <= 0 {
 		return ChatRequest{}, 0, fmt.Errorf("claude bench target = %d, want > 0", target)
 	}
-	base, cycle, err := claudeBenchCycleBytes(set)
+	base, cycle, err := claudeBenchCycleBytes(payloads)
 	if err != nil {
 		return ChatRequest{}, 0, err
 	}
@@ -259,10 +296,7 @@ func claudeBenchSizedRequest(set claudeFixtureSet, target int64) (ChatRequest, i
 	if repeats < 1 {
 		return ChatRequest{}, 0, fmt.Errorf("claude bench target = %d is below one cycle over %d base bytes", target, base)
 	}
-	request, err := claudeBenchRequest(set, int(repeats))
-	if err != nil {
-		return ChatRequest{}, 0, err
-	}
+	request := claudeBenchRequest(payloads, int(repeats))
 	got, err := claudeBenchSemanticBytes(request)
 	if err != nil {
 		return ChatRequest{}, 0, err
@@ -335,13 +369,10 @@ func claudeBenchMeasure(request ChatRequest, semanticBytes int64, counter textCo
 
 // BenchmarkClaudeRequestEstimate times whole-request estimates with the old
 // tiktoken counter and the candidate ctok counter at each size. One op is one
-// real request estimate; SetBytes reports its semantic bytes.
+// synthetic request estimate; SetBytes reports its semantic bytes.
 func BenchmarkClaudeRequestEstimate(b *testing.B) {
-	set, err := loadClaudeFixture(claudeFixtureDir)
-	if err != nil {
-		b.Fatal(err)
-	}
-	candidate, err := claudeFixtureCounter(set.Manifest.Model)
+	payloads := mustClaudeSyntheticPayloads(b)
+	candidate, err := claudeSyntheticCounter()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -350,7 +381,7 @@ func BenchmarkClaudeRequestEstimate(b *testing.B) {
 		b.Fatalf("load old tokenizer: %v", err)
 	}
 	for _, size := range claudeBenchSizes {
-		request, semanticBytes, err := claudeBenchSizedRequest(set, size.bytes)
+		request, semanticBytes, err := claudeBenchSizedRequest(payloads, size.bytes)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -367,18 +398,15 @@ func BenchmarkClaudeRequestEstimate(b *testing.B) {
 // the agent sets from the pre-send fit. SetBytes reports the request's semantic
 // bytes.
 func BenchmarkObserveUsageCalibration(b *testing.B) {
-	set, err := loadClaudeFixture(claudeFixtureDir)
-	if err != nil {
-		b.Fatal(err)
-	}
+	payloads := mustClaudeSyntheticPayloads(b)
 	counter := newTokenCounter(counterSelectOptions{
-		ids:         map[string]struct{}{set.Manifest.Model: {}},
+		ids:         map[string]struct{}{claudeSyntheticModel: {}},
 		codecLoader: tokenizerForModel,
 		candidate:   &claudeTextCounter{},
 	}).(*tokenCounter)
 	ctx := context.Background()
 	for _, size := range claudeBenchSizes {
-		request, semanticBytes, err := claudeBenchSizedRequest(set, size.bytes)
+		request, semanticBytes, err := claudeBenchSizedRequest(payloads, size.bytes)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -533,10 +561,10 @@ func TestClaudeBenchFiller(t *testing.T) {
 }
 
 func TestClaudeBenchSizedRequestHitsTargets(t *testing.T) {
-	set := loadClaudeFixtureForTest(t)
+	payloads := mustClaudeSyntheticPayloads(t)
 	for _, size := range claudeBenchSizes {
 		t.Run(size.name, func(t *testing.T) {
-			_, got, err := claudeBenchSizedRequest(set, size.bytes)
+			_, got, err := claudeBenchSizedRequest(payloads, size.bytes)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -548,7 +576,7 @@ func TestClaudeBenchSizedRequestHitsTargets(t *testing.T) {
 }
 
 func TestClaudeBenchSizedRequestRejectsInvalidTargets(t *testing.T) {
-	set := loadClaudeFixtureForTest(t)
+	payloads := mustClaudeSyntheticPayloads(t)
 	tests := []struct {
 		name   string
 		target int64
@@ -559,7 +587,7 @@ func TestClaudeBenchSizedRequestRejectsInvalidTargets(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, _, err := claudeBenchSizedRequest(set, tt.target); err == nil {
+			if _, _, err := claudeBenchSizedRequest(payloads, tt.target); err == nil {
 				t.Errorf("target %d accepted, want error", tt.target)
 			}
 		})
@@ -576,8 +604,8 @@ func (c claudeBenchFailingCounter) Count(string) (int, error) {
 }
 
 func TestClaudeBenchMeasureKeepsCounterError(t *testing.T) {
-	set := loadClaudeFixtureForTest(t)
-	request, semanticBytes, err := claudeBenchSizedRequest(set, claudeBenchSmallTarget)
+	payloads := mustClaudeSyntheticPayloads(t)
+	request, semanticBytes, err := claudeBenchSizedRequest(payloads, claudeBenchSmallTarget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,16 +620,13 @@ func TestClaudeBenchMeasureKeepsCounterError(t *testing.T) {
 }
 
 func TestClaudeBenchRepeatsAddIdenticalSemanticBytes(t *testing.T) {
-	set := loadClaudeFixtureForTest(t)
-	base, cycle, err := claudeBenchCycleBytes(set)
+	payloads := mustClaudeSyntheticPayloads(t)
+	base, cycle, err := claudeBenchCycleBytes(payloads)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, repeats := range []int{2, 5} {
-		request, err := claudeBenchRequest(set, repeats)
-		if err != nil {
-			t.Fatal(err)
-		}
+		request := claudeBenchRequest(payloads, repeats)
 		got, err := claudeBenchSemanticBytes(request)
 		if err != nil {
 			t.Fatal(err)

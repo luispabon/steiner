@@ -1,4 +1,1 @@
 payloads/*.txt text eol=lf
-*.json text eol=lf
-streams/*.jsonl text eol=lf
-captures/*.jsonl text eol=lf
