@@ -201,6 +201,91 @@ func TestSummarizeGlobArgs(t *testing.T) {
 			args:     map[string]any{"pattern": "**/*.go", "path": "internal/"},
 			expected: "./internal/**/*.go",
 		},
+		{
+			name:     "no path without pattern",
+			args:     map[string]any{},
+			expected: "glob",
+		},
+		{
+			name:     "no path with pattern",
+			args:     map[string]any{"pattern": "*.go"},
+			expected: "*.go",
+		},
+		{
+			name:     "dot path without pattern",
+			args:     map[string]any{"path": "."},
+			expected: "glob",
+		},
+		{
+			name:     "dot path with pattern",
+			args:     map[string]any{"path": ".", "pattern": "*.go"},
+			expected: "*.go",
+		},
+		{
+			name:     "dot slash path without pattern",
+			args:     map[string]any{"path": "./"},
+			expected: "glob",
+		},
+		{
+			name:     "dot slash path with pattern",
+			args:     map[string]any{"path": "./", "pattern": "*.go"},
+			expected: "*.go",
+		},
+		{
+			name:     "relative path without pattern",
+			args:     map[string]any{"path": "src"},
+			expected: "./src",
+		},
+		{
+			name:     "relative path with pattern",
+			args:     map[string]any{"path": "src", "pattern": "*.go"},
+			expected: "./src/*.go",
+		},
+		{
+			name:     "relative path with dot slash prefix and trailing slash, without pattern",
+			args:     map[string]any{"path": "./src/"},
+			expected: "./src",
+		},
+		{
+			name:     "relative path with dot slash prefix and trailing slash, with pattern",
+			args:     map[string]any{"path": "./src/", "pattern": "*.go"},
+			expected: "./src/*.go",
+		},
+		{
+			name:     "parent relative path without pattern",
+			args:     map[string]any{"path": "../x"},
+			expected: "../x",
+		},
+		{
+			name:     "parent relative path with pattern",
+			args:     map[string]any{"path": "../x", "pattern": "*.go"},
+			expected: "../x/*.go",
+		},
+		{
+			name:     "absolute path without pattern",
+			args:     map[string]any{"path": "/abs"},
+			expected: "/abs",
+		},
+		{
+			name:     "absolute path with pattern",
+			args:     map[string]any{"path": "/abs", "pattern": "*.go"},
+			expected: "/abs/*.go",
+		},
+		{
+			name:     "filesystem root without pattern",
+			args:     map[string]any{"path": "/"},
+			expected: "/",
+		},
+		{
+			name:     "filesystem root with pattern",
+			args:     map[string]any{"path": "/", "pattern": "*.go"},
+			expected: "/*.go",
+		},
+		{
+			name:     "home relative path with pattern",
+			args:     map[string]any{"path": "~/src", "pattern": "*.go"},
+			expected: "~/src/*.go",
+		},
 	}
 
 	for _, tt := range tests {

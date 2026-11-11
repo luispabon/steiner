@@ -241,26 +241,40 @@ func summarizeGlobArgs(args map[string]any) string {
 	pattern, _ := args["pattern"].(string)
 	path, _ := args["path"].(string)
 
-	if path != "" && pattern != "" {
-		if !strings.HasPrefix(path, "./") {
-			path = "./" + path
+	display, ok := displayGlobPath(path)
+	if !ok {
+		if pattern != "" {
+			return pattern
 		}
-		path = strings.TrimRight(path, "/")
-		return path + "/" + pattern
+		return "glob"
 	}
 
 	if pattern != "" {
-		return pattern
+		return strings.TrimSuffix(display, "/") + "/" + pattern
 	}
 
-	if path != "" {
-		if !strings.HasPrefix(path, "./") {
-			path = "./" + path
-		}
-		return path
-	}
+	return display
+}
 
-	return "glob"
+// displayGlobPath normalizes a glob path argument for display. It trims a
+// trailing "/" (keeping "/" itself) and prefixes relative paths with "./" so
+// they read as project-relative; absolute and "~" paths stay as given. ok is
+// false when the path refers to the project root ("", ".", or "./"), so the
+// caller renders the pattern on its own.
+func displayGlobPath(path string) (string, bool) {
+	if path != "/" {
+		path = strings.TrimRight(path, "/")
+	}
+	if path == "" || path == "." {
+		return "", false
+	}
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") {
+		return path, true
+	}
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
+		return path, true
+	}
+	return "./" + path, true
 }
 
 // sortedKeys returns the keys of m in ascending lexicographic order.
