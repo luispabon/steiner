@@ -9,43 +9,34 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// reconnectWorker runs sequential fresh-connect attempts until one succeeds or
-// the consecutive-failure cap is reached. At most one worker runs per server at
-// a time (kickReconnectLocked guarantees it). The tool set is never re-listed
+// reconnectWorker runs sequential fresh-connect attempts for the transition that
+// began with done as its ownership token, until one succeeds or the
+// consecutive-failure cap is reached. At most one worker runs per server at a
+// time (beginReconnectLocked guarantees it). The tool set is never re-listed
 // (D14) and the failed call is never replayed (D16).
-func (s *Session) reconnectWorker() {
+func (s *Session) reconnectWorker(done chan struct{}) {
 	s.reportStatus(ServerStatusReconnecting, nil)
 
 	for {
 		if s.managerCtx.Err() != nil {
 			// The owning manager is closed; abandon the reconnect and release
 			// every caller blocked on the outcome future.
-			s.resolveReconnect(fmt.Errorf("reconnect aborted: manager closed: %w", s.managerCtx.Err()), ServerStatusUnavailable)
+			s.resolveReconnect(done, fmt.Errorf("reconnect aborted: manager closed: %w", s.managerCtx.Err()), ServerStatusUnavailable)
 			return
 		}
 
 		newSDK, newCmd, err := s.reconnectOnce()
 		if err == nil {
-			s.mu.Lock()
-			if s.managerCtx.Err() != nil || s.closed {
-				s.mu.Unlock()
+			old, committed := s.commitReconnect(done, newSDK, newCmd)
+			if !committed {
 				_ = newSDK.Close()
 				abortErr := errors.New("reconnect aborted: session closed")
 				if ctxErr := s.managerCtx.Err(); ctxErr != nil {
 					abortErr = fmt.Errorf("reconnect aborted: manager closed: %w", ctxErr)
 				}
-				s.resolveReconnect(abortErr, ServerStatusUnavailable)
+				s.resolveReconnect(done, abortErr, ServerStatusUnavailable)
 				return
 			}
-			old := s.sdk
-			s.sdk = newSDK
-			s.cmd = newCmd
-			s.protocolVersion = newSDK.InitializeResult().ProtocolVersion
-			s.consecutiveFailures = 0 // a successful reconnect resets the cap
-			s.reconnecting = false
-			s.reconnectOutcome = nil
-			close(s.reconnectDone)
-			s.mu.Unlock()
 			if old != nil {
 				closeOldSession(old)
 			}
@@ -58,7 +49,7 @@ func (s *Session) reconnectWorker() {
 		reachedCap := s.consecutiveFailures >= maxReconnectAttempts
 		s.mu.Unlock()
 		if reachedCap {
-			s.resolveReconnect(fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts: %w", s.name, maxReconnectAttempts, err), ServerStatusUnavailable)
+			s.resolveReconnect(done, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts: %w", s.name, maxReconnectAttempts, err), ServerStatusUnavailable)
 			return
 		}
 	}

@@ -344,7 +344,9 @@ func (s *Session) Call(ctx context.Context, toolName string, args map[string]any
 		// another worker.
 		return nil, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts; last failure: %w", s.name, maxReconnectAttempts, err)
 	}
-	s.kickReconnectLocked()
+	if done := s.beginReconnectLocked(); done != nil {
+		go s.reconnectWorker(done)
+	}
 	return nil, disconnected
 }
 
@@ -374,33 +376,77 @@ func (s *Session) waitForReconnect(ctx context.Context) error {
 	}
 }
 
-// kickReconnectLocked starts the reconnect worker unless one is already running
-// or the consecutive-failure cap was reached (locked decision 2). Callers must
-// hold mu. The worker runs in the background; the failed call is never replayed
-// (D16).
-func (s *Session) kickReconnectLocked() {
+// beginReconnectLocked starts a reconnect transition unless one is already
+// running or the consecutive-failure cap was reached (locked decision 2).
+// Callers must hold mu. It returns the transition's outcome future, which is
+// also the ownership token for resolving it: the worker started with that token
+// is the only attempt allowed to publish it (D16: the failed call is never
+// replayed). A nil return means no transition started and no worker should run.
+func (s *Session) beginReconnectLocked() chan struct{} {
 	if s.reconnecting {
-		return
+		return nil
 	}
 	if s.consecutiveFailures >= maxReconnectAttempts {
-		return // cap reached: server unavailable, no further workers
+		return nil // cap reached: server unavailable, no further workers
 	}
 	s.reconnecting = true
 	s.reconnectDone = make(chan struct{})
 	s.reconnectOutcome = nil
-	go s.reconnectWorker()
+	return s.reconnectDone
 }
 
-// resolveReconnect records the reconnect outcome and closes the outcome future,
-// releasing every caller blocked on it exactly once. Must not be called with
-// the session mutex held.
-func (s *Session) resolveReconnect(outcome error, status ServerStatus) {
+// ownsReconnectLocked reports whether done is the future of the in-flight
+// reconnect. Callers must hold mu. Resolution is token-checked so a duplicate,
+// superseded, or stale resolution can never publish an outcome for, or close the
+// future of, a transition it did not begin.
+func (s *Session) ownsReconnectLocked(done chan struct{}) bool {
+	return s.reconnecting && s.reconnectDone == done
+}
+
+// resolveReconnect publishes the outcome of the reconnect transition that began
+// with done as its token. Recording the outcome, ending the reconnecting state,
+// and closing the future happen in one critical section, so a caller released by
+// the close always observes the matching outcome; a token that no longer owns the
+// transition is a no-op. Must not be called with the session mutex held, so
+// status reporting stays outside the lock.
+func (s *Session) resolveReconnect(done chan struct{}, outcome error, status ServerStatus) {
 	s.mu.Lock()
+	if !s.ownsReconnectLocked(done) {
+		s.mu.Unlock()
+		return
+	}
 	s.reconnecting = false
 	s.reconnectOutcome = outcome
-	close(s.reconnectDone)
+	close(done)
 	s.mu.Unlock()
 	s.reportStatus(status, outcome)
+}
+
+// commitReconnect adopts the freshly connected session of the reconnect
+// transition that began with done as its token. The SDK swap and the publication
+// of the successful outcome happen in one critical section, so callers released
+// by the closed future and Call snapshots taken afterwards both see the new
+// session; the replaced session is returned for the caller to close outside the
+// lock. It reports committed=false when the manager context is cancelled, the
+// session was closed, or done no longer owns the transition, leaving the live
+// session, failure cap, and future untouched; the caller then closes next and
+// resolves the abort through resolveReconnect. Status reporting stays with the
+// caller, outside the lock.
+func (s *Session) commitReconnect(done chan struct{}, next *mcpsdk.ClientSession, cmd *exec.Cmd) (old *mcpsdk.ClientSession, committed bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.managerCtx.Err() != nil || s.closed || !s.ownsReconnectLocked(done) {
+		return nil, false
+	}
+	old = s.sdk
+	s.sdk = next
+	s.cmd = cmd
+	s.protocolVersion = next.InitializeResult().ProtocolVersion
+	s.consecutiveFailures = 0 // a successful reconnect resets the cap
+	s.reconnecting = false
+	s.reconnectOutcome = nil
+	close(done)
+	return old, true
 }
 
 // reportStatus forwards a reconnect status transition to the owner, if any.
