@@ -18,7 +18,7 @@ Both files are optional and neither is created for you. `--config <path>` replac
 
 Maps merge by key across files (providers, model definitions, profiles, tools, MCP and LSP servers, `limits.tool_timeouts`, and the string maps inside them). Scalars and lists are replaced by the later file.
 
-Unknown keys are rejected. Durations are Go duration strings such as `250ms`, `30s`, `5m` or `1h`. A leading `~/` is expanded to your home directory in these path fields: `logging.file`, `logging.compaction_log_file`, `diagnostics.dir`, `lsp.cache_dir`, `paths.writable_paths`, `paths.blocked_paths`, `paths.exclude_paths`, `sandbox.host_mounts.<index>.path`, `tools.<name>.exec`, `project_context.extra_files` and `project_context.ignore_files`.
+Unknown structured configuration fields are rejected. Map entries have their own validation rules. Durations are Go duration strings such as `250ms`, `30s`, `5m` or `1h`. A leading `~/` is expanded to your home directory in these path fields: `logging.file`, `logging.compaction_log_file`, `diagnostics.dir`, `lsp.cache_dir`, `paths.writable_paths`, `paths.blocked_paths`, `paths.exclude_paths`, `sandbox.host_mounts.<index>.path`, `tools.<name>.exec`, `project_context.extra_files` and `project_context.ignore_files`.
 
 `steiner config` prints the resolved configuration. It includes secrets in the output, so redact before sharing.
 
@@ -198,7 +198,7 @@ Runtime limits for turns, tokens, timeouts and tool concurrency. The caps apply 
 | `limits.max_tokens` | int | `500000` | Maximum output (completion) tokens generated across a run before it stops; at least 1. Input tokens are not counted. |
 | `limits.model_call_timeout` | duration | `10m` | Longest a single provider call may take. `0` disables it. Tool work and sub-agent calls inside a turn are not covered. |
 | `limits.tool_timeout_default` | duration | `30s` | Timeout for any tool without an entry in `tool_timeouts`; greater than zero. Also bounds MCP calls. |
-| `limits.tool_timeouts.<tool>` | duration | see below | Per-tool timeout; greater than zero. Defaults: `bash` `600s`, `read` `5s`, `grep` `30s`. For an MCP tool the key is its registered name `mcp__<server>__<tool>`, as shown by `steiner tools`. The `bash` entry caps the built-in Bash tool: whole seconds, at most `600s`. |
+| `limits.tool_timeouts.<tool>` | duration | see below | Per-tool timeout; greater than zero. Tool names must be non-empty but are not validated against the tool registry; an unmatched name has no effect. Defaults: `bash` `600s`, `read` `5s`, `grep` `30s`. For an MCP tool the key is its registered name `mcp__<server>__<tool>`, as shown by `steiner tools`. The `bash` entry caps the built-in Bash tool: whole seconds, at most `600s`. |
 | `limits.tool_output_max_bytes` | int | `65536` | Output kept from one tool call; the rest is truncated. At least 1. |
 | `limits.max_parallel_tools` | int | `4` | Parallel-safe tool calls run concurrently in one turn, including built-in read-only tools, LSP tools and MCP tools with a read-only hint. At least 1; `1` is serial. Separate from `sub_agent.max_parallel`. |
 
