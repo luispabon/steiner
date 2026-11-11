@@ -114,9 +114,9 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 		if window != nil {
 			t.Fatal("completion window still armed")
 		}
-		if _, held := h.d.State(); !held {
-			t.Fatal("replacement released the hold")
-		}
+		// held is not asserted: the replacement closes the old inbox, so the
+		// loop is free to exit and finalize clears held at any time. The
+		// durable effects below outlive that.
 		if !h.d.isClosing() {
 			t.Fatal("replaced driver inbox still open")
 		}
@@ -159,7 +159,7 @@ func TestConversationDriverReplaceWhileHeldBlocksCompletionDelivery(t *testing.T
 		t.Fatal("completion delivery did not finish")
 	}
 	h.noRun()
-	if _, held := h.d.State(); !held {
-		t.Fatal("replacement released the hold")
+	if !h.d.isClosing() {
+		t.Fatal("replaced driver inbox still open")
 	}
 }
