@@ -1,13 +1,14 @@
-package builtin
+package globexpand
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestValidateGlobBraces(t *testing.T) {
+func TestValidateBraces(t *testing.T) {
 	tests := []struct {
 		name    string
 		pattern string
@@ -37,21 +38,21 @@ func TestValidateGlobBraces(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateGlobBraces(tt.pattern)
+			err := ValidateBraces(tt.pattern)
 			if !tt.wantErr {
 				if err != nil {
-					t.Fatalf("validateGlobBraces(%q) error = %v, want nil", tt.pattern, err)
+					t.Fatalf("ValidateBraces(%q) error = %v, want nil", tt.pattern, err)
 				}
 				return
 			}
-			if !errors.Is(err, errGlobUnmatchedBrace) {
-				t.Fatalf("validateGlobBraces(%q) error = %v, want errGlobUnmatchedBrace", tt.pattern, err)
+			if !errors.Is(err, ErrUnmatchedBrace) {
+				t.Fatalf("ValidateBraces(%q) error = %v, want ErrUnmatchedBrace", tt.pattern, err)
 			}
 		})
 	}
 }
 
-func TestExpandGlobBraces(t *testing.T) {
+func TestExpandBraces(t *testing.T) {
 	tests := []struct {
 		name    string
 		pattern string
@@ -71,40 +72,40 @@ func TestExpandGlobBraces(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := expandGlobBraces(tt.pattern)
+			got, err := ExpandBraces(tt.pattern)
 			if err != nil {
-				t.Fatalf("expandGlobBraces(%q) error: %v", tt.pattern, err)
+				t.Fatalf("ExpandBraces(%q) error: %v", tt.pattern, err)
 			}
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("expandGlobBraces(%q) = %q, want %q", tt.pattern, got, tt.want)
+				t.Errorf("ExpandBraces(%q) = %q, want %q", tt.pattern, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestExpandGlobBracesRejectsUnmatched(t *testing.T) {
-	if _, err := expandGlobBraces("aa{"); !errors.Is(err, errGlobUnmatchedBrace) {
-		t.Fatalf("expandGlobBraces(%q) error = %v, want errGlobUnmatchedBrace", "aa{", err)
+func TestExpandBracesRejectsUnmatched(t *testing.T) {
+	if _, err := ExpandBraces("aa{"); !errors.Is(err, ErrUnmatchedBrace) {
+		t.Fatalf("ExpandBraces(%q) error = %v, want ErrUnmatchedBrace", "aa{", err)
 	}
 }
 
-func TestExpandGlobBracesCap(t *testing.T) {
+func TestExpandBracesCap(t *testing.T) {
 	atLimit := strings.Repeat("{a,b}", 8)
-	got, err := expandGlobBraces(atLimit)
+	got, err := ExpandBraces(atLimit)
 	if err != nil {
-		t.Fatalf("expandGlobBraces(%q) error: %v", atLimit, err)
+		t.Fatalf("ExpandBraces(%q) error: %v", atLimit, err)
 	}
-	if len(got) != maxGlobExpansions {
-		t.Errorf("forms = %d, want %d", len(got), maxGlobExpansions)
+	if len(got) != MaxExpansions {
+		t.Errorf("forms = %d, want %d", len(got), MaxExpansions)
 	}
 
 	overLimit := strings.Repeat("{a,b}", 9)
-	if _, err := expandGlobBraces(overLimit); !errors.Is(err, errGlobTooComplex) {
-		t.Fatalf("expandGlobBraces(%q) error = %v, want errGlobTooComplex", overLimit, err)
+	if _, err := ExpandBraces(overLimit); !errors.Is(err, ErrTooComplex) {
+		t.Fatalf("ExpandBraces(%q) error = %v, want ErrTooComplex", overLimit, err)
 	}
 }
 
-func TestExpandGlobZeroDir(t *testing.T) {
+func TestExpandZeroDir(t *testing.T) {
 	tests := []struct {
 		name    string
 		pattern string
@@ -126,29 +127,65 @@ func TestExpandGlobZeroDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := expandGlobZeroDir(tt.pattern)
+			got, err := ExpandZeroDir(tt.pattern)
 			if err != nil {
-				t.Fatalf("expandGlobZeroDir(%q) error: %v", tt.pattern, err)
+				t.Fatalf("ExpandZeroDir(%q) error: %v", tt.pattern, err)
 			}
 			if !slices.Equal(got, tt.want) {
-				t.Errorf("expandGlobZeroDir(%q) = %q, want %q", tt.pattern, got, tt.want)
+				t.Errorf("ExpandZeroDir(%q) = %q, want %q", tt.pattern, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestExpandGlobZeroDirCap(t *testing.T) {
-	atLimit := globExpansionCapPattern(8)
-	got, err := expandGlobZeroDir(atLimit)
+func TestExpandZeroDirCap(t *testing.T) {
+	atLimit := zeroDirCapPattern(8)
+	got, err := ExpandZeroDir(atLimit)
 	if err != nil {
-		t.Fatalf("expandGlobZeroDir(%q) error: %v", atLimit, err)
+		t.Fatalf("ExpandZeroDir(%q) error: %v", atLimit, err)
 	}
-	if len(got) != maxGlobExpansions {
-		t.Errorf("forms = %d, want %d", len(got), maxGlobExpansions)
+	if len(got) != MaxExpansions {
+		t.Errorf("forms = %d, want %d", len(got), MaxExpansions)
 	}
 
-	overLimit := globExpansionCapPattern(9)
-	if _, err := expandGlobZeroDir(overLimit); !errors.Is(err, errGlobTooComplex) {
-		t.Fatalf("expandGlobZeroDir(9 segments) error = %v, want errGlobTooComplex", err)
+	overLimit := zeroDirCapPattern(9)
+	if _, err := ExpandZeroDir(overLimit); !errors.Is(err, ErrTooComplex) {
+		t.Fatalf("ExpandZeroDir(%q) error = %v, want ErrTooComplex", overLimit, err)
 	}
+}
+
+// zeroDirCapPattern builds a pattern with "**/" stages between distinct
+// literals, so zero-directory expansion yields exactly 2^segments forms.
+func zeroDirCapPattern(segments int) string {
+	var builder strings.Builder
+	for i := range segments {
+		fmt.Fprintf(&builder, "l%d/**/", i)
+	}
+	builder.WriteString("leaf/x")
+	return builder.String()
+}
+
+// FuzzExpandBraces proves expansion of any input either fails with one of the
+// shared errors or stays within the cap, never panicking on malformed braces.
+func FuzzExpandBraces(f *testing.F) {
+	for _, seed := range []string{"", "aa{", "aa{}", "aa{,}", "{a/b,c}", `a\{b`, "[{]x", "a{b,{c,d}}", "{a,", "}"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, pattern string) {
+		forms, err := ExpandBraces(pattern)
+		if err != nil {
+			if !errors.Is(err, ErrUnmatchedBrace) && !errors.Is(err, ErrTooComplex) {
+				t.Fatalf("ExpandBraces(%q) error = %v, want ErrUnmatchedBrace or ErrTooComplex", pattern, err)
+			}
+			return
+		}
+		if len(forms) > MaxExpansions {
+			t.Fatalf("ExpandBraces(%q) returned %d forms, want at most %d", pattern, len(forms), MaxExpansions)
+		}
+		for _, form := range forms {
+			if err := ValidateBraces(form); err != nil {
+				t.Fatalf("ExpandBraces(%q) returned form %q with unmatched braces", pattern, form)
+			}
+		}
+	})
 }

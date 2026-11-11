@@ -12,6 +12,7 @@ internal/config/         Config loading, merging, validation, defaults
 internal/delegation/     Delegation contracts and scaffolding
 internal/diagnostics/    Structured diagnostics streams: envelope, writer, rotation, retention
 internal/fsatomic/       Atomic file replacement: temp file, fsync, rename
+internal/globexpand/     Shared glob brace and zero-directory doublestar expansion for glob, grep, and exclusions
 internal/history/        Prompt (input) history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
 internal/lsp/            Language server connections (LSP protocol, tool definitions, server lifecycle)

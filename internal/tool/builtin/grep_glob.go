@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/gobwas/glob"
+
+	"github.com/luispabon/steiner/internal/globexpand"
 )
 
 // compileGrepFileGlob compiles a grep file_glob pattern into a matcher over
@@ -62,22 +64,23 @@ type grepGlobForm struct {
 // expandGrepGlobPatterns flattens brace alternations, strips any leading "./"
 // root marker from each original alternative, and only then drops every
 // zero-directory form of that alternative's "**/" segments. It fails with
-// errGlobUnmatchedBrace for a malformed brace and with errGlobTooComplex instead
-// of silently changing semantics when expansion exceeds maxGlobExpansions.
+// globexpand.ErrUnmatchedBrace for a malformed brace and with
+// globexpand.ErrTooComplex instead of silently changing semantics when
+// expansion exceeds globexpand.MaxExpansions.
 func expandGrepGlobPatterns(pattern string) ([]grepGlobForm, error) {
-	alternatives, err := expandGlobBraces(pattern)
+	alternatives, err := globexpand.ExpandBraces(pattern)
 	if err != nil {
 		return nil, err
 	}
 	var expanded []grepGlobForm
 	for _, alternative := range alternatives {
 		rootAnchored, trimmed := trimGrepGlobRootMarker(alternative)
-		forms, err := expandGlobZeroDir(trimmed)
+		forms, err := globexpand.ExpandZeroDir(trimmed)
 		if err != nil {
 			return nil, err
 		}
-		if len(expanded)+len(forms) > maxGlobExpansions {
-			return nil, errGlobTooComplex
+		if len(expanded)+len(forms) > globexpand.MaxExpansions {
+			return nil, globexpand.ErrTooComplex
 		}
 		for _, form := range forms {
 			expanded = append(expanded, grepGlobForm{pattern: form, rootAnchored: rootAnchored})

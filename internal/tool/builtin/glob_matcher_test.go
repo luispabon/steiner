@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/globexpand"
 )
 
 func TestGlobMatcherDepthPruning(t *testing.T) {
@@ -157,8 +159,8 @@ func TestGlobMatcherExpansionCap(t *testing.T) {
 		if err != nil {
 			t.Fatalf("compileGlobMatcher: %v", err)
 		}
-		if len(matcher.matchers) != maxGlobExpansions {
-			t.Errorf("matchers = %d, want %d", len(matcher.matchers), maxGlobExpansions)
+		if len(matcher.matchers) != globexpand.MaxExpansions {
+			t.Errorf("matchers = %d, want %d", len(matcher.matchers), globexpand.MaxExpansions)
 		}
 	})
 
@@ -167,7 +169,7 @@ func TestGlobMatcherExpansionCap(t *testing.T) {
 		if err == nil {
 			t.Fatal("compileGlobMatcher succeeded for a pattern past the expansion cap")
 		}
-		if !errors.Is(err, errGlobTooComplex) {
+		if !errors.Is(err, globexpand.ErrTooComplex) {
 			t.Fatalf("error = %v, want the shared cap error", err)
 		}
 	})
@@ -176,7 +178,7 @@ func TestGlobMatcherExpansionCap(t *testing.T) {
 		root := t.TempDir()
 		toolDef := NewGlobTool(workspaceTestEnv(t, root, nil, nil))
 		_, err := toolDef.Handler(t.Context(), map[string]any{"pattern": globExpansionCapPattern(9)})
-		if err == nil || !strings.Contains(err.Error(), "glob: "+errGlobTooComplex.Error()) {
+		if err == nil || !strings.Contains(err.Error(), "glob: "+globexpand.ErrTooComplex.Error()) {
 			t.Fatalf("Handler error = %v, want the glob-prefixed cap error", err)
 		}
 	})
