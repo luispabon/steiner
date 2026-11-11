@@ -330,7 +330,9 @@ func TestGrepSearch_FileRootAppliesSandboxTmpRewrite(t *testing.T) {
 	}
 }
 
-func TestGlobWalk_SkipsSpecialFiles(t *testing.T) {
+// TestGlobWalk_ListsSpecialFiles proves a listing returns a special file by
+// name without opening it, and that a blocked one stays hidden.
+func TestGlobWalk_ListsSpecialFiles(t *testing.T) {
 	root := t.TempDir()
 	mustWriteTree(t, root, "visible.txt", "visible")
 	fifo := filepath.Join(root, "pipe")
@@ -348,5 +350,5 @@ func TestGlobWalk_SkipsSpecialFiles(t *testing.T) {
 		policy:      &policy,
 		limit:       defaultGlobLimit,
 	})
-	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"visible.txt"})
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"pipe", "visible.txt"})
 }

@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,29 +13,52 @@ import (
 type globMatcher struct {
 	// matchers match a path as written. Files and directories both test their
 	// relative slash path against these.
-	matchers []glob.Glob
+	matchers globSet
 	// dirMatchers are the compiled forms that end in "/". Only directories test
 	// their relative path plus the slash against these, so */ matches directories
 	// only and a* matches nothing.
-	dirMatchers []glob.Glob
+	dirMatchers globSet
 	// pruneDepth is the segment count of a fixed-depth pattern. Zero means the
 	// walk is not pruned.
 	pruneDepth int
 }
 
-func compileGlobMatcher(pattern string) (globMatcher, error) {
-	if pattern == "" {
-		pattern = "*"
+// globSet matches a path when any compiled pattern in the set matches it.
+type globSet []glob.Glob
+
+// Match reports whether any pattern in the set matches path.
+func (s globSet) Match(path string) bool {
+	for _, pattern := range s {
+		if pattern.Match(path) {
+			return true
+		}
 	}
+	return false
+}
+
+// errGlobPatternNotRelative reports a pattern that would escape the directory
+// the caller named.
+var errGlobPatternNotRelative = errors.New(`pattern must be relative to path and must not contain ".." segments; put the directory in path`)
+
+func compileGlobMatcher(pattern string) (globMatcher, error) {
+	pattern = normalizeGlobPattern(pattern)
 	forms, err := expandGlobForms(pattern)
 	if err != nil {
 		return globMatcher{}, err
 	}
 	matcher := globMatcher{
-		matchers:    make([]glob.Glob, 0, len(forms)),
-		dirMatchers: make([]glob.Glob, 0, len(forms)),
+		matchers:    make(globSet, 0, len(forms)),
+		dirMatchers: make(globSet, 0, len(forms)),
 	}
+	seen := make(map[string]struct{}, len(forms))
 	for _, form := range forms {
+		if globFormEscapesRoot(form) {
+			return globMatcher{}, errGlobPatternNotRelative
+		}
+		if _, ok := seen[form]; ok {
+			continue
+		}
+		seen[form] = struct{}{}
 		compiled, err := glob.Compile(form, '/')
 		if err != nil {
 			return globMatcher{}, fmt.Errorf("compile glob %q: %w", form, err)
@@ -45,10 +69,38 @@ func compileGlobMatcher(pattern string) (globMatcher, error) {
 		}
 		matcher.matchers = append(matcher.matchers, compiled)
 	}
-	if globFixedDepth(pattern) {
-		matcher.pruneDepth = strings.Count(strings.TrimSuffix(pattern, "/"), "/") + 1
+	if depth, ok := globPruneDepth(forms); ok {
+		matcher.pruneDepth = depth
 	}
 	return matcher, nil
+}
+
+// normalizeGlobPattern strips the leading "./" segments a caller may write in
+// front of a relative pattern and substitutes the default pattern when nothing
+// is left. It runs on the raw pattern, so it never rewrites text inside a brace
+// alternative.
+func normalizeGlobPattern(pattern string) string {
+	for strings.HasPrefix(pattern, "./") {
+		pattern = pattern[len("./"):]
+	}
+	if pattern == "" || pattern == "." {
+		return defaultGlobPattern
+	}
+	return pattern
+}
+
+// globFormEscapesRoot reports whether an expanded form is absolute or climbs
+// above the search root with a ".." segment.
+func globFormEscapesRoot(form string) bool {
+	if strings.HasPrefix(form, "/") {
+		return true
+	}
+	for _, segment := range strings.Split(form, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // expandGlobForms flattens brace alternations, then expands each alternative's
@@ -74,14 +126,22 @@ func expandGlobForms(pattern string) ([]string, error) {
 	return forms, nil
 }
 
-// globFixedDepth reports whether every path the pattern can match has at most
-// its own segment count. Only ** and a character class such as [!x] can match a
-// separator without a literal slash, because gobwas list and range matchers
-// ignore it, so both disable depth pruning. The brace and escape gates are
-// conservative: a brace alternative cannot exceed the segments its literal
-// slashes already declare, and an escape cannot introduce a separator.
-func globFixedDepth(pattern string) bool {
-	return !strings.Contains(pattern, "**") && !strings.ContainsAny(pattern, `{\[`)
+// globPruneDepth reports the deepest segment count the expanded forms reach and
+// whether depth pruning is safe. A form keeps pruning only when it holds no
+// "**", no "[" and no "\\": gobwas list and range matchers ignore the
+// separator, so a class such as [/] can cross a directory boundary, and an
+// escape can turn a metacharacter into a literal the segment count cannot
+// predict. The count runs over the expanded forms, so a brace alternative with
+// its own slashes widens the depth instead of being ignored.
+func globPruneDepth(forms []string) (int, bool) {
+	depth := 0
+	for _, form := range forms {
+		if strings.Contains(form, "**") || strings.ContainsAny(form, `[\`) {
+			return 0, false
+		}
+		depth = max(depth, strings.Count(strings.TrimSuffix(form, "/"), "/")+1)
+	}
+	return depth, true
 }
 
 // matchEntry reports whether the walk entry matches and returns its result
@@ -91,9 +151,9 @@ func globFixedDepth(pattern string) bool {
 // directory itself returns it while */ and **/ return directories only.
 func (m globMatcher) matchEntry(rel string, isDir bool) (string, bool) {
 	if !isDir {
-		return rel, matchesAnyGlob(m.matchers, rel)
+		return rel, m.matchers.Match(rel)
 	}
-	if matchesAnyGlob(m.matchers, rel) || matchesAnyGlob(m.dirMatchers, rel+"/") {
+	if m.matchers.Match(rel) || m.dirMatchers.Match(rel+"/") {
 		return rel + "/", true
 	}
 	return "", false
@@ -105,13 +165,4 @@ func (m globMatcher) matchEntry(rel string, isDir bool) (string, bool) {
 // before the caller prunes it.
 func (m globMatcher) prunes(rel string) bool {
 	return m.pruneDepth > 0 && strings.Count(rel, "/")+1 >= m.pruneDepth
-}
-
-func matchesAnyGlob(matchers []glob.Glob, path string) bool {
-	for _, matcher := range matchers {
-		if matcher.Match(path) {
-			return true
-		}
-	}
-	return false
 }

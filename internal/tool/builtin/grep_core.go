@@ -354,6 +354,19 @@ func searchPathDenied(policy *tool.PathPolicy, path string) bool {
 	return err != nil
 }
 
+// searchListingDenied reports whether policy hides a path discovered inside a
+// listing walk. Unlike searchPathDenied it accepts special files, so devices,
+// pipes, and sockets are listed by name without being opened. Blocked paths,
+// including blocked symlink targets, and policy resolution errors still hide the
+// entry.
+func searchListingDenied(policy *tool.PathPolicy, path string) bool {
+	if policy == nil {
+		return false
+	}
+	_, err := policy.ResolveReadEntryPath(path)
+	return err != nil
+}
+
 func compileGrepPattern(pattern string, caseInsens, multiline bool) (*regexp.Regexp, error) {
 	p := pattern
 	if caseInsens {
