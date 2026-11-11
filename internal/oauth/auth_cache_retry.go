@@ -139,17 +139,30 @@ func (r *AuthResolver) saveRetained(entry *authEntry, flight *authFlight, file t
 
 // saveRetainedToken writes token under the token lock when the file still holds
 // the version stamp describes. It waits at most saveRetryLockWait for the lock,
-// reporting errSaveRetryLockBusy when it stays busy. It returns the credential
-// and stamp of the version on disk after a successful write; saved is false
-// without an error when the file changed or disappeared first, leaving that
-// version untouched.
+// reporting errSaveRetryLockBusy when another holder keeps it; any other lock
+// error is real and backs off like a failed save. It returns the credential and
+// stamp of the version on disk after a successful write; saved is false without
+// an error when the file changed or disappeared first, leaving that version
+// untouched.
 func (r *AuthResolver) saveRetainedToken(store *TokenStore, file tokenFile, token *oauth2.Token, stamp fileStamp) (current *oauth2.Token, currentStamp fileStamp, saved bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), saveRetryLockWait)
 	defer cancel()
 
 	unlock, err := r.acquireLock(ctx, store.path)
 	if err != nil {
-		return nil, fileStamp{}, false, fmt.Errorf("%w: %w", errSaveRetryLockBusy, err)
+		// The lock can fail because the lock file or its directory is gone, which
+		// also means the token is gone: report that instead of retrying a save
+		// that can never land.
+		if _, statErr := file.stat(); errors.Is(statErr, fs.ErrNotExist) {
+			return nil, fileStamp{}, false, ErrNoToken
+		}
+		// Only the short wait expiring means another process still holds the
+		// lock; an unopenable or unreadable lock file is a real failure that uses
+		// an attempt and backs off.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fileStamp{}, false, fmt.Errorf("%w: %w", errSaveRetryLockBusy, err)
+		}
+		return nil, fileStamp{}, false, err
 	}
 	defer unlock()
 

@@ -88,6 +88,22 @@ func gateRetryLock(resolver *AuthResolver) (started <-chan struct{}, acquisition
 	return startedCh, count, func() { openOnce.Do(func() { close(proceed) }) }
 }
 
+// observedFile wraps a tokenFile and reports its first stat, so a test knows a
+// caller has seen the current file version. Each Resolve call gets its own
+// instance, so the first stat is the caller's top-level one.
+type observedFile struct {
+	inner tokenFile
+	once  sync.Once
+	seen  func()
+}
+
+func (f *observedFile) stat() (fileStamp, error) {
+	f.once.Do(f.seen)
+	return f.inner.stat()
+}
+
+func (f *observedFile) load() (*oauth2.Token, error) { return f.inner.load() }
+
 func TestAuthResolverRetriesRetainedTokenSave(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("file permissions do not restrict root")
@@ -283,6 +299,108 @@ func TestAuthResolverSaveRetryDoesNotWaitForBusyLock(t *testing.T) {
 	}
 }
 
+func TestAuthResolverSaveRetryWaiterWithNewerStampResolves(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not restrict root")
+	}
+	if !tokenLockSupported {
+		t.Skip("cross-process token lock is unavailable on this platform")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+	store := NewTokenStore(path)
+	saveRefreshDueTestToken(t, store)
+
+	server, refreshes := refreshServer(t, 0)
+	clock := newTestClock()
+	resolver := NewAuthResolver()
+	resolver.now = clock.Now
+	conf := testTokenConf(server.URL)
+
+	failInitialSave(t, resolver, store, conf, dir, path)
+	unlockTokenFile(t, dir)
+
+	// Another process holds the token lock, as it does for the length of a
+	// refresh, so the save-only retry times out on it.
+	unlock, err := acquireTokenLock(context.Background(), path)
+	if err != nil {
+		t.Fatalf("acquireTokenLock() error = %v", err)
+	}
+	var unlockOnce sync.Once
+	busy := func() { unlockOnce.Do(unlock) }
+	defer busy()
+
+	started, _, open := gateRetryLock(resolver)
+	defer open()
+	clock.Advance(saveRetryBaseDelay)
+
+	// Report when the second caller has statted the replaced file version.
+	var stats atomic.Int32
+	observed := make(chan struct{})
+	resolver.newTokenFile = func(store *TokenStore) tokenFile {
+		return &observedFile{
+			inner: storeTokenFile{store: store},
+			seen: func() {
+				if stats.Add(1) == 2 {
+					close(observed)
+				}
+			},
+		}
+	}
+
+	type result struct {
+		token *oauth2.Token
+		err   error
+	}
+
+	// The first caller observes the old version and starts the save-only retry.
+	first := make(chan result, 1)
+	go func() {
+		token, err := resolver.Resolve(context.Background(), store, conf, nil)
+		first <- result{token: token, err: err}
+	}()
+	<-started
+
+	// A login writes a new version while the retry waits for the lock, and a
+	// second caller observes it and joins the retry in flight.
+	saveValidTestToken(t, NewTokenStore(path), "replacement-token")
+	second := make(chan result, 1)
+	go func() {
+		token, err := resolver.Resolve(context.Background(), store, conf, nil)
+		second <- result{token: token, err: err}
+	}()
+	<-observed
+
+	open()
+	res := <-first
+	if res.err != nil {
+		t.Fatalf("Resolve() of the old version error = %v", res.err)
+	}
+	if res.token == nil || res.token.AccessToken != "refreshed-token" {
+		t.Errorf("old-version AccessToken = %v, want refreshed-token", res.token)
+	}
+
+	busy()
+	res = <-second
+	if res.err != nil {
+		t.Fatalf("Resolve() of the new version error = %v", res.err)
+	}
+	if res.token == nil || res.token.AccessToken != "replacement-token" {
+		t.Fatalf("new-version AccessToken = %v, want replacement-token: a waiter that observed the new version must not accept the old retained token", res.token)
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Errorf("refresh requests = %d, want 1", got)
+	}
+	stored, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stored.AccessToken != "replacement-token" {
+		t.Errorf("persisted AccessToken = %q, want replacement-token", stored.AccessToken)
+	}
+}
+
 func TestAuthResolverSaveRetryDoesNotOverwriteReplacement(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("file permissions do not restrict root")
@@ -400,6 +518,109 @@ func TestAuthResolverSaveRetryKeepsDeletedTokenDeleted(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Stat() error = %v, want the token file to stay deleted", err)
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Errorf("refresh requests = %d, want 1", got)
+	}
+}
+
+func TestAuthResolverSaveRetryBacksOffAfterLockError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not restrict root")
+	}
+	if !tokenLockSupported {
+		t.Skip("cross-process token lock is unavailable on this platform")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+	store := NewTokenStore(path)
+	saveRefreshDueTestToken(t, store)
+
+	server, refreshes := refreshServer(t, 0)
+	clock := newTestClock()
+	resolver := NewAuthResolver()
+	resolver.now = clock.Now
+	conf := testTokenConf(server.URL)
+
+	failInitialSave(t, resolver, store, conf, dir, path)
+	unlockTokenFile(t, dir)
+
+	// A lock that cannot be opened is a real failure, not contention: it must use
+	// an attempt and back off instead of deferring forever.
+	var attempts atomic.Int32
+	resolver.lockAcquire = func(context.Context, string) (func(), error) {
+		attempts.Add(1)
+		return nil, &fs.PathError{Op: "open", Path: path + ".lock", Err: fs.ErrPermission}
+	}
+
+	for i := 0; i < saveRetryAttempts+3; i++ {
+		clock.Advance(4 * saveRetryBaseDelay)
+		token, err := resolver.Resolve(context.Background(), store, conf, nil)
+		if err != nil {
+			t.Errorf("Resolve() call %d error = %v, want the retained token served", i+1, err)
+			continue
+		}
+		if token == nil || token.AccessToken != "refreshed-token" {
+			t.Errorf("call %d AccessToken = %v, want the retained refreshed-token", i+1, token)
+		}
+	}
+	if got := attempts.Load(); got != int32(saveRetryAttempts) {
+		t.Errorf("lock attempts = %d, want %d: a real lock error must use an attempt and then stop", got, saveRetryAttempts)
+	}
+	if got := refreshes.Load(); got != 1 {
+		t.Errorf("refresh requests = %d, want 1", got)
+	}
+}
+
+func TestAuthResolverSaveRetryReportsDeletedDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not restrict root")
+	}
+	if !tokenLockSupported {
+		t.Skip("cross-process token lock is unavailable on this platform")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "token.json")
+	store := NewTokenStore(path)
+	saveRefreshDueTestToken(t, store)
+
+	server, refreshes := refreshServer(t, 0)
+	clock := newTestClock()
+	resolver := NewAuthResolver()
+	resolver.now = clock.Now
+	conf := testTokenConf(server.URL)
+
+	failInitialSave(t, resolver, store, conf, dir, path)
+	unlockTokenFile(t, dir)
+
+	started, _, open := gateRetryLock(resolver)
+	defer open()
+	clock.Advance(saveRetryBaseDelay)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := resolver.Resolve(context.Background(), store, conf, nil)
+		done <- err
+	}()
+	<-started
+
+	// The user removes the whole config directory while the retry waits for the
+	// lock, so the lock file and the token go together.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("RemoveAll() error = %v", err)
+	}
+	open()
+
+	if err := <-done; !errors.Is(err, ErrNoToken) {
+		t.Fatalf("Resolve() error = %v, want ErrNoToken: the token went with the directory", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Stat() error = %v, want the deleted directory to stay deleted", err)
+	}
+	if _, err := resolver.Resolve(context.Background(), store, conf, nil); !errors.Is(err, ErrNoToken) {
+		t.Errorf("Resolve() after deletion error = %v, want ErrNoToken from the cleared cache", err)
 	}
 	if got := refreshes.Load(); got != 1 {
 		t.Errorf("refresh requests = %d, want 1", got)

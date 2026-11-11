@@ -27,6 +27,11 @@ const (
 	// refreshRounds bounds the read/refresh/save rounds of one flight, so a file
 	// that other writers keep replacing cannot spin.
 	refreshRounds = 3
+
+	// resolveRounds bounds the stat/flight rounds of one Resolve, so a caller
+	// that keeps observing a different file version than the shared flight
+	// cannot spin.
+	resolveRounds = 3
 )
 
 // errTokenFileUnstable reports a token file that kept changing on every attempt
@@ -58,8 +63,9 @@ var errRefreshedTokenInvalid = errors.New("refreshed token is not valid")
 // calls. A later call retries the save without refreshing, at most
 // saveRetryAttempts times with a growing pause; while the retained token is
 // valid a failed retry does not fail the call, and a busy token lock skips the
-// try after a short wait. The next refresh also starts from the retained token
-// and retries the save.
+// try after a short wait. The retry only contacts the token endpoint when
+// another writer replaced the file with a version that has to be refreshed, and
+// the next refresh also starts from the retained token and retries the save.
 type AuthResolver struct {
 	mu      sync.Mutex
 	entries map[string]*authEntry
@@ -96,10 +102,12 @@ type authEntry struct {
 }
 
 // authFlight is one detached refresh, or one save-only retry of a retained
-// token. Its fields are written before done is closed, so waiters read them only
-// after receiving from done.
+// token. stamp is the file version its first caller observed. Its fields are
+// written before done is closed, so waiters read them only after receiving from
+// done.
 type authFlight struct {
 	done  chan struct{}
+	stamp fileStamp
 	token *oauth2.Token
 	err   error
 }
@@ -115,7 +123,8 @@ type authFlight struct {
 // itself runs to completion for the other callers.
 //
 // A call whose cached token a refresh could not save retries that save once the
-// pause between retries ends, without contacting the token endpoint.
+// pause between retries ends, without contacting the token endpoint unless
+// another writer replaced the file with a version that needs a refresh.
 func (r *AuthResolver) Resolve(ctx context.Context, store *TokenStore, conf *oauth2.Config, httpClient *http.Client) (*oauth2.Token, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -123,21 +132,33 @@ func (r *AuthResolver) Resolve(ctx context.Context, store *TokenStore, conf *oau
 	entry := r.entry(store.path)
 	file := r.tokenFileFor(store)
 
-	stamp, err := file.stat()
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			entry.invalidate()
-			return nil, ErrNoToken
+	for round := 0; round < resolveRounds; round++ {
+		stamp, err := file.stat()
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				entry.invalidate()
+				return nil, ErrNoToken
+			}
+			// A transient stat failure says nothing about the file, so the cache is
+			// kept: dropping it here would discard an unpersisted refresh whose
+			// rotated refresh token is the only usable credential.
+			return nil, fmt.Errorf("stat token file: %w", err)
 		}
-		// A transient stat failure says nothing about the file, so the cache is
-		// kept: dropping it here would discard an unpersisted refresh whose
-		// rotated refresh token is the only usable credential.
-		return nil, fmt.Errorf("stat token file: %w", err)
+		if token, ok := entry.cached(stamp, r.clock()); ok {
+			return token, nil
+		}
+		token, matched, err := r.waitForFlight(ctx, entry, file, conf, httpClient, stamp)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			return token, nil
+		}
+		// The flight started from another version of the file, so its token can
+		// predate the version observed here. Resolve again so the observed version
+		// wins instead of being served the older token.
 	}
-	if token, ok := entry.cached(stamp, r.clock()); ok {
-		return token, nil
-	}
-	return r.waitForFlight(ctx, entry, file, conf, httpClient, stamp)
+	return nil, errTokenFileUnstable
 }
 
 // tokenFile is the token file access a stable read needs. TokenStore backs it in
@@ -229,12 +250,14 @@ func (e *authEntry) setLocked(token *oauth2.Token, stamp fileStamp, persisted bo
 
 // waitForFlight joins the in-flight work for entry, starting it when none is
 // running: a save-only retry of the retained token when one is due at stamp,
-// and a refresh otherwise.
-func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file tokenFile, conf *oauth2.Config, httpClient *http.Client, stamp fileStamp) (*oauth2.Token, error) {
+// and a refresh otherwise. matched reports that the flight started from stamp,
+// so its result belongs to the version the caller observed; a flight started
+// from another version leaves the caller to resolve again.
+func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file tokenFile, conf *oauth2.Config, httpClient *http.Client, stamp fileStamp) (*oauth2.Token, bool, error) {
 	entry.mu.Lock()
 	flight := entry.flight
 	if flight == nil {
-		flight = &authFlight{done: make(chan struct{})}
+		flight = &authFlight{done: make(chan struct{}), stamp: stamp}
 		entry.flight = flight
 		retryToken, retryStamp, retry := entry.pendingSaveLocked(r.clock(), stamp)
 		entry.mu.Unlock()
@@ -255,13 +278,13 @@ func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file
 		select {
 		case <-flight.done:
 		default:
-			return nil, ctx.Err()
+			return nil, false, ctx.Err()
 		}
 	}
 	if flight.err != nil {
-		return nil, flight.err
+		return nil, false, flight.err
 	}
-	return cloneToken(flight.token), nil
+	return cloneToken(flight.token), flight.stamp.equal(stamp), nil
 }
 
 // refresh publishes the result of one detached load and refresh to the entry's
@@ -335,7 +358,7 @@ func (r *AuthResolver) loadOrRefresh(store *TokenStore, file tokenFile, conf *oa
 			return nil, fileStamp{}, false, err
 		}
 
-		now := time.Now()
+		now := r.clock()
 		if saved && tokenValid(token, now) {
 			return token, stamp, persisted, nil
 		}
@@ -347,7 +370,7 @@ func (r *AuthResolver) loadOrRefresh(store *TokenStore, file tokenFile, conf *oa
 		if err != nil {
 			return nil, fileStamp{}, false, err
 		}
-		if !tokenValid(refreshed, time.Now()) {
+		if !tokenValid(refreshed, r.clock()) {
 			// Another round cannot help an already-expired answer. The token is kept
 			// like an unsaved one, because its rotated refresh token is the only
 			// credential this process has left.
