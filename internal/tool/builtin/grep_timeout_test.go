@@ -66,6 +66,99 @@ func TestGrepContextIgnoresNonPositiveTimeout(t *testing.T) {
 	}
 }
 
+func TestGrepContextConfiguredTimeoutCause(t *testing.T) {
+	ctx, cancel := grepContext(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if !waitGrepContextDone(ctx) {
+		t.Fatal("derived grep context did not end")
+	}
+
+	cause := context.Cause(ctx)
+	if !errors.Is(cause, errGrepTimeout) {
+		t.Fatalf("cause = %v, want the grep timeout sentinel", cause)
+	}
+	if !strings.Contains(cause.Error(), `limits.tool_timeouts["grep"]`) {
+		t.Errorf("cause = %q, want it to name limits.tool_timeouts[\"grep\"]", cause)
+	}
+}
+
+func TestGrepContextCallerDeadlineCause(t *testing.T) {
+	parent, cancelParent := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancelParent()
+
+	ctx, cancel := grepContext(parent, time.Hour)
+	defer cancel()
+	if !waitGrepContextDone(ctx) {
+		t.Fatal("derived grep context did not end")
+	}
+
+	cause := context.Cause(ctx)
+	if errors.Is(cause, errGrepTimeout) {
+		t.Fatalf("cause = %v, want the caller deadline, not the grep timeout", cause)
+	}
+	if !errors.Is(cause, context.DeadlineExceeded) {
+		t.Fatalf("cause = %v, want context deadline exceeded", cause)
+	}
+}
+
+func TestGrepContextCallerCancellationCause(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+
+	ctx, cancel := grepContext(parent, time.Minute)
+	defer cancel()
+
+	cause := context.Cause(ctx)
+	if errors.Is(cause, errGrepTimeout) {
+		t.Fatalf("cause = %v, want caller cancellation, not the grep timeout", cause)
+	}
+	if !errors.Is(cause, context.Canceled) {
+		t.Fatalf("cause = %v, want context canceled", cause)
+	}
+}
+
+func TestGrepSearchErrorAttributesConfiguredTimeout(t *testing.T) {
+	ctx, cancel := grepContext(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if !waitGrepContextDone(ctx) {
+		t.Fatal("derived grep context did not end")
+	}
+
+	err := grepSearchError(ctx, context.DeadlineExceeded)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want it to wrap context deadline exceeded", err)
+	}
+	if !strings.Contains(err.Error(), `limits.tool_timeouts["grep"]`) {
+		t.Errorf("error = %q, want it to name limits.tool_timeouts[\"grep\"]", err)
+	}
+}
+
+func TestGrepSearchErrorLeavesCallerCancellationUnlabelled(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+	ctx, cancel := grepContext(parent, time.Minute)
+	defer cancel()
+
+	err := grepSearchError(ctx, context.Canceled)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want it to wrap context canceled", err)
+	}
+	if strings.Contains(err.Error(), "limits.tool_timeouts") {
+		t.Errorf("error = %q, want caller cancellation left unlabelled", err)
+	}
+}
+
+// waitGrepContextDone reports whether ctx ended within the guard window, so a
+// timeout assertion never races the timer.
+func waitGrepContextDone(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	case <-time.After(10 * time.Second):
+		return false
+	}
+}
+
 func TestGrepToolSucceedsWithinConfiguredTimeout(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "match.txt"), []byte("needle\n"), 0o644); err != nil {
@@ -87,6 +180,29 @@ func TestGrepToolSucceedsWithinConfiguredTimeout(t *testing.T) {
 	}
 }
 
+func TestGrepToolCallerDeadlineNotAttributedToConfiguredTimeout(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "match.txt"), []byte("needle\n"), 0o644); err != nil {
+		t.Fatalf("write match file: %v", err)
+	}
+	policy := tool.NewPathPolicy(dir, config.PathsConfig{})
+	def := NewGrepTool(Env{WorkDir: dir, PathPolicy: &policy, GrepTimeout: time.Minute})
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	result, err := def.Handler(ctx, map[string]any{"pattern": "needle"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+	if strings.Contains(err.Error(), "limits.tool_timeouts") {
+		t.Errorf("error = %q, want caller-imposed deadline not blamed on the configured grep timeout", err)
+	}
+	if result != nil {
+		t.Fatalf("result = %#v, want nil when the search is interrupted", result)
+	}
+}
+
 func TestGrepToolInterruptedSearchErrors(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "match.txt"), []byte("needle\n"), 0o644); err != nil {
@@ -101,6 +217,9 @@ func TestGrepToolInterruptedSearchErrors(t *testing.T) {
 	result, err := def.Handler(ctx, map[string]any{"pattern": "needle"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context canceled", err)
+	}
+	if strings.Contains(err.Error(), "limits.tool_timeouts") {
+		t.Errorf("error = %q, want caller cancellation not blamed on the configured grep timeout", err)
 	}
 	if result != nil {
 		t.Fatalf("result = %#v, want nil when the search is interrupted", result)
