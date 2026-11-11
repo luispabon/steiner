@@ -54,6 +54,10 @@ type Manager struct {
 	// calls (concurrent or repeated) return its result.
 	closeOnce sync.Once
 	closeErr  error
+
+	// closed is set under mu when shutdown starts. It gates status reports that
+	// would claim a live session after Close.
+	closed bool
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -160,16 +164,23 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 // the server's other state fields (tools, protocol version, transport). Reports
 // are delivered outside the session mutex, so a slow one can arrive after a
 // newer transition already landed: anything not newer than the highest sequence
-// applied for that server is dropped. The check applies after Close too, so a
-// delayed report cannot publish over newer state. onStateChange fires only when
-// the status actually changed, so repeated reports of the same status emit
-// nothing; a same-status report still advances the sequence.
+// applied for that server is dropped. A connected or reconnecting report that
+// arrives after Close is dropped too, even when its sequence is the newest
+// available: a closed manager never has a live server again, and an attempt can
+// commit just before shutdown and deliver its report just after. The
+// unavailable abort of an in-flight attempt still publishes. onStateChange fires
+// only when the status actually changed, so repeated reports of the same status
+// emit nothing; a same-status report still advances the sequence.
 func (m *Manager) updateServerStatus(name string, report StatusReport, onStateChange func()) {
 	m.mu.Lock()
 	if m.statusSeqs == nil {
 		m.statusSeqs = make(map[string]uint64)
 	}
 	if report.Seq <= m.statusSeqs[name] {
+		m.mu.Unlock()
+		return
+	}
+	if m.closed && (report.Status == ServerStatusConnected || report.Status == ServerStatusReconnecting) {
 		m.mu.Unlock()
 		return
 	}
@@ -315,12 +326,17 @@ func (m *Manager) Close() error {
 	return m.closeErr
 }
 
-// close runs the actual shutdown once. The manager context is cancelled before
-// any session is closed: every stdio process group bound to it is SIGKILLed
-// immediately, so a server that ignores SIGTERM cannot stall the shutdown, and
-// a connect goroutine whose dial completed concurrently is rejected by the
-// generation guard in connectServer.
+// close runs the actual shutdown once. The closed gate is set under the manager
+// mutex before anything else, so a status report already in flight cannot claim
+// a live session once shutdown has started; the manager context is then
+// cancelled before any session is closed, so every stdio process group bound to
+// it is SIGKILLed immediately and a server that ignores SIGTERM cannot stall the
+// shutdown. A connect goroutine whose dial completed concurrently is rejected by
+// the generation guard in connectServer.
 func (m *Manager) close() error {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
 	m.cancel()
 
 	m.mu.Lock()

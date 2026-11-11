@@ -74,10 +74,10 @@ func TestStatusReportSequenceOrdersTransitions(t *testing.T) {
 	}
 }
 
-// TestManagerDropsStaleReportAfterNewerUnavailable is the regression for the
-// gated probe: a report delivered outside the session mutex can arrive after a
-// newer transition already landed. The older connected report must not
-// supersede the newer unavailable state.
+// TestManagerDropsStaleReportAfterNewerUnavailable is the regression for
+// out-of-order delivery: a report delivered outside the session mutex can
+// arrive after a newer transition already landed. The older connected report
+// must not supersede the newer unavailable state.
 func TestManagerDropsStaleReportAfterNewerUnavailable(t *testing.T) {
 	current := newInMemoryClientSession(t)
 	next := newInMemoryClientSession(t)
@@ -189,26 +189,97 @@ func TestManagerAppliesNewerStatusReports(t *testing.T) {
 	}
 }
 
-// TestManagerDropsStaleReportAfterClose proves the sequence gate also applies
-// after the manager closes: a delayed older transition cannot publish over the
-// newer state recorded before shutdown.
-func TestManagerDropsStaleReportAfterClose(t *testing.T) {
+// TestManagerRejectsLiveStatusReportsAfterClose proves a connected or
+// reconnecting report cannot publish after Close even when its sequence is the
+// newest one: an attempt can commit just before shutdown and deliver its report
+// just after. The unavailable abort of an in-flight attempt still publishes.
+func TestManagerRejectsLiveStatusReportsAfterClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{ctx: ctx, cancel: cancel}
-	m.setServerState(ServerState{Name: "fake", Status: ServerStatusConnected, Transport: "stdio"})
+	m.setServerState(ServerState{Name: "fake", Status: ServerStatusReconnecting, Transport: "stdio"})
 	changes := 0
 	onChange := func() { changes++ }
 
-	m.updateServerStatus("fake", StatusReport{Seq: 2, Status: ServerStatusUnavailable, Err: errors.New("dial failed")}, onChange)
 	if err := m.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	m.updateServerStatus("fake", StatusReport{Seq: 1, Status: ServerStatusConnected}, onChange)
+	m.updateServerStatus("fake", StatusReport{Seq: 2, Status: ServerStatusConnected}, onChange)
+	m.updateServerStatus("fake", StatusReport{Seq: 3, Status: ServerStatusReconnecting}, onChange)
 
-	if st := stateByName(m.ServerStates(), "fake"); st == nil || st.Status != ServerStatusUnavailable {
-		t.Fatalf("state after Close and a delayed connected report = %+v, want unavailable", st)
+	if st := stateByName(m.ServerStates(), "fake"); st == nil || st.Status != ServerStatusReconnecting {
+		t.Fatalf("state after Close = %+v, want reconnecting (live reports rejected)", st)
+	}
+	if changes != 0 {
+		t.Errorf("state changes = %d, want 0 (live reports emit nothing)", changes)
+	}
+
+	attemptErr := errors.New("reconnect aborted: manager closed")
+	m.updateServerStatus("fake", StatusReport{Seq: 4, Status: ServerStatusUnavailable, Err: attemptErr}, onChange)
+	if st := stateByName(m.ServerStates(), "fake"); st == nil || st.Status != ServerStatusUnavailable || st.Err != attemptErr.Error() {
+		t.Fatalf("state after the abort report = %+v, want unavailable with its error", st)
 	}
 	if changes != 1 {
-		t.Errorf("state changes = %d, want 1 (the stale report emits nothing)", changes)
+		t.Errorf("state changes = %d, want 1 (the unavailable abort publishes)", changes)
+	}
+}
+
+// TestManagerDropsGatedConnectedReportAfterClose holds a successful attempt's
+// connected report back while the manager shuts down, then delivers it with the
+// newest sequence. It must not republish a live state, while the attempt's
+// unavailable abort still publishes.
+func TestManagerDropsGatedConnectedReportAfterClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &Manager{ctx: ctx, cancel: cancel}
+	m.setServerState(ServerState{Name: "fake", Status: ServerStatusConnecting, Transport: "stdio"})
+	changes := 0
+	onChange := func() { changes++ }
+
+	held := make(chan struct{})
+	released := make(chan struct{})
+	delivered := make(chan struct{})
+	s := &Session{
+		name:       "fake",
+		sdk:        newInMemoryClientSession(t),
+		managerCtx: ctx,
+		onStatus: func(report StatusReport) {
+			if report.Status == ServerStatusConnected {
+				close(held)
+				<-released
+				defer close(delivered)
+			}
+			m.updateServerStatus("fake", report, onChange)
+		},
+	}
+
+	first := beginTestReconnect(t, s)
+	s.reportStatus(first.begin)
+
+	_, connected, committed := s.commitReconnect(first, newInMemoryClientSession(t), nil)
+	if !committed {
+		t.Fatal("commitReconnect refused a live session")
+	}
+	go s.reportStatus(connected)
+	<-held
+
+	// Shutdown starts while the connected report is still held back.
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	close(released)
+	<-delivered
+
+	if st := stateByName(m.ServerStates(), "fake"); st == nil || st.Status != ServerStatusReconnecting {
+		t.Fatalf("state after a gated connected report = %+v, want reconnecting", st)
+	}
+	if changes != 1 {
+		t.Errorf("state changes = %d, want 1 (reconnecting only)", changes)
+	}
+
+	// The abort of an in-flight attempt still publishes after Close.
+	second := beginTestReconnect(t, s)
+	s.reportStatus(second.begin)
+	s.resolveReconnect(second, errors.New("reconnect aborted: manager closed"), ServerStatusUnavailable)
+	if st := stateByName(m.ServerStates(), "fake"); st == nil || st.Status != ServerStatusUnavailable {
+		t.Fatalf("state after the abort report = %+v, want unavailable", st)
 	}
 }
