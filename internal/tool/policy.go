@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -151,7 +152,7 @@ func (p PathPolicy) ResolveReadEntryPath(raw string) (string, error) {
 func (p PathPolicy) resolveRead(raw string, rejectSpecial bool) (string, error) {
 	normalized := normalizePolicyPath(p.root, raw)
 	if normalized == "" {
-		return "", fmt.Errorf("path is required")
+		return "", errors.New("path is required")
 	}
 	normalized = p.rewriteTmpPath(normalized)
 	if blocked, err := p.blocked(normalized); err != nil {

@@ -43,21 +43,30 @@ func TestGlobMatcherDepthPruning(t *testing.T) {
 	}
 }
 
-// TestGlobMatcherPatternNormalization pins the pattern rules: leading "./"
-// segments are ignored, an empty or bare-dot pattern falls back to the default,
-// and a pattern that leaves the named directory is rejected.
+// TestGlobMatcherPatternNormalization pins the pattern rules: "." segments are
+// ignored, including inside a brace alternative, an empty or bare-dot pattern
+// falls back to the default, and a pattern that leaves the named directory is
+// rejected. A name that merely starts with a dot is not a dot segment.
 func TestGlobMatcherPatternNormalization(t *testing.T) {
 	tests := []struct {
 		name    string
 		pattern string
-		want    string
+		want    []string
 		wantErr bool
 	}{
-		{name: "leading dot slash", pattern: "./*.go", want: "x.go"},
-		{name: "repeated dot slash", pattern: "././x", want: "x"},
-		{name: "bare dot slash is the default", pattern: "./", want: "x.go"},
-		{name: "bare dot is the default", pattern: ".", want: "x.go"},
-		{name: "empty pattern is the default", pattern: "", want: "x.go"},
+		{name: "leading dot slash", pattern: "./*.go", want: []string{"x.go"}},
+		{name: "repeated dot slash", pattern: "././x", want: []string{"x"}},
+		{name: "dot prefix inside a brace alternative", pattern: "{./a,b}", want: []string{"a", "b"}},
+		{name: "inner dot segment", pattern: "a/./b", want: []string{"a/b"}},
+		{name: "inner dot segment inside a brace alternative", pattern: "{dot/./x,a}", want: []string{"dot/x", "a"}},
+		{name: "trailing dot segment", pattern: "a/.", want: []string{"a"}},
+		{name: "dot segments around a directory", pattern: "./a/./", want: []string{"a/"}},
+		{name: "empty alternative is the default pattern", pattern: "{./,zzz}", want: []string{"x.go", "zzz"}},
+		{name: "dot dot name is not a dot segment", pattern: "..foo", want: []string{"..foo"}},
+		{name: "hidden name is not a dot segment", pattern: ".hidden", want: []string{".hidden"}},
+		{name: "bare dot slash is the default", pattern: "./", want: []string{"x.go"}},
+		{name: "bare dot is the default", pattern: ".", want: []string{"x.go"}},
+		{name: "empty pattern is the default", pattern: "", want: []string{"x.go"}},
 		{name: "leading slash", pattern: "/x", wantErr: true},
 		{name: "leading dot dot segment", pattern: "../x", wantErr: true},
 		{name: "inner dot dot segment", pattern: "a/../b", wantErr: true},
@@ -74,8 +83,11 @@ func TestGlobMatcherPatternNormalization(t *testing.T) {
 			if err != nil {
 				t.Fatalf("compileGlobMatcher(%q): %v", tt.pattern, err)
 			}
-			if _, ok := matcher.matchEntry(tt.want, false); !ok {
-				t.Errorf("pattern %q does not match %q", tt.pattern, tt.want)
+			for _, want := range tt.want {
+				path, isDir := strings.TrimSuffix(want, "/"), strings.HasSuffix(want, "/")
+				if _, ok := matcher.matchEntry(path, isDir); !ok {
+					t.Errorf("pattern %q does not match %q", tt.pattern, want)
+				}
 			}
 		})
 	}

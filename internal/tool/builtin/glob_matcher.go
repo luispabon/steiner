@@ -46,6 +46,12 @@ func compileGlobMatcher(pattern string) (globMatcher, error) {
 	if err != nil {
 		return globMatcher{}, err
 	}
+	// "." segments are normalized per expanded form, so a brace alternative can
+	// carry its own dot segments instead of only a raw leading "./" being
+	// stripped.
+	for i, form := range forms {
+		forms[i] = normalizeGlobForm(form)
+	}
 	matcher := globMatcher{
 		matchers:    make(globSet, 0, len(forms)),
 		dirMatchers: make(globSet, 0, len(forms)),
@@ -77,8 +83,8 @@ func compileGlobMatcher(pattern string) (globMatcher, error) {
 
 // normalizeGlobPattern strips the leading "./" segments a caller may write in
 // front of a relative pattern and substitutes the default pattern when nothing
-// is left. It runs on the raw pattern, so it never rewrites text inside a brace
-// alternative.
+// is left. It sees only the raw pattern; compileGlobMatcher normalizes the dot
+// segments of every expanded form, including those inside brace alternatives.
 func normalizeGlobPattern(pattern string) string {
 	for strings.HasPrefix(pattern, "./") {
 		pattern = pattern[len("./"):]
@@ -87,6 +93,30 @@ func normalizeGlobPattern(pattern string) string {
 		return defaultGlobPattern
 	}
 	return pattern
+}
+
+// normalizeGlobForm removes every path segment that is exactly ".", whether it
+// leads, sits between other segments, or trails, so a form such as "./a" or
+// "dot/./x" keeps matching what it names. Splitting on "/" is safe for a class
+// such as "[/]": its segments are never exactly ".". A form left with nothing
+// falls back to the default pattern, and a trailing "/" survives as the empty
+// final segment.
+func normalizeGlobForm(form string) string {
+	segments := strings.Split(form, "/")
+	kept := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if segment != "." {
+			kept = append(kept, segment)
+		}
+	}
+	normalized := strings.Join(kept, "/")
+	// An already empty form is the root itself, produced by zero-directory
+	// expansion of a leading "**/"; it must stay empty rather than match one
+	// level. Only a form that lost its content to dot segments falls back.
+	if normalized == "" && form != "" {
+		return defaultGlobPattern
+	}
+	return normalized
 }
 
 // globFormEscapesRoot reports whether an expanded form is absolute or climbs

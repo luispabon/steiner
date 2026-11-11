@@ -104,6 +104,35 @@ func TestGlobWalkEntries(t *testing.T) {
 	}
 }
 
+// TestGlobWalkIgnoresDotSegments proves a "." segment anywhere in a pattern is
+// ignored, including inside a brace alternative, so every alternative still
+// matches.
+func TestGlobWalkIgnoresDotSegments(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "a/b/x.txt", "x")
+	mustWriteTree(t, root, "b.txt", "b")
+	mustWriteTree(t, root, "c.txt", "c")
+
+	tests := []struct {
+		name    string
+		pattern string
+		want    []string
+	}{
+		{name: "dot prefix inside a brace alternative", pattern: "{./b.txt,c.txt}", want: []string{"b.txt", "c.txt"}},
+		{name: "inner dot segment", pattern: "a/./b/x.txt", want: []string{"a/b/x.txt"}},
+		{name: "trailing dot segment matches the directory", pattern: "a/.", want: []string{"a/"}},
+		{name: "bare dot slash is the default", pattern: "./", want: []string{"a/", "b.txt", "c.txt"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := runGlobWalk(t, globWalkParamsFor(t, root, tt.pattern, defaultGlobLimit, 0))
+			if got := outputRows(result.Output, ""); !slices.Equal(got, tt.want) {
+				t.Fatalf("entries = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestGlobWalkDirectoryPatternSlash proves a directory is returned when a
 // pattern matches its own path, or when a pattern ending in "/" matches that
 // path plus the slash. A pattern such as src/* must not return src/ itself.
@@ -302,6 +331,83 @@ func TestGlobWalkPrunesDeeperLevels(t *testing.T) {
 			}
 			if ctx.errCalls != tt.wantCalls {
 				t.Fatalf("entries visited = %d, want %d", ctx.errCalls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+// globWalkWithoutPruning runs the same walk as globWalk with depth pruning
+// disabled, so a test can compare a pruned walk against an exhaustive one.
+func globWalkWithoutPruning(t *testing.T, p globWalkParams) []string {
+	t.Helper()
+	matcher, err := compileGlobMatcher(p.pattern)
+	if err != nil {
+		t.Fatalf("compileGlobMatcher(%q): %v", p.pattern, err)
+	}
+	matcher.pruneDepth = 0
+	walker := &globWalker{params: p, matcher: matcher, page: make([]string, 0, p.limit)}
+	if err := filepath.WalkDir(p.root, func(path string, d fs.DirEntry, err error) error {
+		return walker.visit(context.Background(), path, d, err)
+	}); err != nil {
+		t.Fatalf("globWalk without pruning(pattern=%q): %v", p.pattern, err)
+	}
+	return outputRows(strings.Join(walker.page, "\n"), "")
+}
+
+// TestGlobWalkPruningMatchesExhaustiveWalk proves depth pruning only skips
+// directories no expanded form can match: over one fixed tree, every pattern
+// returns the same rows with pruning enabled and with it forced off.
+func TestGlobWalkPruningMatchesExhaustiveWalk(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{
+		"a/b/c.txt",
+		"a/b/d.go",
+		"a/c.txt",
+		"axb/x.go",
+		"b/x.go",
+		"b/y.txt",
+		"c/deep/z.md",
+		"d/e/f.txt",
+		".hidden",
+		"..foo",
+		"*",
+		"{x}",
+		"x.go",
+		"y.txt",
+		"z.md",
+	} {
+		mustWriteTree(t, root, rel, rel)
+	}
+
+	patterns := []string{
+		"*",
+		"*/*",
+		"*.{go,txt}",
+		"{a,b/c}",
+		"{a/b,c}/*",
+		"{a,ax}?",
+		"{**/c.txt,*.md}",
+		"*/",
+		"a/*/",
+		"a/**",
+		"**/",
+		"**/*.go",
+		"**/b/*",
+		`\*`,
+		`\{x\}`,
+		"./*/*",
+		"[ab]/*",
+		"[/]",
+		"a?b",
+		"?/*",
+		"*.md",
+	}
+	for _, pattern := range patterns {
+		t.Run(pattern, func(t *testing.T) {
+			params := globWalkParamsFor(t, root, pattern, defaultGlobLimit, 0)
+			pruned := outputRows(runGlobWalk(t, params).Output, "")
+			if exhaustive := globWalkWithoutPruning(t, params); !slices.Equal(pruned, exhaustive) {
+				t.Fatalf("pruned rows = %v, exhaustive rows = %v", pruned, exhaustive)
 			}
 		})
 	}

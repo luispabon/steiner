@@ -61,20 +61,9 @@ func searchSymlinkEntry(d fs.DirEntry) bool {
 // policy first, so the sandbox /tmp rewrite maps a link to /tmp/x onto the
 // sandbox copy of x instead of the host file behind it.
 func (s searchSymlinkScope) target(path string) (string, bool) {
-	dest, err := os.Readlink(path)
-	if err != nil {
+	target, ok := symlinkDestination(s.policy, path, false)
+	if !ok {
 		return "", false
-	}
-	if !filepath.IsAbs(dest) {
-		dest = filepath.Join(filepath.Dir(path), dest)
-	}
-	target := filepath.Clean(dest)
-	if s.policy != nil {
-		resolved, err := s.policy.ResolveReadPath(target)
-		if err != nil {
-			return "", false
-		}
-		target = resolved
 	}
 	resolved, err := filepath.EvalSymlinks(target)
 	if err != nil {
@@ -94,6 +83,34 @@ func (s searchSymlinkScope) target(path string) (string, bool) {
 		return "", false
 	}
 	if s.excluded(resolved) {
+		return "", false
+	}
+	return resolved, true
+}
+
+// symlinkDestination returns the destination of the link at path, resolved
+// through policy so the sandbox /tmp rewrite maps a link to /tmp/x onto the
+// sandbox copy of x instead of the host file behind it. A relative destination
+// is joined to the link's directory first. listing selects the policy entry
+// point: a read rejects special files, while a listing admits them.
+func symlinkDestination(policy *tool.PathPolicy, path string, listing bool) (string, bool) {
+	dest, err := os.Readlink(path)
+	if err != nil {
+		return "", false
+	}
+	if !filepath.IsAbs(dest) {
+		dest = filepath.Join(filepath.Dir(path), dest)
+	}
+	target := filepath.Clean(dest)
+	if policy == nil {
+		return target, true
+	}
+	resolve := policy.ResolveReadPath
+	if listing {
+		resolve = policy.ResolveReadEntryPath
+	}
+	resolved, err := resolve(target)
+	if err != nil {
 		return "", false
 	}
 	return resolved, true

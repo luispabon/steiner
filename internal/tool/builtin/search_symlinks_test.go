@@ -113,7 +113,7 @@ func TestSymlinkSearchEntryEligibility(t *testing.T) {
 			},
 		},
 		{
-			name:            "excluded link name and excluded or blocked targets are rejected",
+			name:            "excluded link names are filtered and only blocked targets hide links",
 			excludePaths:    []string{"src/link-byname.go"},
 			excludePatterns: []string{"excluded"},
 			blockedPaths:    []string{"blocked"},
@@ -236,6 +236,56 @@ func TestGrepNestedSymlinkUsesSandboxTmpRewrite(t *testing.T) {
 		result := runGlobWalk(t, globWalkParamsWith(src, "**/*.txt", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
 		assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"tmplink.txt"})
 	})
+}
+
+// TestGlobHidesSymlinksToSandboxBlockedTargets proves glob applies the sandbox
+// /tmp rewrite to a nested link's target before the blocked_paths check. The
+// link's host target is not blocked, but its sandbox view is, so the link is
+// hidden by name. Grep already resolves a followed target through policy and
+// refuses a blocked one, so its behaviour is unchanged.
+func TestGlobHidesSymlinksToSandboxBlockedTargets(t *testing.T) {
+	hostDir, err := os.MkdirTemp("/tmp", "steiner-probe-")
+	if err != nil {
+		t.Skipf("cannot create directory under /tmp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(hostDir) })
+	mustWriteTree(t, hostDir, "key", "host-key\n")
+
+	root := t.TempDir()
+	mustWriteTree(t, root, "keep.txt", "keep\n")
+	sandboxTmp := filepath.Join(t.TempDir(), "sandbox-tmp")
+	mustMkdir(t, sandboxTmp)
+	// The sandbox copy of the host path sits inside the blocked directory.
+	blocked := filepath.Join(sandboxTmp, filepath.Base(hostDir))
+	mustWriteTree(t, blocked, "key", "sandbox-key\n")
+
+	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{BlockedPaths: []string{blocked}}, sandboxTmp)
+	sandboxTarget, err := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp).ResolveReadEntryPath(filepath.Join(hostDir, "key"))
+	if err != nil {
+		t.Fatalf("resolve sandbox target: %v", err)
+	}
+	if sandboxTarget != filepath.Join(blocked, "key") {
+		t.Skipf("sandbox /tmp rewrite does not apply to link targets on this platform (resolved %q)", sandboxTarget)
+	}
+
+	mustSymlink(t, filepath.Join(hostDir, "key"), filepath.Join(root, "lnk-sbx"))
+	mustSymlink(t, "keep.txt", filepath.Join(root, "lnk-ok"))
+	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
+
+	result := runGlobWalk(t, globWalkParamsWith(root, "*", &policy, excluder))
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"keep.txt", "lnk-ok"})
+
+	results, _, err := grepSearch(context.Background(), grepSearchParams{
+		root:        root,
+		displayPath: ".",
+		pattern:     "key",
+		excluder:    &excluder,
+		policy:      &policy,
+	})
+	if err != nil {
+		t.Fatalf("grepSearch: %v", err)
+	}
+	assertSameStringSet(t, "grep files", grepResultFiles(results), nil)
 }
 
 // TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot covers a link under the

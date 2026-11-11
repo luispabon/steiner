@@ -175,13 +175,17 @@ func (w *globWalker) visit(ctx context.Context, path string, d fs.DirEntry, err 
 // so ancestors of the root (e.g. /srv/build/proj, .steiner/worktrees/x) never
 // blind the walk. A root reached through a symlink is validated in both its
 // resolved and lexical form so configured exclusions keep applying. A blocked
-// path hides the entry, including a symlink whose resolved target is blocked;
-// special files are listed because listing never opens them.
+// path hides the entry, including a symlink whose resolved target is blocked,
+// whether that target is blocked as a host path or only in its sandbox /tmp
+// view; special files are listed because listing never opens them.
 func (w *globWalker) denied(path string, d fs.DirEntry) bool {
 	if excludeSearchEntry(&w.params.excluder, w.params.policy, w.params.root, w.params.lexicalRoot, path, d.IsDir()) {
 		return true
 	}
-	return searchListingDenied(w.params.policy, path)
+	if searchListingDenied(w.params.policy, path) {
+		return true
+	}
+	return searchSymlinkEntry(d) && searchListingSymlinkDenied(w.params.policy, path)
 }
 
 // collect adds a match to the page and reports whether the walk can stop

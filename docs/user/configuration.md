@@ -307,7 +307,7 @@ Filesystem access limits for file tools, including each sub-agent's tools. Exclu
 | `paths.project_root_only` | bool | `true` | Restrict tools to paths inside the project root. |
 | `paths.writable_paths` | []string | `[]` | When set, an allowlist that restricts mutation tools to these paths, including inside the project root. Outside the root it only adds to what `project_root_only` permits once that restriction is lifted by approval. May be inside or outside the project root; `~/` expands. |
 | `paths.blocked_paths` | []string | `[]` | Paths always denied, even inside the project root; `~/` expands. |
-| `paths.exclude_paths` | []string | none | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; `~/` expands. |
+| `paths.exclude_paths` | []string | none | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; `~/` expands. `glob` applies them to each entry's own path, so a symlink into an excluded path is still listed by name. |
 | `paths.exclude_patterns` | []string | none | Globs excluded from searches and directory walks. |
 
 ## `logging` block
