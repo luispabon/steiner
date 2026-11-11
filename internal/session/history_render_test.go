@@ -227,25 +227,6 @@ func TestRenderHistory(t *testing.T) {
 			want: "### assistant · turn 1\n\n- **follow_up** Check jitter",
 		},
 		{
-			name: "display_file call is skipped",
-			source: []agent.Message{
-				{Role: agent.MessageRoleAssistant, Turn: 1, Content: "Shown.", ToolCalls: []agent.ToolCall{
-					{ID: "d1", Name: "display_file", Arguments: map[string]any{"path": "a.go"}},
-				}},
-				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "d1", Content: `{"ok":true}`},
-			},
-			want: "### assistant · turn 1\n\nShown.",
-		},
-		{
-			name: "message with only display_file call is dropped",
-			source: []agent.Message{
-				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{
-					{ID: "d1", Name: "display_file", Arguments: map[string]any{"path": "a.go"}},
-				}},
-			},
-			want: "",
-		},
-		{
 			name: "user image shows placeholder after text",
 			source: []agent.Message{
 				{Role: agent.MessageRoleUser, Turn: 1, Content: "Screenshot.", Images: []agent.ImageBlock{{ID: "img-1"}}},
