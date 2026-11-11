@@ -75,14 +75,22 @@ func (e *authEntry) pendingSaveLocked(now time.Time, stamp fileStamp) (*oauth2.T
 }
 
 // saveRetained publishes the result of one save-only retry of a retained token
-// to the entry's cache and to the flight's waiters. The token endpoint is not
-// contacted: the refresh that produced the token already rotated its refresh
+// to the entry's cache and to the flight's waiters. The retry itself never
+// refreshes: the refresh that produced the token already rotated its refresh
 // token, so only the write is missing.
 //
 // The retry takes the token lock for at most saveRetryLockWait, then re-checks
 // the file before writing. Its outcomes are:
-//   - written: the cache publishes the token read back from disk with the stamp
-//     of that version, marked persisted, and the waiters get it.
+//   - written: the cache publishes the token read back from disk, with the stamp
+//     of that version and outside the refresh window, marked persisted, and the
+//     waiters get it.
+//   - refresh: the flight finishes as a refresh when nothing was written (the
+//     file changed, disappeared, or could not be inspected first) or when the
+//     version read back after the write already needs a refresh. The latter
+//     covers a replacement that landed despite the write, and the retained
+//     token crossing the proactive window while the retry waited. The refresh
+//     publishes the version on disk, refreshes it when needed, and reports
+//     ErrNoToken when it is gone, leaving it deleted.
 //   - lock busy: nothing is written and no attempt is used; the cache keeps the
 //     retained token, the waiters get it, and the retry is tried again after the
 //     current pause.
@@ -90,10 +98,8 @@ func (e *authEntry) pendingSaveLocked(now time.Time, stamp fileStamp) (*oauth2.T
 //     attempt count moves the next retry back. The error is not reported,
 //     because the callers hold a valid token and the refresh that produced it
 //     already reported the save failure that retained the token.
-//   - file replaced: the flight finishes as a refresh, so the cache publishes
-//     the version that won and the waiters get a usable token.
-//   - file deleted: the cache is cleared and the waiters get ErrNoToken, leaving
-//     the file deleted.
+//   - deleted: a lock failure that finds the token file gone clears the cache
+//     and the waiters get ErrNoToken, leaving the file deleted.
 func (r *AuthResolver) saveRetained(entry *authEntry, flight *authFlight, file tokenFile, conf *oauth2.Config, httpClient *http.Client, token *oauth2.Token, stamp fileStamp) {
 	current, currentStamp, saved, err := r.saveRetainedToken(entry.store, file, token, stamp)
 

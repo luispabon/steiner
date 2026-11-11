@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -391,6 +392,94 @@ func TestAuthResolverSaveRetryWaiterWithNewerStampResolves(t *testing.T) {
 	}
 	if got := refreshes.Load(); got != 1 {
 		t.Errorf("refresh requests = %d, want 1", got)
+	}
+	stored, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stored.AccessToken != "replacement-token" {
+		t.Errorf("persisted AccessToken = %q, want replacement-token", stored.AccessToken)
+	}
+}
+
+func TestAuthResolverFlightErrorForOtherVersionResolves(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	store := NewTokenStore(path)
+	saveRefreshDueTestToken(t, store)
+
+	// The token endpoint fails the refresh of the old version, after a delay that
+	// lets the second caller reach the flight before its error is published.
+	requested := make(chan struct{})
+	release := make(chan struct{})
+	var requestedOnce sync.Once
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	var requests atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests.Add(1)
+		requestedOnce.Do(func() { close(requested) })
+		<-release
+		time.Sleep(50 * time.Millisecond)
+		return nil, errors.New("token endpoint failed")
+	})}
+
+	resolver := NewAuthResolver()
+	conf := testTokenConf("https://token.example")
+	// Pin the auth style so the failed refresh costs one request instead of the
+	// two oauth2's auth-style probe would send.
+	conf.Endpoint.AuthStyle = oauth2.AuthStyleInParams
+
+	// Report when the second caller has statted the replaced file version.
+	var stats atomic.Int32
+	observed := make(chan struct{})
+	resolver.newTokenFile = func(store *TokenStore) tokenFile {
+		return &observedFile{
+			inner: storeTokenFile{store: store},
+			seen: func() {
+				if stats.Add(1) == 2 {
+					close(observed)
+				}
+			},
+		}
+	}
+
+	type result struct {
+		token *oauth2.Token
+		err   error
+	}
+
+	// The first caller refreshes the old version and waits on the endpoint.
+	first := make(chan result, 1)
+	go func() {
+		token, err := resolver.Resolve(context.Background(), store, conf, client)
+		first <- result{token: token, err: err}
+	}()
+	<-requested
+
+	// A login saves a valid replacement while the refresh is in flight, and a
+	// second caller observes it and joins the refresh.
+	saveValidTestToken(t, NewTokenStore(path), "replacement-token")
+	second := make(chan result, 1)
+	go func() {
+		token, err := resolver.Resolve(context.Background(), store, conf, client)
+		second <- result{token: token, err: err}
+	}()
+	<-observed
+	unblock()
+
+	if res := <-first; res.err == nil {
+		t.Fatalf("Resolve() of the old version error = nil, want the refresh failure")
+	}
+	res := <-second
+	if res.err != nil {
+		t.Fatalf("Resolve() of the replacement error = %v, want the replacement token: a flight error for another version must not be returned", res.err)
+	}
+	if res.token == nil || res.token.AccessToken != "replacement-token" {
+		t.Errorf("AccessToken = %v, want replacement-token", res.token)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("token endpoint requests = %d, want 1: the replacement needs no refresh", got)
 	}
 	stored, err := store.Load()
 	if err != nil {

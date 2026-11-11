@@ -63,9 +63,10 @@ var errRefreshedTokenInvalid = errors.New("refreshed token is not valid")
 // calls. A later call retries the save without refreshing, at most
 // saveRetryAttempts times with a growing pause; while the retained token is
 // valid a failed retry does not fail the call, and a busy token lock skips the
-// try after a short wait. The retry only contacts the token endpoint when
-// another writer replaced the file with a version that has to be refreshed, and
-// the next refresh also starts from the retained token and retries the save.
+// try after a short wait. The retry contacts the token endpoint only when the
+// version it resolves needs a refresh: a replacement written before the save,
+// or the retained token itself once it is close to expiry. The next refresh
+// also starts from the retained token and retries the save.
 type AuthResolver struct {
 	mu      sync.Mutex
 	entries map[string]*authEntry
@@ -123,8 +124,9 @@ type authFlight struct {
 // itself runs to completion for the other callers.
 //
 // A call whose cached token a refresh could not save retries that save once the
-// pause between retries ends, without contacting the token endpoint unless
-// another writer replaced the file with a version that needs a refresh.
+// pause between retries ends, without contacting the token endpoint unless the
+// version it resolves needs a refresh: a replacement written before the save, or
+// the retained token itself once it is close to expiry.
 func (r *AuthResolver) Resolve(ctx context.Context, store *TokenStore, conf *oauth2.Config, httpClient *http.Client) (*oauth2.Token, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -149,7 +151,14 @@ func (r *AuthResolver) Resolve(ctx context.Context, store *TokenStore, conf *oau
 		}
 		token, matched, err := r.waitForFlight(ctx, entry, file, conf, httpClient, stamp)
 		if err != nil {
-			return nil, err
+			// A flight that started from another version of the file says nothing
+			// about the version observed here, so resolve again rather than report
+			// its error. A cancelled caller does not retry and gets its own
+			// cancellation back.
+			if matched || ctx.Err() != nil {
+				return nil, err
+			}
+			continue
 		}
 		if matched {
 			return token, nil
@@ -251,8 +260,8 @@ func (e *authEntry) setLocked(token *oauth2.Token, stamp fileStamp, persisted bo
 // waitForFlight joins the in-flight work for entry, starting it when none is
 // running: a save-only retry of the retained token when one is due at stamp,
 // and a refresh otherwise. matched reports that the flight started from stamp,
-// so its result belongs to the version the caller observed; a flight started
-// from another version leaves the caller to resolve again.
+// so its result, including an error, describes the version the caller observed;
+// a flight started from another version leaves the caller to resolve again.
 func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file tokenFile, conf *oauth2.Config, httpClient *http.Client, stamp fileStamp) (*oauth2.Token, bool, error) {
 	entry.mu.Lock()
 	flight := entry.flight
@@ -282,7 +291,7 @@ func (r *AuthResolver) waitForFlight(ctx context.Context, entry *authEntry, file
 		}
 	}
 	if flight.err != nil {
-		return nil, false, flight.err
+		return nil, flight.stamp.equal(stamp), flight.err
 	}
 	return cloneToken(flight.token), flight.stamp.equal(stamp), nil
 }
