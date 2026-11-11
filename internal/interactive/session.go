@@ -84,7 +84,7 @@ func newEmptyDelegationGroupLedger() *agent.DelegationGroupLedger {
 }
 
 // NewSession creates a new interactive Session with the given dependencies.
-// It composes the session-level event bus: display_file forwarding, API
+// It composes the session-level event bus: TUI event forwarding, API
 // request snapshot capture, and any caller-provided base events. It generates
 // a unique session ID via crypto/rand.
 func NewSession(deps Dependencies) (*Session, error) {

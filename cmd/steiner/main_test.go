@@ -590,7 +590,7 @@ func TestRuntimeRegistryIncludesCoreToolsByDefault(t *testing.T) {
 	}, t.TempDir())
 
 	got := registry.Names()
-	want := []string{"bash", "display_file", "fetch_url", "glob", "grep", "mutate", "read", "workflow_handoff"}
+	want := []string{"bash", "fetch_url", "glob", "grep", "mutate", "read", "workflow_handoff"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("registry names = %v, want %v", got, want)
 	}

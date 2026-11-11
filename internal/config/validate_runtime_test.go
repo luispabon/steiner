@@ -39,6 +39,10 @@ func TestValidateToolsConfigReservedNames(t *testing.T) {
 			tools: map[string]ToolConfig{"my_tool": validTool},
 		},
 		{
+			name:  "name of a removed built-in is accepted",
+			tools: map[string]ToolConfig{"display_file": validTool},
+		},
+		{
 			name:    "empty exec still reported",
 			tools:   map[string]ToolConfig{"my_tool": {Timeout: MustDuration("30s")}},
 			wantErr: []string{`tools["my_tool"].exec is required`},

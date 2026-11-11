@@ -51,8 +51,8 @@ func (s *Session) CurrentEffective() config.EffectiveModelAssignments {
 }
 
 // DisplaySink returns the session's ForwardSink, which forwards events to
-// whatever target is set via Set. The display_file tool uses this to emit
-// display events before the TUI sink is wired in.
+// whatever target is set via Set. Built-in tools emit side-channel events
+// through it before the TUI sink is wired in.
 func (s *Session) DisplaySink() *output.ForwardSink {
 	return s.displaySink
 }

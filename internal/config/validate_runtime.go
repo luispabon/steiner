@@ -100,7 +100,6 @@ var reservedToolNames = map[string]bool{
 	"glob":             true,
 	"grep":             true,
 	"bash":             true,
-	"display_file":     true,
 	"mutate":           true,
 	"fetch_url":        true,
 	"workflow_handoff": true,

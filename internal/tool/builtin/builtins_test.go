@@ -14,9 +14,9 @@ func TestBuiltins(t *testing.T) {
 	env := Env{WorkDir: t.TempDir(), PathPolicy: &policy}
 	tools := Builtins(env)
 
-	t.Run("all 8 builtin tools registered", func(t *testing.T) {
-		if len(tools) != 8 {
-			t.Fatalf("Builtins returned %d tools, want 8", len(tools))
+	t.Run("all 7 builtin tools registered", func(t *testing.T) {
+		if len(tools) != 7 {
+			t.Fatalf("Builtins returned %d tools, want 7", len(tools))
 		}
 	})
 
@@ -25,7 +25,7 @@ func TestBuiltins(t *testing.T) {
 		for _, td := range tools {
 			names[td.Name] = true
 		}
-		want := []string{"read", "glob", "grep", "bash", "display_file", "mutate", "fetch_url", "workflow_handoff"}
+		want := []string{"read", "glob", "grep", "bash", "mutate", "fetch_url", "workflow_handoff"}
 		for _, w := range want {
 			if !names[w] {
 				t.Errorf("missing tool %q", w)
@@ -69,7 +69,6 @@ func TestBuiltins(t *testing.T) {
 			&Result{Output: "file1\nfile2\n", NextOffset: 5},
 			&GrepResult{Matches: 3, NextOffset: 1, Output: "match1\nmatch2\n"},
 			&BashResult{ExitCode: 0, Output: "hello", Truncated: false},
-			&DisplayFileResult{Path: "test.txt", Status: "displayed"},
 			&MutateResult{
 				Paths:             []string{"test.txt"},
 				Modified:          []string{"test.txt"},
@@ -116,10 +115,9 @@ func TestBuiltins(t *testing.T) {
 			_, isGrepResult := errResult.(GrepResult)
 			_, isMutation := errResult.(*MutationResult)
 			_, isBash := errResult.(*BashResult)
-			_, isDisplayFile := errResult.(*DisplayFileResult)
 			_, isMutate := errResult.(*MutateResult)
 
-			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isDisplayFile || isMutate
+			hasResult := isResult || isPtrResult || isGlobResult || isPtrGlob || isGrepResult || isMutation || isBash || isMutate
 			if !hasResult {
 				t.Errorf("tool %q: empty input returned nil error and unrecognized result type %T, expected error", td.Name, errResult)
 			}

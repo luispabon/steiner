@@ -109,20 +109,6 @@ func GrepSchema() map[string]any {
 	}
 }
 
-// DisplayFileSchema returns the JSON schema for the display_file tool.
-func DisplayFileSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":   map[string]any{"type": "string", "description": "Absolute or workspace-relative path to the file to display"},
-			"offset": map[string]any{"type": "integer", "description": "Starting line number (1-based)", "default": 1},
-			"limit":  map[string]any{"type": "integer", "description": "Max lines to preview", "default": defaultDisplayFileLimit, "maximum": maxDisplayFileLimit},
-		},
-		"required":             []string{"path"},
-		"additionalProperties": false,
-	}
-}
-
 // BashSchema returns the JSON schema for the bash tool. maxTimeoutSeconds is
 // the resolved configured cap: the timeout default is the smaller of the
 // 120-second request default and the cap, and the cap is the maximum.
