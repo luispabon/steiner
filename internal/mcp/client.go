@@ -82,11 +82,17 @@ type Session struct {
 	cmd *exec.Cmd
 
 	// reconnect state, guarded by mu.
-	reconnecting        bool
-	reconnectDone       chan struct{} // closed when the in-flight reconnect resolves
-	reconnectOutcome    error         // non-nil when the reconnect ended unavailable
-	consecutiveFailures int           // consecutive failed reconnect attempts
-	closed              bool          // Close was called; failed calls no longer kick a reconnect
+	reconnect           *reconnectAttempt // in-flight transition; nil when idle
+	consecutiveFailures int               // consecutive failed reconnect attempts
+	closed              bool              // Close was called; failed calls no longer kick a reconnect
+}
+
+// reconnectAttempt is one reconnect transition's publication state. Outcome is
+// written under mu before done is closed, so a waiter released by the close
+// reads this attempt's outcome and can never observe a later attempt's.
+type reconnectAttempt struct {
+	done    chan struct{} // closed when the attempt resolves
+	outcome error         // non-nil when the attempt ended unavailable
 }
 
 // SessionOptions configures a Session at connect time. Its zero value is valid
@@ -344,33 +350,35 @@ func (s *Session) Call(ctx context.Context, toolName string, args map[string]any
 		// another worker.
 		return nil, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts; last failure: %w", s.name, maxReconnectAttempts, err)
 	}
-	if done := s.beginReconnectLocked(); done != nil {
-		go s.reconnectWorker(done)
+	if attempt := s.beginReconnectLocked(); attempt != nil {
+		go s.reconnectWorker(attempt)
 	}
 	return nil, disconnected
 }
 
-// waitForReconnect blocks on the in-flight reconnect outcome future, bounded by
-// ctx (locked decision 3). It returns nil when no reconnect is pending or the
-// reconnect succeeded, the reconnect outcome when it ended unavailable, and
+// waitForReconnect blocks on the in-flight reconnect attempt, bounded by ctx
+// (locked decision 3). It returns nil when no reconnect is pending or the
+// reconnect succeeded, the attempt's outcome when it ended unavailable, and
 // ctx.Err() when the caller gave up first.
 func (s *Session) waitForReconnect(ctx context.Context) error {
 	s.mu.Lock()
-	if !s.reconnecting {
-		s.mu.Unlock()
+	attempt := s.reconnect
+	s.mu.Unlock()
+	if attempt == nil {
 		return nil
 	}
-	done := s.reconnectDone
-	s.mu.Unlock()
+	return waitReconnectAttempt(ctx, attempt)
+}
 
+// waitReconnectAttempt blocks on one attempt's outcome future, bounded by ctx.
+// The attempt publishes its outcome before closing done, so the channel close
+// happens-before the receive here: a released waiter observes its own attempt's
+// outcome even after the next attempt started, without taking the mutex. A
+// cancelled ctx returns ctx.Err() and leaves the attempt untouched.
+func waitReconnectAttempt(ctx context.Context, attempt *reconnectAttempt) error {
 	select {
-	case <-done:
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.reconnectOutcome != nil {
-			return s.reconnectOutcome
-		}
-		return nil
+	case <-attempt.done:
+		return attempt.outcome
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -378,64 +386,61 @@ func (s *Session) waitForReconnect(ctx context.Context) error {
 
 // beginReconnectLocked starts a reconnect transition unless one is already
 // running or the consecutive-failure cap was reached (locked decision 2).
-// Callers must hold mu. It returns the transition's outcome future, which is
-// also the ownership token for resolving it: the worker started with that token
-// is the only attempt allowed to publish it (D16: the failed call is never
-// replayed). A nil return means no transition started and no worker should run.
-func (s *Session) beginReconnectLocked() chan struct{} {
-	if s.reconnecting {
+// Callers must hold mu. It returns the transition, whose future is also the
+// ownership token for resolving it: the worker started with that attempt is the
+// only one allowed to publish it (D16: the failed call is never replayed). A nil
+// return means no transition started and no worker should run.
+func (s *Session) beginReconnectLocked() *reconnectAttempt {
+	if s.reconnect != nil {
 		return nil
 	}
 	if s.consecutiveFailures >= maxReconnectAttempts {
 		return nil // cap reached: server unavailable, no further workers
 	}
-	s.reconnecting = true
-	s.reconnectDone = make(chan struct{})
-	s.reconnectOutcome = nil
-	return s.reconnectDone
+	s.reconnect = &reconnectAttempt{done: make(chan struct{})}
+	return s.reconnect
 }
 
-// ownsReconnectLocked reports whether done is the future of the in-flight
-// reconnect. Callers must hold mu. Resolution is token-checked so a duplicate,
+// ownsReconnectLocked reports whether attempt is the in-flight reconnect
+// transition. Callers must hold mu. Resolution is token-checked so a duplicate,
 // superseded, or stale resolution can never publish an outcome for, or close the
 // future of, a transition it did not begin.
-func (s *Session) ownsReconnectLocked(done chan struct{}) bool {
-	return s.reconnecting && s.reconnectDone == done
+func (s *Session) ownsReconnectLocked(attempt *reconnectAttempt) bool {
+	return s.reconnect == attempt
 }
 
-// resolveReconnect publishes the outcome of the reconnect transition that began
-// with done as its token. Recording the outcome, ending the reconnecting state,
-// and closing the future happen in one critical section, so a caller released by
-// the close always observes the matching outcome; a token that no longer owns the
-// transition is a no-op. Must not be called with the session mutex held, so
-// status reporting stays outside the lock.
-func (s *Session) resolveReconnect(done chan struct{}, outcome error, status ServerStatus) {
+// resolveReconnect publishes an attempt's outcome: recording it on the attempt,
+// ending the in-flight transition, and closing the future happen in one critical
+// section, so a waiter released by the close always observes this attempt's
+// outcome. A token that no longer owns the transition is a no-op. Must not be
+// called with the session mutex held, so status reporting stays outside the lock.
+func (s *Session) resolveReconnect(attempt *reconnectAttempt, outcome error, status ServerStatus) {
 	s.mu.Lock()
-	if !s.ownsReconnectLocked(done) {
+	if !s.ownsReconnectLocked(attempt) {
 		s.mu.Unlock()
 		return
 	}
-	s.reconnecting = false
-	s.reconnectOutcome = outcome
-	close(done)
+	s.reconnect = nil
+	attempt.outcome = outcome
+	close(attempt.done)
 	s.mu.Unlock()
 	s.reportStatus(status, outcome)
 }
 
-// commitReconnect adopts the freshly connected session of the reconnect
-// transition that began with done as its token. The SDK swap and the publication
-// of the successful outcome happen in one critical section, so callers released
-// by the closed future and Call snapshots taken afterwards both see the new
-// session; the replaced session is returned for the caller to close outside the
-// lock. It reports committed=false when the manager context is cancelled, the
-// session was closed, or done no longer owns the transition, leaving the live
-// session, failure cap, and future untouched; the caller then closes next and
-// resolves the abort through resolveReconnect. Status reporting stays with the
-// caller, outside the lock.
-func (s *Session) commitReconnect(done chan struct{}, next *mcpsdk.ClientSession, cmd *exec.Cmd) (old *mcpsdk.ClientSession, committed bool) {
+// commitReconnect adopts the freshly connected session of the attempt that began
+// with attempt as its token. The SDK swap and the publication of the successful
+// outcome happen in one critical section, so callers released by the closed
+// future and Call snapshots taken afterwards both see the new session; the
+// replaced session is returned for the caller to close outside the lock. It
+// reports committed=false when the manager context is cancelled, the session was
+// closed, or attempt no longer owns the transition, leaving the live session,
+// failure cap, and future untouched; the caller then closes next and resolves the
+// abort through resolveReconnect. Status reporting stays with the caller, outside
+// the lock.
+func (s *Session) commitReconnect(attempt *reconnectAttempt, next *mcpsdk.ClientSession, cmd *exec.Cmd) (old *mcpsdk.ClientSession, committed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.managerCtx.Err() != nil || s.closed || !s.ownsReconnectLocked(done) {
+	if s.managerCtx.Err() != nil || s.closed || !s.ownsReconnectLocked(attempt) {
 		return nil, false
 	}
 	old = s.sdk
@@ -443,9 +448,8 @@ func (s *Session) commitReconnect(done chan struct{}, next *mcpsdk.ClientSession
 	s.cmd = cmd
 	s.protocolVersion = next.InitializeResult().ProtocolVersion
 	s.consecutiveFailures = 0 // a successful reconnect resets the cap
-	s.reconnecting = false
-	s.reconnectOutcome = nil
-	close(done)
+	s.reconnect = nil
+	close(attempt.done)
 	return old, true
 }
 

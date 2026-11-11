@@ -10,31 +10,31 @@ import (
 )
 
 // reconnectWorker runs sequential fresh-connect attempts for the transition that
-// began with done as its ownership token, until one succeeds or the
-// consecutive-failure cap is reached. At most one worker runs per server at a
-// time (beginReconnectLocked guarantees it). The tool set is never re-listed
-// (D14) and the failed call is never replayed (D16).
-func (s *Session) reconnectWorker(done chan struct{}) {
+// began as attempt, until one succeeds or the consecutive-failure cap is
+// reached. At most one worker runs per server at a time (beginReconnectLocked
+// guarantees it). The tool set is never re-listed (D14) and the failed call is
+// never replayed (D16).
+func (s *Session) reconnectWorker(attempt *reconnectAttempt) {
 	s.reportStatus(ServerStatusReconnecting, nil)
 
 	for {
 		if s.managerCtx.Err() != nil {
 			// The owning manager is closed; abandon the reconnect and release
 			// every caller blocked on the outcome future.
-			s.resolveReconnect(done, fmt.Errorf("reconnect aborted: manager closed: %w", s.managerCtx.Err()), ServerStatusUnavailable)
+			s.resolveReconnect(attempt, fmt.Errorf("reconnect aborted: manager closed: %w", s.managerCtx.Err()), ServerStatusUnavailable)
 			return
 		}
 
 		newSDK, newCmd, err := s.reconnectOnce()
 		if err == nil {
-			old, committed := s.commitReconnect(done, newSDK, newCmd)
+			old, committed := s.commitReconnect(attempt, newSDK, newCmd)
 			if !committed {
 				_ = newSDK.Close()
 				abortErr := errors.New("reconnect aborted: session closed")
 				if ctxErr := s.managerCtx.Err(); ctxErr != nil {
 					abortErr = fmt.Errorf("reconnect aborted: manager closed: %w", ctxErr)
 				}
-				s.resolveReconnect(done, abortErr, ServerStatusUnavailable)
+				s.resolveReconnect(attempt, abortErr, ServerStatusUnavailable)
 				return
 			}
 			if old != nil {
@@ -49,7 +49,7 @@ func (s *Session) reconnectWorker(done chan struct{}) {
 		reachedCap := s.consecutiveFailures >= maxReconnectAttempts
 		s.mu.Unlock()
 		if reachedCap {
-			s.resolveReconnect(done, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts: %w", s.name, maxReconnectAttempts, err), ServerStatusUnavailable)
+			s.resolveReconnect(attempt, fmt.Errorf("mcp server %q unavailable after %d consecutive failed reconnect attempts: %w", s.name, maxReconnectAttempts, err), ServerStatusUnavailable)
 			return
 		}
 	}

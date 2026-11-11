@@ -4,21 +4,22 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // beginTestReconnect arms one reconnect transition without starting a worker,
 // so tests can drive resolution and commit directly.
-func beginTestReconnect(t *testing.T, s *Session) chan struct{} {
+func beginTestReconnect(t *testing.T, s *Session) *reconnectAttempt {
 	t.Helper()
 	s.mu.Lock()
-	done := s.beginReconnectLocked()
+	attempt := s.beginReconnectLocked()
 	s.mu.Unlock()
-	if done == nil {
+	if attempt == nil {
 		t.Fatal("beginReconnectLocked started no transition on an idle session")
 	}
-	return done
+	return attempt
 }
 
 // newInMemoryClientSession connects a client to an empty in-memory MCP server
@@ -51,14 +52,22 @@ func TestBeginReconnectLockedGuardsOneTransitionAtATime(t *testing.T) {
 	first := beginTestReconnect(t, s)
 
 	s.mu.Lock()
-	armed := s.reconnecting && s.reconnectDone == first && s.reconnectOutcome == nil
+	armed := s.reconnect == first
 	again := s.beginReconnectLocked()
 	s.mu.Unlock()
 	if !armed {
-		t.Error("beginReconnectLocked did not arm the transition with a fresh future")
+		t.Error("beginReconnectLocked did not record the in-flight transition")
 	}
 	if again != nil {
 		t.Fatal("beginReconnectLocked started a second transition while one was in flight")
+	}
+	select {
+	case <-first.done:
+		t.Fatal("an unresolved attempt reports a closed future")
+	default:
+	}
+	if first.outcome != nil {
+		t.Errorf("unresolved attempt outcome = %v, want nil", first.outcome)
 	}
 
 	s.mu.Lock()
@@ -78,9 +87,12 @@ func TestBeginReconnectLockedGuardsOneTransitionAtATime(t *testing.T) {
 	s.mu.Unlock()
 	second := beginTestReconnect(t, s)
 	if second == first {
-		t.Error("beginReconnectLocked reused a published future")
+		t.Error("beginReconnectLocked reused a published attempt")
 	}
 	s.resolveReconnect(second, nil, ServerStatusConnected)
+	if got := s.waitForReconnect(context.Background()); got != nil {
+		t.Errorf("waitForReconnect on an idle session = %v, want nil", got)
+	}
 }
 
 // TestResolveReconnectPublishesOutcomeOnce proves the resolution contract: the
@@ -105,24 +117,21 @@ func TestResolveReconnectPublishesOutcomeOnce(t *testing.T) {
 		},
 	}
 
-	done := beginTestReconnect(t, s)
+	first := beginTestReconnect(t, s)
 	want := errors.New("reconnect ended unavailable")
-	s.resolveReconnect(done, want, ServerStatusUnavailable)
+	s.resolveReconnect(first, want, ServerStatusUnavailable)
 
 	// Duplicate resolution must not panic on a closed future, must not overwrite
 	// the published outcome, and must not report a second transition.
-	s.resolveReconnect(done, errors.New("duplicate"), ServerStatusConnected)
+	s.resolveReconnect(first, errors.New("duplicate"), ServerStatusConnected)
 
 	select {
-	case <-done:
+	case <-first.done:
 	default:
 		t.Fatal("resolveReconnect did not close the outcome future")
 	}
-	s.mu.Lock()
-	outcome := s.reconnectOutcome
-	s.mu.Unlock()
-	if !errors.Is(outcome, want) {
-		t.Errorf("published outcome = %v, want %v", outcome, want)
+	if !errors.Is(first.outcome, want) {
+		t.Errorf("published outcome = %v, want %v", first.outcome, want)
 	}
 	if len(statuses) != 1 || statuses[0] != ServerStatusUnavailable {
 		t.Errorf("reported statuses = %v, want [unavailable]", statuses)
@@ -130,30 +139,80 @@ func TestResolveReconnectPublishesOutcomeOnce(t *testing.T) {
 
 	// A stale token cannot resolve the next transition.
 	next := beginTestReconnect(t, s)
-	s.resolveReconnect(done, errors.New("stale"), ServerStatusConnected)
+	s.resolveReconnect(first, errors.New("stale"), ServerStatusConnected)
 	s.mu.Lock()
-	pending := s.reconnecting && s.reconnectDone == next
+	pending := s.reconnect == next
 	s.mu.Unlock()
 	if !pending {
 		t.Fatal("a stale token ended the in-flight reconnect transition")
 	}
 	select {
-	case <-next:
+	case <-next.done:
 		t.Fatal("a stale token closed the current outcome future")
 	default:
 	}
 
 	s.resolveReconnect(next, nil, ServerStatusConnected)
 	s.mu.Lock()
-	reconnecting := s.reconnecting
-	outcome = s.reconnectOutcome
+	idle := s.reconnect == nil
 	s.mu.Unlock()
-	if reconnecting {
-		t.Error("successful resolution left the session reconnecting")
+	if !idle {
+		t.Error("successful resolution left a transition in flight")
 	}
-	if outcome != nil {
-		t.Errorf("successful resolution outcome = %v, want nil", outcome)
+	if next.outcome != nil {
+		t.Errorf("successful resolution outcome = %v, want nil", next.outcome)
 	}
+}
+
+// TestWaitReconnectAttemptKeepsOwnOutcome is the regression for waiters reading a
+// shared outcome field: a waiter released by one attempt's future must observe
+// that attempt's outcome even when the next attempt has already started and
+// resolved, and waiter cancellation must not resolve the attempt.
+func TestWaitReconnectAttemptKeepsOwnOutcome(t *testing.T) {
+	s := &Session{name: "fake", managerCtx: context.Background()}
+	first := beginTestReconnect(t, s)
+
+	// A waiter that starts while the first attempt is still in flight.
+	inflight := make(chan error, 1)
+	go func() { inflight <- waitReconnectAttempt(context.Background(), first) }()
+
+	failure := errors.New("reconnect ended unavailable")
+	s.resolveReconnect(first, failure, ServerStatusUnavailable)
+
+	// The next attempt starts and resolves successfully. A waiter that reads a
+	// shared outcome field here would observe this attempt's nil outcome.
+	second := beginTestReconnect(t, s)
+	s.resolveReconnect(second, nil, ServerStatusConnected)
+
+	select {
+	case got := <-inflight:
+		if !errors.Is(got, failure) {
+			t.Errorf("waiter outcome = %v, want the first attempt's %v", got, failure)
+		}
+	case <-time.After(callTestTimeout):
+		t.Fatal("waiter never returned")
+	}
+
+	// A waiter that captures the first attempt only after the second resolved
+	// must still see the first attempt's outcome.
+	if got := waitReconnectAttempt(context.Background(), first); !errors.Is(got, failure) {
+		t.Errorf("late waiter outcome = %v, want %v", got, failure)
+	}
+
+	// Cancellation is preserved: a waiter on an unresolved attempt returns its
+	// context error and leaves the attempt pending.
+	pending := beginTestReconnect(t, s)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := waitReconnectAttempt(ctx, pending); !errors.Is(got, context.Canceled) {
+		t.Errorf("cancelled waiter outcome = %v, want context.Canceled", got)
+	}
+	select {
+	case <-pending.done:
+		t.Error("a cancelled waiter resolved the pending attempt")
+	default:
+	}
+	s.resolveReconnect(pending, errors.New("unavailable"), ServerStatusUnavailable)
 }
 
 // TestCommitReconnectSwapsSessionAtomically proves the success path publishes
@@ -163,12 +222,12 @@ func TestCommitReconnectSwapsSessionAtomically(t *testing.T) {
 	current := newInMemoryClientSession(t)
 	next := newInMemoryClientSession(t)
 	s := &Session{name: "fake", sdk: current, managerCtx: context.Background()}
-	done := beginTestReconnect(t, s)
+	attempt := beginTestReconnect(t, s)
 	s.mu.Lock()
 	s.consecutiveFailures = maxReconnectAttempts - 1
 	s.mu.Unlock()
 
-	old, committed := s.commitReconnect(done, next, nil)
+	old, committed := s.commitReconnect(attempt, next, nil)
 	if !committed {
 		t.Fatal("commitReconnect refused a live session")
 	}
@@ -177,7 +236,7 @@ func TestCommitReconnectSwapsSessionAtomically(t *testing.T) {
 	}
 
 	s.mu.Lock()
-	gotSDK, gotCap, reconnecting := s.sdk, s.consecutiveFailures, s.reconnecting
+	gotSDK, gotCap, inFlight := s.sdk, s.consecutiveFailures, s.reconnect
 	s.mu.Unlock()
 	if gotSDK != next {
 		t.Error("commitReconnect did not adopt the new session")
@@ -185,13 +244,16 @@ func TestCommitReconnectSwapsSessionAtomically(t *testing.T) {
 	if gotCap != 0 {
 		t.Errorf("consecutiveFailures after a successful reconnect = %d, want 0", gotCap)
 	}
-	if reconnecting {
-		t.Error("commitReconnect left the session reconnecting")
+	if inFlight != nil {
+		t.Error("commitReconnect left a transition in flight")
 	}
 	select {
-	case <-done:
+	case <-attempt.done:
 	default:
 		t.Error("commitReconnect did not publish the outcome future")
+	}
+	if attempt.outcome != nil {
+		t.Errorf("successful commit outcome = %v, want nil", attempt.outcome)
 	}
 	if want := next.InitializeResult().ProtocolVersion; s.ProtocolVersion() != want {
 		t.Errorf("protocol version = %q, want %q", s.ProtocolVersion(), want)
@@ -232,37 +294,67 @@ func TestCommitReconnectRefusesAfterShutdown(t *testing.T) {
 			managerCtx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			s := &Session{name: "fake", sdk: current, managerCtx: managerCtx}
-			done := beginTestReconnect(t, s)
+			attempt := beginTestReconnect(t, s)
 
 			tc.shut(s, cancel)
 
-			old, committed := s.commitReconnect(done, next, nil)
+			old, committed := s.commitReconnect(attempt, next, nil)
 			if committed || old != nil {
 				t.Fatalf("commitReconnect committed after shutdown (old = %v)", old)
 			}
 
 			s.mu.Lock()
-			keptSDK, reconnecting := s.sdk, s.reconnecting
+			keptSDK, inFlight := s.sdk, s.reconnect
 			s.mu.Unlock()
 			if keptSDK != current {
 				t.Error("refused commit changed the live session")
 			}
-			if !reconnecting {
+			if inFlight != attempt {
 				t.Error("refused commit ended the in-flight reconnect transition")
 			}
 
-			s.resolveReconnect(done, tc.abort, ServerStatusUnavailable)
-			s.mu.Lock()
-			outcome := s.reconnectOutcome
-			s.mu.Unlock()
-			if !errors.Is(outcome, tc.abort) {
-				t.Errorf("published outcome = %v, want %v", outcome, tc.abort)
+			s.resolveReconnect(attempt, tc.abort, ServerStatusUnavailable)
+			if !errors.Is(attempt.outcome, tc.abort) {
+				t.Errorf("published outcome = %v, want %v", attempt.outcome, tc.abort)
 			}
 			select {
-			case <-done:
+			case <-attempt.done:
 			default:
 				t.Error("abort resolution did not publish the outcome future")
 			}
 		})
 	}
+}
+
+// TestCommitReconnectRejectsStaleAttempt proves a resolved attempt cannot swap
+// the session or publish its future once a newer attempt owns the transition.
+func TestCommitReconnectRejectsStaleAttempt(t *testing.T) {
+	current := newInMemoryClientSession(t)
+	next := newInMemoryClientSession(t)
+	s := &Session{name: "fake", sdk: current, managerCtx: context.Background()}
+	stale := beginTestReconnect(t, s)
+	s.resolveReconnect(stale, errors.New("unavailable"), ServerStatusUnavailable)
+	live := beginTestReconnect(t, s)
+
+	old, committed := s.commitReconnect(stale, next, nil)
+	if committed || old != nil {
+		t.Fatal("commitReconnect committed a stale attempt")
+	}
+
+	s.mu.Lock()
+	keptSDK, inFlight := s.sdk, s.reconnect
+	s.mu.Unlock()
+	if keptSDK != current {
+		t.Error("stale commit changed the live session")
+	}
+	if inFlight != live {
+		t.Error("stale commit ended the newer transition")
+	}
+	select {
+	case <-live.done:
+		t.Error("stale commit closed the newer attempt's future")
+	default:
+	}
+
+	s.resolveReconnect(live, nil, ServerStatusConnected)
 }
