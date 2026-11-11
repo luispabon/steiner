@@ -37,6 +37,15 @@ type codexWSProvider struct {
 	keepaliveDone chan struct{}
 	dialCacheKey  string
 
+	// gateMu orders ConnectionReleaser releases against request execution. A
+	// request enters before it takes mu and leaves after it drops mu, on the
+	// goroutine that performs the socket I/O. A release that lands while a
+	// request is in flight is recorded in releasePending and applied by the last
+	// request to leave, so no release can close a connection a request is using.
+	gateMu         sync.Mutex
+	inFlight       int
+	releasePending bool
+
 	// quotaObserver and quotaAccountKey enable passive quota capture; the key
 	// is empty when capture is off. quotaPending holds snapshots parsed while
 	// mu is held. They are delivered after mu is released, so the observer
@@ -86,10 +95,12 @@ func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatReques
 	// No sink: the unary path buffers the whole response, so a mid-stream
 	// reconnect cannot duplicate anything the caller has seen.
 	emitter := &wsEmitter{}
+	p.enterRequest()
 	p.mu.Lock()
 	result, attempts, err := p.executeRequest(ctx, request, emitter)
 	quotas := p.codexQuotaTake()
 	p.mu.Unlock()
+	p.leaveRequest()
 
 	p.codexQuotaNotify(quotas)
 	p.emitProviderCall(ctx, start, emitter, attempts, err)
@@ -123,10 +134,14 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 		}
 	}}
 
+	// streamOnce runs on the goroutine that performs the socket I/O, so the
+	// request window covers the whole stream and a release waits for it.
+	p.enterRequest()
 	p.mu.Lock()
 	result, attempts, err := p.executeRequest(ctx, request, emitter)
 	quotas := p.codexQuotaTake()
 	p.mu.Unlock()
+	p.leaveRequest()
 
 	p.codexQuotaNotify(quotas)
 	p.emitProviderCall(ctx, start, emitter, attempts, err)

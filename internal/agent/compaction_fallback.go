@@ -192,6 +192,9 @@ func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compacti
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
+	// The fallback provider is built by the runtime factory for this operation
+	// and is not cache-owned, so its connection closes when the operation ends.
+	defer provider.ReleaseConnection(target.Provider)
 	return run(&fallback)
 }
 

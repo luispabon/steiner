@@ -90,6 +90,54 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequ
 	return nil
 }
 
+// enterRequest records that a request is about to use the connection. It must
+// run before the request takes p.mu, and leaveRequest after it drops p.mu, on
+// the goroutine that performs the socket I/O, so a concurrent release can tell
+// an idle connection from one in use.
+func (p *codexWSProvider) enterRequest() {
+	p.gateMu.Lock()
+	p.inFlight++
+	p.gateMu.Unlock()
+}
+
+// leaveRequest ends the request enterRequest began. The last request out closes
+// a connection whose release arrived while it ran. The gate stays held across
+// the close, so a request starting at that moment cannot dial into a connection
+// the close is about to drop. closeConn joins the keepalive goroutine, which
+// takes neither p.mu nor the gate.
+func (p *codexWSProvider) leaveRequest() {
+	p.gateMu.Lock()
+	defer p.gateMu.Unlock()
+
+	p.inFlight--
+	if p.inFlight > 0 || !p.releasePending {
+		return
+	}
+	p.releasePending = false
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closeConn()
+}
+
+// ReleaseConnection closes the connection and stops its keepalive, leaving the
+// provider usable: the next request dials again with the same affinity headers.
+// A request in flight is not interrupted; the connection closes when that
+// request ends, so a release returns promptly either way. Part of
+// provider.ConnectionReleaser; the cached wrapper deliberately omits it so the
+// cache keeps ownership of cached connections.
+func (p *codexWSProvider) ReleaseConnection() {
+	p.gateMu.Lock()
+	defer p.gateMu.Unlock()
+
+	if p.inFlight > 0 {
+		p.releasePending = true
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closeConn()
+}
+
 // closeConn drops the current connection and its keepalive. Every path that
 // discards the connection goes through here, so the goroutine can never outlive
 // the socket it pings. Callers must hold p.mu.
