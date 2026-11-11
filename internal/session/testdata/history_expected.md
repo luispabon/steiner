@@ -12,7 +12,7 @@ Retry storms are back. Look at the provider client again.
 I'll check the retry loop.
 
 - **grep** 'maxRetries' in ./internal/provider ✓
-- **display_file** internal/provider/retry.go ✓
+- **custom_tool** internal/provider/retry.go ✓
 
 ### assistant · turn 3
 
