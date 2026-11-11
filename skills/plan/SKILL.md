@@ -84,7 +84,7 @@ Research may be skipped when the task is repo-local, stable, and sufficiently un
 
 **Delegation.** If research is approved, delegate it — do not substitute the planner's own reasoning. Call Steiner's `sub_agent` tool with type `research` and a self-contained brief framed around the exact questions to answer. When delegation is available, follow the briefing template in your system prompt. If `sub_agent` type `research` is unavailable, report that and ask whether to continue without it or use the best available fallback. Share a `group` across parallel research calls; end the turn and continue when results arrive. Research is complete once the delegated result is received and reviewed.
 
-If a persisted artifact is useful, write `research.md` (or `research_001.md`, …) from the delegated result — do not require the researcher to write files. Then communicate findings: (1) an inline summary of 3–5 bullets covering key findings, implications, and any surprises or risks; (2) `display_file` on the artifact so the user can review full detail. The inline summary drives the conversation; the displayed file is the reference. Do not skip either.
+Write `research.md` (or `research_001.md`, etc.) from the delegated result. Do not require the researcher to write files. Then communicate findings with an inline summary of 3 to 5 bullets covering key findings, implications, and any surprises or risks, and a Markdown link to the artifact's actual path so the complete findings are available for review. Do not skip either the summary or the link.
 
 ### Stage 3 — Approach
 
@@ -101,7 +101,7 @@ Close with a **Recommendation**: name the proposal you recommend and explain why
 
 **Approach checkpoint ▸ GATE.** Present all proposals and the recommendation, then halt until the user explicitly picks one (or asks for refinements or more alternatives).
 
-**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. Write findings to `research_approach.md` (or append to the existing research artifact if one already exists). Communicate findings the same way as Stage 2: inline summary plus `display_file`. Only after auto-research is complete (or if none was needed) proceed to Stage 4.
+**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. Write findings to `research_approach.md` (or append to the existing research artifact if one already exists). Communicate findings the same way as Stage 2: a substantive inline summary and a Markdown link to the actual artifact path so the complete findings are available for review. Only after auto-research is complete (or if none was needed) proceed to Stage 4.
 
 ### Stage 4 — Overview
 
@@ -111,7 +111,7 @@ Close with a **Recommendation**: name the proposal you recommend and explain why
 
 **Author `overview.md`** (see the overview.md schema in Reference) only after clarification, the research decision, any approved research, the chosen approach from Stage 3, and verification discovery are complete. The `## Tradeoffs` section captures the Stage 3 proposals not chosen, each with its summary and why it was rejected in favour of the chosen approach.
 
-**Overview checkpoint ▸ GATE.** Call `display_file` with the overview path and `limit: 1000` to show the entire file. Then drive a targeted discussion: identify open decisions or tradeoffs that need user input and ask specific questions about them; if none are open, highlight the most consequential choices made and invite feedback. Do not ask generic "does this look good?" Remain here until all open items are resolved and the user gives explicit approval. Do not author `plan.yaml` until then.
+**Overview checkpoint ▸ GATE.** Present a substantive inline summary of the overview and a Markdown link to the actual overview path so the complete artifact is available for review. Then drive a targeted discussion: identify open decisions or tradeoffs that need user input and ask specific questions about them; if none are open, highlight the most consequential choices made and invite feedback. Do not ask generic "does this look good?" Remain here until all open items are resolved and the user gives explicit approval. Do not author `plan.yaml` until then.
 
 ### Stage 5 — Implementation plan
 
