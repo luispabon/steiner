@@ -379,3 +379,99 @@ func TestApprovalScopedCachedGrantLeavesTrayAndQueueAlone(t *testing.T) {
 
 	coordinator.Finish(headCh)
 }
+
+// Queue depth must follow the coordinator FIFO head, not transcript order. A
+// child pill appended before a parent embedded approval must not claim the
+// "+N waiting" suffix when the parent registered first.
+func TestApprovalQueueDepthFollowsCoordinatorHeadAcrossMixedSegments(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-parent", nil)})
+	parentID, parentCh := coordinator.Begin("write", "", "path", "")
+	childID, childCh := coordinator.Begin("write", "", "path", "child-1")
+
+	// Transcript order: child pill first, parent embedded approval second.
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", childID, `{"path":"child.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-parent", RequestID: parentID, Mode: "prompt", Preview: `{"path":"parent.txt"}`, Kind: "path"})})
+
+	parentCall := findToolCallSegment(&m.content, "call-parent")
+	if parentCall == nil || !parentCall.approvalPending {
+		t.Fatalf("parent approval state = %#v, want pending", parentCall)
+	}
+	childPill := findApprovalPill(t, &m.content, childID)
+	if childPill == nil {
+		t.Fatalf("no child pill with identity %q", childID)
+	}
+	if got, want := parentCall.approvalQueueDepth, 1; got != want {
+		t.Fatalf("parent queue depth = %d, want %d (coordinator head)", got, want)
+	}
+	if got, want := childPill.queueDepth, 0; got != want {
+		t.Fatalf("child pill queue depth = %d, want %d", got, want)
+	}
+	if !m.approval.active || m.approval.identity != parentID {
+		t.Fatalf("tray identity = %q, want head %q", m.approval.identity, parentID)
+	}
+
+	coordinator.Finish(parentCh)
+	coordinator.Finish(childCh)
+}
+
+// Terminal cleanup drops unresolved pills but keeps the outcome of resolved
+// ones, matching how stale tool approvals are cleared.
+func TestApprovalClearStateDropsPendingPills(t *testing.T) {
+	t.Parallel()
+	buffer := &contentBuffer{collapseState: make(map[int]bool), styles: testStyles("#e8814b")}
+	pendingID := "approval-pending"
+	resolvedID := "approval-resolved"
+	buffer.appendApprovalRequestedEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: "write", RequestID: pendingID, Mode: "prompt", Kind: "path"}))
+	buffer.appendApprovalRequestedEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: "write", RequestID: resolvedID, Mode: "prompt", Kind: "path"}))
+	buffer.appendApprovalDecisionEvent(output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Tool: "write", RequestID: resolvedID, Message: "ok", Kind: "path"}))
+
+	pending := findApprovalPill(t, buffer, pendingID)
+	resolved := findApprovalPill(t, buffer, resolvedID)
+	if pending == nil || resolved == nil {
+		t.Fatalf("pills = %#v/%#v, want both present", pending, resolved)
+	}
+
+	buffer.clearApprovalState()
+
+	if !pending.cleared {
+		t.Fatal("pending pill not cleared by terminal cleanup")
+	}
+	if resolved.cleared || !resolved.resolved || !resolved.accepted {
+		t.Fatalf("resolved pill = %#v, want its outcome preserved", resolved)
+	}
+	if got := buffer.renderApprovalPillSegment(contentSegment{kind: segmentApprovalPill, approvalData: pending}, 100); got != "" {
+		t.Fatalf("cleared pill render = %q, want empty", got)
+	}
+}
+
+// Promotion resets the displayed selection to the tray selection so a stale
+// highlight on the promoted segment cannot disagree with the submitted action.
+func TestApprovalPromotionSyncsDisplayedSelection(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	pillID := "approval-next"
+	m.content.segments = append(m.content.segments, contentSegment{
+		kind: segmentApprovalPill,
+		approvalData: &approvalPillData{
+			tool:           "write",
+			identity:       pillID,
+			selectedAction: 2,
+		},
+	})
+
+	if !m.promoteNextApproval(pillID) {
+		t.Fatal("promotion failed")
+	}
+	pill := m.content.segments[0].approvalData
+	if got, want := m.approval.selectedAction, 0; got != want {
+		t.Fatalf("tray selectedAction = %d, want %d", got, want)
+	}
+	if got, want := pill.selectedAction, 0; got != want {
+		t.Fatalf("promoted pill selectedAction = %d, want %d", got, want)
+	}
+}

@@ -342,13 +342,19 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 }
 
 // clearApprovalState resets approval state on all tool call and tool call group
-// segments. Used when a run ends or is stopped to clear stale pending approvals
-// from the content buffer.
+// segments, and drops unresolved approval pills. Used when a run ends or is
+// stopped to clear stale pending approvals from the content buffer. Resolved
+// pills keep their outcome line.
 func (b *contentBuffer) clearApprovalState() {
 	b.gen++
 	for i := range b.segments {
 		seg := &b.segments[i]
 		switch seg.kind {
+		case segmentApprovalPill:
+			if seg.approvalData != nil && !seg.approvalData.resolved && !seg.approvalData.cleared {
+				seg.approvalData.cleared = true
+				seg.renderDirty = true
+			}
 		case segmentToolCall:
 			if seg.toolData != nil {
 				seg.toolData.approvalPending = false
@@ -369,37 +375,66 @@ func (b *contentBuffer) clearApprovalState() {
 	}
 }
 
+// queuedApproval pairs a pending approval's identity with its depth field so
+// the FIFO head can be found by identity rather than transcript position.
+type queuedApproval struct {
+	identity string
+	depth    *int
+}
+
 // recomputeApprovalQueueDepths sets depth to the number of unresolved approval
-// requests queued behind each request. Only the FIFO head receives a suffix.
+// requests queued behind each request. Only the coordinator's FIFO head receives
+// a suffix; without a coordinator the first pending segment does.
 func (b *contentBuffer) recomputeApprovalQueueDepths() {
-	var queued []*int
+	var queued []queuedApproval
 	for i := range b.segments {
 		seg := &b.segments[i]
 		switch seg.kind {
 		case segmentApprovalPill:
 			if seg.approvalData != nil {
 				seg.approvalData.queueDepth = 0
-				if !seg.approvalData.resolved {
-					queued = append(queued, &seg.approvalData.queueDepth)
+				if !seg.approvalData.resolved && !seg.approvalData.cleared {
+					queued = append(queued, queuedApproval{identity: seg.approvalData.identity, depth: &seg.approvalData.queueDepth})
 				}
 			}
 		case segmentToolCall:
 			if seg.toolData != nil {
 				seg.toolData.approvalQueueDepth = 0
 				if seg.toolData.approvalPending && !seg.toolData.approvalResolved {
-					queued = append(queued, &seg.toolData.approvalQueueDepth)
+					queued = append(queued, queuedApproval{identity: seg.toolData.approvalIdentity, depth: &seg.toolData.approvalQueueDepth})
 				}
 			}
 		case segmentToolCallGroup:
 			queued = appendToolGroupApprovalQueueDepths(seg, queued)
 		}
 	}
-	if len(queued) > 0 {
-		*queued[0] = len(queued) - 1
+	if len(queued) == 0 {
+		return
 	}
+	head := b.approvalQueueHead(queued)
+	if head < 0 {
+		return
+	}
+	*queued[head].depth = len(queued) - 1
 }
 
-func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []*int) []*int {
+// approvalQueueHead resolves which pending approval should carry the queue
+// suffix. Without a coordinator the first pending segment does. With one, the
+// segment matching the coordinator head does, and an unknown head attaches no
+// suffix rather than guessing from transcript order.
+func (b *contentBuffer) approvalQueueHead(queued []queuedApproval) int {
+	if b.approvalHead == "" {
+		return 0
+	}
+	for i := range queued {
+		if queued[i].identity == b.approvalHead {
+			return i
+		}
+	}
+	return -1
+}
+
+func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []queuedApproval) []queuedApproval {
 	if seg.toolGroupData == nil {
 		return queued
 	}
@@ -409,7 +444,7 @@ func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []*int) []*i
 		}
 		entry.approvalQueueDepth = 0
 		if entry.approvalPending && !entry.approvalResolved {
-			queued = append(queued, &entry.approvalQueueDepth)
+			queued = append(queued, queuedApproval{identity: entry.approvalIdentity, depth: &entry.approvalQueueDepth})
 		}
 	}
 	return queued

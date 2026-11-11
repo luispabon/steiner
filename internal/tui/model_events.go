@@ -62,6 +62,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	}
 
 	if event.Type != output.EventTypeHistoryLoaded {
+		m.content.approvalHead, _ = m.approvalHead()
 		m.content.AppendEvent(event)
 	}
 	if cmd, done := m.applyPayloadEvent(event); done {

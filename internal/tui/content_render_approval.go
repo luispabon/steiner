@@ -10,7 +10,7 @@ import (
 )
 
 func (b *contentBuffer) renderApprovalPillSegment(segment contentSegment, width int) string {
-	if segment.approvalData == nil {
+	if segment.approvalData == nil || segment.approvalData.cleared {
 		return ""
 	}
 	return b.renderApprovalPill(segment.approvalData, width)

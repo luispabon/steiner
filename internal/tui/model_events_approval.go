@@ -39,6 +39,7 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 			m.activity = m.activity.static("approval required", approvalDetail(payload))
 			m.input.Reset()
 			m.input.Blur()
+			m.syncApprovalSelection(m.approval.selectedAction)
 			m.notifyBlocking(fmt.Sprintf("Tool approval required: %s", payload.Tool))
 		}
 	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
@@ -105,6 +106,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
 			m.status.mode = "approval"
 			m.input.Blur()
+			m.syncApprovalSelection(m.approval.selectedAction)
 			return true
 		}
 		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
@@ -113,6 +115,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
 					m.status.mode = "approval"
 					m.input.Blur()
+					m.syncApprovalSelection(m.approval.selectedAction)
 					return true
 				}
 			}
@@ -122,6 +125,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
 			m.status.mode = "approval"
 			m.input.Blur()
+			m.syncApprovalSelection(m.approval.selectedAction)
 			return true
 		}
 	}
