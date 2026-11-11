@@ -265,6 +265,13 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		d.settleLocked()
 		return d.saveAndUnlock(ctx, false)
 	}
+	if !drain.Wake {
+		// A take-back left quiet deliveries only. Quiet items never start a
+		// run: record them and settle.
+		d.appendLocked(*drain.Message)
+		d.settleLocked()
+		return d.saveAndUnlock(ctx, false)
+	}
 	d.appendLocked(*drain.Message)
 	if steer.Text != "" {
 		// A steer that starts a sequence never passes the runner's boundary

@@ -243,6 +243,52 @@ func TestConversationDriverWithdrawnSteerDuringPrepareTurnSettlesAndSaves(t *tes
 	}
 }
 
+func TestConversationDriverQuietCompletionDuringPrepareTurnSettlesWithoutRun(t *testing.T) {
+	t.Parallel()
+	gate := newGatedPrepare(0)
+	h := newDriverHarness(t, nil, gate.prepare)
+	h.bg.setPending("a")
+	h.start()
+	t.Cleanup(gate.open)
+
+	h.steers.Add(SteerMessage{Text: "take me back"})
+	h.d.NotifySteer()
+	gate.waitEntered(t)
+	// A quiet result arrives while the driver prepares the run, and the user
+	// takes the steer back, leaving quiet deliveries only.
+	h.d.DeliverCompletions([]SubAgentCompletion{quietCompletionFor(1, "a")})
+	if drained := h.steers.Drain(); len(drained) != 1 {
+		t.Fatalf("drained steers = %v, want the steer taken back", drained)
+	}
+	released := h.changedChan()
+	gate.open()
+	waitClosed(t, released)
+
+	h.d.mu.Lock()
+	state := h.d.state
+	conv := slices.Clone(h.d.conv)
+	h.d.mu.Unlock()
+	if state == DriverGenerating {
+		t.Fatal("quiet completion started a run")
+	}
+	h.noRun()
+	if len(conv) != 1 || conv[0].Source != MessageSourceSubAgentResult || !strings.Contains(conv[0].Content, `agent_id="a"`) {
+		t.Fatalf("conversation = %+v, want the quiet envelope recorded by a settle", conv)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	if err := h.d.WaitQuiescent(ctx); err != nil {
+		t.Fatalf("WaitQuiescent: %v", err)
+	}
+	h.mu.Lock()
+	saves := len(h.saves)
+	h.mu.Unlock()
+	if saves != 1 {
+		t.Fatalf("saves = %d, want the one settle save", saves)
+	}
+}
+
 func TestConversationDriverSubmitDuringPrepareTurnStartsRun(t *testing.T) {
 	t.Parallel()
 	gate := newGatedPrepare(0)
