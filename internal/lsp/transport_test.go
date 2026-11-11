@@ -63,8 +63,8 @@ func fakeServerForHelper() *fakeServer {
 // TestNewTransportAbortsInitializeBlockedOnPipe pins that the handshake deadline
 // ends a spawn whose initialize request cannot be written: the silent helper never
 // reads its stdin, so a payload larger than the pipe buffer blocks the write, and
-// aborting the transport is what releases it. The helper's stderr pipe reaching
-// EOF observes the real child process terminating.
+// aborting the transport is what releases it. EOF on the helper's stderr pipe
+// means no writer is left, which a helper that outlives the test would not reach.
 func TestNewTransportAbortsInitializeBlockedOnPipe(t *testing.T) {
 	t.Parallel()
 
@@ -90,9 +90,14 @@ func TestNewTransportAbortsInitializeBlockedOnPipe(t *testing.T) {
 	handshakeCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
+	// The command context kills the helper if an assertion below fails before the
+	// abort does, so a leaked test fails rather than leaving it sleeping.
+	processCtx, stopProcess := context.WithCancel(context.Background())
+	t.Cleanup(stopProcess)
+
 	done := make(chan error, 1)
 	go func() {
-		_, err := newTransport(handshakeCtx, context.Background(), spec)
+		_, err := newTransport(handshakeCtx, processCtx, spec)
 		done <- err
 	}()
 

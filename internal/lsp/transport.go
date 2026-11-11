@@ -80,9 +80,10 @@ func newTransport(handshakeCtx, processCtx context.Context, spec TransportSpec) 
 
 	stream := jsonrpc2.NewStream(&readWriteCloser{r: stdout, w: stdin})
 
+	// newSession aborts the transport on every failure path, which kills proc, so
+	// a failed spawn needs no further cleanup here.
 	s, err := newSession(handshakeCtx, stream, spec.RootPath, spec.InitializationOptions, proc)
 	if err != nil {
-		proc.Kill()
 		return nil, err
 	}
 	return s, nil
