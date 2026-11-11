@@ -337,8 +337,11 @@ func TestFinalizeRunSkipsCloseoutWhenFinalReportWriteFails(t *testing.T) {
 	if persisted.ReportPath != "" || persisted.CloseoutState != "" {
 		t.Errorf("persisted report path = %q closeout state = %q, want both empty", persisted.ReportPath, persisted.CloseoutState)
 	}
-	if joined := strings.Join(*messages, "\n"); !strings.Contains(joined, "generate report:") {
-		t.Errorf("phase indicator messages = %q, want one naming generate report", *messages)
+	// The injected directory blocks the atomic rename, so the event must name
+	// the report write failure, not an unrelated git snapshot failure.
+	wantMessage := "generate report: write final report: rename temp file:"
+	if joined := strings.Join(*messages, "\n"); !strings.Contains(joined, wantMessage) {
+		t.Errorf("phase indicator messages = %q, want one containing %q", *messages, wantMessage)
 	}
 }
 
@@ -465,8 +468,11 @@ func TestResumeCloseoutRetrySurfacesReportFailureAndKeepsFailedState(t *testing.
 	if *closeoutCalls != 0 {
 		t.Errorf("closeout calls = %d, want 0 when the report cannot be regenerated", *closeoutCalls)
 	}
-	if joined := strings.Join(*messages, "\n"); !strings.Contains(joined, "generate report:") {
-		t.Errorf("phase indicator messages = %q, want one naming generate report", *messages)
+	// The bogus worktree base is the injected cause: report generation fails
+	// while collecting the git snapshot's base commit, before closeout runs.
+	wantMessage := fmt.Sprintf("generate report: collect git snapshot base commit: git merge-base HEAD %s:", manifest.WorktreeBase)
+	if joined := strings.Join(*messages, "\n"); !strings.Contains(joined, wantMessage) {
+		t.Errorf("phase indicator messages = %q, want one containing %q", *messages, wantMessage)
 	}
 
 	persisted, err := store.Read()
