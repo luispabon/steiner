@@ -48,6 +48,12 @@ type impl struct {
 // newSession performs the LSP handshake over stream and returns the live
 // session. Process lifecycle is owned by proc, so callers can supply either a
 // spawned child process or a test double.
+//
+// The handshake runs on its own goroutine so the context can end a handshake
+// whose initialize write is blocked on a pipe the server never drains: request
+// deadlines do not interrupt a blocked stream write, so on cancellation this
+// kills the process and closes the connection to release the write, then joins
+// the handshake before returning the context error.
 func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, initOpts map[string]any, proc childProcess) (*impl, error) {
 	diagnosticsChan := make(chan PublishedDiagnostics, notifyBuffer)
 	progressChan := make(chan ProgressEvent, notifyBuffer)
@@ -58,11 +64,31 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 	connCtx, connCancel := context.WithCancel(context.WithoutCancel(ctx))
 	_, conn, server := protocol.NewClient(connCtx, handler, stream)
 
-	result, err := handshake(ctx, server, rootPath, initOpts)
+	handshakeDone := make(chan struct{})
+	var (
+		result *protocol.InitializeResult
+		err    error
+	)
+	go func() {
+		defer close(handshakeDone)
+		result, err = handshake(ctx, server, rootPath, initOpts)
+	}()
+
+	select {
+	case <-handshakeDone:
+	case <-ctx.Done():
+		// The initialize write is wedged; only terminating the peer releases it.
+		proc.Kill()
+		connCancel()
+		_ = conn.Close() // best-effort: the connection is being abandoned
+		<-handshakeDone  // join, so no handshake goroutine outlives the spawn
+		err = ctx.Err()
+	}
+
 	if err != nil {
-		// Kill before closing the connection: a handshake write can be blocked on a
-		// pipe the server never drains, and killing the process is what releases
-		// it, so conn.Close cannot wait on it forever.
+		// Kill before closing the connection on every failure path: a handshake
+		// write can be blocked on a pipe the server never drains, and killing the
+		// process is what releases it, so conn.Close cannot wait on it forever.
 		proc.Kill()
 		connCancel()
 		_ = conn.Close() // best-effort: the session is being abandoned

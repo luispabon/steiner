@@ -2,7 +2,9 @@ package lsp
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +56,41 @@ func fakeServerForHelper() *fakeServer {
 		close(fs.exited)
 	}
 	return fs
+}
+
+// TestNewTransportAbortsInitializeBlockedOnPipe pins that the handshake deadline
+// ends a spawn whose initialize request cannot be written: the silent helper never
+// reads its stdin, so a payload larger than the pipe buffer blocks the write and
+// only terminating the process releases it.
+func TestNewTransportAbortsInitializeBlockedOnPipe(t *testing.T) {
+	t.Parallel()
+
+	spec := TransportSpec{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestLSPHelperProcess"},
+		Env:     append(os.Environ(), helperEnv+"=silent"),
+		// Far larger than any pipe buffer, so the write cannot complete while the
+		// helper leaves stdin unread.
+		InitializationOptions: map[string]any{"padding": strings.Repeat("x", 256*1024)},
+	}
+
+	handshakeCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := newTransport(handshakeCtx, context.Background(), spec)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("newTransport error = %v, want the handshake deadline", err)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("newTransport did not return after the initialize write blocked")
+	}
 }
 
 func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {

@@ -14,12 +14,18 @@ import (
 // The graceful sequence runs in its own goroutine because an LSP frame write is
 // a blocking stream write: a server that stops draining its stdin wedges the
 // write and no request deadline interrupts it. When the first caller's ctx ends
-// before the sequence finishes, Close terminates the process and closes the
-// connection, which unblocks the stalled write, and joins that teardown before
-// returning. Later callers wait for the same sequence, so Close never returns
-// while shutdown work is still running.
+// before the sequence finishes, Close aborts: it terminates the process and
+// closes the connection, which releases the stalled write, and joins that
+// teardown before returning. The deadline therefore decides when the abort
+// starts; the return happens once the released write and teardown finish.
+//
+// Close is idempotent. The first caller owns the sequence and always waits for
+// it to finish; later callers get the same result, or their own context error if
+// it ends first, while the owner still joins the teardown.
 func (s *impl) Close(ctx context.Context) error {
+	owner := false
 	s.closeOnce.Do(func() {
+		owner = true
 		s.closeDone = make(chan struct{})
 		go func() {
 			defer close(s.closeDone)
@@ -27,8 +33,17 @@ func (s *impl) Close(ctx context.Context) error {
 		}()
 	})
 
-	<-s.closeDone
-	return s.closeErr
+	if owner {
+		<-s.closeDone
+		return s.closeErr
+	}
+
+	select {
+	case <-s.closeDone:
+		return s.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // shutdown runs the graceful sequence and aborts it when ctx ends before it

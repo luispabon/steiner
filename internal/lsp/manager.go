@@ -32,12 +32,14 @@ var errNoSpawnedSession = errors.New("spawn produced no session")
 // IdleTimeout, which governs how long a healthy but unused session is kept.
 const spawnFailureBackoff = 30 * time.Second
 
-// sessionCloseTimeout bounds every session close the manager owns: idle reaping,
-// crash cleanup, late-spawn cleanup and shutdown. A session that cannot shut down
-// gracefully is force-terminated at that deadline, which is what releases a
-// stalled stream write, so the close still returns. Closes of independent
-// sessions run concurrently, so a pass over many sessions still waits at most
-// this long. Callers must not hold the manager or an entry lock while it elapses.
+// sessionCloseTimeout is how long the manager waits for a session to shut down
+// gracefully before force-terminating it: idle reaping, crash cleanup,
+// late-spawn cleanup and shutdown all use it. Termination is what releases a
+// stalled stream write, so the close does not keep waiting on the server. It still
+// returns only after the released write and teardown finish, so a close can take
+// longer than this timeout. Closes of independent sessions run concurrently, so a
+// pass over many sessions does not multiply the wait. Callers must not hold the
+// manager or an entry lock while it elapses.
 const sessionCloseTimeout = 5 * time.Second
 
 // Manager owns the language server processes for a session.
@@ -414,9 +416,10 @@ func (m *Manager) completeSpawn(ent *entry, sess session, r *readiness, spawnErr
 }
 
 // closeSession releases a session's resources (connection, pipes, reaped
-// process). The close is bounded by sessionCloseTimeout: a session whose graceful
-// shutdown stalls is force-terminated at that deadline, which releases a blocked
-// stream write. The caller must not hold the manager lock or any entry lock.
+// process). After sessionCloseTimeout the manager stops waiting for a graceful
+// shutdown and force-terminates the session, which releases a blocked stream
+// write; the call returns once that teardown completes. The caller must not hold
+// the manager lock or any entry lock.
 func closeSession(sess session) {
 	if sess == nil {
 		return
@@ -613,9 +616,10 @@ func (m *Manager) close() {
 	}
 
 	// stopReaper is closed exactly once because close runs under closeOnce. Join
-	// the reaper so a reap already in progress finishes its bounded session
-	// closes before shutdown returns. doReap closes its batch concurrently, so
-	// this join is bounded by one sessionCloseTimeout rather than one per entry.
+	// the reaper so a reap already in progress finishes its session closes before
+	// shutdown returns. doReap closes its batch concurrently, so this join does
+	// not scale with the number of idle entries; it still includes the time a
+	// terminated session takes to unwind.
 	if m.reapTicker != nil {
 		m.reapTicker.Stop()
 		close(m.stopReaper)

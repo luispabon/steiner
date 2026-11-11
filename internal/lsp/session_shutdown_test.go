@@ -99,6 +99,67 @@ func (p *killableProcess) wasKilled() bool {
 	}
 }
 
+// TestNewSessionAbortsStalledInitializeWrite pins that a handshake whose
+// initialize write is blocked still ends when its context does: newSession kills
+// the process and closes the connection to release the write, joins the handshake
+// goroutine, and returns the context error.
+func TestNewSessionAbortsStalledInitializeWrite(t *testing.T) {
+	t.Parallel()
+
+	clientPipe, serverPipe := net.Pipe()
+	fs := newFakeServer()
+	_, serverConn, client := protocol.NewServer(context.Background(), fs, jsonrpc2.NewStream(serverPipe))
+	fs.client = client
+
+	stalled := newStalledWriteStream(jsonrpc2.NewStream(clientPipe))
+	stalled.stall() // the very first write (initialize) blocks
+	proc := &killableProcess{
+		exited: make(chan struct{}),
+		onKill: func() {
+			stalled.peerGone()
+			_ = clientPipe.Close()
+		},
+	}
+	t.Cleanup(func() {
+		_ = clientPipe.Close()
+		_ = serverPipe.Close()
+		_ = serverConn.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := newSession(ctx, stalled, t.TempDir(), nil, proc)
+		done <- err
+	}()
+
+	select {
+	case <-stalled.entered:
+	case <-time.After(testTimeout):
+		t.Fatal("the initialize write never blocked")
+	}
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("newSession returned nil, want the handshake context error")
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("newSession hung on a blocked initialize write")
+	}
+
+	if !proc.wasKilled() {
+		t.Error("a stalled handshake did not terminate the process")
+	}
+	select {
+	case <-stalled.returned:
+	default:
+		t.Error("the blocked initialize write was still running when newSession returned")
+	}
+}
+
 // TestSessionCloseUnblocksStalledPipeWrite pins that Close returns once its
 // deadline passes even when the shutdown request's stream write is blocked. The
 // write is released by terminating the process and closing the connection, and
