@@ -39,8 +39,8 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 ## Glob patterns
 
 - `pattern` is a glob relative to `path`, which defaults to the current directory. The pattern defaults to `*`, which lists one level.
-- A leading `./` is ignored. An empty pattern, or `.`, means the default pattern. A leading `/` or a `..` segment is an error: put the directory in `path` instead.
-- A `.` segment anywhere in a pattern, including inside a brace alternative such as `{./a,b}`, is ignored.
+- A leading `./` is ignored. An empty pattern, `.`, or `./` means the default pattern. A leading `/` or a `..` segment is an error: put the directory in `path` instead.
+- A `.` segment anywhere in a pattern, including inside a brace alternative such as `{./a,b}`, is dropped. A brace alternative made only of `.`, such as `{./,a}`, matches nothing, the same as an empty alternative. A dot inside a character class such as `a[/.]` is a class member, not a segment.
 - `**` recurses. Patterns match both files and directories, and a matching directory is returned with a trailing `/`: a pattern matches a directory when it matches the directory's path, or when the pattern ends in `/` and matches that path plus the slash. So `src/*` lists the children of `src` without returning `src/` itself, `src/*/` returns only the child directories, and `*/` returns only the top-level directories.
 - A result page holds 200 entries by default and at most 1000. Pass the `next_offset` value as `offset` to continue.
 - Results are in directory walk order: depth-first, each directory's entries in lexical order. They are not globally sorted.

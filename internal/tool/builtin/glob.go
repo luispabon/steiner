@@ -86,10 +86,11 @@ type globWalkParams struct {
 // never returned. Excluded directories are not traversed. Every entry is
 // validated through PathPolicy before it is traversed or matched, so denied
 // directories are pruned and denied entries fail closed. Listing never opens an
-// entry: every symlink below the root is returned by its lexical name without a
-// trailing slash and is never followed or descended, and special files such as
-// devices, pipes, and sockets are returned by name. Only an entry whose own path
-// or resolved symlink target is blocked is omitted, and a root passed as a
+// entry: every symlink below the root that isn't hidden by its own path or a
+// blocked target is returned by its lexical name without a trailing slash and
+// is never followed or descended, and special files such as devices, pipes, and
+// sockets are returned by name. Only an entry whose own path or resolved
+// symlink target is blocked is omitted, and a root passed as a
 // symlink is walked through its target. Results follow filepath.WalkDir order.
 // The walk stops once the page and its next-offset signal are settled.
 func globWalk(ctx context.Context, p globWalkParams) (Result, error) {

@@ -44,9 +44,10 @@ func TestGlobMatcherDepthPruning(t *testing.T) {
 }
 
 // TestGlobMatcherPatternNormalization pins the pattern rules: "." segments are
-// ignored, including inside a brace alternative, an empty or bare-dot pattern
-// falls back to the default, and a pattern that leaves the named directory is
-// rejected. A name that merely starts with a dot is not a dot segment.
+// dropped, including inside a brace alternative, an alternative left with
+// nothing matches nothing while an empty pattern, ".", or "./" means the
+// default pattern, and a pattern that leaves the named directory is rejected. A
+// name that merely starts with a dot is not a dot segment.
 func TestGlobMatcherPatternNormalization(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -61,7 +62,7 @@ func TestGlobMatcherPatternNormalization(t *testing.T) {
 		{name: "inner dot segment inside a brace alternative", pattern: "{dot/./x,a}", want: []string{"dot/x", "a"}},
 		{name: "trailing dot segment", pattern: "a/.", want: []string{"a"}},
 		{name: "dot segments around a directory", pattern: "./a/./", want: []string{"a/"}},
-		{name: "empty alternative is the default pattern", pattern: "{./,zzz}", want: []string{"x.go", "zzz"}},
+		{name: "dot-only alternative matches nothing", pattern: "{./,zzz}", want: []string{"zzz"}},
 		{name: "dot dot name is not a dot segment", pattern: "..foo", want: []string{"..foo"}},
 		{name: "hidden name is not a dot segment", pattern: ".hidden", want: []string{".hidden"}},
 		{name: "bare dot slash is the default", pattern: "./", want: []string{"x.go"}},

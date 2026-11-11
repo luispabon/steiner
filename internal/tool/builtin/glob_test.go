@@ -133,6 +133,44 @@ func TestGlobWalkIgnoresDotSegments(t *testing.T) {
 	}
 }
 
+// TestGlobWalkDotSegmentNormalization pins the exact entry set for patterns
+// whose dot segments are dropped: a brace alternative made only of "." matches
+// nothing, the same as an empty alternative, and a character class keeps its
+// dot because the class is never split into segments.
+func TestGlobWalkDotSegmentNormalization(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "a/inner.txt", "inner")
+	mustWriteTree(t, root, "a/b/c.txt", "c")
+	mustWriteTree(t, root, "a.", "dot name")
+	mustWriteTree(t, root, "dot.", "dot file")
+	mustWriteTree(t, root, "top.txt", "top")
+	mustWriteTree(t, root, "x", "x")
+
+	tests := []struct {
+		name    string
+		pattern string
+		want    []string
+	}{
+		{name: "dot-only brace alternative matches nothing", pattern: "{.,a}", want: []string{"a/"}},
+		{name: "empty brace alternative matches the named directory", pattern: "{,a}", want: []string{"a/"}},
+		{name: "alternative that normalizes to the root matches nothing", pattern: "{./,zzz}"},
+		{name: "trailing dot segment keeps the directory slash", pattern: "a/./", want: []string{"a/"}},
+		{name: "class keeps its dot", pattern: "a[/./]", want: []string{"a."}},
+		{name: "doublestar with a trailing dot segment lists directories only", pattern: "**/./", want: []string{"a/", "a/b/"}},
+		{name: "doublestar with a trailing slash lists directories only", pattern: "**/", want: []string{"a/", "a/b/"}},
+		{name: "repeated dot slash is the default", pattern: "./.", want: []string{"a/", "a.", "dot.", "top.txt", "x"}},
+		{name: "star lists one level", pattern: "*", want: []string{"a/", "a.", "dot.", "top.txt", "x"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := runGlobWalk(t, globWalkParamsFor(t, root, tt.pattern, defaultGlobLimit, 0))
+			if got := outputRows(result.Output, ""); !slices.Equal(got, tt.want) {
+				t.Fatalf("entries = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestGlobWalkDirectoryPatternSlash proves a directory is returned when a
 // pattern matches its own path, or when a pattern ending in "/" matches that
 // path plus the slash. A pattern such as src/* must not return src/ itself.
@@ -246,14 +284,14 @@ func TestGlobWalkPagesPastThousandMatches(t *testing.T) {
 			if len(lines) != tt.wantCount {
 				t.Fatalf("line count = %d, want %d", len(lines), tt.wantCount)
 			}
+			if result.NextOffset != tt.wantNext {
+				t.Errorf("NextOffset = %d, want %d", result.NextOffset, tt.wantNext)
+			}
 			if tt.wantCount == 0 {
 				return
 			}
 			if lines[0] != tt.wantFirst || lines[len(lines)-1] != tt.wantLast {
 				t.Fatalf("page = %q ... %q, want %q ... %q", lines[0], lines[len(lines)-1], tt.wantFirst, tt.wantLast)
-			}
-			if result.NextOffset != tt.wantNext {
-				t.Errorf("NextOffset = %d, want %d", result.NextOffset, tt.wantNext)
 			}
 		})
 	}
@@ -387,6 +425,8 @@ func TestGlobWalkPruningMatchesExhaustiveWalk(t *testing.T) {
 		"{a/b,c}/*",
 		"{a,ax}?",
 		"{**/c.txt,*.md}",
+		"{.,a}",
+		"**/./",
 		"*/",
 		"a/*/",
 		"a/**",

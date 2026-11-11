@@ -83,8 +83,9 @@ func compileGlobMatcher(pattern string) (globMatcher, error) {
 
 // normalizeGlobPattern strips the leading "./" segments a caller may write in
 // front of a relative pattern and substitutes the default pattern when nothing
-// is left. It sees only the raw pattern; compileGlobMatcher normalizes the dot
-// segments of every expanded form, including those inside brace alternatives.
+// is left, so "", ".", "./", "./.", and "././" all mean the default pattern.
+// It sees only the raw pattern; compileGlobMatcher normalizes the dot segments
+// of every expanded form, including those inside brace alternatives.
 func normalizeGlobPattern(pattern string) string {
 	for strings.HasPrefix(pattern, "./") {
 		pattern = pattern[len("./"):]
@@ -95,28 +96,42 @@ func normalizeGlobPattern(pattern string) string {
 	return pattern
 }
 
-// normalizeGlobForm removes every path segment that is exactly ".", whether it
+// normalizeGlobForm drops every path segment that is exactly ".", whether it
 // leads, sits between other segments, or trails, so a form such as "./a" or
-// "dot/./x" keeps matching what it names. Splitting on "/" is safe for a class
-// such as "[/]": its segments are never exactly ".". A form left with nothing
-// falls back to the default pattern, and a trailing "/" survives as the empty
-// final segment.
+// "dot/./x" keeps matching what it names. Segments are split only at a "/"
+// outside a character class and outside an escape, so the dot in a class such
+// as "a[/.]" stays a class member. A form left with nothing becomes the empty
+// root pattern, which matches nothing, the same as an empty brace alternative;
+// it is never turned back into the default pattern. A trailing "/" survives
+// only when the form keeps other content.
 func normalizeGlobForm(form string) string {
-	segments := strings.Split(form, "/")
+	segments := splitGlobForm(form)
 	kept := make([]string, 0, len(segments))
 	for _, segment := range segments {
 		if segment != "." {
 			kept = append(kept, segment)
 		}
 	}
-	normalized := strings.Join(kept, "/")
-	// An already empty form is the root itself, produced by zero-directory
-	// expansion of a leading "**/"; it must stay empty rather than match one
-	// level. Only a form that lost its content to dot segments falls back.
-	if normalized == "" && form != "" {
-		return defaultGlobPattern
+	return strings.Join(kept, "/")
+}
+
+// splitGlobForm splits a glob form at every "/" that is outside a character
+// class and not escaped, so a class such as "[/]" never divides a segment.
+func splitGlobForm(form string) []string {
+	segments := make([]string, 0, 2)
+	start := 0
+	for i := 0; i < len(form); i++ {
+		switch form[i] {
+		case '\\':
+			i++
+		case '[':
+			i = skipGlobClass(form, i)
+		case '/':
+			segments = append(segments, form[start:i])
+			start = i + 1
+		}
 	}
-	return normalized
+	return append(segments, form[start:])
 }
 
 // globFormEscapesRoot reports whether an expanded form is absolute or climbs
