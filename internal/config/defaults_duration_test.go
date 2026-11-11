@@ -24,7 +24,6 @@ func TestDefaultConfigDurationLiterals(t *testing.T) {
 		{"Limits.ModelCallTimeout", cfg.Limits.ModelCallTimeout},
 		{"Limits.ToolTimeoutDefault", cfg.Limits.ToolTimeoutDefault},
 		{"Limits.ToolTimeouts[bash]", cfg.Limits.ToolTimeouts["bash"]},
-		{"Limits.ToolTimeouts[read]", cfg.Limits.ToolTimeouts["read"]},
 		{"Limits.ToolTimeouts[grep]", cfg.Limits.ToolTimeouts["grep"]},
 		{"LSP.IdleTimeout", cfg.LSP.IdleTimeout},
 		{"LSP.RequestTimeout", cfg.LSP.RequestTimeout},

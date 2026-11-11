@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -65,7 +66,10 @@ func NewGrepTool(env Env) tool.ToolDef {
 				showLines = *in.LineNumbers
 			}
 
-			files, stats, err := grepSearch(ctx, grepSearchParams{
+			searchCtx, cancel := grepContext(ctx, env.GrepTimeout)
+			defer cancel()
+
+			files, stats, err := grepSearch(searchCtx, grepSearchParams{
 				root:        absPath,
 				displayPath: searchPath,
 				pattern:     in.Pattern,
@@ -85,4 +89,14 @@ func NewGrepTool(env Env) tool.ToolDef {
 			return result, nil
 		},
 	}
+}
+
+// grepContext applies the configured grep deadline to ctx. A non-positive
+// timeout leaves ctx untouched; a positive one can only tighten an earlier
+// caller deadline.
+func grepContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
 }

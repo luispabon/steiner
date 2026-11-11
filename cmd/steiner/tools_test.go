@@ -180,6 +180,28 @@ func TestBashToolTimeoutCapWiredFromConfig(t *testing.T) {
 	}
 }
 
+// TestGrepTimeoutWiredFromConfig proves coreToolDefinitions threads
+// limits.tool_timeouts["grep"] into builtin.Env. Registry.Subset, which builds
+// delegated sub-agent registries, copies the same ToolDef, so delegated grep
+// runs this handler and inherits the configured deadline.
+func TestGrepTimeoutWiredFromConfig(t *testing.T) {
+	cfg := registryTestConfig()
+	cfg.Limits.ToolTimeouts = map[string]config.Duration{"grep": config.MustDuration("45s")}
+
+	var got time.Duration
+	registry := runtimeRegistryWithSinkAndMode(cfg, t.TempDir(), nil, false, nil, nil, nil, nil, func(env *builtin.Env) { got = env.GrepTimeout })
+	if want := 45 * time.Second; got != want {
+		t.Errorf("Env.GrepTimeout = %v, want %v", got, want)
+	}
+
+	if _, ok := registry.Get("grep"); !ok {
+		t.Fatal("registry missing grep")
+	}
+	if _, ok := registry.Subset([]string{"grep"}, nil).Get("grep"); !ok {
+		t.Fatal("subset missing grep")
+	}
+}
+
 func TestRuntimeRegistryWithNilManagerRegistersNoMCPTools(t *testing.T) {
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, nil, nil)
 	for _, name := range registry.Names() {

@@ -85,12 +85,10 @@ func TestLoadValidatesBashTimeoutWholeSeconds(t *testing.T) {
 			if got := cfg.Limits.ToolTimeouts["bash"]; got != tt.want {
 				t.Errorf("Limits.ToolTimeouts[bash] = %v, want %v", got, tt.want)
 			}
-			wantRead := tt.wantRead
-			if wantRead == (Duration{}) {
-				wantRead = MustDuration("5s")
-			}
-			if got := cfg.Limits.ToolTimeouts["read"]; got != wantRead {
-				t.Errorf("Limits.ToolTimeouts[read] = %v, want %v", got, wantRead)
+			// read has no built-in default, so an unset entry stays zero and a
+			// configured one is merged through unchanged.
+			if got := cfg.Limits.ToolTimeouts["read"]; got != tt.wantRead {
+				t.Errorf("Limits.ToolTimeouts[read] = %v, want %v", got, tt.wantRead)
 			}
 		})
 	}
