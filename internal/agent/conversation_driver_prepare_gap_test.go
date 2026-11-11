@@ -14,6 +14,7 @@ import (
 // is deterministic. Later calls return immediately.
 type gatedPrepare struct {
 	skip    int
+	parts   DeliveryParts
 	mu      sync.Mutex
 	calls   int
 	entered chan struct{}
@@ -41,7 +42,7 @@ func (g *gatedPrepare) prepare(ctx context.Context, _ []Message) DeliveryParts {
 	case <-g.release:
 	case <-ctx.Done():
 	}
-	return DeliveryParts{}
+	return g.parts
 }
 
 func (g *gatedPrepare) waitEntered(t *testing.T) {
@@ -286,6 +287,54 @@ func TestConversationDriverQuietCompletionDuringPrepareTurnSettlesWithoutRun(t *
 	h.mu.Unlock()
 	if saves != 1 {
 		t.Fatalf("saves = %d, want the one settle save", saves)
+	}
+}
+
+func TestConversationDriverQuietSettlementDropsPrepareDecorations(t *testing.T) {
+	t.Parallel()
+	gate := newGatedPrepare(0)
+	gate.parts = DeliveryParts{ModeNotice: "mode notice\n\n", SkillBlocks: []string{"skill block"}}
+	h := newDriverHarness(t, nil, gate.prepare)
+	h.bg.setPending("a")
+	h.start()
+	t.Cleanup(gate.open)
+
+	h.steers.Add(SteerMessage{Text: "take me back"})
+	h.d.NotifySteer()
+	gate.waitEntered(t)
+	// The prepared notice and skill blocks belong to a run that the withdrawn
+	// steer was the only reason for. A quiet result arrives and the steer is
+	// taken back, so the delivery settles instead.
+	h.d.DeliverCompletions([]SubAgentCompletion{quietCompletionFor(1, "a")})
+	if drained := h.steers.Drain(); len(drained) != 1 {
+		t.Fatalf("drained steers = %v, want the steer taken back", drained)
+	}
+	released := h.changedChan()
+	gate.open()
+	waitClosed(t, released)
+
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	if err := h.d.WaitQuiescent(ctx); err != nil {
+		t.Fatalf("WaitQuiescent: %v", err)
+	}
+	h.noRun()
+	conv := h.d.Snapshot().Conversation
+	if len(conv) != 1 {
+		t.Fatalf("conversation = %+v, want one settled message", conv)
+	}
+	msg := conv[0]
+	if !strings.Contains(msg.Content, `agent_id="a"`) {
+		t.Fatalf("message = %q, want the quiet envelope delivered", msg.Content)
+	}
+	if strings.Contains(msg.Content, "mode notice") {
+		t.Fatalf("message = %q, want no prepared mode notice", msg.Content)
+	}
+	if strings.Contains(msg.Content, "skill block") {
+		t.Fatalf("message = %q, want no prepared skill block", msg.Content)
+	}
+	if got := h.bg.deliveredIDs(); !slices.Equal(got, []string{"call-a"}) {
+		t.Fatalf("delivered = %v, want [call-a]", got)
 	}
 }
 

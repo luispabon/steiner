@@ -148,6 +148,15 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 	}
 
 	parts := prefix
+	wake := len(items) > 0
+	if !d.exhausted {
+		wake = wake || slices.ContainsFunc(completions, func(c SubAgentCompletion) bool { return !c.Quiet })
+	}
+	if !wake {
+		// A quiet delivery settles without starting a sequence, so the prepared
+		// mode notice and skill blocks stay unused.
+		parts = DeliveryParts{}
+	}
 	if len(blocks) > 0 {
 		parts.SkillBlocks = blocks
 	}
@@ -185,10 +194,6 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 			}
 		}
 		d.pendingEvents = append(d.pendingEvents, output.NewSubAgentsDeliveredEvent(delivered))
-	}
-	wake := len(items) > 0
-	if !d.exhausted {
-		wake = wake || slices.ContainsFunc(completions, func(c SubAgentCompletion) bool { return !c.Quiet })
 	}
 	var steer SteerMessage
 	if len(steers) > 0 {
