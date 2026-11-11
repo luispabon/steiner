@@ -18,10 +18,13 @@ func buildGlobPreview(arguments map[string]any, result string) ToolPreview {
 	if path == "" {
 		path = "."
 	}
-	entries := previewListEntries(payload.Output)
-	for i := range entries {
-		entries[i].IsDir = strings.HasSuffix(entries[i].Path, "/")
-		entries[i].Path = strings.TrimSuffix(entries[i].Path, "/")
+	lines := splitToolPreviewLines(payload.Output)
+	entries := make([]ToolPreviewListEntry, 0, len(lines))
+	for _, line := range lines {
+		entries = append(entries, ToolPreviewListEntry{
+			Path:  strings.TrimSuffix(line, "/"),
+			IsDir: strings.HasSuffix(line, "/"),
+		})
 	}
 
 	return ToolPreview{
@@ -31,13 +34,4 @@ func buildGlobPreview(arguments map[string]any, result string) ToolPreview {
 		NextOffset: payload.NextOffset,
 		Entries:    entries,
 	}
-}
-
-func previewListEntries(output string) []ToolPreviewListEntry {
-	lines := splitToolPreviewLines(output)
-	entries := make([]ToolPreviewListEntry, 0, len(lines))
-	for _, line := range lines {
-		entries = append(entries, ToolPreviewListEntry{Path: line})
-	}
-	return entries
 }

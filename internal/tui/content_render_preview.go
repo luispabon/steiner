@@ -55,58 +55,35 @@ func (b *contentBuffer) buildPlainLines(tc *toolCallSegment) []string {
 }
 
 func (b *contentBuffer) buildGlobLines(tc *toolCallSegment) []string {
-	return b.buildListLines(listLinesParams{
-		path:       tc.preview.Path,
-		label:      "glob results",
-		returned:   tc.preview.Returned,
-		nextOffset: tc.preview.NextOffset,
-		truncated:  tc.preview.Truncated,
-		entries:    tc.preview.Entries,
-		showDirs:   true,
-	})
-}
-
-// listLinesParams bundles the arguments for buildListLines.
-type listLinesParams struct {
-	path       string
-	label      string
-	returned   int
-	nextOffset int
-	truncated  bool
-	entries    []output.ToolPreviewListEntry
-	showDirs   bool
-}
-
-func (b *contentBuffer) buildListLines(p listLinesParams) []string {
-	summary := p.label
-	if p.path != "" {
-		summary = p.path + " · " + summary
+	preview := tc.preview
+	summary := "glob results"
+	if preview.Path != "" {
+		summary = preview.Path + " · " + summary
 	}
-	if p.returned > 0 {
-		summary += fmt.Sprintf(" · %d entries", p.returned)
+	if preview.Returned > 0 {
+		summary += fmt.Sprintf(" · %d entries", preview.Returned)
 	} else {
 		summary += " · no entries"
 	}
-	if p.nextOffset > 0 || p.truncated {
+	if preview.NextOffset > 0 || preview.Truncated {
 		summary += " · more available"
 	}
 
 	lines := []string{b.styles.FgDim.Render(summary)}
-	if len(p.entries) == 0 {
-		lines = append(lines, b.styles.FgMute.Render("no results"))
-		return lines
+	if len(preview.Entries) == 0 {
+		return append(lines, b.styles.FgMute.Render("no results"))
 	}
 
-	for _, entry := range p.entries {
+	for _, entry := range preview.Entries {
 		name := entry.Path
-		if p.showDirs && entry.IsDir {
+		if entry.IsDir {
 			name += "/"
 			lines = append(lines, b.toolTagStyle("read").Render(name))
 		} else {
 			lines = append(lines, b.styles.FgDim.Render(name))
 		}
 	}
-	if p.nextOffset > 0 || p.truncated {
+	if preview.NextOffset > 0 || preview.Truncated {
 		lines = append(lines, b.styles.FgMute.Render("more available"))
 	}
 	return lines

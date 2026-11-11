@@ -203,6 +203,23 @@ func TestBuildToolPreview(t *testing.T) {
 			},
 		},
 		{
+			name: "glob list without path defaults to the working directory",
+			tool: "glob",
+			args: map[string]any{
+				"pattern": "**/*.go",
+			},
+			result: `{"output":"main.go\npkg/tool.go\n"}`,
+			want: ToolPreview{
+				Kind:     ToolPreviewKindGlobList,
+				Path:     ".",
+				Returned: 2,
+				Entries: []ToolPreviewListEntry{
+					{Path: "main.go"},
+					{Path: "pkg/tool.go"},
+				},
+			},
+		},
+		{
 			name: "grep content",
 			tool: "grep",
 			args: map[string]any{
