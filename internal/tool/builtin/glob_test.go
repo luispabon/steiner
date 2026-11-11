@@ -17,14 +17,6 @@ import (
 	"github.com/luispabon/steiner/internal/tool"
 )
 
-// countResultLines derives the line count from a Result's Output field.
-func countResultLines(output string) int {
-	if output == "" {
-		return 0
-	}
-	return len(strings.Split(output, "\n"))
-}
-
 // globWalkFixture writes the tree shared by the entry-selection tests: the
 // directory a holding b, plus a.txt and x.go at the root.
 func globWalkFixture(t *testing.T) string {
@@ -36,20 +28,28 @@ func globWalkFixture(t *testing.T) string {
 	return root
 }
 
-// globWalkParamsFor builds walk params rooted at root with no configured
-// exclusions and one page large enough for the fixtures.
-func globWalkParamsFor(t *testing.T, root, pattern string, limit, offset int) globWalkParams {
-	t.Helper()
-	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+// globWalkParamsWith builds walk params rooted at root from the given policy and
+// excluder, with one page large enough for the fixtures.
+func globWalkParamsWith(root, pattern string, policy *tool.PathPolicy, excluder tool.WorkspaceExcluder) globWalkParams {
 	return globWalkParams{
 		root:        root,
 		lexicalRoot: root,
 		pattern:     pattern,
-		excluder:    tool.NewWorkspaceExcluder(root, nil, nil),
-		policy:      &policy,
-		limit:       limit,
-		offset:      offset,
+		excluder:    excluder,
+		policy:      policy,
+		limit:       defaultGlobLimit,
 	}
+}
+
+// globWalkParamsFor builds walk params rooted at root with no configured
+// exclusions and the given page window.
+func globWalkParamsFor(t *testing.T, root, pattern string, limit, offset int) globWalkParams {
+	t.Helper()
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	params := globWalkParamsWith(root, pattern, &policy, tool.NewWorkspaceExcluder(root, nil, nil))
+	params.limit = limit
+	params.offset = offset
+	return params
 }
 
 func runGlobWalk(t *testing.T, params globWalkParams) Result {
@@ -57,6 +57,19 @@ func runGlobWalk(t *testing.T, params globWalkParams) Result {
 	result, err := globWalk(context.Background(), params)
 	if err != nil {
 		t.Fatalf("globWalk(pattern=%q): %v", params.pattern, err)
+	}
+	return result
+}
+
+func runGlobTool(t *testing.T, toolDef tool.ToolDef, input map[string]any) Result {
+	t.Helper()
+	resultI, err := toolDef.Handler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("glob handler error: %v", err)
+	}
+	result, ok := resultI.(Result)
+	if !ok {
+		t.Fatalf("glob result type = %T, want Result", resultI)
 	}
 	return result
 }
@@ -441,14 +454,7 @@ func TestGlobToolDoublestarGroupDirectoryForms(t *testing.T) {
 	mustWriteTree(t, root, "x/b/keep.txt", "keep")
 	toolDef := NewGlobTool(workspaceTestEnv(t, root, nil, nil))
 
-	resultI, err := toolDef.Handler(context.Background(), map[string]any{"pattern": "**/{a,b/}"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("result type = %T, want Result", resultI)
-	}
+	result := runGlobTool(t, toolDef, map[string]any{"pattern": "**/{a,b/}"})
 	if result.Output != "a/\na/b/\nb/\nx/b/" {
 		t.Errorf("Output = %q, want %q", result.Output, "a/\na/b/\nb/\nx/b/")
 	}
@@ -485,35 +491,20 @@ func TestGlobWalkerVisitSkipsVanishedDirectory(t *testing.T) {
 func TestGlobToolDefaultsAndPaging(t *testing.T) {
 	root := globWalkFixture(t)
 	toolDef := NewGlobTool(workspaceTestEnv(t, root, nil, nil))
-	ctx := context.Background()
 
 	t.Run("missing pattern lists one level with directories suffixed", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "."})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
+		result := runGlobTool(t, toolDef, map[string]any{"path": "."})
 		if result.Output != "a/\na.txt\nx.go" {
 			t.Errorf("Output = %q, want %q", result.Output, "a/\na.txt\nx.go")
 		}
 	})
 
 	t.Run("limit and offset page through results", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "**",
 			"limit":   2,
 			"offset":  1,
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		if result.Output != "a/b\na.txt" {
 			t.Errorf("Output = %q, want %q", result.Output, "a/b\na.txt")
 		}
@@ -523,14 +514,7 @@ func TestGlobToolDefaultsAndPaging(t *testing.T) {
 	})
 
 	t.Run("marshalled JSON omits an absent next offset", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "."})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
+		result := runGlobTool(t, toolDef, map[string]any{"path": "."})
 		data, err := json.Marshal(result)
 		if err != nil {
 			t.Fatalf("json.Marshal error: %v", err)
@@ -551,84 +535,14 @@ func TestGlobTool(t *testing.T) {
 	}
 
 	toolDef := NewGlobTool(workspaceTestEnv(t, tmpDir, nil, nil))
-	ctx := context.Background()
-
-	t.Run("returns results including txt files", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"pattern": "*.txt",
-			"path":    ".",
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
-		if lineCount := countResultLines(result.Output); lineCount <= 0 {
-			t.Errorf("line count = %d, want > 0", lineCount)
-		}
-		for _, want := range []string{"a.txt", "b.txt", "c.txt"} {
-			if !strings.Contains(result.Output, want) {
-				t.Errorf("Output missing %s: %q", want, result.Output)
-			}
-		}
-	})
 
 	t.Run("results follow walk order", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "*.txt",
 			"path":    ".",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		if result.Output != "a.txt\nb.txt\nc.txt" {
 			t.Errorf("Output = %q, want %q", result.Output, "a.txt\nb.txt\nc.txt")
-		}
-	})
-
-	t.Run("limit and offset control pagination", func(t *testing.T) {
-		pageResult, err := toolDef.Handler(ctx, map[string]any{
-			"pattern": "*",
-			"path":    ".",
-			"limit":   2,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		page, _ := pageResult.(Result)
-		if pageCount := countResultLines(page.Output); pageCount != 2 {
-			t.Errorf("limit=2 returned %d items", pageCount)
-		}
-		if page.NextOffset != 2 {
-			t.Errorf("NextOffset = %d, want 2", page.NextOffset)
-		}
-	})
-
-	t.Run("offset beyond results returns empty page", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
-			"pattern": "*.txt",
-			"path":    ".",
-			"limit":   10,
-			"offset":  100,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
-		if lineCount := countResultLines(result.Output); lineCount != 0 {
-			t.Errorf("line count = %d, want 0", lineCount)
-		}
-		if result.NextOffset != 0 {
-			t.Errorf("NextOffset = %d, want 0", result.NextOffset)
 		}
 	})
 }
@@ -664,20 +578,12 @@ func TestGlobTool_Exclusions(t *testing.T) {
 	}
 
 	toolDef := NewGlobTool(workspaceTestEnv(t, tmpDir, nil, nil))
-	ctx := context.Background()
 
 	t.Run("excluded directories not returned in results", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "*",
 			"path":    ".",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		for _, dir := range excludedDirs {
 			if strings.Contains(result.Output, dir+"/") || result.Output == dir {
 				t.Errorf("output contains excluded directory %q: %q", dir, result.Output)
@@ -686,17 +592,10 @@ func TestGlobTool_Exclusions(t *testing.T) {
 	})
 
 	t.Run("visible files are still found", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "*.go",
 			"path":    ".",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		for _, want := range []string{"main.go", "helper.go"} {
 			if !strings.Contains(result.Output, want) {
 				t.Errorf("output missing visible file %s: %q", want, result.Output)
@@ -705,17 +604,10 @@ func TestGlobTool_Exclusions(t *testing.T) {
 	})
 
 	t.Run("deeply nested excluded files not returned", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "**/*.txt",
 			"path":    ".",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		if strings.Contains(result.Output, "nested.txt") {
 			t.Errorf("output contains deeply nested excluded file nested.txt: %q", result.Output)
 		}
@@ -793,17 +685,10 @@ func TestGlobTool_CustomExcludePaths(t *testing.T) {
 	toolDef := NewGlobTool(workspaceTestEnv(t, tmpDir, []string{secretDir}, nil))
 
 	t.Run("custom exact path exclusion", func(t *testing.T) {
-		resultI, err := toolDef.Handler(context.Background(), map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "**",
 			"path":    ".",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		if strings.Contains(result.Output, "secret/") || strings.Contains(result.Output, "key.txt") {
 			t.Errorf("output contains excluded path: %q", result.Output)
 		}
@@ -831,17 +716,10 @@ func TestGlobTool_CustomExcludePatterns(t *testing.T) {
 	toolDef := NewGlobTool(workspaceTestEnv(t, tmpDir, nil, []string{"*.bak"}))
 
 	t.Run("custom glob pattern exclusion", func(t *testing.T) {
-		resultI, err := toolDef.Handler(context.Background(), map[string]any{
+		result := runGlobTool(t, toolDef, map[string]any{
 			"pattern": "**",
 			"path":    ".",
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(Result)
-		if !ok {
-			t.Fatalf("result type = %T, want Result", resultI)
-		}
 		if strings.Contains(result.Output, ".bak") {
 			t.Errorf("output contains excluded pattern .bak: %q", result.Output)
 		}

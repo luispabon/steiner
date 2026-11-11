@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -108,14 +107,7 @@ func TestGlobWalk_PrunesBlockedDescendants(t *testing.T) {
 	mustWriteTree(t, root, "secrets/nested/deep.go", "package deep\n")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	result := runGlobWalk(t, globWalkParams{
-		root:        root,
-		lexicalRoot: root,
-		pattern:     "**/*.go",
-		excluder:    tool.NewWorkspaceExcluder(root, nil, nil),
-		policy:      &policy,
-		limit:       defaultGlobLimit,
-	})
+	result := runGlobWalk(t, globWalkParamsWith(root, "**/*.go", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
 	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"visible.go"})
 }
 
@@ -129,18 +121,11 @@ func TestGlobTool_SymlinkRoot(t *testing.T) {
 	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
 	toolDef := NewGlobTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
 
-	resultI, err := toolDef.Handler(context.Background(), map[string]any{
+	result := runGlobTool(t, toolDef, map[string]any{
 		"path":    "link",
 		"pattern": "**/*.go",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("result type = %T, want Result", resultI)
-	}
-	assertSameStringSet(t, "glob output lines", strings.Split(result.Output, "\n"), []string{"main.go", "sub/lib.go"})
+	assertSameStringSet(t, "glob output lines", outputRows(result.Output, ""), []string{"main.go", "sub/lib.go"})
 }
 
 // TestGlobWalk_HidesBlockedEntries proves a blocked directory and its
@@ -154,14 +139,7 @@ func TestGlobWalk_HidesBlockedEntries(t *testing.T) {
 	mustWriteTree(t, root, "secrets/deep/secret.txt", "secret")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	result := runGlobWalk(t, globWalkParams{
-		root:        root,
-		lexicalRoot: root,
-		pattern:     "**",
-		excluder:    tool.NewWorkspaceExcluder(root, nil, nil),
-		policy:      &policy,
-		limit:       defaultGlobLimit,
-	})
+	result := runGlobWalk(t, globWalkParamsWith(root, "**", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
 	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""),
 		[]string{"sub/", "sub/keep.txt", "visible.txt"})
 
@@ -171,14 +149,7 @@ func TestGlobWalk_HidesBlockedEntries(t *testing.T) {
 		mustSymlink(t, "alias", filepath.Join(loopRoot, "alias"))
 
 		loopPolicy := tool.NewPathPolicy(loopRoot, config.PathsConfig{BlockedPaths: []string{"blocked"}})
-		loopResult := runGlobWalk(t, globWalkParams{
-			root:        loopRoot,
-			lexicalRoot: loopRoot,
-			pattern:     "**",
-			excluder:    tool.NewWorkspaceExcluder(loopRoot, nil, nil),
-			policy:      &loopPolicy,
-			limit:       defaultGlobLimit,
-		})
+		loopResult := runGlobWalk(t, globWalkParamsWith(loopRoot, "**", &loopPolicy, tool.NewWorkspaceExcluder(loopRoot, nil, nil)))
 		assertSameStringSet(t, "glob matches", outputRows(loopResult.Output, ""), []string{"visible.txt"})
 	})
 }
@@ -265,14 +236,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob reads the sandbox copy", func(t *testing.T) {
-		result := runGlobWalk(t, globWalkParams{
-			root:        want,
-			lexicalRoot: want,
-			pattern:     "**/*.txt",
-			excluder:    tool.NewWorkspaceExcluder(want, nil, nil),
-			policy:      &policy,
-			limit:       defaultGlobLimit,
-		})
+		result := runGlobWalk(t, globWalkParamsWith(want, "**/*.txt", &policy, tool.NewWorkspaceExcluder(want, nil, nil)))
 		assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"sandbox.txt"})
 	})
 }
@@ -342,13 +306,6 @@ func TestGlobWalk_ListsSpecialFiles(t *testing.T) {
 	mustMkfifo(t, filepath.Join(secretsDir, "pipe"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	result := runGlobWalk(t, globWalkParams{
-		root:        root,
-		lexicalRoot: root,
-		pattern:     "**",
-		excluder:    tool.NewWorkspaceExcluder(root, nil, nil),
-		policy:      &policy,
-		limit:       defaultGlobLimit,
-	})
+	result := runGlobWalk(t, globWalkParamsWith(root, "**", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
 	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"pipe", "visible.txt"})
 }
