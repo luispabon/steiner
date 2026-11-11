@@ -20,9 +20,9 @@ import (
 // idle, so generations advance between runs rather than during one.
 //
 // Close retires every entry and rejects later acquisition. Retirement detaches
-// entries under the cache lock and closes their connections outside it, so an
-// entry with a request in flight is never interrupted: its connection closes
-// when that request ends.
+// entries under the cache lock and closes their connections outside it. A
+// retirement does not interrupt an entry with a request in flight: its
+// connection closes when that request ends.
 type CodexWSCache struct {
 	mu         sync.Mutex
 	instances  map[string]*CachingCodexWS
@@ -226,9 +226,10 @@ func (p *CachingCodexWS) end() {
 }
 
 // retire rejects new requests and closes the wrapped connection once no request
-// is in flight, so an active stream always runs to completion. It is idempotent
-// and never interrupts an active stream: that entry closes on end instead.
-// Callers must not hold cache.mu.
+// is in flight. Retirement never interrupts an active request: the request ends
+// when it would have ended anyway, on success or through its own context
+// cancellation, and the connection closes on end. It is idempotent. Callers
+// must not hold cache.mu.
 func (p *CachingCodexWS) retire() {
 	p.mu.Lock()
 	p.retired = true
