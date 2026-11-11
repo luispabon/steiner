@@ -60,12 +60,14 @@ func (r *readiness) isTerminal() bool {
 	return r.state != readinessNotReady
 }
 
-// awaitReadySession blocks until the caller's session has loaded, timeout
-// expires, or the caller's context is cancelled. It returns immediately if
-// readiness is already determined. sess must be the session the caller acquired
-// with its lease: entry.session can be cleared by a concurrent crashed-session
-// retirement while the readiness of the dead session is still installed, so
-// reading it here would observe a nil session.
+// awaitReadySession blocks until the leased session's readiness is determined,
+// timeout expires, or the caller's context is cancelled. It returns immediately
+// if readiness is already determined.
+//
+// r must be the tracker the lease captured with sess. Reading entry.readiness or
+// entry.session here would be wrong: a later respawn replaces the tracker, and a
+// concurrent crashed-session retirement clears the session while leaving the dead
+// session's readiness installed.
 //
 // If ReadyTimeout expires before a complete begin/end cycle, awaitReadySession
 // returns incomplete=true with err=nil, allowing the request to proceed anyway.
@@ -73,21 +75,16 @@ func (r *readiness) isTerminal() bool {
 // Cancellation of ctx returns ctx.Err().
 //
 // Navigation, hover, and symbol queries await readiness; diagnostics does not.
-func (m *Manager) awaitReadySession(ctx context.Context, e *entry, sess session) (incomplete bool, err error) {
-	e.mu.Lock()
-	r := e.readiness
-	e.mu.Unlock()
-
+func (m *Manager) awaitReadySession(ctx context.Context, r *readiness, sess session) (incomplete bool, err error) {
 	if r == nil || sess == nil {
 		return false, nil
 	}
 
 	select {
 	case <-r.readyCh:
-		e.mu.Lock()
-		isTimedOut := r.state == readinessTimedOut
-		e.mu.Unlock()
-		return isTimedOut, nil
+		// markReady and markTimedOut set the state before closing readyCh, so
+		// receiving from it orders this read.
+		return r.state == readinessTimedOut, nil
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case <-sess.Exited():

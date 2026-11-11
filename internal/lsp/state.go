@@ -44,9 +44,13 @@ type ServerState struct {
 // and the open, request and close cycle, and Release it once that whole cycle
 // finishes. The reaper only claims entries with no outstanding leases.
 // Manager.Close overrides leases: shutdown does not wait for them.
+//
+// The lease records the readiness tracker installed with the session it pinned,
+// so readiness waiting observes that session and not a later respawn's tracker.
 type entryLease struct {
-	ent  *entry
-	once sync.Once
+	ent       *entry
+	readiness *readiness
+	once      sync.Once
 }
 
 // Release drops the lease. It is safe to call on a nil lease and more than
@@ -65,9 +69,10 @@ func (l *entryLease) Release() {
 	})
 }
 
-// acquireLease pins the entry against the idle reaper. The caller must hold
-// ent.mu, so the lease cannot race the reaper's zero-lease claim.
+// acquireLease pins the entry's session and its readiness tracker against the
+// idle reaper. The caller must hold ent.mu, so the lease cannot race the
+// reaper's zero-lease claim or a respawn replacing either field.
 func (e *entry) acquireLease() *entryLease {
 	e.leases++
-	return &entryLease{ent: e}
+	return &entryLease{ent: e, readiness: e.readiness}
 }
