@@ -152,7 +152,9 @@ func (b *contentBuffer) handleDelegationCacheWaiting(event output.Event) {
 		return
 	}
 	loc, found := b.lookupOccurrence(keyOf(payload.DelegationOccurrence))
-	if !found || loc.dd == nil {
+	if !found || loc.dd == nil || loc.dd.status != "active" {
+		// A late cache-waiting event for an occurrence that already finished
+		// or was cancelled must not reactivate its card.
 		return
 	}
 	loc.dd.agentID = payload.AgentID
@@ -267,11 +269,22 @@ func (b *contentBuffer) agentRunsOtherCall(occ output.DelegationOccurrence) bool
 	return active && loc.dd != nil && loc.dd.status == "active" && loc.dd.parentCallID != "" && loc.dd.parentCallID != occ.CallID
 }
 
+// occurrenceCancelled reports whether the occurrence already resolved to a card
+// finalised by cancellation.
+func (b *contentBuffer) occurrenceCancelled(key occurrenceKey) bool {
+	loc, found := b.delegations[key]
+	return found && loc.dd != nil && loc.dd.finalizedByCancellation
+}
+
 // bindDelegation binds a queued or started sub-agent to its occurrence's card,
 // creating the card when the parent tool call has not arrived yet. Every
 // emitter stamps a full occurrence, so an event without a call ID is dropped.
+// An occurrence finalised by cancellation is never rebound.
 func (b *contentBuffer) bindDelegation(occ output.DelegationOccurrence, agentType, taskPreview, modelAlias string, queued bool) {
 	if occ.CallID == "" {
+		return
+	}
+	if b.occurrenceCancelled(keyOf(occ)) {
 		return
 	}
 	agentID := occ.AgentID

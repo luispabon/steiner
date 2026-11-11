@@ -124,9 +124,9 @@ func TestLifecycleDeathReconnectNoReplay(t *testing.T) {
 	}
 }
 
-// TestLifecycleCallsBlockDuringReconnect proves locked decision 3: a call that
-// arrives while a reconnect is in flight blocks on the reconnect outcome future
-// and then succeeds, instead of racing the swap or failing against the dead
+// TestLifecycleCallsBlockDuringReconnect proves locked decision 3: calls that
+// arrive while a reconnect is in flight block on the reconnect outcome future
+// and then all succeed, instead of racing the swap or failing against the dead
 // session. The reconnect attempt is gated in the wrap func so the test controls
 // exactly when it completes.
 func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
@@ -188,13 +188,17 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 		env any
 		err error
 	}
-	echoDone := make(chan callOutcome, 1)
-	go func() {
-		env, err := echoDef.Handler(context.Background(), map[string]any{"text": "hi"})
-		echoDone <- callOutcome{env, err}
-	}()
+	// Several concurrent callers park on the same outcome future.
+	const waiters = 4
+	echoDone := make(chan callOutcome, waiters)
+	for i := 0; i < waiters; i++ {
+		go func() {
+			env, err := echoDef.Handler(context.Background(), map[string]any{"text": "hi"})
+			echoDone <- callOutcome{env, err}
+		}()
+	}
 
-	// The reconnect worker is gated (started closed above), so the echo call
+	// The reconnect worker is gated (started closed above), so the echo calls
 	// arrived while a reconnect is in flight and must not have completed. A
 	// non-blocking receive cannot fail spuriously: a live but blocked call
 	// simply has nothing to send yet (locked decision 3).
@@ -206,17 +210,19 @@ func TestLifecycleCallsBlockDuringReconnect(t *testing.T) {
 
 	releaseFn()
 
-	select {
-	case out := <-echoDone:
-		if out.err != nil {
-			t.Fatalf("echo after reconnect returned Go error %v, want nil", out.err)
+	for i := 0; i < waiters; i++ {
+		select {
+		case out := <-echoDone:
+			if out.err != nil {
+				t.Fatalf("echo after reconnect returned Go error %v, want nil", out.err)
+			}
+			text, ok := out.env.(string)
+			if !ok || text != "hi" {
+				t.Errorf("echo result = %#v, want OK with result %q", out.env, "hi")
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("waiter %d never returned after the reconnect was released", i)
 		}
-		text, ok := out.env.(string)
-		if !ok || text != "hi" {
-			t.Errorf("echo result = %#v, want OK with result %q", out.env, "hi")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("echo never returned after the reconnect was released")
 	}
 
 	if got := tr.waitFor(t); !reflect.DeepEqual(got, []ServerStatus{ServerStatusConnected, ServerStatusReconnecting, ServerStatusConnected}) {

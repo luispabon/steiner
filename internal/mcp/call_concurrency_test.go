@@ -179,7 +179,7 @@ func TestCloseDoesNotHoldLockWhileClosing(t *testing.T) {
 	}
 
 	s.mu.Lock()
-	reconnecting := s.reconnecting
+	reconnecting := s.reconnect != nil
 	s.mu.Unlock()
 	if reconnecting {
 		t.Error("closed session started a reconnect")
