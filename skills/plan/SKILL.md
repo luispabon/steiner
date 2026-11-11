@@ -101,7 +101,7 @@ Close with a **Recommendation**: name the proposal you recommend and explain why
 
 **Approach checkpoint ▸ GATE.** Present all proposals and the recommendation, then halt until the user explicitly picks one (or asks for refinements or more alternatives).
 
-**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. If useful, write findings to `research_approach.md` (or append to an existing research artifact). As in Stage 2, always summarize findings inline and link the full artifact's actual path in Markdown if written. Proceed to Stage 4 only after auto-research is complete (or if none was needed).
+**Auto-research.** If the chosen approach flagged research areas, delegate that research automatically; no extra gate, since the user approved knowing it was flagged. Write the findings to `research_approach.md` (or append them to an existing research artifact) and link that artifact's actual path in Markdown. As in Stage 2, always summarize findings inline in 3 to 5 bullets covering findings, implications, surprises, and risks. Proceed to Stage 4 only after auto-research is complete (or if none was needed).
 
 ### Stage 4 — Overview
 
