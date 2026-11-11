@@ -30,7 +30,17 @@ type impl struct {
 	// request decoding deliberately never branches on it.
 	capabilities    protocol.ServerCapabilities
 	shutdownTimeout time.Duration
-	mux             sync.Mutex
+
+	// closeOnce owns the single shutdown sequence; closeDone closes when it
+	// finishes and closeErr holds its result. abortOnce runs the connection and
+	// process teardown at most once, however the shutdown paths race, and
+	// abortDone reports when it finishes.
+	closeOnce sync.Once
+	closeDone chan struct{}
+	closeErr  error
+	abortOnce sync.Once
+	abortDone chan struct{}
+
 	diagnosticsChan chan PublishedDiagnostics
 	progressChan    chan ProgressEvent
 }
@@ -50,6 +60,10 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 
 	result, err := handshake(ctx, server, rootPath, initOpts)
 	if err != nil {
+		// Kill before closing the connection: a handshake write can be blocked on a
+		// pipe the server never drains, and killing the process is what releases
+		// it, so conn.Close cannot wait on it forever.
+		proc.Kill()
 		connCancel()
 		_ = conn.Close() // best-effort: the session is being abandoned
 		return nil, err

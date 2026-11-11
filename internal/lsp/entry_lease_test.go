@@ -677,6 +677,64 @@ func waitForLeases(t *testing.T, ent *entry, want int) {
 	}
 }
 
+// waitForLastUsedAfter waits until ent's LastUsed advances past before, which is
+// how a lookup that finds the entry records its arrival.
+func waitForLastUsedAfter(t *testing.T, ent *entry, before time.Time) {
+	t.Helper()
+	deadline := time.Now().Add(managerTestTimeout)
+	for {
+		ent.mu.Lock()
+		lastUsed := ent.state.LastUsed
+		ent.mu.Unlock()
+		if lastUsed.After(before) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second caller never reached the entry lookup")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestCompleteSpawnFailsWithoutSession pins that a transport reporting success
+// with no session fails the spawn instead of publishing a ready entry whose
+// session is nil.
+func TestCompleteSpawnFailsWithoutSession(t *testing.T) {
+	t.Parallel()
+	m := NewManager(config.LSPConfig{}, t.TempDir(), nil, ManagerOptions{})
+	defer func() { _ = m.Close() }()
+
+	ent := &entry{state: ServerState{Name: "go", Status: ServerStatusStarting}}
+	ready := make(chan struct{})
+
+	lease, err := m.completeSpawn(ent, nil, newReadiness(), nil, ready)
+	if !errors.Is(err, errNoSpawnedSession) {
+		t.Fatalf("completeSpawn error = %v, want errNoSpawnedSession", err)
+	}
+	if lease != nil {
+		t.Error("completeSpawn returned a lease for a missing session")
+	}
+
+	ent.mu.Lock()
+	status, sess, stateErr := ent.state.Status, ent.session, ent.state.Err
+	ent.mu.Unlock()
+	if status != ServerStatusFailed {
+		t.Errorf("status = %q, want failed", status)
+	}
+	if sess != nil {
+		t.Error("a nil session was published on the entry")
+	}
+	if !errors.Is(stateErr, errNoSpawnedSession) {
+		t.Errorf("entry error = %v, want errNoSpawnedSession", stateErr)
+	}
+
+	select {
+	case <-ready:
+	default:
+		t.Error("completeSpawn did not wake the waiters on ready")
+	}
+}
+
 // TestStartingWaiterLeasesPublishedSession pins that a caller that waited on an
 // in-flight spawn gets a lease on the session the spawn published: both holders
 // pin the same session and readiness tracker.
@@ -738,16 +796,26 @@ func TestStartingWaiterLeasesPublishedSession(t *testing.T) {
 		t.Fatal("timeout waiting for the spawn to start")
 	}
 
+	// Snapshot LastUsed before the second caller runs: lookupEntry refreshes it,
+	// so that refresh observes the waiter has entered the lookup and is about to
+	// wait on the entry's ready channel. Publication is still gated, so the entry
+	// is Starting for it.
+	m.mu.Lock()
+	ent := m.sessions[sessionKey{server: "go", root: tmpdir}]
+	m.mu.Unlock()
+	if ent == nil {
+		t.Fatal("no entry recorded for the in-flight spawn")
+	}
+	ent.mu.Lock()
+	before := ent.state.LastUsed
+	ent.mu.Unlock()
+
 	second := make(chan acquired, 1)
 	go func() {
 		_, sess, lease, err := m.acquireEntry(context.Background(), file)
 		second <- acquired{sess: sess, lease: lease, err: err}
 	}()
-	select {
-	case <-second:
-		t.Fatal("second caller returned while the spawn was still gated")
-	case <-time.After(20 * time.Millisecond):
-	}
+	waitForLastUsedAfter(t, ent, before)
 
 	close(spawnGate)
 
@@ -777,14 +845,8 @@ func TestStartingWaiterLeasesPublishedSession(t *testing.T) {
 	}
 
 	m.mu.Lock()
-	ent := m.sessions[sessionKey{server: "go", root: tmpdir}]
-	m.mu.Unlock()
-	if ent == nil {
-		t.Fatal("no entry recorded for the spawned session")
-	}
-	ent.mu.Lock()
 	leases := ent.leases
-	ent.mu.Unlock()
+	m.mu.Unlock()
 	if leases != 2 {
 		t.Errorf("entry leases = %d, want 2 (both callers)", leases)
 	}

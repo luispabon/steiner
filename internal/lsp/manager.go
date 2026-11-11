@@ -23,15 +23,21 @@ var errNoServer = errors.New("no server for file extension")
 // such a session is closed instead of published.
 var errManagerClosed = errors.New("lsp manager closed")
 
+// errNoSpawnedSession guards publication against a transport that reports
+// success without a session: an entry must never become ready with a nil session.
+var errNoSpawnedSession = errors.New("spawn produced no session")
+
 // spawnFailureBackoff is how long a server that failed to start is left alone
 // before another request retries it. It is deliberately distinct from
 // IdleTimeout, which governs how long a healthy but unused session is kept.
 const spawnFailureBackoff = 30 * time.Second
 
 // sessionCloseTimeout bounds every session close the manager owns: idle reaping,
-// crash cleanup, late-spawn cleanup and shutdown. Closes of independent sessions
-// run concurrently, so a pass over many sessions still waits at most this long.
-// Callers must not hold the manager or an entry lock while it elapses.
+// crash cleanup, late-spawn cleanup and shutdown. A session that cannot shut down
+// gracefully is force-terminated at that deadline, which is what releases a
+// stalled stream write, so the close still returns. Closes of independent
+// sessions run concurrently, so a pass over many sessions still waits at most
+// this long. Callers must not hold the manager or an entry lock while it elapses.
 const sessionCloseTimeout = 5 * time.Second
 
 // Manager owns the language server processes for a session.
@@ -374,6 +380,10 @@ func (m *Manager) spawnEntry(ctx context.Context, ent *entry, ready chan struct{
 // arrives after Close started is never published: the entry stays stopped, the
 // session is closed outside both locks, and errManagerClosed is returned.
 func (m *Manager) completeSpawn(ent *entry, sess session, r *readiness, spawnErr error, ready chan struct{}) (*entryLease, error) {
+	if spawnErr == nil && sess == nil {
+		spawnErr = errNoSpawnedSession
+	}
+
 	m.mu.Lock()
 	ent.mu.Lock()
 	closing := m.closing
@@ -404,8 +414,9 @@ func (m *Manager) completeSpawn(ent *entry, sess session, r *readiness, spawnErr
 }
 
 // closeSession releases a session's resources (connection, pipes, reaped
-// process) using the manager's bounded close timeout. The caller must not hold
-// the manager lock or any entry lock.
+// process). The close is bounded by sessionCloseTimeout: a session whose graceful
+// shutdown stalls is force-terminated at that deadline, which releases a blocked
+// stream write. The caller must not hold the manager lock or any entry lock.
 func closeSession(sess session) {
 	if sess == nil {
 		return
