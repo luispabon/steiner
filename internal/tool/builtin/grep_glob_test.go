@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -211,6 +212,69 @@ func TestCompileGrepFileGlobInvalidPattern(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "invalid glob") {
 				t.Errorf("compileGrepFileGlob(%q) error = %q, want it to contain %q", tt.pattern, err, "invalid glob")
+			}
+		})
+	}
+}
+
+// TestCompileGrepFileGlobMalformedPatterns pins the brace rule for file_glob: an
+// unescaped brace with no counterpart is an error, a brace inside a character
+// class or written with a backslash is literal, and a matched empty group
+// expands away. gobwas must never compile an unmatched brace, because its
+// matcher panics on a path shorter than the pattern text.
+func TestCompileGrepFileGlobMalformedPatterns(t *testing.T) {
+	tests := []struct {
+		name      string
+		pattern   string
+		wantErr   bool
+		unmatched bool
+		matches   []string
+		misses    []string
+	}{
+		{name: "empty group expands away", pattern: "aa{}", matches: []string{"aa"}},
+		{name: "escaped open brace is literal", pattern: `a\{b`, matches: []string{"a{b"}, misses: []string{"ab"}},
+		{name: "brace in a class is literal", pattern: "[{]x", matches: []string{"{x"}, misses: []string{"x"}},
+		{name: "trailing backslash matches nothing", pattern: `\`, misses: []string{"aa", "{x"}},
+		{name: "lone open brace", pattern: "{", wantErr: true, unmatched: true},
+		{name: "lone close brace", pattern: "}", wantErr: true, unmatched: true},
+		{name: "close brace between literals", pattern: "a}b", wantErr: true, unmatched: true},
+		{name: "unterminated group", pattern: "{a,", wantErr: true, unmatched: true},
+		{name: "open brace after literals", pattern: "aa{", wantErr: true, unmatched: true},
+		{name: "open brace then literal", pattern: "a{b", wantErr: true, unmatched: true},
+		{name: "closed inner group in an open outer", pattern: "{x{c,d}", wantErr: true, unmatched: true},
+		{name: "literal before an unclosed outer group", pattern: "a{x{c,d}", wantErr: true, unmatched: true},
+		{name: "closed inner group after an open outer", pattern: "{a{b,c}", wantErr: true, unmatched: true},
+		{name: "lone open bracket is a compile error", pattern: "[", wantErr: true},
+		{name: "open bracket after a prefix is a compile error", pattern: "a[b", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matcher, err := compileGrepFileGlob(tt.pattern)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "invalid glob") {
+					t.Fatalf("compileGrepFileGlob(%q) error = %v, want invalid glob error", tt.pattern, err)
+				}
+				if got := errors.Is(err, errGlobUnmatchedBrace); got != tt.unmatched {
+					t.Errorf("compileGrepFileGlob(%q) error = %v, errGlobUnmatchedBrace match = %v, want %v", tt.pattern, err, got, tt.unmatched)
+				}
+				if matcher != nil {
+					t.Errorf("compileGrepFileGlob(%q) matcher = %v, want nil", tt.pattern, matcher)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compileGrepFileGlob(%q) error: %v", tt.pattern, err)
+			}
+			for _, path := range tt.matches {
+				if !matcher.Match(path) {
+					t.Errorf("pattern %q should match %q", tt.pattern, path)
+				}
+			}
+			for _, path := range tt.misses {
+				if matcher.Match(path) {
+					t.Errorf("pattern %q should not match %q", tt.pattern, path)
+				}
 			}
 		})
 	}

@@ -55,9 +55,6 @@ func SummarizeToolArgs(tool string, args map[string]any) string {
 	if tool == "read" || tool == "read_file" {
 		return summarizeReadArgs(args)
 	}
-	if tool == "ls" {
-		return summarizeLSArgs(args)
-	}
 	// Try common arg keys in order
 	for _, key := range []string{"command", "path", "file_path", "pattern", "query", "description", "url"} {
 		if v, ok := args[key]; ok {
@@ -264,18 +261,6 @@ func summarizeGlobArgs(args map[string]any) string {
 	}
 
 	return "glob"
-}
-
-func summarizeLSArgs(args map[string]any) string {
-	path, _ := args["path"].(string)
-	if path == "" {
-		path = "."
-	}
-	recursive, _ := args["recursive"].(bool)
-	if recursive {
-		return path + " (recursive)"
-	}
-	return path
 }
 
 // sortedKeys returns the keys of m in ascending lexicographic order.

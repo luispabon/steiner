@@ -303,7 +303,7 @@ func TestBuildStylesToolStyleSnapshots(t *testing.T) {
 		{name: "tool glob", got: styleFromMap(styles.ToolTagStyles, "glob", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
 		{name: "tool fetch_url", got: styleFromMap(styles.ToolTagStyles, "fetch_url", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
 		{name: "tool todo", got: styleFromMap(styles.ToolTagStyles, "todo", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(Warn) + " bold=true italic=false padding=0,1,0,1"},
-		{name: "tool default", got: styleFromMap(styles.ToolTagStyles, "ls", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
+		{name: "tool default", got: styleFromMap(styles.ToolTagStyles, "no_such_tool", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
 		{name: "tool fallback", got: styleFromMap(styles.ToolTagStyles, "unknown", styles.ToolTagDefault), want: "fg=" + strings.ToLower(Black) + " bg=" + strings.ToLower(ToolBlue) + " bold=true italic=false padding=0,1,0,1"},
 		{name: "tool border bash", got: styleFromMap(styles.ToolBorderStyles, "bash", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(ToolAmberLine) + " bg= bold=false italic=false padding=0,0,0,0"},
 		{name: "tool border read", got: styleFromMap(styles.ToolBorderStyles, "read", styles.ToolBorderDefault), want: "fg=" + strings.ToLower(ToolCyanLine) + " bg= bold=false italic=false padding=0,0,0,0"},

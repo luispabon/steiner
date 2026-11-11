@@ -15,54 +15,42 @@ import (
 // root, while an explicit root keeps its built-in directory override.
 func TestSymlinkRootExclusions(t *testing.T) {
 	tests := []struct {
-		name               string
-		files              []string
-		links              map[string]string // link name -> target
-		excludePaths       []string
-		excludePatterns    []string
-		searchPath         string
-		wantGrepGlob       []string
-		wantLSRecursive    []string
-		wantLSNonRecursive []string
+		name            string
+		files           []string
+		links           map[string]string // link name -> target
+		excludePaths    []string
+		excludePatterns []string
+		searchPath      string
+		want            []string
 	}{
 		{
-			name:               "alias to configured excluded dir",
-			files:              []string{"secrets/key.go"},
-			links:              map[string]string{"alias": "secrets"},
-			excludePaths:       []string{"secrets"},
-			searchPath:         "alias",
-			wantGrepGlob:       nil,
-			wantLSRecursive:    nil,
-			wantLSNonRecursive: nil,
+			name:         "alias to configured excluded dir",
+			files:        []string{"secrets/key.go"},
+			links:        map[string]string{"alias": "secrets"},
+			excludePaths: []string{"secrets"},
+			searchPath:   "alias",
 		},
 		{
-			name:               "excluded link name pointing at allowed target",
-			files:              []string{"src/main.go"},
-			links:              map[string]string{"link": "src"},
-			excludePaths:       []string{"link"},
-			searchPath:         "link",
-			wantGrepGlob:       nil,
-			wantLSRecursive:    nil,
-			wantLSNonRecursive: nil,
+			name:         "excluded link name pointing at allowed target",
+			files:        []string{"src/main.go"},
+			links:        map[string]string{"link": "src"},
+			excludePaths: []string{"link"},
+			searchPath:   "link",
 		},
 		{
-			name:               "slash exclusion under symlinked subdir",
-			files:              []string{"src/main.go", "src/secret/hidden.go"},
-			links:              map[string]string{"link": "src"},
-			excludePatterns:    []string{"link/secret"},
-			searchPath:         "link",
-			wantGrepGlob:       []string{"main.go"},
-			wantLSRecursive:    []string{"main.go"},
-			wantLSNonRecursive: []string{"main.go"},
+			name:            "slash exclusion under symlinked subdir",
+			files:           []string{"src/main.go", "src/secret/hidden.go"},
+			links:           map[string]string{"link": "src"},
+			excludePatterns: []string{"link/secret"},
+			searchPath:      "link",
+			want:            []string{"main.go"},
 		},
 		{
-			name:               "explicit worktree root reached through a symlink",
-			files:              []string{".steiner/worktrees/wt/src/wt.go"},
-			links:              map[string]string{"wt-link": ".steiner/worktrees/wt"},
-			searchPath:         "wt-link",
-			wantGrepGlob:       []string{"src/wt.go"},
-			wantLSRecursive:    []string{"src/", "src/wt.go"},
-			wantLSNonRecursive: []string{"src/"},
+			name:       "explicit worktree root reached through a symlink",
+			files:      []string{".steiner/worktrees/wt/src/wt.go"},
+			links:      map[string]string{"wt-link": ".steiner/worktrees/wt"},
+			searchPath: "wt-link",
+			want:       []string{"src/wt.go"},
 		},
 	}
 	for _, tt := range tests {
@@ -75,10 +63,8 @@ func TestSymlinkRootExclusions(t *testing.T) {
 				mustSymlink(t, filepath.Join(root, filepath.FromSlash(target)), filepath.Join(root, link))
 			}
 			env := workspaceTestEnv(t, root, tt.excludePaths, tt.excludePatterns)
-			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, tt.searchPath), tt.wantGrepGlob)
-			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, tt.searchPath), tt.wantGrepGlob)
-			assertSameStringSet(t, "recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, true, 0), tt.wantLSRecursive)
-			assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, false, 0), tt.wantLSNonRecursive)
+			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, tt.searchPath), tt.want)
+			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, tt.searchPath), tt.want)
 		})
 	}
 }

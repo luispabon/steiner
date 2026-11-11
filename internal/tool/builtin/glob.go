@@ -2,14 +2,11 @@ package builtin
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-
-	"github.com/gobwas/glob"
 
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -20,9 +17,9 @@ func NewGlobTool(env Env) tool.ToolDef {
 	return tool.ToolDef{
 		Name:            "glob",
 		ParallelSafe:    true,
-		Description:     "Find files by glob pattern. Use limit and offset to page through large result sets.",
+		Description:     "List files and directories under path matching a glob pattern. Directories end in \"/\". Use limit and offset to page through large result sets.",
 		ParameterSchema: GlobSchema(),
-		Handler: func(_ context.Context, input map[string]any) (any, error) {
+		Handler: func(ctx context.Context, input map[string]any) (any, error) {
 			in, err := decodeInput[GlobInput](input)
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
@@ -50,89 +47,175 @@ func NewGlobTool(env Env) tool.ToolDef {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
 
-			allFiles, err := globWalk(walkRoot, absPath, in.Pattern, excluder, &policy)
+			result, err := globWalk(ctx, globWalkParams{
+				root:        walkRoot,
+				lexicalRoot: absPath,
+				pattern:     in.Pattern,
+				excluder:    excluder,
+				policy:      &policy,
+				limit:       in.Limit,
+				offset:      in.Offset,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("glob: %w", err)
 			}
-
-			return pageResults(allFiles, in.Limit, in.Offset), nil
+			return result, nil
 		},
 	}
 }
 
-// globWalk walks the directory tree rooted at root and returns all files
-// whose relative path matches pattern (using gobwas/glob for full glob
-// semantics including ** and {a,b} alternation). Excluded directories are
-// not traversed. Every entry is validated through PathPolicy before it is
-// traversed or matched, so denied directories are pruned and denied or
-// unresolvable entries fail closed. A symlink is listed only when its target is
-// an eligible regular file: dangling links, directory links, special files,
-// targets outside the walk root and workspace, and denied or excluded targets
-// are omitted, and the lexical link name is what matches and is returned. The
-// returned paths are relative to root, use forward slashes, and are sorted
-// alphabetically. The walk stops early when maxGlobLimit matches are collected.
-func globWalk(root, lexicalRoot, pattern string, excluder tool.WorkspaceExcluder, policy *tool.PathPolicy) ([]string, error) {
-	matchers, err := compileGlobMatchers(pattern)
-	if err != nil {
-		return nil, err
+// globWalkParams configures one glob walk.
+type globWalkParams struct {
+	// root is the resolved walk root and lexicalRoot the path the caller named,
+	// so configured exclusions are validated against both forms when the root is
+	// a symlink.
+	root        string
+	lexicalRoot string
+	pattern     string
+	excluder    tool.WorkspaceExcluder
+	policy      *tool.PathPolicy
+	limit       int
+	offset      int
+}
+
+// globWalk pages through the directory tree rooted at root and returns the
+// entries matching pattern (using gobwas/glob for full glob semantics including
+// ** and {a,b} alternation). Files match on their root-relative slash path. A
+// directory matches when a pattern matches its relative path or that path with
+// a trailing slash, and is returned with the trailing slash. The walk root is
+// never returned. Excluded directories are not traversed. Every entry is
+// validated through PathPolicy before it is traversed or matched, so denied
+// directories are pruned and denied or unresolvable entries fail closed. A
+// symlink is listed only when its target is an eligible regular file: dangling
+// links, directory links, special files, targets outside the walk root and
+// workspace, and denied or excluded targets are omitted, and the lexical link
+// name is what matches and is returned. Results follow filepath.WalkDir order.
+// The walk stops once the page and its next-offset signal are settled.
+func globWalk(ctx context.Context, p globWalkParams) (Result, error) {
+	if p.limit <= 0 {
+		p.limit = defaultGlobLimit
+	}
+	if p.offset < 0 {
+		p.offset = 0
 	}
 
-	var matches []string
-	links := newSearchSymlinkScope(policy, &excluder, root, lexicalRoot)
+	matcher, err := compileGlobMatcher(p.pattern)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := globRootDirectory(p.root, p.lexicalRoot); err != nil {
+		return Result{}, err
+	}
 
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			// Skip directories we don't have permission to enter, but propagate
-			// other errors (e.g. nonexistent root).
-			if d != nil && errors.Is(err, fs.ErrPermission) {
-				return nil
-			}
-			return err
-		}
+	walker := &globWalker{
+		params:  p,
+		matcher: matcher,
+		page:    make([]string, 0, p.limit),
+	}
+	walker.links = newSearchSymlinkScope(p.policy, &walker.params.excluder, p.root, p.lexicalRoot)
 
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		// Exclusion is workspace-anchored: configured paths and patterns compare
-		// against the workspace, and built-in directory names are matched
-		// relative to the walk root so ancestors of the root (e.g.
-		// /srv/build/proj, .steiner/worktrees/x) never blind the walk. A root
-		// reached through a symlink is validated in both its resolved and
-		// lexical form so configured exclusions keep applying. The root itself
-		// is never excluded here.
-		if rel != "." && excludeSearchEntry(&excluder, policy, root, lexicalRoot, path, d.IsDir()) {
-			return globSkipEntry(d)
-		}
+	if err := filepath.WalkDir(p.root, func(path string, d fs.DirEntry, err error) error {
+		return walker.visit(ctx, path, d, err)
+	}); err != nil {
+		return Result{}, err
+	}
+	return Result{Output: strings.Join(walker.page, "\n"), NextOffset: walker.nextOffset}, nil
+}
 
-		if searchPathDenied(policy, path) {
-			return globSkipEntry(d)
-		}
+// globWalker holds the matching and paging state of one glob walk.
+type globWalker struct {
+	params     globWalkParams
+	matcher    globMatcher
+	links      searchSymlinkScope
+	page       []string
+	matched    int
+	nextOffset int
+}
 
-		if d.IsDir() {
-			return nil
-		}
+// visit is the filepath.WalkDir callback: it validates one entry, records a
+// match, and decides whether the walk may stop or skip a subtree.
+func (w *globWalker) visit(ctx context.Context, path string, d fs.DirEntry, err error) error {
+	if err != nil {
+		// Skip directories we don't have permission to enter, but propagate
+		// other errors (e.g. nonexistent root).
+		_, walkErr := walkDirEntryError(path, w.params.root, d, err)
+		return walkErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-		if !links.eligible(d, path) {
-			return nil
-		}
-
-		if !matchesAnyGlob(matchers, filepath.ToSlash(rel)) {
-			return nil
-		}
-
-		matches = append(matches, rel)
-		if len(matches) >= maxGlobLimit {
-			return filepath.SkipAll
-		}
+	rel, err := filepath.Rel(w.params.root, path)
+	if err != nil {
+		return err
+	}
+	// The walk root is never matched or returned.
+	if rel == "." {
 		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
-	sort.Strings(matches)
-	return matches, nil
+	if w.denied(path, d) {
+		return globSkipEntry(d)
+	}
+
+	isDir := d.IsDir()
+	if !isDir && !w.links.eligible(d, path) {
+		return nil
+	}
+
+	relSlash := filepath.ToSlash(rel)
+	if line, ok := w.matcher.matchEntry(relSlash, isDir); ok && w.collect(line) {
+		w.nextOffset = w.params.offset + w.params.limit
+		return filepath.SkipAll
+	}
+	if isDir && w.matcher.prunes(relSlash) {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+// denied reports whether exclusions or path policy hide the entry. Exclusions
+// are workspace-anchored: configured paths and patterns compare against the
+// workspace, and built-in directory names are matched relative to the walk root
+// so ancestors of the root (e.g. /srv/build/proj, .steiner/worktrees/x) never
+// blind the walk. A root reached through a symlink is validated in both its
+// resolved and lexical form so configured exclusions keep applying.
+func (w *globWalker) denied(path string, d fs.DirEntry) bool {
+	if excludeSearchEntry(&w.params.excluder, w.params.policy, w.params.root, w.params.lexicalRoot, path, d.IsDir()) {
+		return true
+	}
+	return searchPathDenied(w.params.policy, path)
+}
+
+// collect adds a match to the page and reports whether the walk can stop
+// because the page is full and a following page exists. Entries before the
+// requested offset are counted but not returned.
+func (w *globWalker) collect(line string) bool {
+	if w.matched >= w.params.offset {
+		if len(w.page) >= w.params.limit {
+			return true
+		}
+		w.page = append(w.page, line)
+	}
+	w.matched++
+	return false
+}
+
+// globRootDirectory rejects a search root that is not a directory. A missing
+// root keeps the filesystem error so callers see it as they did before.
+func globRootDirectory(root, lexicalRoot string) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return nil
+	}
+	display := lexicalRoot
+	if display == "" {
+		display = root
+	}
+	return fmt.Errorf("path %s is not a directory", display)
 }
 
 // globSkipEntry returns the walk outcome for an entry filtered out before the
@@ -143,61 +226,4 @@ func globSkipEntry(d fs.DirEntry) error {
 		return filepath.SkipDir
 	}
 	return nil
-}
-
-func compileGlobMatchers(pattern string) ([]glob.Glob, error) {
-	patterns := expandZeroDirectoryDoublestar(pattern)
-	matchers := make([]glob.Glob, 0, len(patterns))
-	for _, expanded := range patterns {
-		matcher, err := glob.Compile(expanded, '/')
-		if err != nil {
-			return nil, fmt.Errorf("compile glob %q: %w", expanded, err)
-		}
-		matchers = append(matchers, matcher)
-	}
-	return matchers, nil
-}
-
-func matchesAnyGlob(matchers []glob.Glob, path string) bool {
-	for _, matcher := range matchers {
-		if matcher.Match(path) {
-			return true
-		}
-	}
-	return false
-}
-
-func expandZeroDirectoryDoublestar(pattern string) []string {
-	patterns := map[string]struct{}{
-		pattern: {},
-	}
-	queue := []string{pattern}
-
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		for searchFrom := 0; searchFrom < len(current); {
-			idx := strings.Index(current[searchFrom:], "**/")
-			if idx < 0 {
-				break
-			}
-			idx += searchFrom
-			next := current[:idx] + current[idx+3:]
-			if _, exists := patterns[next]; exists {
-				searchFrom = idx + 1
-				continue
-			}
-			patterns[next] = struct{}{}
-			queue = append(queue, next)
-			searchFrom = idx + 1
-		}
-	}
-
-	expanded := make([]string, 0, len(patterns))
-	for candidate := range patterns {
-		expanded = append(expanded, candidate)
-	}
-	sort.Strings(expanded)
-	return expanded
 }

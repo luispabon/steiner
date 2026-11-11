@@ -21,8 +21,6 @@ func previewBodyKind(tool string, preview output.ToolPreview) string {
 		return "fetch_url"
 	case output.ToolPreviewKindGlobList:
 		return "glob"
-	case output.ToolPreviewKindLSList:
-		return "ls"
 	case output.ToolPreviewKindGrep:
 		return "grep"
 	case output.ToolPreviewKindBash:
@@ -250,8 +248,6 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 		lines = b.buildBashLines(tc)
 	case "glob":
 		lines = b.buildGlobLines(tc)
-	case "ls":
-		lines = b.buildLSLines(tc)
 	case "grep":
 		lines = b.buildGrepLines(tc)
 	case "file":

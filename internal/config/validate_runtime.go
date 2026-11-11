@@ -99,7 +99,6 @@ var reservedToolNames = map[string]bool{
 	"read":             true,
 	"glob":             true,
 	"grep":             true,
-	"ls":               true,
 	"bash":             true,
 	"display_file":     true,
 	"mutate":           true,

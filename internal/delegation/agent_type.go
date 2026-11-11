@@ -88,16 +88,16 @@ var (
 // codeAgentAllowlist is code's tool allowlist. documentor shares it: it uses
 // the same tools, and its narrower write surface is enforced by
 // documentorWriteScope at execution time rather than by a shorter tool list.
-var codeAgentAllowlist = []string{"read", "glob", "grep", "ls", "mutate", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"}
+var codeAgentAllowlist = []string{"read", "glob", "grep", "mutate", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"}
 
 var agentAllowlists = map[AgentType][]string{
-	AgentTypeExplore:     {"read", "glob", "grep", "ls", "bash", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
-	AgentTypeResearch:    {"read", "glob", "grep", "ls", "web_search", "fetch_url"},
+	AgentTypeExplore:     {"read", "glob", "grep", "bash", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
+	AgentTypeResearch:    {"read", "glob", "grep", "web_search", "fetch_url"},
 	AgentTypeCode:        codeAgentAllowlist,
 	AgentTypeDocumentor:  codeAgentAllowlist,
-	AgentTypeEvaluate:    {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
-	AgentTypeSanityCheck: {"read", "glob", "grep", "ls", "bash"},
-	AgentTypeReview:      {"read", "glob", "grep", "ls", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
+	AgentTypeEvaluate:    {"read", "glob", "grep", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
+	AgentTypeSanityCheck: {"read", "glob", "grep", "bash"},
+	AgentTypeReview:      {"read", "glob", "grep", "bash", "advisor", "lsp_definitions", "lsp_implementations", "lsp_type_definitions", "lsp_references", "lsp_diagnostics", "lsp_hover", "lsp_symbols"},
 	AgentTypeVision:      {"read"},
 }
 

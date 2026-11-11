@@ -53,13 +53,13 @@ Change it for the current session with `/orchestration` (picker) or `/orchestrat
 
 | Type | Tools |
 |---|---|
-| `explore` | `read`, `glob`, `grep`, `ls`, `bash`, LSP tools† |
-| `research` | `read`, `glob`, `grep`, `ls`, `web_search`\*, `fetch_url` |
-| `code` | `read`, `glob`, `grep`, `ls`, `mutate`, `bash`, `advisor`, LSP tools† |
+| `explore` | `read`, `glob`, `grep`, `bash`, LSP tools† |
+| `research` | `read`, `glob`, `grep`, `web_search`\*, `fetch_url` |
+| `code` | `read`, `glob`, `grep`, `mutate`, `bash`, `advisor`, LSP tools† |
 | `documentor` | Same as `code`; `mutate` limited to documentation files |
-| `evaluate` | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, LSP tools† |
-| `sanity_check` | `read`, `glob`, `grep`, `ls`, `bash` |
-| `review` | `read`, `glob`, `grep`, `ls`, `bash`, `advisor`, LSP tools† |
+| `evaluate` | `read`, `glob`, `grep`, `bash`, `advisor`, LSP tools† |
+| `sanity_check` | `read`, `glob`, `grep`, `bash` |
+| `review` | `read`, `glob`, `grep`, `bash`, `advisor`, LSP tools† |
 | `vision` | `read` |
 
 \* `web_search` needs a configured search backend (`search.backend`). Without one, the `research` type is not offered to the model.

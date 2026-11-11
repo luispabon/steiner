@@ -214,11 +214,15 @@ func TestGrepNestedSymlinkUsesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob lists the link", func(t *testing.T) {
-		matches, err := globWalk(src, src, "**/*.txt", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
-		if err != nil {
-			t.Fatalf("globWalk: %v", err)
-		}
-		assertSameStringSet(t, "glob matches", matches, []string{"tmplink.txt"})
+		result := runGlobWalk(t, globWalkParams{
+			root:        src,
+			lexicalRoot: src,
+			pattern:     "**/*.txt",
+			excluder:    tool.NewWorkspaceExcluder(root, nil, nil),
+			policy:      &policy,
+			limit:       defaultGlobLimit,
+		})
+		assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"tmplink.txt"})
 	})
 }
 
@@ -292,12 +296,16 @@ func TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets(t *testing.T) {
 	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp).WithVirtualTmpRequest("/tmp")
 	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"app.txt"})
 
-	matches, err := globWalk(session, session, "**/*.txt", excluder, &policy)
-	if err != nil {
-		t.Fatalf("globWalk: %v", err)
-	}
+	result := runGlobWalk(t, globWalkParams{
+		root:        session,
+		lexicalRoot: session,
+		pattern:     "**/*.txt",
+		excluder:    excluder,
+		policy:      &policy,
+		limit:       defaultGlobLimit,
+	})
 	want := []string{"link-allowed.txt", "report.txt"}
-	assertSameStringSet(t, "glob matches", matches, want)
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), want)
 
 	results, _, err := grepSearch(context.Background(), grepSearchParams{
 		root:        session,

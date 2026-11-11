@@ -381,8 +381,8 @@ type SubAgentConfig struct {
 	// FIFO; more than 2x MaxParallel outstanding (running plus queued) is a tool
 	// error. Distinct
 	// from limits.max_parallel_tools, which bounds ordinary parallel-safe tool
-	// calls (read, glob, grep, ls, fetch_url, web_search) in the same turn —
-	// see internal/agent.ParallelClass.
+	// calls (read, glob, grep, fetch_url, web_search) in the same turn; see
+	// internal/agent.ParallelClass.
 	MaxParallel int `yaml:"max_parallel"`
 	// MaxFollowUps caps how many times a single delegated child may be resumed
 	// via follow_up. Each resume extends the child's turn budget cumulatively

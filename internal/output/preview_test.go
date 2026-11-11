@@ -189,32 +189,16 @@ func TestBuildToolPreview(t *testing.T) {
 				"path":    "src",
 				"pattern": "**/*.go",
 			},
-			result: `{"output":"main.go\npkg/tool.go\n","next_offset":3}`,
+			result: `{"output":"cmd/\nmain.go\npkg/tool.go\n","next_offset":3}`,
 			want: ToolPreview{
 				Kind:       ToolPreviewKindGlobList,
 				Path:       "src",
-				Returned:   2,
+				Returned:   3,
 				NextOffset: 3,
-				Entries: []ToolPreviewListEntry{
-					{Path: "main.go"},
-					{Path: "pkg/tool.go"},
-				},
-			},
-		},
-		{
-			name: "ls list",
-			tool: "ls",
-			args: map[string]any{
-				"path": "src",
-			},
-			result: `{"output":"cmd/\nmain.go\n"}`,
-			want: ToolPreview{
-				Kind:     ToolPreviewKindLSList,
-				Path:     "src",
-				Returned: 2,
 				Entries: []ToolPreviewListEntry{
 					{Path: "cmd", IsDir: true},
 					{Path: "main.go"},
+					{Path: "pkg/tool.go"},
 				},
 			},
 		},

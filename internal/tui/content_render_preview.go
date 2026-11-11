@@ -66,18 +66,6 @@ func (b *contentBuffer) buildGlobLines(tc *toolCallSegment) []string {
 	})
 }
 
-func (b *contentBuffer) buildLSLines(tc *toolCallSegment) []string {
-	return b.buildListLines(listLinesParams{
-		path:       tc.preview.Path,
-		label:      "directory listing",
-		returned:   tc.preview.Returned,
-		nextOffset: tc.preview.NextOffset,
-		truncated:  tc.preview.Truncated,
-		entries:    tc.preview.Entries,
-		showDirs:   true,
-	})
-}
-
 // listLinesParams bundles the arguments for buildListLines.
 type listLinesParams struct {
 	path       string

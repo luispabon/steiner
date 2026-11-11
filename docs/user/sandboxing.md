@@ -13,7 +13,7 @@ Sandboxed:
 
 Not sandboxed:
 
-- the built-in file tools (`read`, `mutate`, `glob`, `grep`, `ls`, `display_file`), which enforce path policy inside Steiner
+- the built-in file tools (`read`, `mutate`, `glob`, `grep`, `display_file`), which enforce path policy inside Steiner
 - `fetch_url` and `web_search`
 - remote HTTP MCP servers, which run on someone else's infrastructure
 

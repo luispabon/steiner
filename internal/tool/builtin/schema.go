@@ -71,12 +71,11 @@ func GlobSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "Glob pattern to match"},
-			"path":    map[string]any{"type": "string", "description": "Directory to search in"},
+			"pattern": map[string]any{"type": "string", "description": "Glob pattern relative to path, default \"*\" (one level). \"**\" recurses, a trailing \"/\" matches directories only, and the pattern matches both files and directories."},
+			"path":    map[string]any{"type": "string", "description": "Directory to search in (default: current directory)"},
 			"limit":   map[string]any{"type": "integer", "description": "Max results (default: 200)", "default": defaultGlobLimit, "maximum": maxGlobLimit},
 			"offset":  map[string]any{"type": "integer", "description": "Result offset (default: 0)", "default": 0},
 		},
-		"required":             []string{"pattern"},
 		"additionalProperties": false,
 	}
 }
@@ -101,20 +100,6 @@ func GrepSchema() map[string]any {
 			"offset":           map[string]any{"type": "integer", "description": "Logical result offset", "default": 0},
 		},
 		"required":             []string{"pattern"},
-		"additionalProperties": false,
-	}
-}
-
-// LSSchema returns the JSON schema for the ls tool.
-func LSSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":      map[string]any{"type": "string", "description": "Directory to list"},
-			"recursive": map[string]any{"type": "boolean", "description": "List recursively"},
-			"limit":     map[string]any{"type": "integer", "description": "Max results", "default": defaultLSLimit, "maximum": maxLSLimit},
-			"offset":    map[string]any{"type": "integer", "description": "Result offset", "default": 0},
-		},
 		"additionalProperties": false,
 	}
 }

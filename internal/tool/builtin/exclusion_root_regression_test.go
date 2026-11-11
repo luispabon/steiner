@@ -24,13 +24,9 @@ func TestSearchExclusions_IntermediateSymlinkRoot(t *testing.T) {
 
 	assertSameStringSet(t, "excluded grep rows", grepWorkspaceRows(t, env, "alias/secret"), nil)
 	assertSameStringSet(t, "excluded glob rows", globWorkspaceRows(t, env, "alias/secret"), nil)
-	assertSameStringSet(t, "excluded recursive ls rows", lsWorkspaceRows(t, env, "alias/secret", true, 0), nil)
-	assertSameStringSet(t, "excluded non-recursive ls rows", lsWorkspaceRows(t, env, "alias/secret", false, 0), nil)
 
 	assertSameStringSet(t, "allowed grep rows", grepWorkspaceRows(t, env, "alias/open"), []string{"key.go"})
 	assertSameStringSet(t, "allowed glob rows", globWorkspaceRows(t, env, "alias/open"), []string{"key.go"})
-	assertSameStringSet(t, "allowed recursive ls rows", lsWorkspaceRows(t, env, "alias/open", true, 0), []string{"key.go"})
-	assertSameStringSet(t, "allowed non-recursive ls rows", lsWorkspaceRows(t, env, "alias/open", false, 0), []string{"key.go"})
 }
 
 // TestSearchExclusions_IntermediateSymlinkBlockedTarget proves resolving an
@@ -68,13 +64,6 @@ func TestSearchExclusions_IntermediateSymlinkBlockedTarget(t *testing.T) {
 				return err
 			},
 		},
-		{
-			name: "ls",
-			call: func() error {
-				_, err := NewLSTool(env).Handler(ctx, map[string]any{"path": "alias/secret", "recursive": true})
-				return err
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,8 +90,6 @@ func TestSearchExclusions_ExplicitRootBelowBuiltinSymlink(t *testing.T) {
 
 	assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, "build/up"), []string{"src/main.go"})
 	assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, "build/up"), []string{"src/main.go"})
-	assertSameStringSet(t, "recursive ls rows", lsWorkspaceRows(t, env, "build/up", true, 0), []string{"src/", "src/main.go"})
-	assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, "build/up", false, 0), []string{"src/"})
 }
 
 // TestSearchExclusions_SandboxTmpProvenance proves exclusion checks follow the
@@ -180,8 +167,6 @@ func TestSearchExclusions_SandboxTmpProvenance(t *testing.T) {
 
 			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, tt.searchPath), tt.want)
 			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, tt.searchPath), tt.want)
-			assertSameStringSet(t, "recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, true, 0), tt.want)
-			assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, false, 0), tt.want)
 		})
 	}
 }

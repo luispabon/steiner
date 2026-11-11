@@ -29,7 +29,7 @@ func probeScopeSealed(t *testing.T, sup *delegation.Supervisor, scope string) bo
 func toolBatchScript() *asyncScript {
 	script := newAsyncScript()
 	script.parent = []func(provider.ChatRequest) provider.ChatResponse{
-		step(toolCallsResponse(provider.ToolCall{ID: "ls-1", Name: "ls", Arguments: map[string]any{"path": "."}})),
+		step(toolCallsResponse(provider.ToolCall{ID: "glob-1", Name: "glob", Arguments: map[string]any{"pattern": "*"}})),
 		step(textResponse("done")),
 	}
 	return script

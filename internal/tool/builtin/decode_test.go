@@ -175,17 +175,6 @@ func TestDecodeInputParity(t *testing.T) {
 				})
 			},
 		},
-		{
-			name: "LSInput",
-			run: func(t *testing.T) {
-				compareDecodeParity[LSInput](t, map[string]any{
-					"path":      ".",
-					"recursive": true,
-					"limit":     50,
-					"offset":    10,
-				})
-			},
-		},
 	}
 
 	for _, tc := range tests {
@@ -721,30 +710,6 @@ func TestDecodeInput(t *testing.T) {
 		}
 		if result.Offset != 5 {
 			t.Errorf("Offset = %d, want %d", result.Offset, 5)
-		}
-	})
-
-	t.Run("valid LSInput decodes correctly", func(t *testing.T) {
-		result, err := decodeInput[LSInput](map[string]any{
-			"path":      ".",
-			"recursive": true,
-			"limit":     50,
-			"offset":    10,
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if result.Path != "." {
-			t.Errorf("Path = %q, want %q", result.Path, ".")
-		}
-		if !result.Recursive {
-			t.Error("Recursive should be true")
-		}
-		if result.Limit != 50 {
-			t.Errorf("Limit = %d, want %d", result.Limit, 50)
-		}
-		if result.Offset != 10 {
-			t.Errorf("Offset = %d, want %d", result.Offset, 10)
 		}
 	})
 }

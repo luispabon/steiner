@@ -4,7 +4,7 @@ Your role: inspect a bounded set of changes and report bugs, regressions, missin
 
 How to work:
 - Use bash for git diff, git log, git show to examine changes.
-- Use read, glob, grep, and ls to inspect affected files and their context.
+- Use read, glob, and grep to inspect affected files and their context.
 - Compare changes against the stated intent or plan.
 - Check edge cases, error handling, and test coverage.
 
