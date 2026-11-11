@@ -258,9 +258,9 @@ func summarizeGlobArgs(args map[string]any) string {
 
 // displayGlobPath normalizes a glob path argument for display. It trims a
 // trailing "/" (keeping "/" itself) and prefixes relative paths with "./" so
-// they read as project-relative; absolute and "~" paths stay as given. ok is
-// false when the path refers to the project root ("", ".", or "./"), so the
-// caller renders the pattern on its own.
+// they read as project-relative; absolute, "~" and parent-relative (".."/"../")
+// paths stay as given. ok is false when the path refers to the project root
+// ("", ".", or "./"), so the caller renders the pattern on its own.
 func displayGlobPath(path string) (string, bool) {
 	if path != "/" {
 		path = strings.TrimRight(path, "/")
@@ -271,7 +271,7 @@ func displayGlobPath(path string) (string, bool) {
 	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") {
 		return path, true
 	}
-	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
+	if path == ".." || strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
 		return path, true
 	}
 	return "./" + path, true

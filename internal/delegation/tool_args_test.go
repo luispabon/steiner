@@ -262,6 +262,26 @@ func TestSummarizeGlobArgs(t *testing.T) {
 			expected: "../x/*.go",
 		},
 		{
+			name:     "parent directory without pattern",
+			args:     map[string]any{"path": ".."},
+			expected: "..",
+		},
+		{
+			name:     "parent directory with pattern",
+			args:     map[string]any{"path": "..", "pattern": "*.go"},
+			expected: "../*.go",
+		},
+		{
+			name:     "parent directory with trailing slash without pattern",
+			args:     map[string]any{"path": "../"},
+			expected: "..",
+		},
+		{
+			name:     "parent directory with trailing slash with pattern",
+			args:     map[string]any{"path": "../", "pattern": "*.go"},
+			expected: "../*.go",
+		},
+		{
 			name:     "absolute path without pattern",
 			args:     map[string]any{"path": "/abs"},
 			expected: "/abs",
