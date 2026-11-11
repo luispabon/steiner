@@ -143,14 +143,17 @@ func compileWorkspaceExcludeForms(forms []string, slash bool) ([]workspacePatter
 	return slashPatterns, componentPatterns, ""
 }
 
-// normalizeWorkspaceExcludeForm drops empty path segments from one expanded
-// brace form. An empty alternative contributes no segment, so the "a//c" form of
+// normalizeWorkspaceExcludeForm drops path segments that can never match a
+// walked component from one expanded brace form: empty segments and "."
+// segments. An empty alternative contributes no segment, so the "a//c" form of
 // "a/{b,}/c" names "a/c"; a leading separator left by an alternative such as
 // "/build" or a trailing one as in "build/" names the same anchored component
-// as "build". Only separators of the whole expanded form are considered, so the
-// prefix in "x{/a,b}" still binds to its alternative and the form stays "x/a"
-// rather than collapsing to "xa". Separators inside a character class or escaped
-// by a backslash are left alone.
+// as "build". A "." alternative such as the one in "{.,a/b}" therefore
+// normalises away instead of failing the whole entry. Only separators of the
+// whole expanded form are considered, so the prefix in "x{/a,b}" still binds to
+// its alternative and the form stays "x/a" rather than collapsing to "xa".
+// Separators and dots inside a character class or escaped by a backslash are
+// left alone.
 func normalizeWorkspaceExcludeForm(form string) string {
 	segments := make([]string, 0, strings.Count(form, "/")+1)
 	start := 0
@@ -161,16 +164,24 @@ func normalizeWorkspaceExcludeForm(form string) string {
 		case '[':
 			i = globexpand.SkipClass(form, i)
 		case '/':
-			if segment := form[start:i]; segment != "" {
+			if segment := form[start:i]; matchableWorkspaceFormSegment(segment) {
 				segments = append(segments, segment)
 			}
 			start = i + 1
 		}
 	}
-	if segment := form[start:]; segment != "" {
+	if segment := form[start:]; matchableWorkspaceFormSegment(segment) {
 		segments = append(segments, segment)
 	}
 	return strings.Join(segments, "/")
+}
+
+// matchableWorkspaceFormSegment reports whether one segment of an expanded form
+// can match a cleaned relative path component. An empty segment comes from a
+// repeated or edge separator, and "." names the current directory, so neither can
+// match a walked entry.
+func matchableWorkspaceFormSegment(segment string) bool {
+	return segment != "" && segment != "."
 }
 
 // invalidExcludeReasonFor maps an expansion error to its fixed report reason.

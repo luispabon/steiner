@@ -202,27 +202,71 @@ func TestInvalidWorkspaceExcludePatterns(t *testing.T) {
 }
 
 // TestNormalizeWorkspaceExcludeForm pins how one expanded brace form is
-// normalised: empty segments collapse, while separators inside a character class
-// or escaped by a backslash stay part of their segment.
+// normalised: empty and "." segments collapse, while separators and dots inside
+// a character class or escaped by a backslash stay part of their segment.
 func TestNormalizeWorkspaceExcludeForm(t *testing.T) {
 	tests := map[string]string{
-		"":         "",
-		"/":        "",
-		"./":       ".",
-		"/build":   "build",
-		"build/":   "build",
-		"a//c":     "a/c",
-		"a/./c":    "a/./c",
-		"x/a":      "x/a",
-		"a[ /]b":   "a[ /]b",
-		`a\/b`:     `a\/b`,
-		"a[ /]//b": "a[ /]/b",
-		"a/[x]/b":  "a/[x]/b",
+		"":          "",
+		"/":         "",
+		".":         "",
+		"./":        "",
+		"/./":       "",
+		"a/./.":     "a",
+		"/build":    "build",
+		"build/":    "build",
+		"a//c":      "a/c",
+		"a/./c":     "a/c",
+		"x/a":       "x/a",
+		"a[ /]b":    "a[ /]b",
+		`a\/b`:      `a\/b`,
+		`a/\./b`:    `a/\./b`,
+		"a/[.]/b":   "a/[.]/b",
+		"a[ /]//b":  "a[ /]/b",
+		"a/[x]/b":   "a/[x]/b",
+		"././a/./b": "a/b",
 	}
 	for form, want := range tests {
 		if got := normalizeWorkspaceExcludeForm(form); got != want {
 			t.Errorf("normalizeWorkspaceExcludeForm(%q) = %q, want %q", form, got, want)
 		}
+	}
+}
+
+// TestWorkspaceExcluder_DotOnlyAlternativeSkipped proves an alternative that
+// normalises to nothing, such as the "." in "{.,a/b}", is skipped without
+// marking the whole configured entry invalid, and that its sibling alternatives
+// still apply with the entry's workspace anchoring.
+func TestWorkspaceExcluder_DotOnlyAlternativeSkipped(t *testing.T) {
+	tests := []struct {
+		pattern string
+		paths   map[string]bool
+	}{
+		{
+			pattern: "{.,a/b}",
+			paths:   map[string]bool{"/ws/a/b": true, "/ws/a": false, "/ws/x/a/b": false},
+		},
+		{
+			pattern: "{./,a/b}",
+			paths:   map[string]bool{"/ws/a/b": true, "/ws/a": false, "/ws/x/a/b": false},
+		},
+		{
+			pattern: "{.,a/b,c}",
+			paths:   map[string]bool{"/ws/a/b": true, "/ws/c": true, "/ws/x/c": false},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.pattern, func(t *testing.T) {
+			ex := newWorkspaceExcluder("/ws", nil, []string{tc.pattern}, nil, false)
+			invalid, count := ex.InvalidExcludePatterns()
+			if len(invalid) != 0 || count != 0 {
+				t.Fatalf("InvalidExcludePatterns() = %v (count %d), want no malformed patterns", invalid, count)
+			}
+			for path, want := range tc.paths {
+				if got := ex.ExcludeEntry("/ws", path, false); got != want {
+					t.Errorf("ExcludeEntry(%q, %q) = %v, want %v", tc.pattern, path, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -236,7 +280,6 @@ func TestWorkspaceExcluder_InvalidPatternReportsAreCopies(t *testing.T) {
 		t.Fatalf("reported %v (count %d), want one malformed pattern", invalid, count)
 	}
 	invalid[0].Reason = "mutated"
-	_ = append(invalid, InvalidExcludePattern{Index: 7, Reason: "mutated"})
 
 	again, againCount := ex.InvalidExcludePatterns()
 	if !slices.Equal(again, []InvalidExcludePattern{{Index: 0, Reason: "unmatched brace"}}) || againCount != 1 {
