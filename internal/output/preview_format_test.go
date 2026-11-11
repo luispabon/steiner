@@ -62,12 +62,12 @@ func main() {
 	}
 }
 
-func TestFormatFilePreviewWithLimit(t *testing.T) {
-	got := FormatFilePreviewWithLimit("main.go", `package main
+func TestFormatFilePreview(t *testing.T) {
+	got := FormatFilePreview("main.go", `package main
 func main() {
 	fmt.Println("hi")
 }
-`, 10)
+`)
 
 	if got.Kind != PreviewFormatKindFile {
 		t.Fatalf("Kind = %q, want %q", got.Kind, PreviewFormatKindFile)
@@ -158,19 +158,20 @@ func TestFormatEditDiffPreviewTrimsSharedMarkdownHeadingPrefix(t *testing.T) {
 }
 
 func TestFormatFilePreviewTruncates(t *testing.T) {
-	got := FormatFilePreviewWithLimit("notes.txt", "one\ntwo\nthree\n", 2)
+	got := FormatFilePreview("notes.txt", strings.Repeat("line\n", defaultPreviewLineLimit+2))
 
 	if !got.Truncated {
 		t.Fatalf("Truncated = false, want true")
 	}
-	if len(got.Lines) != 3 {
-		t.Fatalf("len(Lines) = %d, want 3", len(got.Lines))
+	if len(got.Lines) != defaultPreviewLineLimit+1 {
+		t.Fatalf("len(Lines) = %d, want %d", len(got.Lines), defaultPreviewLineLimit+1)
 	}
-	if got.Lines[2].Kind != PreviewLineKindTruncated {
-		t.Fatalf("truncation line kind = %q, want %q", got.Lines[2].Kind, PreviewLineKindTruncated)
+	last := got.Lines[defaultPreviewLineLimit]
+	if last.Kind != PreviewLineKindTruncated {
+		t.Fatalf("truncation line kind = %q, want %q", last.Kind, PreviewLineKindTruncated)
 	}
-	if got.Lines[2].Prefix != "…" {
-		t.Fatalf("truncation line prefix = %q, want ellipsis", got.Lines[2].Prefix)
+	if last.Prefix != "…" {
+		t.Fatalf("truncation line prefix = %q, want ellipsis", last.Prefix)
 	}
 }
 
