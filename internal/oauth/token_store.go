@@ -64,9 +64,8 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create token dir: %w", err)
+	if err := s.ensureDir(); err != nil {
+		return err
 	}
 
 	existing, err := s.readLocked()
@@ -111,8 +110,11 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 
 // SaveLocked writes token under the cross-process token lock that refresh
 // holds for its read-refresh-save cycle, so a login save serializes with a
-// refresh already in progress and is not overwritten by it. ctx bounds the wait
-// for the lock; a cancelled ctx saves nothing.
+// refresh already in progress and is not overwritten by it.
+//
+// ctx bounds the wait for the lock and the pre-acquire check: a ctx cancelled
+// before the lock is acquired saves nothing. Cancellation racing a successful
+// acquisition is not checked, so a save that already holds the lock writes.
 //
 // Save itself takes no lock, because refresh calls it while already holding the
 // token lock; locking there would deadlock.
@@ -123,6 +125,11 @@ func (s *TokenStore) SaveLocked(ctx context.Context, token *oauth2.Token) error 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("save token under lock: %w", err)
 	}
+	// The lock file lives beside the token, so its directory must exist before
+	// the lock can be taken, with the same permissions Save gives it.
+	if err := s.ensureDir(); err != nil {
+		return err
+	}
 	unlock, err := acquireTokenLock(ctx, s.path)
 	if err != nil {
 		return fmt.Errorf("save token under lock: %w", err)
@@ -130,6 +137,14 @@ func (s *TokenStore) SaveLocked(ctx context.Context, token *oauth2.Token) error 
 	defer unlock()
 
 	return s.Save(token)
+}
+
+// ensureDir creates the token file's parent directory with 0o700 permissions.
+func (s *TokenStore) ensureDir() error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return fmt.Errorf("create token dir: %w", err)
+	}
+	return nil
 }
 
 // Load reads and unmarshals the token from disk.

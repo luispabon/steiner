@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -122,6 +123,38 @@ func TestTokenStoreSaveLockedCancelledContextDoesNotSave(t *testing.T) {
 			t.Errorf("persisted AccessToken = %q, want stored-token: a cancelled save must not write", stored.AccessToken)
 		}
 	})
+}
+
+func TestTokenStoreSaveLockedCreatesParentDir(t *testing.T) {
+	if !tokenLockSupported {
+		t.Skip("cross-process token lock is unavailable on this platform")
+	}
+
+	// A first login has no config directory yet. The lock file lives beside the
+	// token, so the parent must be created before the lock is taken, with the
+	// same permissions Save gives it.
+	dir := filepath.Join(t.TempDir(), "steiner")
+	path := filepath.Join(dir, "codex_auth.json")
+	store := NewTokenStore(path)
+
+	if err := store.SaveLocked(context.Background(), loginTestToken()); err != nil {
+		t.Fatalf("SaveLocked() error = %v, want a first save to create the parent directory", err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		t.Errorf("token dir mode = %o, want 0o700", mode)
+	}
+	stored, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stored.AccessToken != "login-token" {
+		t.Errorf("persisted AccessToken = %q, want login-token", stored.AccessToken)
+	}
 }
 
 func TestTokenStoreSaveDoesNotTakeTokenLock(t *testing.T) {
