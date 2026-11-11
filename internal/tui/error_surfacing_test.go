@@ -99,8 +99,11 @@ func TestSessionHealthSaveNotice(t *testing.T) {
 	}{
 		{name: "save warning shows notice and logs", scope: output.SessionHealthScopeSave, severity: "warning", wantNotice: true, wantLog: true, wantLevel: devLogWarning},
 		{name: "save critical shows notice and logs error", scope: output.SessionHealthScopeSave, severity: "critical", wantNotice: true, wantLog: true, wantLevel: devLogError},
+		{name: "sandbox tmp warning shows notice and logs", scope: output.SessionHealthScopeSandboxTmp, severity: "warning", wantNotice: true, wantLog: true, wantLevel: devLogWarning},
+		{name: "sandbox tmp critical shows notice and logs error", scope: output.SessionHealthScopeSandboxTmp, severity: "critical", wantNotice: true, wantLog: true, wantLevel: devLogError},
 		{name: "other scope logs only", scope: "", severity: "warning", wantLog: true, wantLevel: devLogWarning},
 		{name: "save info is silent", scope: output.SessionHealthScopeSave, severity: "info"},
+		{name: "sandbox tmp info is silent", scope: output.SessionHealthScopeSandboxTmp, severity: "info"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

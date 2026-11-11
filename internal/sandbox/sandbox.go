@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +33,13 @@ type Sandbox struct {
 
 	resourceMu       sync.Mutex
 	commandResources map[*exec.Cmd]*sshOverlay
+
+	tmpMu                 sync.Mutex
+	tmpLock               *os.File // held flock on the tmp dir inode, nil when unprotected
+	tmpLockUnsupported    bool     // platform has no advisory directory lock
+	tmpClosed             bool     // Cleanup already ran
+	tmpWarned             bool     // reprovision handler already fired
+	tmpReprovisionHandler func(string)
 }
 
 // New creates a Sandbox. rootDir, workDir, userHome, and tmpDir must be absolute paths.
@@ -184,6 +193,25 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cm
 	if !s.cfg.Enabled {
 		return cmd, nil
 	}
+	tmpDir := s.tmpDir
+	if tmpDir != "" {
+		bindable, err := s.ensureTmpDir()
+		if err != nil {
+			if errors.Is(err, errSandboxClosed) || !readOnlyProject {
+				return nil, err
+			}
+			// Read-only mode cannot bind a directory that is missing or
+			// unusable, so it falls back to a tmpfs /tmp.
+			slog.Warn("sandbox tmp dir unavailable, using tmpfs /tmp", "path", s.tmpDir, "error", err)
+			tmpDir = ""
+		} else if !bindable {
+			if !readOnlyProject {
+				return nil, fmt.Errorf("sandbox tmp dir %s: %w", s.tmpDir, errTmpDirNotOwned)
+			}
+			slog.Warn("sandbox tmp dir not owned by this session, using tmpfs /tmp", "path", s.tmpDir)
+			tmpDir = ""
+		}
+	}
 	overlay := s.prepareOverlay(cmd)
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
 	if err := s.prepareCache(sandboxHome, readOnlyProject); err != nil {
@@ -196,7 +224,7 @@ func (s *Sandbox) WrapCommandMode(cmd *exec.Cmd, readOnlyProject bool) (*exec.Cm
 	if overlay != nil {
 		overlayArgs = overlay.bwrapArgs
 	}
-	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.cfg.HostMounts, overlayArgs, s.tmpDir, readOnlyProject, s.perms, s.cfg.BindHostCache)
+	bwrapArgs := BuildArgs(s.root, s.workDir, sandboxHome, s.userHome, s.cfg.HostMounts, overlayArgs, tmpDir, readOnlyProject, s.perms, s.cfg.BindHostCache)
 
 	// Build the new Args slice: [bwrap, ...bwrap-args..., "--", original-cmd, original-args...]
 	args := make([]string, 0, 1+len(bwrapArgs)+1+len(cmd.Args))
@@ -308,39 +336,6 @@ func (s *Sandbox) EnsureHome() error {
 	sandboxHome := filepath.Join(s.root, ".steiner", "home")
 	if err := EnsureDirectoryPath(s.root, sandboxHome); err != nil {
 		return fmt.Errorf("create sandbox home dir: %w", err)
-	}
-	return nil
-}
-
-// Cleanup removes the session-scoped tmp directory.
-// No-op when tmpDir is empty.
-func (s *Sandbox) Cleanup() error {
-	if s.tmpDir == "" || (s.root != "" && safeDirectoryPath(s.root, s.tmpDir) != nil) {
-		return nil
-	}
-	if err := os.RemoveAll(s.tmpDir); err != nil {
-		return fmt.Errorf("remove sandbox tmp dir: %w", err)
-	}
-	return nil
-}
-
-// ResetTmp removes all entries inside tmpDir but keeps the directory.
-// No-op when tmpDir is empty. If tmpDir does not exist, returns nil.
-func (s *Sandbox) ResetTmp() error {
-	if s.tmpDir == "" || (s.root != "" && safeDirectoryPath(s.root, s.tmpDir) != nil) {
-		return nil
-	}
-	entries, err := os.ReadDir(s.tmpDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read sandbox tmp dir: %w", err)
-	}
-	for _, e := range entries {
-		if err := os.RemoveAll(filepath.Join(s.tmpDir, e.Name())); err != nil {
-			return fmt.Errorf("remove sandbox tmp entry: %w", err)
-		}
 	}
 	return nil
 }

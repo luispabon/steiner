@@ -47,7 +47,7 @@ steiner --unsafe
 
 - The host root is mounted read-only. Paths keep their host locations.
 - The project root is writable in build mode.
-- `/tmp` is a session directory under `.steiner/tmp/sandbox-tmp/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, and exit.
+- `/tmp` is a session directory under `.steiner/tmp/sandbox-tmp/`. It persists across tool calls and is cleared on `/clear`, `/resume`, `/fork`, and exit. If it disappears mid-session, Steiner recovers it and warns once that files written there earlier are lost.
 - The sandbox home, `.steiner/home/`, holds tool state and persists across sessions. Delete it to reset.
 - When `~/.cache` exists, a private cache (`.steiner/home/cache/`) is mounted in its place, so sandboxed tools cannot poison the cache used by unsandboxed runs. The first builds are slower. Set `sandbox.bind_host_cache: true` to share the real cache read-write.
 - `/dev` is minimal and `/proc` is fresh.

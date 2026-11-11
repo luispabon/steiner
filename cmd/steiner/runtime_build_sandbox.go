@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,10 +14,22 @@ import (
 	"github.com/luispabon/steiner/internal/sandbox"
 )
 
+// sandboxTmpMaxAttempts bounds createSandboxTmpDir ID collision retries.
+const sandboxTmpMaxAttempts = 8
+
+// errSandboxTmpCollision reports that a generated sandbox tmp dir ID is already
+// in use, so a fresh ID must be generated.
+var errSandboxTmpCollision = errors.New("sandbox tmp dir id collision")
+
+// sandboxTmpRandRead reads random bytes for sandbox tmp dir IDs; tests replace it.
+var sandboxTmpRandRead = rand.Read
+
 // cleanupSandboxTmpOrphans removes stale per-session sandbox tmp directories
 // older than maxAge from parentDir. Best-effort: never fails the caller.
-// Emits start/done status to stderr when there is work to do, since removing
-// large trees (e.g. Go module caches) can take a while.
+// Directories still locked by a live steiner runtime are kept. Emits
+// start/done status to stderr when there is work to do, since checking and
+// removing large trees (e.g. Go module caches) can take a while and the count
+// includes live directories that are skipped.
 func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	var oldCount int
@@ -33,7 +46,7 @@ func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) {
 	if oldCount == 0 {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "Cleaning up %d old sandbox tmp director%s...\n", oldCount, pluralSuffix(oldCount))
+	fmt.Fprintf(os.Stderr, "Checking %d old sandbox tmp director%s...\n", oldCount, pluralSuffix(oldCount))
 	sandbox.CleanupOrphans(parentDir, maxAge)
 	fmt.Fprintf(os.Stderr, "Done.\n")
 }
@@ -46,29 +59,45 @@ func pluralSuffix(n int) string {
 }
 
 // createSandboxTmpDir generates a random 8-byte hex ID and creates a fresh
-// session-scoped directory at parentDir/<id>. If a directory with the
-// generated ID already exists (collision), it is removed and recreated.
+// session-scoped directory at parentDir/<id>. A generated ID that already
+// exists belongs to another session, so a collision draws a new ID instead of
+// removing the existing directory.
 func createSandboxTmpDir(parentDir string) (string, error) {
-	var idBuf [8]byte
-	if _, err := rand.Read(idBuf[:]); err != nil {
-		return "", fmt.Errorf("generate sandbox tmp id: %w", err)
-	}
-	id := fmt.Sprintf("%x", idBuf[:])
-	tmpDir := filepath.Join(parentDir, id)
 	if err := sandbox.EnsureDirectoryPath(filepath.Dir(filepath.Dir(filepath.Dir(parentDir))), parentDir); err != nil {
 		return "", fmt.Errorf("unsafe sandbox tmp parent: %w", err)
 	}
+	for attempt := 0; attempt < sandboxTmpMaxAttempts; attempt++ {
+		tmpDir, err := createSandboxTmpDirAttempt(parentDir)
+		if err == nil {
+			return tmpDir, nil
+		}
+		if !errors.Is(err, errSandboxTmpCollision) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("create sandbox tmp dir: no unique id after %d attempts", sandboxTmpMaxAttempts)
+}
+
+// createSandboxTmpDirAttempt creates one random candidate directory, returning
+// errSandboxTmpCollision when that ID is already taken.
+func createSandboxTmpDirAttempt(parentDir string) (string, error) {
+	var idBuf [8]byte
+	if _, err := sandboxTmpRandRead(idBuf[:]); err != nil {
+		return "", fmt.Errorf("generate sandbox tmp id: %w", err)
+	}
+	tmpDir := filepath.Join(parentDir, fmt.Sprintf("%x", idBuf[:]))
 	if info, err := os.Lstat(tmpDir); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return "", fmt.Errorf("unsafe sandbox tmp dir: %s is not a real directory", tmpDir)
 		}
-		if err := os.RemoveAll(tmpDir); err != nil {
-			return "", fmt.Errorf("remove stale sandbox tmp dir: %w", err)
-		}
+		return "", errSandboxTmpCollision
 	} else if !os.IsNotExist(err) {
 		return "", fmt.Errorf("inspect sandbox tmp dir: %w", err)
 	}
 	if err := os.Mkdir(tmpDir, 0o755); err != nil {
+		if os.IsExist(err) {
+			return "", errSandboxTmpCollision
+		}
 		return "", fmt.Errorf("create sandbox tmp dir: %w", err)
 	}
 	return tmpDir, nil
@@ -99,11 +128,39 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 	}
 
 	s := sandbox.New(cfg.Sandbox, cfg.Permissions, projectRoot, workDir, userHome, tmpDir)
+	if err := s.LockTmpDir(); err != nil {
+		_ = s.Cleanup()
+		return nil, "", fmt.Errorf("sandbox setup: %w", err)
+	}
 	if err := s.EnsureHome(); err != nil {
 		_ = s.Cleanup()
 		return nil, "", fmt.Errorf("sandbox setup: %w", err)
 	}
 	return s, "active", nil
+}
+
+// wireSandboxTmpWarning points the sandbox tmp warning handler at events so a
+// lost /tmp reaches the sink of the run that is actually live: the TUI and
+// oneshot phase runtimes swap in their own sink after the runtime is built.
+func wireSandboxTmpWarning(sb *sandbox.Sandbox, events output.EventSink) {
+	if sb == nil || events == nil {
+		return
+	}
+	sb.SetTmpReprovisionHandler(sandboxTmpWarningHandler(events))
+}
+
+// sandboxTmpWarningHandler builds the callback a lost sandbox tmp dir reports
+// through, split out from wireSandboxTmpWarning so the emitted diagnostic shape
+// is testable without a Sandbox.
+func sandboxTmpWarningHandler(events output.EventSink) func(string) {
+	return func(message string) {
+		events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Scope:    output.SessionHealthScopeSandboxTmp,
+			Severity: "warning",
+			Notes:    []string{message},
+		}))
+	}
 }
 
 // emitSandboxWarning emits a SandboxStatusEvent when sandbox is not active and

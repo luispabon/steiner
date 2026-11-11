@@ -3,11 +3,15 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func TestCleanupOrphans(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("sandbox tmp dir liveness locks are linux-only")
+	}
 	baseDir := t.TempDir()
 
 	oldDir := filepath.Join(baseDir, "old")
@@ -57,6 +61,9 @@ func TestCleanupOrphans_BaseDirNotExist(t *testing.T) {
 }
 
 func TestCleanupOrphans_ReadOnlyFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("sandbox tmp dir liveness locks are linux-only")
+	}
 	baseDir := t.TempDir()
 
 	oldDir := filepath.Join(baseDir, "old")
