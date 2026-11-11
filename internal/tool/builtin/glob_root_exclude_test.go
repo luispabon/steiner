@@ -56,14 +56,7 @@ func TestGlobWalkExcludesRelativeToRoot(t *testing.T) {
 					pp := tool.NewPathPolicy(base, config.PathsConfig{})
 					policy = &pp
 				}
-				result := runGlobWalk(t, globWalkParams{
-					root:        root,
-					lexicalRoot: root,
-					pattern:     "**/*.go",
-					excluder:    tool.NewWorkspaceExcluder(base, nil, nil),
-					policy:      policy,
-					limit:       defaultGlobLimit,
-				})
+				result := runGlobWalk(t, globWalkParamsWith(root, "**/*.go", policy, tool.NewWorkspaceExcluder(base, nil, nil)))
 				got := outputRows(result.Output, "")
 				if strings.Join(got, ",") != strings.Join(tt.want, ",") {
 					t.Errorf("got %v, want %v", got, tt.want)

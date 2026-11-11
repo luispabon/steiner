@@ -65,18 +65,10 @@ func grepWorkspaceRows(t *testing.T, env Env, searchPath string) []string {
 
 func globWorkspaceRows(t *testing.T, env Env, searchPath string) []string {
 	t.Helper()
-	resultI, err := NewGlobTool(env).Handler(context.Background(), map[string]any{
+	return outputRows(runGlobTool(t, NewGlobTool(env), map[string]any{
 		"path":    searchPath,
 		"pattern": "**/*.go",
-	})
-	if err != nil {
-		t.Fatalf("glob %q: %v", searchPath, err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("glob result type = %T, want Result", resultI)
-	}
-	return outputRows(result.Output, "")
+	}).Output, "")
 }
 
 // TestWorkspaceExclusions_ApplyAcrossSearchTools proves grep and glob agree on
@@ -168,18 +160,11 @@ func TestGlobExclusionsFilterBeforePagination(t *testing.T) {
 				mustWriteTree(t, root, rel, "x")
 			}
 			env := workspaceTestEnv(t, root, tt.excludePaths, nil)
-			resultI, err := NewGlobTool(env).Handler(context.Background(), map[string]any{
+			result := runGlobTool(t, NewGlobTool(env), map[string]any{
 				"path":    ".",
 				"pattern": "*",
 				"limit":   1,
 			})
-			if err != nil {
-				t.Fatalf("glob: %v", err)
-			}
-			result, ok := resultI.(Result)
-			if !ok {
-				t.Fatalf("glob result type = %T, want Result", resultI)
-			}
 			if got := outputRows(result.Output, ""); !slices.Equal(got, tt.want) {
 				t.Fatalf("glob rows = %v, want %v", got, tt.want)
 			}

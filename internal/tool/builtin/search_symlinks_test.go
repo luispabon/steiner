@@ -67,18 +67,10 @@ func grepPatternRows(t *testing.T, env Env, searchPath string) []string {
 // globPatternRows runs the glob tool and returns its rows.
 func globPatternRows(t *testing.T, env Env, searchPath, pattern string) []string {
 	t.Helper()
-	resultI, err := NewGlobTool(env).Handler(context.Background(), map[string]any{
+	return outputRows(runGlobTool(t, NewGlobTool(env), map[string]any{
 		"path":    searchPath,
 		"pattern": pattern,
-	})
-	if err != nil {
-		t.Fatalf("glob %q: %v", searchPath, err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("glob result type = %T, want Result", resultI)
-	}
-	return outputRows(result.Output, "")
+	}).Output, "")
 }
 
 // TestSymlinkSearchEntryEligibility proves grep follows a nested symlink only
@@ -241,14 +233,7 @@ func TestGrepNestedSymlinkUsesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob lists the link", func(t *testing.T) {
-		result := runGlobWalk(t, globWalkParams{
-			root:        src,
-			lexicalRoot: src,
-			pattern:     "**/*.txt",
-			excluder:    tool.NewWorkspaceExcluder(root, nil, nil),
-			policy:      &policy,
-			limit:       defaultGlobLimit,
-		})
+		result := runGlobWalk(t, globWalkParamsWith(src, "**/*.txt", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
 		assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"tmplink.txt"})
 	})
 }
@@ -329,14 +314,7 @@ func TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets(t *testing.T) {
 	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp).WithVirtualTmpRequest("/tmp")
 	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"app.txt"})
 
-	result := runGlobWalk(t, globWalkParams{
-		root:        session,
-		lexicalRoot: session,
-		pattern:     "**/*.txt",
-		excluder:    excluder,
-		policy:      &policy,
-		limit:       defaultGlobLimit,
-	})
+	result := runGlobWalk(t, globWalkParamsWith(session, "**/*.txt", &policy, excluder))
 	want := []string{"link-allowed.txt", "report.txt"}
 	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"link-allowed.txt", "link-app.txt", "report.txt"})
 
