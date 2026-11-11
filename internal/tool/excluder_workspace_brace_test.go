@@ -64,8 +64,36 @@ func TestWorkspaceExcluder_BracePatterns(t *testing.T) {
 			paths:   map[string]bool{"/ws/b": true, "/ws/a/b": true, "/ws/x/b": false},
 		},
 		{
+			// The empty alternative names the "src/" directory itself, so the
+			// whole subtree is excluded, matching shell brace expansion.
 			pattern: "src/{gen,}",
-			paths:   map[string]bool{"/ws/src/gen": true, "/ws/src/x": false},
+			paths:   map[string]bool{"/ws/src/gen": true, "/ws/src/x": true, "/ws/other/src/x": false},
+		},
+		{
+			pattern: "a/{b,}/c",
+			paths:   map[string]bool{"/ws/a/b/c": true, "/ws/a/c": true, "/ws/a/x/c": false},
+		},
+		{
+			pattern: "{,}/b",
+			paths:   map[string]bool{"/ws/b": true, "/ws/x/b": false},
+		},
+		{
+			pattern: "{build/,dist}",
+			paths:   map[string]bool{"/ws/build": true, "/ws/dist": true, "/ws/x/build": false},
+		},
+		{
+			pattern: "{/build,dist}",
+			paths:   map[string]bool{"/ws/build": true, "/ws/dist": true, "/ws/x/build": false},
+		},
+		{
+			// The prefix binds to its own alternative, so the form stays "x/a"
+			// instead of collapsing to "xa".
+			pattern: "x{/a,b}",
+			paths:   map[string]bool{"/ws/x/a": true, "/ws/xb": true, "/ws/xa": false, "/ws/x/b": false},
+		},
+		{
+			pattern: "a}b",
+			paths:   map[string]bool{"/ws/a}b": false, "/ws/a": false, "/ws/b": false},
 		},
 	}
 	for _, tc := range tests {
@@ -84,13 +112,14 @@ func TestWorkspaceExcluder_BracePatterns(t *testing.T) {
 // reported by configuration position with a fixed reason that carries no
 // pattern text, while the remaining valid patterns still apply.
 func TestWorkspaceExcluder_InvalidPatternReports(t *testing.T) {
-	ex := newWorkspaceExcluder("/ws", nil, []string{"ok.txt", "aa{", "[abc", "*.log", "src/[abc"}, nil, false)
+	ex := newWorkspaceExcluder("/ws", nil, []string{"ok.txt", "aa{", "[abc", "*.log", "src/[abc", "a}b"}, nil, false)
 
 	invalid, count := ex.InvalidExcludePatterns()
 	want := []InvalidExcludePattern{
 		{Index: 1, Reason: "unmatched brace"},
 		{Index: 2, Reason: "invalid pattern"},
 		{Index: 4, Reason: "invalid pattern"},
+		{Index: 5, Reason: "unmatched brace"},
 	}
 	if !slices.Equal(invalid, want) {
 		t.Errorf("InvalidExcludePatterns() = %v, want %v", invalid, want)
@@ -169,5 +198,77 @@ func TestInvalidWorkspaceExcludePatterns(t *testing.T) {
 	}
 	if len(gotEntries) != 2 || gotCount != 2 {
 		t.Fatalf("reported %v (count %d), want two malformed patterns", gotEntries, gotCount)
+	}
+}
+
+// TestNormalizeWorkspaceExcludeForm pins how one expanded brace form is
+// normalised: empty segments collapse, while separators inside a character class
+// or escaped by a backslash stay part of their segment.
+func TestNormalizeWorkspaceExcludeForm(t *testing.T) {
+	tests := map[string]string{
+		"":         "",
+		"/":        "",
+		"./":       ".",
+		"/build":   "build",
+		"build/":   "build",
+		"a//c":     "a/c",
+		"a/./c":    "a/./c",
+		"x/a":      "x/a",
+		"a[ /]b":   "a[ /]b",
+		`a\/b`:     `a\/b`,
+		"a[ /]//b": "a[ /]/b",
+		"a/[x]/b":  "a/[x]/b",
+	}
+	for form, want := range tests {
+		if got := normalizeWorkspaceExcludeForm(form); got != want {
+			t.Errorf("normalizeWorkspaceExcludeForm(%q) = %q, want %q", form, got, want)
+		}
+	}
+}
+
+// TestWorkspaceExcluder_InvalidPatternReportsAreCopies proves callers cannot
+// mutate the excluder's recorded diagnostics through the returned slice.
+func TestWorkspaceExcluder_InvalidPatternReportsAreCopies(t *testing.T) {
+	ex := newWorkspaceExcluder("/ws", nil, []string{"aa{"}, nil, false)
+
+	invalid, count := ex.InvalidExcludePatterns()
+	if len(invalid) != 1 || count != 1 {
+		t.Fatalf("reported %v (count %d), want one malformed pattern", invalid, count)
+	}
+	invalid[0].Reason = "mutated"
+	_ = append(invalid, InvalidExcludePattern{Index: 7, Reason: "mutated"})
+
+	again, againCount := ex.InvalidExcludePatterns()
+	if !slices.Equal(again, []InvalidExcludePattern{{Index: 0, Reason: "unmatched brace"}}) || againCount != 1 {
+		t.Fatalf("InvalidExcludePatterns() after mutation = %v (count %d), want the recorded entry", again, againCount)
+	}
+}
+
+// TestWorkspaceExcluder_BracePatternWindowsSeparators proves brace alternatives
+// fold Windows separators before expansion and stay workspace-anchored. The
+// names avoid the built-in exclusion list so the assertions cover the configured
+// pattern only.
+func TestWorkspaceExcluder_BracePatternWindowsSeparators(t *testing.T) {
+	ex := newWorkspaceExcluder(`C:\ws`, nil, []string{`{Gen\Out,Assets}`, `Logs{`}, nil, true)
+
+	invalid, count := ex.InvalidExcludePatterns()
+	if !slices.Equal(invalid, []InvalidExcludePattern{{Index: 1, Reason: "unmatched brace"}}) || count != 1 {
+		t.Fatalf("InvalidExcludePatterns() = %v (count %d), want the malformed second entry", invalid, count)
+	}
+
+	tests := map[string]bool{
+		`C:\ws\gen\out\x.go`:    true,
+		`C:\ws\assets\x.go`:     true,
+		`C:\ws\src\assets\x.go`: false,
+		`C:\ws\gen\y.go`:        false,
+		`C:\ws\logs\x.go`:       false,
+	}
+	for path, want := range tests {
+		if got := ex.ExcludeEntry(`C:\ws`, path, false); got != want {
+			t.Errorf("ExcludeEntry(%q) = %v, want %v", path, got, want)
+		}
+	}
+	if ex.ExcludeEntry(`C:\elsewhere`, `C:\elsewhere\zzz\x.go`, false) {
+		t.Error("workspace-anchored alternative excluded a path outside the workspace")
 	}
 }

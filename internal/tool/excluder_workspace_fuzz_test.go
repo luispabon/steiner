@@ -22,6 +22,10 @@ func FuzzWorkspaceExcluder(f *testing.F) {
 		{pattern: "[abc", rel: "a"},
 		{pattern: "**/{a,b}", rel: "a/b/c"},
 		{pattern: "{a,}/b", rel: "a/b"},
+		{pattern: "a/{b,}/c", rel: "a/c"},
+		{pattern: "{/build,dist}", rel: "x/build"},
+		{pattern: "x{/a,b}", rel: "xa"},
+		{pattern: "a}b", rel: "ab"},
 	}
 	for _, seed := range seeds {
 		f.Add(seed.pattern, seed.rel)

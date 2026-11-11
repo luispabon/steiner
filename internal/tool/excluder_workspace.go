@@ -1,8 +1,6 @@
 package tool
 
 import (
-	"errors"
-	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -47,13 +45,17 @@ var builtinExcludeComponents = func() map[string]struct{} {
 //   - built-in directory names match walk-relative directory components only.
 //
 // Patterns may be prefixed with "./" or "/" and may end with separators;
-// these forms are normalised. Brace alternations are expanded before matching,
+// these forms are normalised, and empty path segments left by a brace
+// alternative or a repeated separator are dropped. Brace alternations are
+// expanded before matching,
 // so "src/{gen,out}" matches "src/gen" and "src/out", and a slash-free
-// alternative of a slash pattern keeps the whole entry's workspace anchoring. A
-// path segment that is exactly "**" matches zero or more path segments, so
-// "**/fixtures" matches both "fixtures" and "a/fixtures". Character classes do
-// not match separators, so "a[!x]b" matches a single path segment. Malformed
-// patterns are ignored and reported by InvalidExcludePatterns.
+// alternative of a slash pattern keeps the whole entry's workspace anchoring.
+// An empty alternative adds no segment, so "a/{b,}/c" matches "a/b/c" and
+// "a/c". A path segment that is exactly "**" matches zero or more path
+// segments, so "**/fixtures" matches both "fixtures" and "a/fixtures".
+// Character classes do not match separators, so "a[!x]b" matches a single path
+// segment. Malformed patterns are ignored and reported by
+// InvalidExcludePatterns.
 //
 // The zero value excludes nothing.
 type WorkspaceExcluder struct {
@@ -445,28 +447,13 @@ func componentOffsets(relSlash string) []int {
 }
 
 // compileWorkspaceSlashPattern compiles one slash pattern, reporting false when
-// the pattern is invalid or cannot match any path.
+// the pattern is invalid. Only a segment that is exactly "**" is a globstar; a
+// segment such as "a**" keeps its gobwas meaning and matches within one path
+// segment.
 func compileWorkspaceSlashPattern(pattern string) (workspacePattern, bool) {
-	compiled, err := buildWorkspaceSlashPattern(pattern)
-	if err != nil {
-		return workspacePattern{}, false
-	}
-	return compiled, true
-}
-
-// errWorkspacePatternNotMatchable reports a slash pattern whose segments cannot
-// match a cleaned relative path: an empty segment, or only "." segments. Brace
-// expansion can leave such a form, and it is skipped rather than reported as
-// invalid.
-var errWorkspacePatternNotMatchable = errors.New("pattern cannot match a path")
-
-// buildWorkspaceSlashPattern compiles one slash pattern. Only a segment that is
-// exactly "**" is a globstar; a segment such as "a**" keeps its gobwas meaning
-// and matches within one path segment.
-func buildWorkspaceSlashPattern(pattern string) (workspacePattern, error) {
 	segments, ok := splitWorkspacePatternSegments(pattern)
 	if !ok {
-		return workspacePattern{}, errWorkspacePatternNotMatchable
+		return workspacePattern{}, false
 	}
 	compiled := make([]workspacePatternSegment, 0, len(segments))
 	for _, segment := range segments {
@@ -484,7 +471,7 @@ func buildWorkspaceSlashPattern(pattern string) (workspacePattern, error) {
 		// excluding it keeps classes from crossing path segment boundaries.
 		matcher, err := glob.Compile(excludeSeparatorFromNegatedClasses(segment), '/')
 		if err != nil {
-			return workspacePattern{}, fmt.Errorf("compile workspace pattern segment: %w", err)
+			return workspacePattern{}, false
 		}
 		compiled = append(compiled, workspacePatternSegment{
 			multi:   strings.Contains(segment, "/") || hasUnescapedDoubleStar(segment),
@@ -493,9 +480,9 @@ func buildWorkspaceSlashPattern(pattern string) (workspacePattern, error) {
 		})
 	}
 	if len(compiled) == 0 {
-		return workspacePattern{}, errWorkspacePatternNotMatchable
+		return workspacePattern{}, false
 	}
-	return workspacePattern{segments: compiled}, nil
+	return workspacePattern{segments: compiled}, true
 }
 
 // literalPatternPrefix returns the literal text a glob pattern starts with,

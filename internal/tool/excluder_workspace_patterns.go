@@ -3,6 +3,7 @@ package tool
 import (
 	"errors"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/gobwas/glob"
@@ -32,12 +33,12 @@ type InvalidExcludePattern struct {
 	Reason string
 }
 
-// InvalidExcludePatterns returns the configured exclude patterns that could not
-// be compiled, in configuration order and capped at eight entries, plus the
-// total number of malformed patterns. The remaining valid patterns apply as
-// usual.
+// InvalidExcludePatterns returns a copy of the configured exclude patterns that
+// could not be compiled, in configuration order and capped at eight entries,
+// plus the total number of malformed patterns. The remaining valid patterns
+// apply as usual.
 func (e WorkspaceExcluder) InvalidExcludePatterns() ([]InvalidExcludePattern, int) {
-	return e.invalidPatterns, e.invalidPatternCount
+	return slices.Clone(e.invalidPatterns), e.invalidPatternCount
 }
 
 // InvalidWorkspaceExcludePatterns reports the malformed entries in patterns
@@ -106,15 +107,18 @@ func compileWorkspaceExcludePatterns(patterns []string, windows bool) ([]workspa
 }
 
 // compileWorkspaceExcludeForms compiles every expanded form of one exclude
-// pattern, returning a fixed reason when any form fails. Forms that cannot match
-// a cleaned relative path, such as the empty form left by "{}", are skipped.
+// pattern, returning a fixed reason when any form fails. Each form is normalised
+// on its own after expansion, so an empty brace alternative collapses to the
+// path it names ("a/{b,}/c" also matches "a/c") and a form left with no
+// segments is skipped.
 func compileWorkspaceExcludeForms(forms []string, slash bool) ([]workspacePattern, []glob.Glob, string) {
 	var (
 		slashPatterns     []workspacePattern
 		componentPatterns []glob.Glob
 	)
 	seen := make(map[string]struct{}, len(forms))
-	for _, form := range forms {
+	for _, raw := range forms {
+		form := normalizeWorkspaceExcludeForm(raw)
 		if form == "" {
 			continue
 		}
@@ -123,11 +127,8 @@ func compileWorkspaceExcludeForms(forms []string, slash bool) ([]workspacePatter
 		}
 		seen[form] = struct{}{}
 		if slash {
-			compiled, err := buildWorkspaceSlashPattern(form)
-			switch {
-			case errors.Is(err, errWorkspacePatternNotMatchable):
-				continue
-			case err != nil:
+			compiled, ok := compileWorkspaceSlashPattern(form)
+			if !ok {
 				return nil, nil, invalidExcludeReasonInvalidPattern
 			}
 			slashPatterns = append(slashPatterns, compiled)
@@ -140,6 +141,36 @@ func compileWorkspaceExcludeForms(forms []string, slash bool) ([]workspacePatter
 		componentPatterns = append(componentPatterns, matcher)
 	}
 	return slashPatterns, componentPatterns, ""
+}
+
+// normalizeWorkspaceExcludeForm drops empty path segments from one expanded
+// brace form. An empty alternative contributes no segment, so the "a//c" form of
+// "a/{b,}/c" names "a/c"; a leading separator left by an alternative such as
+// "/build" or a trailing one as in "build/" names the same anchored component
+// as "build". Only separators of the whole expanded form are considered, so the
+// prefix in "x{/a,b}" still binds to its alternative and the form stays "x/a"
+// rather than collapsing to "xa". Separators inside a character class or escaped
+// by a backslash are left alone.
+func normalizeWorkspaceExcludeForm(form string) string {
+	segments := make([]string, 0, strings.Count(form, "/")+1)
+	start := 0
+	for i := 0; i < len(form); i++ {
+		switch form[i] {
+		case '\\':
+			i++
+		case '[':
+			i = globexpand.SkipClass(form, i)
+		case '/':
+			if segment := form[start:i]; segment != "" {
+				segments = append(segments, segment)
+			}
+			start = i + 1
+		}
+	}
+	if segment := form[start:]; segment != "" {
+		segments = append(segments, segment)
+	}
+	return strings.Join(segments, "/")
 }
 
 // invalidExcludeReasonFor maps an expansion error to its fixed report reason.
