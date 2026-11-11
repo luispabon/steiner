@@ -233,15 +233,7 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 		return d.compact(ctx)
 	}
 	if d.held || !d.wakeReadyLocked() {
-		if between {
-			d.settleLocked()
-			return d.saveAndUnlock(ctx, true)
-		}
-		if d.quietSettleableLocked() {
-			return d.settleQuietLocked(ctx)
-		}
-		d.unlockEmit()
-		return false
+		return d.notReadyLocked(ctx, between)
 	}
 	if d.budgetSpentLocked() {
 		d.exhausted = true
@@ -259,6 +251,12 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 	if d.closing {
 		d.unlockEmit()
 		return false
+	}
+	if d.held || !d.wakeReadyLocked() {
+		// A stop or a taken-back steer in the PrepareTurn gap withdrew the
+		// wake. Keep buffered items for the next wake instead of starting a
+		// run the check before the gap approved.
+		return d.notReadyLocked(ctx, between)
 	}
 	drain, steer := d.drainItemsLocked(parts)
 	if drain.Message == nil {
@@ -293,6 +291,21 @@ func (d *ConversationDriver) step(ctx context.Context) bool {
 	cancel()
 	d.finish(ctx, out, err)
 	return true
+}
+
+// notReadyLocked handles a step whose inbox may not start a run: mid-sequence
+// it settles the state, otherwise it records quiet items and leaves wake items
+// buffered for a later wake.
+func (d *ConversationDriver) notReadyLocked(ctx context.Context, between bool) bool {
+	if between {
+		d.settleLocked()
+		return d.saveAndUnlock(ctx, true)
+	}
+	if d.quietSettleableLocked() {
+		return d.settleQuietLocked(ctx)
+	}
+	d.unlockEmit()
+	return false
 }
 
 func (d *ConversationDriver) pendingFn() func() []PendingSubAgent {
