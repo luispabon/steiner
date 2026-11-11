@@ -32,6 +32,22 @@ func requireSessionStarted(t *testing.T, sess session, err error) {
 	}
 }
 
+// entryFor and entryForKey are the test shims for acquireEntry and
+// acquireEntryForKey: they acquire a lease and release it immediately, because
+// these tests inspect manager state outside a document cycle. Tests that
+// exercise lease or shutdown semantics call acquireEntry directly.
+func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, error) {
+	ent, sess, lease, err := m.acquireEntry(ctx, file)
+	lease.Release()
+	return ent, sess, err
+}
+
+func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config.LSPServerConfig, key sessionKey) (*entry, session, error) {
+	ent, sess, lease, err := m.acquireEntryForKey(ctx, serverName, srv, key)
+	lease.Release()
+	return ent, sess, err
+}
+
 // rewindSpawnFailure ages every entry's StartedAt past spawnFailureBackoff so a
 // retry is due without the test waiting out the real backoff.
 func rewindSpawnFailure(t *testing.T, m *Manager) {

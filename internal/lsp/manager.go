@@ -18,10 +18,20 @@ import (
 // errNoServer is returned when no enabled server declares the file's extension.
 var errNoServer = errors.New("no server for file extension")
 
+// errManagerClosed is returned when a request reaches the manager after
+// Manager.Close started. It also covers a spawn that finishes after shutdown:
+// such a session is closed instead of published.
+var errManagerClosed = errors.New("lsp manager closed")
+
 // spawnFailureBackoff is how long a server that failed to start is left alone
 // before another request retries it. It is deliberately distinct from
 // IdleTimeout, which governs how long a healthy but unused session is kept.
 const spawnFailureBackoff = 30 * time.Second
+
+// sessionCloseTimeout bounds every session close the manager owns: idle reaping,
+// crash cleanup, late-spawn cleanup and shutdown. Callers must not hold the
+// manager or an entry lock while it elapses.
+const sessionCloseTimeout = 5 * time.Second
 
 // Manager owns the language server processes for a session.
 type Manager struct {
@@ -39,9 +49,17 @@ type Manager struct {
 
 	mu       sync.Mutex
 	sessions map[sessionKey]*entry
+	// closing is set by Close before it sweeps entries. New lookups and spawn
+	// publications read it, so nothing becomes usable after shutdown starts.
+	closing bool
+
+	// closeOnce runs Close's shutdown exactly once; concurrent callers wait for
+	// it to finish.
+	closeOnce sync.Once
 
 	reapTicker *time.Ticker
 	stopReaper chan struct{}
+	reaperDone chan struct{} // closed when reapIdle returns; nil without a reaper
 
 	resultCache *resultCache
 }
@@ -81,6 +99,7 @@ type entry struct {
 	mu        sync.Mutex
 	ready     chan struct{}
 	cycleMu   sync.Mutex // serializes open→request→close cycles for the same session
+	leases    int        // guarded by mu; nonzero pins the entry against the idle reaper
 }
 
 // ManagerOptions holds the optional settings for NewManager. Its zero value is
@@ -132,21 +151,25 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, opts Manage
 			interval = maxInterval
 		}
 		m.reapTicker = time.NewTicker(time.Duration(interval))
+		m.reaperDone = make(chan struct{})
 		go m.reapIdle()
 	}
 
 	return m
 }
 
-// entryFor returns or spawns a live entry (server session wrapper) for the given file.
-// It returns errNoServer if no enabled server declares the file's extension.
-// The caller must not hold m.mu when calling this method.
-func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, error) {
+// acquireEntry returns or spawns a live entry (server session wrapper) for the
+// given file and takes a lease on it. The lease keeps the idle reaper from
+// closing the session while the caller runs its document cycle; the caller must
+// Release it once that whole cycle finishes. It returns errNoServer if no
+// enabled server declares the file's extension, and errManagerClosed after
+// Close. The caller must not hold m.mu when calling this method.
+func (m *Manager) acquireEntry(ctx context.Context, file string) (*entry, session, *entryLease, error) {
 	m.mu.Lock()
 	serverName := m.serverForExtension(file)
 	if serverName == "" {
 		m.mu.Unlock()
-		return nil, nil, errNoServer
+		return nil, nil, nil, errNoServer
 	}
 
 	srv := m.cfg.Servers[serverName]
@@ -155,24 +178,43 @@ func (m *Manager) entryFor(ctx context.Context, file string) (*entry, session, e
 	// Resolve the root.
 	root := resolveRoot(file, m.workspace, srv.RootMarkers)
 
-	return m.entryForKey(ctx, serverName, srv, sessionKey{server: serverName, root: root})
+	return m.acquireEntryForKey(ctx, serverName, srv, sessionKey{server: serverName, root: root})
 }
 
-// entryForKey is entryFor's state machine, keyed directly so workspace-mode
-// symbol search can reuse it without a file to route through.
-func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config.LSPServerConfig, key sessionKey) (*entry, session, error) {
-	ent := m.lookupEntry(serverName, key)
+// closedErr reports errManagerClosed once Close has started.
+func (m *Manager) closedErr() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closing {
+		return errManagerClosed
+	}
+	return nil
+}
+
+// acquireEntryForKey is acquireEntry's state machine, keyed directly so
+// workspace-mode symbol search can reuse it without a file to route through.
+func (m *Manager) acquireEntryForKey(ctx context.Context, serverName string, srv config.LSPServerConfig, key sessionKey) (*entry, session, *entryLease, error) {
+	ent, err := m.lookupEntry(serverName, key)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	// Loop until we have a session or a definite error.
 	for {
+		// Close may have started while this call waited on a spawn. Check before
+		// every pass: a waiter woken by shutdown must not start a server.
+		if err := m.closedErr(); err != nil {
+			return nil, nil, nil, err
+		}
+
 		ent.mu.Lock()
 		switch ent.state.Status {
 		case ServerStatusReady:
-			sess, retry := m.readyEntry(ent)
+			sess, lease, retry := m.readyEntry(ent)
 			if retry {
 				continue
 			}
-			return ent, sess, nil
+			return ent, sess, lease, nil
 		case ServerStatusStarting:
 			ready := ent.ready
 			ent.mu.Unlock()
@@ -180,13 +222,13 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 			case <-ready:
 				continue
 			case <-ctx.Done():
-				return nil, nil, ctx.Err()
+				return nil, nil, nil, ctx.Err()
 			}
 		case ServerStatusFailed:
 			if time.Since(ent.state.StartedAt) < spawnFailureBackoff {
 				err := ent.state.Err
 				ent.mu.Unlock()
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			ent.state.Status = ServerStatusDeclared
 			ent.state.StartedAt = time.Now()
@@ -196,16 +238,21 @@ func (m *Manager) entryForKey(ctx context.Context, serverName string, srv config
 		default:
 			status := ent.state.Status
 			ent.mu.Unlock()
-			return nil, nil, fmt.Errorf("unexpected server status: %s", status)
+			return nil, nil, nil, fmt.Errorf("unexpected server status: %s", status)
 		}
 	}
 }
 
 // lookupEntry returns the entry for key, creating a declared one when none
-// exists, and refreshes LastUsed on an existing entry. The caller must not
-// hold m.mu or any entry mutex.
-func (m *Manager) lookupEntry(serverName string, key sessionKey) *entry {
+// exists, and refreshes LastUsed on an existing entry. It returns
+// errManagerClosed instead of creating an entry once Close has started. The
+// caller must not hold m.mu or any entry mutex.
+func (m *Manager) lookupEntry(serverName string, key sessionKey) (*entry, error) {
 	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		return nil, errManagerClosed
+	}
 	ent := m.sessions[key]
 	existing := ent != nil
 	if ent == nil {
@@ -230,15 +277,17 @@ func (m *Manager) lookupEntry(serverName string, key sessionKey) *entry {
 		ent.state.LastUsed = time.Now()
 		ent.mu.Unlock()
 	}
-	return ent
+	return ent, nil
 }
 
-// readyEntry returns the live session of a Ready entry. The caller must hold
-// ent.mu, and readyEntry releases it before returning. A session whose process
-// has exited is retired here: the entry moves to Stopped and retry is true so
-// the caller loops to respawn it (a failed respawn lands in ServerStatusFailed
-// and honours spawnFailureBackoff).
-func (m *Manager) readyEntry(ent *entry) (sess session, retry bool) {
+// readyEntry returns the live session of a Ready entry and takes a lease on it.
+// The caller must hold ent.mu, and readyEntry releases it before returning. The
+// lease is taken under ent.mu together with the session selection, so the idle
+// reaper cannot claim the entry in between. A session whose process has exited
+// is retired here: the entry moves to Stopped and retry is true so the caller
+// loops to respawn it (a failed respawn lands in ServerStatusFailed and honours
+// spawnFailureBackoff).
+func (m *Manager) readyEntry(ent *entry) (sess session, lease *entryLease, retry bool) {
 	sess = ent.session
 	if sess != nil {
 		select {
@@ -247,57 +296,90 @@ func (m *Manager) readyEntry(ent *entry) (sess session, retry bool) {
 			ent.state.Status = ServerStatusStopped
 			ent.session = nil
 			ent.mu.Unlock()
-			m.closeExitedSession(sess)
-			return nil, true
+			closeSession(sess)
+			return nil, nil, true
 		default:
 		}
 	}
+	lease = ent.acquireLease()
 	ent.mu.Unlock()
-	return sess, false
+	return sess, lease, false
 }
 
 // spawnEntry starts the server for ent. The caller must hold ent.mu with the
 // entry in Declared, Stopped or Failed-after-backoff. spawnEntry marks the entry
-// Starting, releases ent.mu for the spawn, then publishes the session (Ready) or
-// the failure (Failed) and wakes waiters on ent.ready. It returns with ent.mu
-// released.
-func (m *Manager) spawnEntry(ctx context.Context, ent *entry, serverName string, srv config.LSPServerConfig, root string) (*entry, session, error) {
+// Starting, releases ent.mu for the spawn, then publishes the session (Ready)
+// with the caller's lease or the failure (Failed) and wakes waiters on
+// ent.ready. It returns with ent.mu released.
+func (m *Manager) spawnEntry(ctx context.Context, ent *entry, serverName string, srv config.LSPServerConfig, root string) (*entry, session, *entryLease, error) {
 	ent.state.Status = ServerStatusStarting
 	ent.state.StartedAt = time.Now()
 	ent.ready = make(chan struct{})
 	ready := ent.ready
 	ent.mu.Unlock()
 
-	sess, err := m.spawnServer(ctx, serverName, srv, root)
-
-	ent.mu.Lock()
-	close(ready)
-	if err != nil {
-		ent.state.Status = ServerStatusFailed
-		ent.state.Err = err
-		ent.mu.Unlock()
-		m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
-		return nil, nil, err
-	}
-
-	ent.state.Status = ServerStatusReady
-	ent.session = sess
+	sess, spawnErr := m.spawnServer(ctx, serverName, srv, root)
 	r := newReadiness()
-	ent.readiness = r
-	ent.mu.Unlock()
+
+	lease, err := m.completeSpawn(ent, sess, r, spawnErr, ready)
+	if err != nil {
+		if !errors.Is(err, errManagerClosed) {
+			m.warnFn(fmt.Sprintf("spawn server %s: %v", serverName, err))
+		}
+		return nil, nil, nil, err
+	}
 
 	go m.trackReadiness(ent, sess, r)
 
-	return ent, sess, nil
+	return ent, sess, lease, nil
 }
 
-// closeExitedSession releases the resources (connection, pipes, reaped
-// process) of a session whose server process has already exited, using the
-// same bounded Close the idle reaper uses.
-func (m *Manager) closeExitedSession(sess session) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// completeSpawn records the outcome of a spawn attempt and wakes the waiters on
+// ready. Publication checks the manager's closing flag under m.mu and writes the
+// entry under ent.mu, the same order Close, doReap and ServerStates take, so a
+// session is either visible to Close's sweep or rejected here. A session that
+// arrives after Close started is never published: the entry stays stopped, the
+// session is closed outside both locks, and errManagerClosed is returned.
+func (m *Manager) completeSpawn(ent *entry, sess session, r *readiness, spawnErr error, ready chan struct{}) (*entryLease, error) {
+	m.mu.Lock()
+	ent.mu.Lock()
+	closing := m.closing
+	close(ready)
+
+	var lease *entryLease
+	switch {
+	case closing:
+		ent.state.Status = ServerStatusStopped
+		ent.session = nil
+	case spawnErr != nil:
+		ent.state.Status = ServerStatusFailed
+		ent.state.Err = spawnErr
+	default:
+		ent.state.Status = ServerStatusReady
+		ent.session = sess
+		ent.readiness = r
+		lease = ent.acquireLease()
+	}
+	ent.mu.Unlock()
+	m.mu.Unlock()
+
+	if closing {
+		closeSession(sess)
+		return nil, errManagerClosed
+	}
+	return lease, spawnErr
+}
+
+// closeSession releases a session's resources (connection, pipes, reaped
+// process) using the manager's bounded close timeout. The caller must not hold
+// the manager lock or any entry lock.
+func closeSession(sess session) {
+	if sess == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), sessionCloseTimeout)
 	defer cancel()
-	_ = sess.Close(ctx) // best-effort: the process is already gone
+	_ = sess.Close(ctx) // best-effort: the manager has already given up on the session
 }
 
 // resolveSessionKey computes the (server, root) session key for a file without
@@ -463,63 +545,72 @@ func (m *Manager) ServerStates() []ServerState {
 	return states
 }
 
-// Close gracefully shuts down all live sessions and stops the reaper.
-// It is idempotent: calling it multiple times is safe.
+// Close gracefully shuts down all live sessions and stops the reaper. It is
+// idempotent and safe to call concurrently: the first caller performs the
+// shutdown and the rest wait for it to finish. Outstanding entry leases do not
+// postpone shutdown; Close overrides them. A session from a spawn that finishes
+// after Close started is closed by the goroutine that spawned it rather than
+// published.
 func (m *Manager) Close() error {
+	m.closeOnce.Do(m.close)
+	return nil
+}
+
+func (m *Manager) close() {
+	// Reject new lookups and spawn publications before anything can wait.
+	m.mu.Lock()
+	m.closing = true
+	m.mu.Unlock()
+
 	m.spawnCancel()
-	defer m.mgrCancel()
 
 	if m.resultCache != nil {
 		m.resultCache.clear()
 	}
 
+	// stopReaper is closed exactly once because close runs under closeOnce. Join
+	// the reaper so a reap already in progress finishes its bounded session
+	// closes before shutdown returns.
 	if m.reapTicker != nil {
 		m.reapTicker.Stop()
-		select {
-		case <-m.stopReaper:
-			// Already closed.
-		default:
-			close(m.stopReaper)
-		}
+		close(m.stopReaper)
+		<-m.reaperDone
 	}
 
+	// Sweep under m.mu then ent.mu (the same order as completeSpawn and doReap),
+	// so no spawn can publish a session between the closing check and this mark.
+	// Sessions are closed below, outside both locks.
 	m.mu.Lock()
-	entries := make([]*entry, 0, len(m.sessions))
+	var sessions []session
 	for _, ent := range m.sessions {
-		entries = append(entries, ent)
+		ent.mu.Lock()
+		sess := ent.session
+		if ent.state.Status == ServerStatusReady && sess != nil {
+			sessions = append(sessions, sess)
+		}
+		ent.state.Status = ServerStatusStopped
+		ent.mu.Unlock()
 	}
 	m.mu.Unlock()
 
 	// Close all sessions concurrently.
 	var wg sync.WaitGroup
-	for _, ent := range entries {
+	for _, sess := range sessions {
 		wg.Add(1)
-		go func(e *entry) {
+		go func(sess session) {
 			defer wg.Done()
-
-			e.mu.Lock()
-			sess := e.session
-			if e.state.Status != ServerStatusReady {
-				e.mu.Unlock()
-				return
-			}
-			e.state.Status = ServerStatusStopped
-			e.mu.Unlock()
-
-			if sess != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				_ = sess.Close(ctx)
-				cancel()
-			}
-		}(ent)
+			closeSession(sess)
+		}(sess)
 	}
 	wg.Wait()
 
-	return nil
+	m.mgrCancel()
 }
 
 // reapIdle is the ticker goroutine that terminates idle sessions.
 func (m *Manager) reapIdle() {
+	defer close(m.reaperDone)
+
 	for {
 		select {
 		case <-m.reapTicker.C:
@@ -530,18 +621,25 @@ func (m *Manager) reapIdle() {
 	}
 }
 
-// doReap closes sessions whose LastUsed exceeds IdleTimeout.
+// doReap closes sessions whose LastUsed exceeds IdleTimeout. Entries with an
+// outstanding lease are skipped: a document cycle is using them, whether it is
+// waiting for readiness, queued on cycleMu, or issuing its request. The claim is
+// made under ent.mu, so it cannot race a lease acquired with the session.
 func (m *Manager) doReap() {
 	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		return
+	}
 	now := time.Now()
 	idleThreshold := now.Add(-time.Duration(m.cfg.IdleTimeout.Duration()))
 
 	// Snapshot the sessions under ent.mu; reading ent.session without the lock
-	// would race with entryFor assigning it after a spawn.
+	// would race with spawnEntry assigning it after a spawn.
 	var toClose []session
 	for _, ent := range m.sessions {
 		ent.mu.Lock()
-		if ent.state.Status == ServerStatusReady && ent.state.LastUsed.Before(idleThreshold) {
+		if ent.state.Status == ServerStatusReady && ent.leases == 0 && ent.state.LastUsed.Before(idleThreshold) {
 			toClose = append(toClose, ent.session)
 			ent.state.Status = ServerStatusStopped
 		}
@@ -550,10 +648,6 @@ func (m *Manager) doReap() {
 	m.mu.Unlock()
 
 	for _, sess := range toClose {
-		if sess != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = sess.Close(ctx)
-			cancel()
-		}
+		closeSession(sess)
 	}
 }
