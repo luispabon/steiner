@@ -117,21 +117,31 @@ func TestSpawnDelegateReleasesChildProviderAfterRun(t *testing.T) {
 	}
 }
 
-// TestSpawnDelegateReleasesAfterAsyncCompletion proves an async child's release
-// lands after the supervisor worker's run finishes, not when the child is
-// dispatched.
-func TestSpawnDelegateReleasesAfterAsyncCompletion(t *testing.T) {
+// TestSupervisorWorkerReleasesChildProviderAfterRun proves an async child's
+// release lands after its supervisor worker's run finishes, not when the child
+// is dispatched.
+func TestSupervisorWorkerReleasesChildProviderAfterRun(t *testing.T) {
 	prov := &orderedProvider{}
 	setup := newReleaseTestSetup(t, prov)
 	started := make(chan struct{})
 	unblock := make(chan struct{})
 	runner := &eventRunner{prov: prov, started: started, unblock: unblock}
 
-	done := make(chan error, 1)
-	go func() {
-		_, _, _, err := SpawnDelegate(context.Background(), setup.spec, setup.req, runner, output.NoopSink{}, nil)
-		done <- err
-	}()
+	s, sink := newAsyncSupervisor(1)
+	t.Cleanup(func() { s.Shutdown(context.Background(), CancelCauseSystem) })
+	if _, _, err := s.Spawn(context.Background(), ChildJob{
+		AgentID:   setup.spec.AgentID,
+		AgentType: AgentTypeExplore,
+		Execute: func(childCtx context.Context) (tool.ExecutionResult, error) {
+			result, _, _, err := SpawnDelegate(childCtx, setup.spec, setup.req, runner, output.NoopSink{}, nil)
+			return result, err
+		},
+		OnCancelledBeforeStart: func() tool.ExecutionResult {
+			return cancelledBeforeDispatchResult(setup.spec.AgentID)
+		},
+	}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
 
 	<-started
 	if got := prov.releaseCount(); got != 0 {
@@ -139,8 +149,8 @@ func TestSpawnDelegateReleasesAfterAsyncCompletion(t *testing.T) {
 	}
 
 	close(unblock)
-	if err := <-done; err != nil {
-		t.Fatalf("SpawnDelegate: %v", err)
+	if batch := recv(t, sink.ch, "child completion"); len(batch) != 1 || batch[0].AgentID != setup.spec.AgentID {
+		t.Fatalf("posted completion = %+v, want %s", batch, setup.spec.AgentID)
 	}
 
 	want := []string{"run-start", "run-end", "release"}

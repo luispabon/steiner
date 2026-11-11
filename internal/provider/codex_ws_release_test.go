@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -270,6 +271,114 @@ func TestCodexWSReleaseConnectionRedialKeepsAffinity(t *testing.T) {
 		if originators[i] != "codex_cli_rs" {
 			t.Errorf("dial %d originator = %q, want codex_cli_rs", i+1, originators[i])
 		}
+	}
+}
+
+// wsGateState reads the release-gate state of p without taking the provider
+// mutex, so it stays readable while a request holds it.
+func wsGateState(p *codexWSProvider) (pending bool, inFlight int) {
+	p.gateMu.Lock()
+	defer p.gateMu.Unlock()
+	return p.releasePending, p.inFlight
+}
+
+// waitForWSInFlight waits until want requests have entered p's request window.
+func waitForWSInFlight(t *testing.T, p *codexWSProvider, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, inFlight := wsGateState(p)
+		if inFlight == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("inFlight = %d, want %d", inFlight, want)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestCodexWSReleaseConnectionWaitsForOverlappingRequests proves a pending
+// release survives until the last overlapping request finishes: the second
+// request reuses the same socket instead of redialling, and only its end
+// closes the connection.
+func TestCodexWSReleaseConnectionWaitsForOverlappingRequests(t *testing.T) {
+	releaseFirst := make(chan struct{})
+	serverClosed := make(chan struct{})
+	var closeOnce sync.Once
+	var frames atomic.Int32
+	server := newWSTestServer(t, nil, func(conn *websocket.Conn, _ int) {
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_, _, err := conn.Read(ctx)
+			cancel()
+			if err != nil {
+				closeOnce.Do(func() { close(serverClosed) })
+				return
+			}
+			if frames.Add(1) == 1 {
+				<-releaseFirst
+			}
+			wsServerWrite(t, conn, wsCompleted())
+		}
+	})
+
+	p := newTestWSProvider(t, server.wsURL())
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	request := ChatRequest{
+		Model:    "test-model",
+		Messages: []Message{{Role: MessageRoleUser, Content: "hello"}},
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := p.ChatCompletion(ctx, request)
+		firstDone <- err
+	}()
+	waitForWSInFlight(t, p, 1)
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := p.ChatCompletion(ctx, request)
+		secondDone <- err
+	}()
+	waitForWSInFlight(t, p, 2)
+
+	released := make(chan struct{})
+	go func() {
+		ReleaseConnection(p)
+		close(released)
+	}()
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("release blocked on overlapping requests")
+	}
+	if pending, inFlight := wsGateState(p); !pending || inFlight != 2 {
+		t.Fatalf("pending=%v inFlight=%d, want pending with both requests in flight", pending, inFlight)
+	}
+
+	// Let the first request finish. If the release had closed the socket when
+	// that request left, the second would redial and the server would see two.
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+
+	if got := server.connCount(); got != 1 {
+		t.Errorf("dials = %d, want 1: the pending release closed the socket between overlapping requests", got)
+	}
+	if connected, pending, inFlight := wsConnectionState(p); connected || pending || inFlight != 0 {
+		t.Errorf("after overlapping requests: connected=%v pending=%v inFlight=%d, want all clear", connected, pending, inFlight)
+	}
+	select {
+	case <-serverClosed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the close after the last request")
 	}
 }
 
