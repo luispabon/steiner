@@ -13,11 +13,6 @@ func FormatFilePreview(path, contents string) PreviewDocument {
 	return formatFilePreviewWithLimit(path, contents, defaultPreviewLineLimit)
 }
 
-// FormatFilePreviewWithLimit formats file contents using the provided preview line limit.
-func FormatFilePreviewWithLimit(path, contents string, lineLimit int) PreviewDocument {
-	return formatFilePreviewWithLimit(path, contents, lineLimit)
-}
-
 // FormatFilePreviewWithLanguage formats file contents with an explicit language hint.
 func FormatFilePreviewWithLanguage(path, language, contents string) PreviewDocument {
 	return formatFilePreviewWithLimitAndLanguage(path, language, contents, defaultPreviewLineLimit)

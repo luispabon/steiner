@@ -13,7 +13,6 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 //nolint:gocyclo
@@ -549,60 +548,6 @@ func TestRunnerKeepsRecentDelegateRetentionVisibleWithoutLeakingSummary(t *testi
 	}
 	if messageContentsContain(second.Messages, hiddenSummary) {
 		t.Fatalf("second request leaked retained summary: %#v", second.Messages)
-	}
-}
-
-func TestRunnerKeepsDisplayFileResultMetadataOnly(t *testing.T) {
-	providerStub := &fakeProvider{
-		responses: []provider.ChatResponse{
-			{
-				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					ToolCalls: []provider.ToolCall{
-						{ID: "call_1", Name: "display_file", Arguments: map[string]any{"path": "note.txt"}},
-					},
-				},
-				FinishReason: "tool_calls",
-			},
-			{
-				Message: provider.Message{
-					Role:    provider.MessageRoleAssistant,
-					Content: "done",
-				},
-				FinishReason: "stop",
-			},
-		},
-	}
-
-	executor := &fakeExecutor{
-		execute: func(_ context.Context, _ string, _ map[string]any) (any, error) {
-			return &builtin.DisplayFileResult{
-				Path:   "note.txt",
-				Status: "displayed",
-			}, nil
-		},
-	}
-
-	state, err := NewRunner().Run(context.Background(), RunRequest{
-		Provider: providerStub,
-		Executor: executor,
-		Prompt: prompt.AssemblyOptions{
-			Conversation: []provider.Message{{Role: provider.MessageRoleUser, Content: "show note"}},
-		},
-		Limits: Limits{MaxTurns: 3, MaxTokens: 1000},
-	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if got, want := state.StopReason, StopReasonComplete; got != want {
-		t.Fatalf("StopReason = %q, want %q", got, want)
-	}
-	secondTools := toolMessages(providerStub.requests[1].Messages)
-	if len(secondTools) == 0 {
-		t.Fatalf("second request tool messages = %d, want at least 1", len(secondTools))
-	}
-	if got, want := secondTools[len(secondTools)-1].Content, `{"path":"note.txt","status":"displayed"}`; got != want {
-		t.Fatalf("tool message content = %q, want %q", got, want)
 	}
 }
 

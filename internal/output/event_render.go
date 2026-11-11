@@ -31,7 +31,6 @@ var eventRenderers = map[reflect.Type]func(Event) Segment{
 		payload := event.Payload.(ContextReportEvent)
 		return Segment{Channel: ChannelAssistant, Label: "context", Text: payload.Content}
 	},
-	reflect.TypeOf(DisplayFilePayload{}):          typedRenderer(renderDisplayFileEvent),
 	reflect.TypeOf(ModelCallStartedEvent{}):       typedRenderer(renderModelCallStartedEvent),
 	reflect.TypeOf(ModelCallFinishedEvent{}):      typedRenderer(renderModelCallFinishedEvent),
 	reflect.TypeOf(ToolCallStartedEvent{}):        typedRenderer(renderToolCallStartedEvent),
@@ -176,15 +175,6 @@ func renderSkillTruncatedEvent(payload SkillTruncatedEvent) Segment {
 
 func renderSkillStateEvent(payload SkillStateEvent) Segment {
 	return Segment{Channel: ChannelStatus, Label: "status", Text: "skill " + payload.Name + " " + payload.State}
-}
-
-func renderDisplayFileEvent(payload DisplayFilePayload) Segment {
-	parts := []string{"display"}
-	parts = appendField(parts, "path", payload.Path)
-	parts = appendField(parts, "syntax", payload.Preview.Language)
-	parts = appendIntField(parts, "offset", payload.Offset)
-	parts = appendIntField(parts, "limit", payload.Limit)
-	return Segment{Channel: ChannelStatus, Label: "status", Text: strings.Join(parts, " ")}
 }
 
 func renderModelCallStartedEvent(payload ModelCallStartedEvent) Segment {

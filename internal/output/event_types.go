@@ -102,12 +102,6 @@ const (
 	// EventTypePhaseIndicator marks a oneshot phase status indicator.
 	EventTypePhaseIndicator = "phase_indicator"
 
-	// EventTypeDisplayFile is emitted when the agent wants the TUI to display a
-	// file to the user. The event payload carries an explicit preview document so
-	// the UI can render the slice without the model-visible tool result or
-	// conversation history containing file contents.
-	EventTypeDisplayFile = "display_file"
-
 	// EventTypeSteerReceived is emitted when the agent loop consumes a queued
 	// steering message and injects it into the conversation.
 	EventTypeSteerReceived = "steer_received"

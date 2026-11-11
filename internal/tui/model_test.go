@@ -1175,33 +1175,6 @@ func TestModelHandlesConfigCommandLocally(t *testing.T) {
 	}
 }
 
-func TestModelDisplaysFileEventInTranscript(t *testing.T) {
-	t.Parallel()
-	m := newModel(Config{}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 10})
-
-	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
-func main() {}
-`, 10)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewDisplayFileEvent(output.DisplayFilePayload{
-		Path:    "snippet.go",
-		Preview: preview,
-	})})
-
-	if m.contextOverlay.IsOpen() {
-		t.Fatal("contextOverlay.IsOpen() = true, want no overlay for display_file")
-	}
-	content := stripANSI(m.content.String(m.viewport.Width()))
-	for _, want := range []string{"display file preview", "snippet.go", "package main"} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("content = %q, want %q", content, want)
-		}
-	}
-	if strings.Contains(m.View().Content, "file viewer") {
-		t.Fatalf("view = %q, want no file viewer overlay", m.View().Content)
-	}
-}
-
 func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{

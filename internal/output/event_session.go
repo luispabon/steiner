@@ -41,14 +41,6 @@ type ConversationWarningEvent struct {
 	Kind    string `json:"kind,omitempty"`
 }
 
-// DisplayFilePayload is the payload for EventTypeDisplayFile.
-type DisplayFilePayload struct {
-	Path    string          `json:"path"`
-	Offset  int             `json:"offset,omitempty"`
-	Limit   int             `json:"limit,omitempty"`
-	Preview PreviewDocument `json:"preview"`
-}
-
 // ModeChangedEvent is emitted when the execution mode changes.
 type ModeChangedEvent struct {
 	Mode string `json:"mode"`
@@ -146,12 +138,6 @@ func NewReplayStartedEvent() Event {
 // transcript replay, including when replay exits early or panics.
 func NewReplayFinishedEvent() Event {
 	return newEvent(EventTypeReplayFinished, ReplayFinishedEvent{})
-}
-
-// NewDisplayFileEvent creates a DisplayFile event with an explicit preview
-// payload for the TUI to render.
-func NewDisplayFileEvent(payload DisplayFilePayload) Event {
-	return newEvent(EventTypeDisplayFile, payload)
 }
 
 // NewModeChangedEvent creates a mode_changed event.

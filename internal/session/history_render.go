@@ -17,14 +17,13 @@ const (
 	historyResultOmitted = "[sub-agent result omitted]"
 	historyStatusOK      = "✓"
 	historyStatusError   = "error"
-	historyDisplayFile   = "display_file"
 )
 
 // renderHistory renders the source messages of one compaction as archive
 // markdown, oldest first. Each rendered message is a block, and blocks are
 // separated by one blank line. Tool result bodies, sub-agent result bodies,
-// reasoning, and display_file calls are omitted. It returns "" when nothing
-// renders. The output is deterministic for identical input.
+// and reasoning are omitted. It returns "" when nothing renders. The output
+// is deterministic for identical input.
 func renderHistory(source []agent.Message) string {
 	statuses := toolCallStatuses(source)
 	var blocks []string
@@ -121,7 +120,7 @@ func userParts(msg agent.Message) []string {
 }
 
 // assistantParts renders assistant text followed by one list line per tool
-// call, skipping display_file calls.
+// call.
 func assistantParts(msg agent.Message, statuses map[toolCallPosition]string, messageIndex int) []string {
 	var parts []string
 	if text := strings.TrimSpace(msg.Content); text != "" {
@@ -129,9 +128,6 @@ func assistantParts(msg agent.Message, statuses map[toolCallPosition]string, mes
 	}
 	var lines []string
 	for callIndex, call := range msg.ToolCalls {
-		if strings.EqualFold(call.Name, historyDisplayFile) {
-			continue
-		}
 		lines = append(lines, toolCallLine(call, statuses, toolCallPosition{messageIndex: messageIndex, callIndex: callIndex}))
 	}
 	if len(lines) > 0 {

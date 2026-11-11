@@ -263,7 +263,7 @@ func (b *contentBuffer) renderToolBody(tc *toolCallSegment, width int) string {
 	}
 
 	truncated := false
-	if len(lines) > maxRows && tc.displayPreview == nil {
+	if len(lines) > maxRows {
 		lines = lines[:maxRows]
 		truncated = true
 	}

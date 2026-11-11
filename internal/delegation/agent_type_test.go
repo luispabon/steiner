@@ -78,7 +78,7 @@ func TestIsDelegationTool(t *testing.T) {
 		{name: "glob", want: false},
 		{name: "grep", want: false},
 		{name: "fetch_url", want: false},
-		{name: "display_file", want: false},
+		{name: "custom_tool", want: false},
 		{name: "advisor", want: false},
 		{name: "workflow_handoff", want: false},
 		{name: "mcp__server__tool", want: false},

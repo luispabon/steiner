@@ -32,7 +32,7 @@ type Env struct {
 	// Production callers use the SSRF-safe default. A client returned with a
 	// Jar has the jar dropped per call so cookies never leak between calls.
 	httpClient func() *http.Client
-	// EventSink is the sink used to emit side-channel events (e.g. display_file).
+	// EventSink is the sink used to emit side-channel events (e.g. workflow_handoff).
 	// When nil or a NoopSink, tools that require event emission will fail cleanly.
 	EventSink output.EventSink
 	// Interactive reports whether the session is running in interactive (TUI) mode.

@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// TestPlainRendererSanitizesToolAndFileOutput checks that raw controls in tool
-// results and display_file output never reach the terminal, for both live and
-// replayed tool results.
-func TestPlainRendererSanitizesToolAndFileOutput(t *testing.T) {
+// TestPlainRendererSanitizesToolOutput checks that raw controls in tool
+// results never reach the terminal, for both live and replayed tool results.
+func TestPlainRendererSanitizesToolOutput(t *testing.T) {
 	t.Parallel()
 
 	const raw = "\x1b]0;pwned\x07\x1b[2Jvisible\r"
@@ -29,15 +28,6 @@ func TestPlainRendererSanitizesToolAndFileOutput(t *testing.T) {
 			name: "replayed tool result",
 			events: []Event{
 				NewToolCallFinishedEventWithAdmission(0, "bash", "call-1", raw, nil, ToolPreview{}, nil),
-			},
-		},
-		{
-			name: "display file",
-			events: []Event{
-				NewDisplayFileEvent(DisplayFilePayload{
-					Path:    "f" + raw + ".txt",
-					Preview: FormatFilePreview("f.txt", raw+"\n"),
-				}),
 			},
 		},
 	}

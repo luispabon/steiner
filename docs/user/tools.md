@@ -10,7 +10,6 @@ The model works through tools. Steiner owns each tool's input schema and result 
 | `glob` | List files and directories matching a glob pattern. Directories end in `/`; `limit` and `offset` page results | Always | No |
 | `grep` | Search file contents with context and paging | Always | No |
 | `bash` | Run a shell command, sandboxed by default | Always | Yes: sandbox denial, or `cwd` outside the project root |
-| `display_file` | Show a file in the TUI overlay without adding it to the conversation | Always | No |
 | `mutate` | Apply file edits atomically: `create`, `write`, `replace`, `delete_file`, `move` | Always | Yes: a path outside the project root |
 | `fetch_url` | Fetch a URL and return bounded content or saved image data | Always | No |
 | `workflow_handoff` | Propose switching to a workflow with approved artefacts | Always | Asks you to accept the handoff |
@@ -27,7 +26,7 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 
 ## Paths and exclusions
 
-`read`, `glob`, `grep`, and `display_file` can read anywhere the filesystem allows, except `paths.blocked_paths`. Writes through `mutate` are limited to the project root while `paths.project_root_only` is on (the default), and to `paths.writable_paths` when that list is set. The `bash` working directory must be inside the project root while `project_root_only` is on and must not be blocked. These tools run inside Steiner, not in the sandbox. See the [`paths` block](configuration.md#paths-block).
+`read`, `glob`, and `grep` can read anywhere the filesystem allows, except `paths.blocked_paths`. Writes through `mutate` are limited to the project root while `paths.project_root_only` is on (the default), and to `paths.writable_paths` when that list is set. The `bash` working directory must be inside the project root while `project_root_only` is on and must not be blocked. These tools run inside Steiner, not in the sandbox. See the [`paths` block](configuration.md#paths-block).
 
 `glob` and `grep` skip excluded paths. Exclusions are filters, not access control: only `paths.blocked_paths` denies access.
 

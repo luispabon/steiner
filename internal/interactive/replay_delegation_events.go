@@ -31,7 +31,6 @@ func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenc
 	} else if isDelegateToolCall(call.Name) {
 		s.replayDelegateResult(msg, call, owner, state.acks, entry)
 	}
-	s.replayDisplayFile(msg)
 	if state.startedToolCalls[owner] {
 		s.replayToolFinished(msg)
 		delete(state.startedToolCalls, owner)

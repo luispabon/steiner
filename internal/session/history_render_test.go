@@ -227,25 +227,6 @@ func TestRenderHistory(t *testing.T) {
 			want: "### assistant · turn 1\n\n- **follow_up** Check jitter",
 		},
 		{
-			name: "display_file call is skipped",
-			source: []agent.Message{
-				{Role: agent.MessageRoleAssistant, Turn: 1, Content: "Shown.", ToolCalls: []agent.ToolCall{
-					{ID: "d1", Name: "display_file", Arguments: map[string]any{"path": "a.go"}},
-				}},
-				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "d1", Content: `{"ok":true}`},
-			},
-			want: "### assistant · turn 1\n\nShown.",
-		},
-		{
-			name: "message with only display_file call is dropped",
-			source: []agent.Message{
-				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{
-					{ID: "d1", Name: "display_file", Arguments: map[string]any{"path": "a.go"}},
-				}},
-			},
-			want: "",
-		},
-		{
 			name: "user image shows placeholder after text",
 			source: []agent.Message{
 				{Role: agent.MessageRoleUser, Turn: 1, Content: "Screenshot.", Images: []agent.ImageBlock{{ID: "img-1"}}},
@@ -445,10 +426,10 @@ func mixedHistorySource(t *testing.T) []agent.Message {
 		{Role: agent.MessageRoleUser, Turn: 3, Content: "Retry storms are back. Look at the provider client again."},
 		{Role: agent.MessageRoleAssistant, Turn: 3, Content: "I'll check the retry loop.", ReasoningContent: "Hidden reasoning that must not appear.", ToolCalls: []agent.ToolCall{
 			{ID: "c1", Name: "grep", Arguments: map[string]any{"pattern": "maxRetries", "path": "internal/provider"}},
-			{ID: "c2", Name: "display_file", Arguments: map[string]any{"path": "internal/provider/retry.go"}},
+			{ID: "c2", Name: "custom_tool", Arguments: map[string]any{"path": "internal/provider/retry.go"}},
 		}},
 		{Role: agent.MessageRoleTool, Turn: 3, ToolCallID: "c1", Name: "grep", Content: `{"ok":true,"result":{"matches":["internal/provider/retry.go:14"]}}`},
-		{Role: agent.MessageRoleTool, Turn: 3, ToolCallID: "c2", Name: "display_file", Content: `{"ok":true}`},
+		{Role: agent.MessageRoleTool, Turn: 3, ToolCallID: "c2", Name: "custom_tool", Content: `{"ok":true}`},
 		{Role: agent.MessageRoleAssistant, Turn: 3, ToolCalls: []agent.ToolCall{
 			{ID: "c3", Name: "bash", Arguments: map[string]any{"command": "go test ./internal/provider -run Retry"}},
 			{ID: "c4", Name: "mutate", Arguments: map[string]any{"operations": []any{map[string]any{"type": "replace", "path": "internal/provider/retry.go"}}}},

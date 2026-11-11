@@ -315,9 +315,6 @@ func (b *contentBuffer) buildFetchURLLines(tc *toolCallSegment, width int) []str
 }
 
 func (b *contentBuffer) previewDocument(tc *toolCallSegment) output.PreviewDocument {
-	if tc.displayPreview != nil {
-		return *tc.displayPreview
-	}
 	switch tc.preview.Kind {
 	case output.ToolPreviewKindReadFile:
 		doc := output.FormatFilePreview(tc.preview.Path, tc.preview.Contents)
@@ -348,13 +345,8 @@ func (b *contentBuffer) renderFileCaption(tc *toolCallSegment, doc output.Previe
 }
 
 func computeFilePreviewLabel(tc *toolCallSegment, doc output.PreviewDocument) (label string, useRange bool) {
-	switch {
-	case tc.displayPreview != nil:
-		label = "display file preview"
-		if doc.Language != "" && doc.Language != "plain" {
-			label += " · " + doc.Language
-		}
-	case tc.preview.Kind == output.ToolPreviewKindReadFile:
+	switch tc.preview.Kind {
+	case output.ToolPreviewKindReadFile:
 		label = "read file preview"
 		if doc.Language != "" && doc.Language != "plain" {
 			label += " · " + doc.Language
@@ -362,12 +354,12 @@ func computeFilePreviewLabel(tc *toolCallSegment, doc output.PreviewDocument) (l
 		if doc.StartLine > 1 {
 			useRange = true
 		}
-	case tc.preview.Kind == output.ToolPreviewKindFetchURL:
+	case output.ToolPreviewKindFetchURL:
 		label = "fetched page preview"
 		if doc.Language != "" && doc.Language != "plain" {
 			label += " · " + doc.Language
 		}
-	case tc.preview.Kind == output.ToolPreviewKindWebSearch:
+	case output.ToolPreviewKindWebSearch:
 		if tc.preview.Returned >= 0 {
 			label = fmt.Sprintf("search results - %d results", tc.preview.Returned)
 		} else {

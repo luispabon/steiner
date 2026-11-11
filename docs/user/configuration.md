@@ -277,7 +277,7 @@ Background check for a newer Steiner release at startup. It runs in the interact
 
 ## `tools` block
 
-Custom subprocess tools registered next to the built-ins. The map key is the tool name the model sees. Names reserved by built-ins (`read`, `glob`, `grep`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected. The stdin/stdout contract a tool must follow is in [Tools](tools.md).
+Custom subprocess tools registered next to the built-ins. The map key is the tool name the model sees. Names reserved by built-ins (`read`, `glob`, `grep`, `bash`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected. The stdin/stdout contract a tool must follow is in [Tools](tools.md).
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |

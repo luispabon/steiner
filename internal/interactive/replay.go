@@ -9,7 +9,6 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 // delegateToolSet is the set of tool names that emit delegation lifecycle events.
@@ -158,8 +157,6 @@ func (s *Session) replayMessage(msg agent.Message, state replayState, ledger rep
 			// Already emitted with its call by replayDelegationBundle.
 		case occurrence != nil:
 			s.replayOwnedToolResult(msg, owner, occurrence.call, state, ledgerEntryForOccurrence(ledger, occurrence))
-		default:
-			s.replayDisplayFile(msg)
 		}
 	}
 }
@@ -229,23 +226,6 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks, message
 	if strings.TrimSpace(parts.Rest) != "" || len(images) > 0 {
 		s.events.Emit(output.NewUserInputEvent(parts.Rest, "resume", images))
 	}
-}
-
-func (s *Session) replayDisplayFile(msg agent.Message) {
-	if msg.Name == "display_file" {
-		var result builtin.DisplayFileResult
-		if err := json.Unmarshal([]byte(msg.Content), &result); err == nil && result.Path != "" {
-			placeholder := strings.TrimSpace(result.Message)
-			if placeholder == "" {
-				placeholder = "(file content not available after resume)"
-			}
-			s.events.Emit(output.NewDisplayFileEvent(output.DisplayFilePayload{
-				Path:    result.Path,
-				Preview: output.FormatFilePreview(result.Path, placeholder),
-			}))
-		}
-	}
-
 }
 
 func (s *Session) replayToolFinished(msg agent.Message) {

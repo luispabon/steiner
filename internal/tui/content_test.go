@@ -1885,20 +1885,21 @@ func TestPluralTurns(t *testing.T) {
 	}
 }
 
-func TestAppendEventDisplayFileUsesExplicitPreviewDocument(t *testing.T) {
+// TestCustomToolNamedDisplayFileIsOrdinaryTool guards generic tool handling: a
+// custom tool configured as display_file renders through the normal tool row, is
+// not classified read-only, and its child-scoped events are recorded rather than
+// suppressed.
+func TestCustomToolNamedDisplayFileIsOrdinaryTool(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
-		segments:      make([]contentSegment, 0),
-		collapseState: make(map[int]bool),
+		styles:            testStyles(theme.AccentAmber),
+		segments:          make([]contentSegment, 0),
+		collapseState:     make(map[int]bool),
+		activeDelegations: make(map[string]delegationLocator),
 	}
 
-	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
-func main() {}
-`, 10)
-	buffer.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{
-		Path:    "snippet.go",
-		Preview: preview,
-	}))
+	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "display_file", "call_1", map[string]any{"path": "snippet.go"}))
+	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "display_file", "call_1", "preview text", nil))
 
 	if len(buffer.segments) != 1 {
 		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
@@ -1907,61 +1908,45 @@ func main() {}
 	if seg == nil {
 		t.Fatal("tool segment is nil")
 	}
-	if !strings.EqualFold(seg.tool, "display_file") {
-		t.Fatalf("tool = %q, want display_file", seg.tool)
+	if got, want := seg.tool, "display_file"; got != want {
+		t.Fatalf("tool = %q, want %q", got, want)
 	}
-	if seg.collapsed {
-		t.Fatal("display_file segment is collapsed, want expanded")
+	if got, want := seg.body, "preview text"; got != want {
+		t.Fatalf("body = %q, want %q", got, want)
 	}
-	if seg.displayPreview == nil {
-		t.Fatal("display preview is nil")
+	if got, want := seg.meta, "✓"; got != want {
+		t.Fatalf("meta = %q, want %q", got, want)
 	}
-	if got, want := seg.displayPreview.Path, "snippet.go"; got != want {
-		t.Fatalf("display preview path = %q, want %q", got, want)
+	seg.collapsed = false
+	plain := stripANSI(buffer.String(100))
+	if !strings.Contains(plain, "display_file") || !strings.Contains(plain, "preview text") {
+		t.Fatalf("rendered transcript = %q, want display_file row with body", plain)
 	}
-	if got, want := seg.displayPreview.Kind, output.PreviewFormatKindFile; got != want {
-		t.Fatalf("display preview kind = %q, want %q", got, want)
+	if isReadOnlyTool("display_file") {
+		t.Fatal("isReadOnlyTool(display_file) = true, want false")
 	}
-}
-
-func TestAppendEventDisplayFileSuppressesGenericToolLifecycleRows(t *testing.T) {
-	t.Parallel()
-	buffer := &contentBuffer{
-		segments:      make([]contentSegment, 0),
-		collapseState: make(map[int]bool),
+	if !shouldRefreshGit(output.NewToolCallFinishedEvent(1, "display_file", "call_1", "", nil)) {
+		t.Fatal("shouldRefreshGit(display_file finish) = false, want true")
 	}
 
-	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
-func main() {}
-`, 10)
+	buffer.AppendEvent(output.WithAgentScope(output.NewDelegationStartedEvent(callOcc("call_a1", "agent-a"), "inspect", "", "explore"), "agent-a"))
+	buffer.AppendEvent(output.WithAgentScope(output.NewToolCallStartedEvent(1, "display_file", "child_1", map[string]any{"path": "snippet.go"}), "agent-a"))
 
-	buffer.AppendEvent(output.NewToolCallStartedEvent(1, "display_file", "call_1", map[string]any{
-		"path": "snippet.go",
-	}))
-	buffer.AppendEvent(output.NewDisplayFileEvent(output.DisplayFilePayload{
-		Path:    "snippet.go",
-		Preview: preview,
-	}))
-	buffer.AppendEvent(output.NewToolCallFinishedEvent(1, "display_file", "call_1", `{"path":"snippet.go","status":"displayed"}`, nil))
+	loc, ok := buffer.findDelegation("agent-a")
+	if !ok {
+		t.Fatal("delegation segment not found")
+	}
+	idx, ok := loc.dd.findChildToolEntry("child_1")
+	if !ok {
+		t.Fatal("child display_file tool started was suppressed")
+	}
+	if got, want := loc.dd.entries[idx].tool, "display_file"; got != want {
+		t.Fatalf("child tool = %q, want %q", got, want)
+	}
 
-	if len(buffer.segments) != 1 {
-		t.Fatalf("segments count = %d, want 1", len(buffer.segments))
-	}
-	seg := buffer.segments[0].toolData
-	if seg == nil {
-		t.Fatal("tool segment is nil")
-	}
-	if !strings.EqualFold(seg.tool, "display_file") {
-		t.Fatalf("tool = %q, want display_file", seg.tool)
-	}
-	if seg.displayPreview == nil {
-		t.Fatal("display preview is nil")
-	}
-	if got, want := seg.displayPreview.Path, "snippet.go"; got != want {
-		t.Fatalf("display preview path = %q, want %q", got, want)
-	}
-	if got := seg.body; got != "" {
-		t.Fatalf("body = %q, want empty body", got)
+	buffer.AppendEvent(output.WithAgentScope(output.NewToolCallFinishedEvent(1, "display_file", "child_1", "preview text", nil), "agent-a"))
+	if got := loc.dd.entries[idx].status; got != "complete" {
+		t.Fatalf("child tool status = %q, want complete", got)
 	}
 }
 
@@ -2639,40 +2624,6 @@ func TestRenderToolPreviewUsesChromaStylesForMakefile(t *testing.T) {
 	}
 }
 
-func TestRenderDisplayFilePreviewUsesCaptionAndHighlightedContent(t *testing.T) {
-	t.Parallel()
-	preview := output.FormatFilePreviewWithLimit("snippet.go", `package main
-func main() {}
-`, 10)
-	if len(preview.Lines) == 0 || !lineHasHighlightedSpan(preview.Lines[0]) {
-		t.Fatal("preview document is not syntax-highlighted")
-	}
-	buffer := &contentBuffer{
-		styles:        testStyles(theme.AccentAmber),
-		collapseState: make(map[int]bool),
-	}
-	buffer.segments = []contentSegment{
-		{
-			kind: segmentToolCall,
-			toolData: &toolCallSegment{
-				tool:           "display_file",
-				args:           "snippet.go",
-				bodyKind:       "file",
-				collapsed:      false,
-				displayPreview: &preview,
-			},
-		},
-	}
-
-	got := buffer.String(100)
-	plain := stripANSI(got)
-	for _, want := range []string{"▾", "display file preview", "snippet.go", "package main", "func main()"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("rendered display preview %q missing %q", got, want)
-		}
-	}
-}
-
 func TestRenderReadFilePreviewIncludesLanguageInCaption(t *testing.T) {
 	t.Parallel()
 	buffer := &contentBuffer{
@@ -3149,15 +3100,6 @@ func TestRenderReplayDelegationUsesParentToolStartForPromptAndOutput(t *testing.
 	}
 }
 
-func lineHasHighlightedSpan(line output.PreviewLine) bool {
-	for _, span := range line.Spans {
-		if span.Type != chroma.Text {
-			return true
-		}
-	}
-	return false
-}
-
 func hasANSIBackground(s string) bool {
 	return strings.Contains(s, "\x1b[48;2;") || strings.Contains(s, "\x1b[48;5;")
 }
@@ -3516,11 +3458,11 @@ func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	// Standalone display_file segment (should NOT get approval).
+	// Standalone custom tool segment (should NOT get approval).
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentToolCall,
 		toolData: &toolCallSegment{
-			tool:      "display_file",
+			tool:      "custom_tool",
 			args:      "main.go",
 			collapsed: false,
 		},
@@ -3548,9 +3490,9 @@ func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
 		},
 	})
 
-	// display_file must NOT have approval.
+	// custom_tool must NOT have approval.
 	if b.segments[0].toolData.approvalPending {
-		t.Fatal("display_file segment got approvalPending, want false")
+		t.Fatal("custom_tool segment got approvalPending, want false")
 	}
 
 	// Second entry in the mutate group must have approval.
@@ -3578,11 +3520,11 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 		collapseState: make(map[int]bool),
 	}
 
-	// Standalone display_file.
+	// Standalone custom_tool.
 	b.segments = append(b.segments, contentSegment{
 		kind: segmentToolCall,
 		toolData: &toolCallSegment{
-			tool: "display_file",
+			tool: "custom_tool",
 		},
 	})
 
@@ -3608,7 +3550,7 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 	})
 
 	if b.segments[0].toolData.approvalResolved {
-		t.Fatal("display_file should not be resolved")
+		t.Fatal("custom_tool should not be resolved")
 	}
 	entry := b.segments[1].toolGroupData.entries[1]
 	if !entry.approvalResolved {

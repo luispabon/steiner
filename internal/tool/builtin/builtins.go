@@ -9,7 +9,6 @@ func Builtins(env Env) []tool.ToolDef {
 		NewGlobTool(env),
 		NewGrepTool(env),
 		NewBashTool(env),
-		NewDisplayFileTool(env),
 		NewMutateTool(env),
 		NewFetchURLTool(env),
 		NewWorkflowHandoffTool(env),

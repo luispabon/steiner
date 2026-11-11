@@ -18,13 +18,7 @@ func isCompletionStopReason(reason string) bool {
 }
 
 func shouldSkipToolEvent(tool string) bool {
-	if strings.EqualFold(tool, "display_file") {
-		return true
-	}
-	if strings.EqualFold(tool, "advisor") {
-		return true
-	}
-	return false
+	return strings.EqualFold(tool, "advisor")
 }
 
 func isDelegateOrSpecialized(tool string) bool {
@@ -121,7 +115,7 @@ func (b *contentBuffer) applyFinishedRegularToolCall(payload output.ToolCallFini
 }
 
 func regularToolCallIDsMatch(td *toolCallSegment, payloadCallID string) bool {
-	if td == nil || strings.EqualFold(strings.TrimSpace(td.tool), "display_file") {
+	if td == nil {
 		return false
 	}
 	if td.callID == "" {
@@ -156,31 +150,6 @@ func (b *contentBuffer) applyFinishedRegularToolCallSegment(i int, payload outpu
 		}
 	}
 	return false
-}
-
-func (b *contentBuffer) appendDisplayFileEvent(event output.Event) {
-	b.finishStreaming()
-	if payload, ok := event.Payload.(output.DisplayFilePayload); ok {
-		preview := output.SanitizePreviewDocument(payload.Preview)
-		idx := len(b.segments)
-		if b.collapseState == nil {
-			b.collapseState = make(map[int]bool)
-		}
-		b.segments = append(b.segments, contentSegment{
-			kind: segmentToolCall,
-			toolData: &toolCallSegment{
-				tool:           "display_file",
-				args:           output.SanitizeDisplayText(payload.Path),
-				bodyKind:       "file",
-				collapsed:      false,
-				displayPreview: &preview,
-			},
-			renderDirty: true,
-		})
-		b.collapseState[idx] = false
-		return
-	}
-	b.appendStyled(strings.TrimSpace(output.FormatEvent(event)), segmentTool)
 }
 
 func (b *contentBuffer) appendStopReasonEvent(event output.Event) {

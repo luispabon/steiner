@@ -59,13 +59,6 @@ type GrepInput struct {
 	Offset          int    `json:"offset,omitempty"`
 }
 
-// DisplayFileInput is the typed input for the display_file tool.
-type DisplayFileInput struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-}
-
 // BashInput is the typed input for the bash tool.
 type BashInput struct {
 	Command        string `json:"command"`
@@ -95,8 +88,6 @@ const (
 	maxGlobLimit              = 1000
 	defaultGrepHeadLimit      = 100
 	maxGrepHeadLimit          = 500
-	defaultDisplayFileLimit   = 120
-	maxDisplayFileLimit       = 1000
 	defaultBashTimeoutSeconds = 120
 	// maxBashTimeoutCapSeconds is the absolute bash timeout ceiling. Config
 	// validation mirrors it because internal/config cannot import this package.
@@ -196,17 +187,6 @@ func normalizeBash(in *BashInput, maxTimeoutSeconds int) {
 		in.MaxOutputBytes = defaultBashMaxOutputBytes
 	}
 	in.MaxOutputBytes = min(in.MaxOutputBytes, maxBashMaxOutputBytes)
-}
-
-// normalizeDisplayFile applies defaults and caps to display_file input.
-func normalizeDisplayFile(in *DisplayFileInput) {
-	if in.Offset <= 0 {
-		in.Offset = 1
-	}
-	if in.Limit <= 0 {
-		in.Limit = defaultDisplayFileLimit
-	}
-	in.Limit = min(in.Limit, maxDisplayFileLimit)
 }
 
 // normalizeFetchURL applies defaults and caps to fetch_url input.

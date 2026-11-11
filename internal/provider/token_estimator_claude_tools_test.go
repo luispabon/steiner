@@ -70,7 +70,7 @@ func TestClaudeTokenProductionCoreBuiltinsAreDeterministic(t *testing.T) {
 	for _, spec := range specs {
 		names = append(names, spec.Function.Name)
 	}
-	want := []string{"bash", "display_file", "fetch_url", "glob", "grep", "mutate", "read", "workflow_handoff"}
+	want := []string{"bash", "fetch_url", "glob", "grep", "mutate", "read", "workflow_handoff"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("production core tool names = %v, want %v", names, want)
 	}

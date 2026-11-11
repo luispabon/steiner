@@ -15,8 +15,9 @@ import (
 )
 
 // coreToolDefinitions builds the core built-in tool definitions.
-// displaySink, if non-nil, is used by the display_file tool to emit display events;
-// interactive should be true only when a TUI is active.
+// displaySink, if non-nil, is forwarded to built-in tools that emit
+// side-channel events (workflow_handoff); interactive should be true only
+// when a TUI is active.
 // sb, if non-nil and enabled, contributes the sandbox temp directory used for
 // /tmp path rewriting. Sandbox command wrapping itself is resolved per tool call
 // by the executor (see internal/tool/execution_pipeline.go), not here.
@@ -53,7 +54,7 @@ func runtimeRegistry(cfg config.Config, workDir string) *tool.Registry {
 }
 
 // runtimeRegistryWithSink builds a tool registry with an optional event sink and
-// interactive flag, used in interactive mode to wire the display_file tool.
+// interactive flag, used in interactive mode to wire event-emitting built-in tools.
 func runtimeRegistryWithSink(cfg config.Config, workDir string, displaySink output.EventSink, interactive bool, handoffResponder tool.WorkflowHandoffResponder, sb *sandbox.Sandbox) *tool.Registry {
 	return runtimeRegistryWithSinkAndMode(cfg, workDir, displaySink, interactive, handoffResponder, sb, nil, nil)
 }

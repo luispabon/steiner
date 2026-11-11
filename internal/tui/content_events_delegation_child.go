@@ -242,9 +242,6 @@ func (b *contentBuffer) applyDelegationToolCallStarted(dd *delegationDisplayStat
 	if !ok {
 		return false
 	}
-	if strings.EqualFold(payload.Tool, "display_file") {
-		return true
-	}
 	entry := delegationTranscriptEntry{
 		kind:   delegationTranscriptEntryTool,
 		tool:   strings.ToLower(payload.Tool),
@@ -265,9 +262,6 @@ func (b *contentBuffer) applyDelegationToolCallFinished(dd *delegationDisplaySta
 	payload, ok := event.Payload.(output.ToolCallFinishedEvent)
 	if !ok {
 		return false
-	}
-	if strings.EqualFold(payload.Tool, "display_file") {
-		return true
 	}
 	idx, found := dd.findChildToolEntry(payload.CallID)
 	if !found {

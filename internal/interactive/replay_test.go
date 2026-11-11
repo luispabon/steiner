@@ -359,117 +359,6 @@ func TestReplaySessionMessagesAdvisorEvent(t *testing.T) {
 	}
 }
 
-func TestReplaySessionMessagesDisplayFileEvent(t *testing.T) {
-	t.Parallel()
-	var events []output.Event
-	s := testNewSession(t, Dependencies{
-		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
-	})
-
-	msgs := []agent.Message{
-		{
-			Role:      agent.MessageRoleAssistant,
-			Content:   "showing file",
-			ToolCalls: []agent.ToolCall{{ID: "call-df1", Name: "display_file", Arguments: map[string]any{"path": "foo.go"}}},
-		},
-		{
-			Role:       agent.MessageRoleTool,
-			ToolCallID: "call-df1",
-			Name:       "display_file",
-			Content:    `{"path":"foo.go","status":"displayed"}`,
-		},
-	}
-	s.replaySessionMessages(msgs, nil)
-
-	var found bool
-	for _, e := range events {
-		if e.Type != output.EventTypeDisplayFile {
-			continue
-		}
-		if payload, ok := e.Payload.(output.DisplayFilePayload); ok && payload.Path == "foo.go" && payload.Preview.Kind == output.PreviewFormatKindFile {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("display_file event not replayed or missing expected payload")
-	}
-}
-
-func TestReplaySessionMessagesDisplayFileCallsAlwaysFinish(t *testing.T) {
-	t.Parallel()
-	var events []output.Event
-	s := testNewSession(t, Dependencies{
-		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
-	})
-
-	msgs := []agent.Message{
-		{
-			Role:    agent.MessageRoleAssistant,
-			Content: "showing files",
-			ToolCalls: []agent.ToolCall{
-				{ID: "call-valid", Name: "display_file", Arguments: map[string]any{"path": "valid.go"}},
-				{ID: "call-bad", Name: "display_file", Arguments: map[string]any{"path": "bad.go"}},
-			},
-		},
-		{
-			Role:       agent.MessageRoleTool,
-			ToolCallID: "call-valid",
-			Name:       "display_file",
-			Content:    `{"path":"valid.go","message":"file content"}`,
-		},
-		{
-			Role:       agent.MessageRoleTool,
-			ToolCallID: "call-bad",
-			Name:       "display_file",
-			Content:    `{malformed json}`,
-		},
-	}
-	s.replaySessionMessages(msgs, nil)
-
-	// Collect Started/Finished events for each tool call.
-	type callEvent struct {
-		id    string
-		count int
-	}
-	callEvents := make(map[string]*callEvent)
-	displayFileCount := 0
-
-	for _, e := range events {
-		switch p := e.Payload.(type) {
-		case output.ToolCallStartedEvent:
-			if _, ok := callEvents[p.CallID]; !ok {
-				callEvents[p.CallID] = &callEvent{id: p.CallID}
-			}
-			callEvents[p.CallID].count++
-		case output.ToolCallFinishedEvent:
-			if _, ok := callEvents[p.CallID]; !ok {
-				callEvents[p.CallID] = &callEvent{id: p.CallID}
-			}
-			callEvents[p.CallID].count++
-		case output.DisplayFilePayload:
-			displayFileCount++
-		}
-	}
-
-	// Both tool calls must have Started and Finished events (count = 2 each).
-	for _, callID := range []string{"call-valid", "call-bad"} {
-		ce, ok := callEvents[callID]
-		if !ok {
-			t.Errorf("tool call %s: no events found", callID)
-			continue
-		}
-		if ce.count != 2 {
-			t.Errorf("tool call %s: got %d events, want 2 (Started + Finished)", callID, ce.count)
-		}
-	}
-
-	// Only the valid display_file should emit a DisplayFilePayload.
-	if displayFileCount != 1 {
-		t.Errorf("got %d DisplayFilePayload events, want 1", displayFileCount)
-	}
-}
-
 func TestReplaySessionMessagesToolCallError(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
@@ -505,6 +394,61 @@ func TestReplaySessionMessagesToolCallError(t *testing.T) {
 	}
 	if finishedEvent.Error == "" || !strings.Contains(finishedEvent.Error, "boom") {
 		t.Errorf("finishedEvent.Error = %q, want non-empty with 'boom'", finishedEvent.Error)
+	}
+}
+
+// TestReplaySessionMessagesMultiCallResultsAlwaysFinish asserts that every
+// owned tool call in one assistant message is both started and finished during
+// replay, including when its persisted result cannot be decoded.
+func TestReplaySessionMessagesMultiCallResultsAlwaysFinish(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "reading files",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call-valid", Name: "read", Arguments: map[string]any{"path": "valid.go"}},
+				{ID: "call-bad", Name: "read", Arguments: map[string]any{"path": "bad.go"}},
+			},
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-valid",
+			Name:       "read",
+			Content:    "file content",
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-bad",
+			Name:       "read",
+			Content:    `{malformed json}`,
+		},
+	}
+	s.replaySessionMessages(msgs, nil)
+
+	started := make(map[string]int)
+	finished := make(map[string]int)
+	for _, e := range events {
+		switch p := e.Payload.(type) {
+		case output.ToolCallStartedEvent:
+			started[p.CallID]++
+		case output.ToolCallFinishedEvent:
+			finished[p.CallID]++
+		}
+	}
+
+	for _, callID := range []string{"call-valid", "call-bad"} {
+		if started[callID] != 1 {
+			t.Errorf("tool call %s: got %d started events, want 1", callID, started[callID])
+		}
+		if finished[callID] != 1 {
+			t.Errorf("tool call %s: got %d finished events, want 1", callID, finished[callID])
+		}
 	}
 }
 
