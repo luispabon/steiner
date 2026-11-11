@@ -464,6 +464,10 @@ func TestStoreWriteRefusesUnreadableFile(t *testing.T) {
 		wantErr error
 	}{
 		{"malformed json", []byte("not json"), errStoreCorrupt},
+		{"whitespace only", []byte(" \n\t"), errStoreCorrupt},
+		{"null document", []byte("null"), errStoreUnsupportedSchema},
+		{"invalid entry", []byte(`{"schema_version":2,"entries":[{"requests":"many"}]}`), errStoreCorrupt},
+		{"trailing data", []byte(`{"schema_version":2,"entries":[]}{"schema_version":2}`), errStoreCorrupt},
 		{"unsupported schema version", []byte("{\"schema_version\":999,\"entries\":[]}"), errStoreUnsupportedSchema},
 	}
 
@@ -501,6 +505,10 @@ func TestStoreWriteRefusesUnreadableFile(t *testing.T) {
 			}
 			if !bytes.Equal(got, tt.data) {
 				t.Errorf("file changed after refused write: got %q, want %q", got, tt.data)
+			}
+
+			if loaded := s.load(); len(loaded) != 0 {
+				t.Errorf("load after refused write: got %d buckets, want 0", len(loaded))
 			}
 		})
 	}
