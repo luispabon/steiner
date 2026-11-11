@@ -25,16 +25,23 @@ func (m *Model) moveApprovalSelection(delta int) *Model {
 		next += count
 	}
 	m.approval.selectedAction = next
-	// Sync to the embedded tool segment so it re-renders with the new selection.
+	m.syncApprovalSelection(next)
+	return m
+}
+
+// syncApprovalSelection syncs the highlighted action to the embedded tool
+// segment that renders the tray's active request, so it re-renders with the
+// new selection.
+func (m *Model) syncApprovalSelection(next int) {
 	for i := len(m.content.segments) - 1; i >= 0; i-- {
 		seg := &m.content.segments[i]
 		switch seg.kind {
 		case segmentToolCall:
-			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved {
+			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && m.approvalTargets(seg.toolData.approvalIdentity) {
 				seg.toolData.approvalSelectedAction = next
 				seg.renderDirty = true
 				m.content.gen++
-				return m
+				return
 			}
 		case segmentToolCallGroup:
 			if seg.toolGroupData == nil {
@@ -42,16 +49,22 @@ func (m *Model) moveApprovalSelection(delta int) *Model {
 			}
 			for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
 				entry := seg.toolGroupData.entries[j]
-				if entry != nil && entry.approvalPending && !entry.approvalResolved {
+				if entry != nil && entry.approvalPending && !entry.approvalResolved && m.approvalTargets(entry.approvalIdentity) {
 					entry.approvalSelectedAction = next
 					seg.renderDirty = true
 					m.content.gen++
-					return m
+					return
 				}
 			}
 		}
 	}
-	return m
+}
+
+// approvalTargets reports whether an embedded approval is the request shown in
+// the tray. The tray identity is scope-qualified, so a provider call ID shared
+// by another agent never moves the selection of a different request.
+func (m *Model) approvalTargets(identity string) bool {
+	return m.approval.identity == "" || m.approval.identity == identity
 }
 
 func (m *Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {

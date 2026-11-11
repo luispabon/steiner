@@ -83,7 +83,8 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 		})
 	}
 
-	responseCh := h.coordinator.Begin(req.CallID, toolName, "", string(req.Kind), tool.ApprovalAgentScope(ctx))
+	agentID := tool.ApprovalAgentScope(ctx)
+	responseCh := h.coordinator.Begin(ApprovalIdentity(agentID, req.CallID), toolName, "", string(req.Kind), agentID)
 	return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 		// Finish runs before the eventing wrapper emits a denied event for an error return.
 		defer h.coordinator.Finish(responseCh)

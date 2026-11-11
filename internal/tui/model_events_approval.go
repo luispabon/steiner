@@ -3,22 +3,31 @@ package tui
 import (
 	"fmt"
 
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
 
 // applyApprovalEvent opens the approval prompt for a requested tool call and
 // clears it when the request is accepted or denied. With an approval
 // coordinator only the FIFO head prompts, and a decision for any other request
-// leaves a still-pending head in place.
+// leaves a still-pending head in place. Scoped child requests share the same
+// coordinator FIFO but use a scope-qualified identity, so a call ID reused by
+// another agent never matches the wrong request.
 func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEvent) {
+	identity := interactive.ApprovalIdentity(event.Scope.AgentID, payload.CallID)
 	switch event.Type {
 	case output.EventTypeApprovalRequested:
+		// A scoped request without a call ID has no identity the coordinator
+		// could ever match, so it must never become promptable.
+		if event.Scope.AgentID != "" && identity == "" {
+			return
+		}
 		// Content retains every request. The tray only prompts the FIFO head,
 		// so cached grants that never registered stay silent.
-		if !m.approval.active && m.approvalRequestPromptable(payload.CallID) {
+		if !m.approval.active && m.approvalRequestPromptable(identity) {
 			m.approval = approvalState{
 				active:         true,
-				identity:       payload.CallID,
+				identity:       identity,
 				tool:           payload.Tool,
 				mode:           payload.Mode,
 				preview:        payload.Preview,
@@ -34,11 +43,11 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 			m.notifyBlocking(fmt.Sprintf("Tool approval required: %s", payload.Tool))
 		}
 	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
-		if m.decisionPreservesActiveApproval(payload.CallID) {
+		if m.decisionPreservesActiveApproval(identity) {
 			return
 		}
 		m.approval = approvalState{}
-		if !m.promoteNextApproval(payload.CallID) {
+		if !m.promoteNextApproval(identity) {
 			m.status.mode = "running"
 			m.input.Focus()
 		}
@@ -58,21 +67,21 @@ func (m *Model) approvalHead() (head string, coordinated bool) {
 
 // approvalRequestPromptable reports whether a requested approval should open the
 // tray and notify. Without a coordinator the event stream drives the tray; with
-// one, only a non-empty request matching the FIFO head prompts, because cached
+// one, only a non-empty identity matching the FIFO head prompts, because cached
 // grants emit request events without registering.
-func (m *Model) approvalRequestPromptable(callID string) bool {
+func (m *Model) approvalRequestPromptable(identity string) bool {
 	head, coordinated := m.approvalHead()
 	if !coordinated {
 		return true
 	}
-	return callID != "" && callID == head
+	return identity != "" && identity == head
 }
 
-// decisionPreservesActiveApproval reports whether a decision for callID resolves
-// a different request while the coordinator still heads the active approval, so
-// the active tray and its selection must stay in place.
-func (m *Model) decisionPreservesActiveApproval(callID string) bool {
-	if !m.approval.active || m.approval.identity == "" || m.approval.identity == callID {
+// decisionPreservesActiveApproval reports whether a decision for identity
+// resolves a different request while the coordinator still heads the active
+// approval, so the active tray and its selection must stay in place.
+func (m *Model) decisionPreservesActiveApproval(identity string) bool {
+	if !m.approval.active || m.approval.identity == "" || m.approval.identity == identity {
 		return false
 	}
 	head, coordinated := m.approvalHead()
