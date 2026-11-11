@@ -2124,9 +2124,9 @@ func TestMergedAllowedTools(t *testing.T) {
 		},
 		{
 			name:   "unsorted extras sorted with base",
-			base:   []string{"ls", "read"},
+			base:   []string{"glob", "read"},
 			extras: []string{"mutate", "bash", "grep"},
-			want:   []string{"bash", "grep", "ls", "mutate", "read"},
+			want:   []string{"bash", "glob", "grep", "mutate", "read"},
 		},
 	}
 
@@ -2140,9 +2140,9 @@ func TestMergedAllowedTools(t *testing.T) {
 	}
 
 	t.Run("base slice is not mutated", func(t *testing.T) {
-		base := []string{"read", "grep", "ls"}
+		base := []string{"read", "grep", "glob"}
 		original := append([]string(nil), base...)
-		got := mergedAllowedTools(base, []string{"ls", "bash", "read"})
+		got := mergedAllowedTools(base, []string{"glob", "bash", "read"})
 		if !slices.Equal(base, original) {
 			t.Fatalf("base mutated: %v, want %v", base, original)
 		}
@@ -2158,7 +2158,6 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 	parentDefs := []tool.ToolDef{
 		{Name: "read", Description: "read"},
 		{Name: "grep", Description: "grep"},
-		{Name: "ls", Description: "ls"},
 		{Name: "bash", Description: "bash"},
 		{Name: mcpTool, Description: "search notes", MCP: tool.MCPProvenance{Server: "notes", ToolName: "search"}},
 	}
@@ -2246,7 +2245,7 @@ func TestSpecializedHandler_ExtraAllowedTools(t *testing.T) {
 		extras := map[AgentType][]string{AgentTypeResearch: {mcpTool, "read", "bash"}}
 		req, _ := runHandler(t, AgentTypeResearch, extras)
 		names := childToolNames(req)
-		want := []string{"bash", "grep", "ls", mcpTool, "read"}
+		want := []string{"bash", "grep", mcpTool, "read"}
 		if !slices.Equal(names, want) {
 			t.Errorf("child tools = %v, want %v", names, want)
 		}

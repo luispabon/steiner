@@ -49,8 +49,6 @@ func buildApprovalPreview(toolName string, input map[string]any, policy PathPoli
 		return buildGlobApprovalPreview(preview, input)
 	case "grep":
 		return buildGrepApprovalPreview(preview, input)
-	case "ls":
-		return buildLSApprovalPreview(preview, input)
 	default:
 		return buildGenericApprovalPreview(preview, input)
 	}
@@ -103,9 +101,16 @@ func buildMutateApprovalPreview(preview ApprovalPreview, input map[string]any) A
 }
 
 func buildGlobApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
-	if pattern := stringInput(input["pattern"]); pattern != "" {
-		preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
+	pattern := stringInput(input["pattern"])
+	if pattern == "" {
+		pattern = "*"
 	}
+	preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
+	path := stringInput(input["path"])
+	if path == "" {
+		path = "."
+	}
+	preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
 	return preview
 }
 
@@ -113,13 +118,6 @@ func buildGrepApprovalPreview(preview ApprovalPreview, input map[string]any) App
 	if pattern := stringInput(input["pattern"]); pattern != "" {
 		preview.Fields = append(preview.Fields, PreviewField{Name: "pattern", Value: pattern})
 	}
-	if path := stringInput(input["path"]); path != "" {
-		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
-	}
-	return preview
-}
-
-func buildLSApprovalPreview(preview ApprovalPreview, input map[string]any) ApprovalPreview {
 	if path := stringInput(input["path"]); path != "" {
 		preview.Fields = append(preview.Fields, PreviewField{Name: "path", Value: path})
 	}

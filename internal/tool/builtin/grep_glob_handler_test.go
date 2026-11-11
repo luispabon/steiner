@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,6 +154,55 @@ func TestGrepGlobHandlerExplicitFiles(t *testing.T) {
 			}
 			if !strings.Contains(result.Output, "nested.go") {
 				t.Errorf("Output = %q, want it to contain %q", result.Output, "nested.go")
+			}
+		})
+	}
+}
+
+// TestGrepGlobHandlerMalformedFileGlob pins the handler's answer to malformed
+// file_glob braces: an unescaped brace with no counterpart fails the call, while
+// an escaped brace or a brace inside a character class matches a literal brace
+// name and an empty group expands away.
+func TestGrepGlobHandlerMalformedFileGlob(t *testing.T) {
+	root := t.TempDir()
+	mustWriteTree(t, root, "aa", grepGlobHandlerNeedle+"\n")
+	mustWriteTree(t, root, "a{b", grepGlobHandlerNeedle+"\n")
+	mustWriteTree(t, root, "{x", grepGlobHandlerNeedle+"\n")
+	policy := tool.NewPathPolicy(root, config.PathsConfig{})
+	toolDef := NewGrepTool(Env{WorkDir: root, PathPolicy: &policy})
+
+	tests := []struct {
+		name    string
+		glob    string
+		want    string
+		wantErr bool
+	}{
+		{name: "unterminated brace fails the call", glob: "aa{", wantErr: true},
+		{name: "empty group matches its prefix", glob: "aa{}", want: "aa"},
+		{name: "escaped brace matches a literal name", glob: `a\{b`, want: "a{b"},
+		{name: "brace in a class matches a literal name", glob: "[{]x", want: "{x"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := map[string]any{
+				"pattern":     grepGlobHandlerNeedle,
+				"output_mode": "files_with_matches",
+				"glob":        tt.glob,
+			}
+			if tt.wantErr {
+				_, err := toolDef.Handler(context.Background(), input)
+				if !errors.Is(err, errGlobUnmatchedBrace) {
+					t.Fatalf("grep handler error = %v, want errGlobUnmatchedBrace", err)
+				}
+				if !strings.Contains(err.Error(), "invalid glob") {
+					t.Errorf("grep handler error = %q, want it to contain %q", err, "invalid glob")
+				}
+				return
+			}
+			result := runGrepGlobHandler(t, toolDef, input)
+			if result.Output != tt.want {
+				t.Errorf("Output = %q, want %q", result.Output, tt.want)
 			}
 		})
 	}

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -108,11 +107,8 @@ func TestGlobWalk_PrunesBlockedDescendants(t *testing.T) {
 	mustWriteTree(t, root, "secrets/nested/deep.go", "package deep\n")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	matches, err := globWalk(root, root, "**/*.go", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
-	if err != nil {
-		t.Fatalf("globWalk: %v", err)
-	}
-	assertSameStringSet(t, "glob matches", matches, []string{"visible.go"})
+	result := runGlobWalk(t, globWalkParamsWith(root, "**/*.go", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"visible.go"})
 }
 
 func TestGlobTool_SymlinkRoot(t *testing.T) {
@@ -125,21 +121,17 @@ func TestGlobTool_SymlinkRoot(t *testing.T) {
 	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
 	toolDef := NewGlobTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
 
-	resultI, err := toolDef.Handler(context.Background(), map[string]any{
+	result := runGlobTool(t, toolDef, map[string]any{
 		"path":    "link",
 		"pattern": "**/*.go",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("result type = %T, want Result", resultI)
-	}
-	assertSameStringSet(t, "glob output lines", strings.Split(result.Output, "\n"), []string{"main.go", "sub/lib.go"})
+	assertSameStringSet(t, "glob output lines", outputRows(result.Output, ""), []string{"main.go", "sub/lib.go"})
 }
 
-func TestLSTool_HidesBlockedEntries(t *testing.T) {
+// TestGlobWalk_HidesBlockedEntries proves a blocked directory and its
+// descendants never pass the walk, and that an entry whose policy path cannot
+// be resolved is omitted.
+func TestGlobWalk_HidesBlockedEntries(t *testing.T) {
 	root := t.TempDir()
 	mustWriteTree(t, root, "visible.txt", "visible")
 	mustWriteTree(t, root, "sub/keep.txt", "keep")
@@ -147,42 +139,9 @@ func TestLSTool_HidesBlockedEntries(t *testing.T) {
 	mustWriteTree(t, root, "secrets/deep/secret.txt", "secret")
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
-	ctx := context.Background()
-
-	t.Run("non-recursive listing hides blocked entries", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "."})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		if strings.Contains(result.Output, "secrets") {
-			t.Fatalf("Output leaks blocked entry: %q", result.Output)
-		}
-		if !strings.Contains(result.Output, "visible.txt") {
-			t.Fatalf("Output missing visible.txt: %q", result.Output)
-		}
-	})
-
-	t.Run("recursive listing prunes blocked directories", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": ".", "recursive": true})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		if strings.Contains(result.Output, "secrets") {
-			t.Fatalf("Output leaks blocked descendant: %q", result.Output)
-		}
-		if !strings.Contains(result.Output, "sub/keep.txt") {
-			t.Fatalf("Output missing sub/keep.txt: %q", result.Output)
-		}
-	})
+	result := runGlobWalk(t, globWalkParamsWith(root, "**", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""),
+		[]string{"sub/", "sub/keep.txt", "visible.txt"})
 
 	t.Run("unresolvable entries fail closed", func(t *testing.T) {
 		loopRoot := t.TempDir()
@@ -190,56 +149,8 @@ func TestLSTool_HidesBlockedEntries(t *testing.T) {
 		mustSymlink(t, "alias", filepath.Join(loopRoot, "alias"))
 
 		loopPolicy := tool.NewPathPolicy(loopRoot, config.PathsConfig{BlockedPaths: []string{"blocked"}})
-		loopDef := NewLSTool(Env{WorkDir: loopRoot, PathPolicy: &loopPolicy})
-		resultI, err := loopDef.Handler(ctx, map[string]any{"path": "."})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		if strings.Contains(result.Output, "alias") {
-			t.Fatalf("Output leaks entry with unresolvable policy path: %q", result.Output)
-		}
-		if !strings.Contains(result.Output, "visible.txt") {
-			t.Fatalf("Output missing visible.txt: %q", result.Output)
-		}
-	})
-}
-
-func TestLSTool_SymlinkRoot(t *testing.T) {
-	root := t.TempDir()
-	mustWriteTree(t, root, "real/a.txt", "a")
-	mustWriteTree(t, root, "real/sub/b.txt", "b")
-	mustSymlink(t, filepath.Join(root, "real"), filepath.Join(root, "link"))
-
-	policy := tool.NewPathPolicy(root, config.PathsConfig{})
-	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
-	ctx := context.Background()
-
-	t.Run("non-recursive listing follows an explicit symlink root", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "link"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"sub/", "a.txt"})
-	})
-
-	t.Run("recursive listing follows an explicit symlink root", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "link", "recursive": true})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"a.txt", "sub/", "sub/b.txt"})
+		loopResult := runGlobWalk(t, globWalkParamsWith(loopRoot, "**", &loopPolicy, tool.NewWorkspaceExcluder(loopRoot, nil, nil)))
+		assertSameStringSet(t, "glob matches", outputRows(loopResult.Output, ""), []string{"visible.txt"})
 	})
 }
 
@@ -259,59 +170,6 @@ func TestGlobTool_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
 	var policyErr *tool.PathPolicyError
 	if !errors.As(err, &policyErr) {
 		t.Fatalf("error = %v, want PathPolicyError", err)
-	}
-}
-
-func TestLSTool_DeniesSymlinkRootIntoBlockedPath(t *testing.T) {
-	root := t.TempDir()
-	mustWriteTree(t, root, "secrets/secret.txt", "secret")
-	mustSymlink(t, filepath.Join(root, "secrets"), filepath.Join(root, "link"))
-
-	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
-	ctx := context.Background()
-
-	for _, recursive := range []bool{false, true} {
-		name := "non-recursive"
-		if recursive {
-			name = "recursive"
-		}
-		t.Run(name, func(t *testing.T) {
-			_, err := toolDef.Handler(ctx, map[string]any{"path": "link", "recursive": recursive})
-			var policyErr *tool.PathPolicyError
-			if !errors.As(err, &policyErr) {
-				t.Fatalf("error = %v, want PathPolicyError", err)
-			}
-		})
-	}
-}
-
-// TestLSTool_ListsDirectoryNameWithBlankLines covers a directory name that a
-// delimiter-parsed listing could not represent: ls enumerates entries directly,
-// so the odd name lists normally while excluded entries stay hidden.
-func TestLSTool_ListsDirectoryNameWithBlankLines(t *testing.T) {
-	root := t.TempDir()
-	oddDir := filepath.Join(root, "odd\n\nname")
-	if err := os.MkdirAll(oddDir, 0o755); err != nil {
-		t.Skipf("filesystem rejects directory names containing blank lines: %v", err)
-	}
-	mustWriteTree(t, oddDir, "visible.txt", "visible")
-	mustWriteTree(t, oddDir, "secrets/secret.txt", "secret")
-
-	policy := tool.NewPathPolicy(root, config.PathsConfig{})
-	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"secrets"})
-	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy, Excluder: &excluder})
-
-	resultI, err := toolDef.Handler(context.Background(), map[string]any{"path": "odd\n\nname"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	result, ok := resultI.(*Result)
-	if !ok {
-		t.Fatalf("result type = %T, want *Result", resultI)
-	}
-	if result.Output != "visible.txt" {
-		t.Fatalf("Output = %q, want %q", result.Output, "visible.txt")
 	}
 }
 
@@ -361,7 +219,7 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	// The policy root and the sandbox tmp both live under /tmp here, so a
 	// handler path like "link" would be rewritten before the symlink is
 	// resolved. Exercise each tool on the resolved walk root instead; the
-	// handler wiring from resolveSearchRoot into glob and ls is covered by the
+	// handler wiring from resolveSearchRoot into glob is covered by the
 	// non-sandbox symlink-root tests above.
 
 	t.Run("grep reads the sandbox copy", func(t *testing.T) {
@@ -378,19 +236,8 @@ func TestResolveSearchRoot_AppliesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob reads the sandbox copy", func(t *testing.T) {
-		matches, err := globWalk(want, want, "**/*.txt", tool.NewWorkspaceExcluder(want, nil, nil), &policy)
-		if err != nil {
-			t.Fatalf("globWalk: %v", err)
-		}
-		assertSameStringSet(t, "glob matches", matches, []string{"sandbox.txt"})
-	})
-
-	t.Run("ls reads the sandbox copy", func(t *testing.T) {
-		result, err := lsRecursive(ctx, want, want, defaultLSLimit, 0, tool.NewWorkspaceExcluder(want, nil, nil), &policy)
-		if err != nil {
-			t.Fatalf("lsRecursive: %v", err)
-		}
-		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"sandbox.txt"})
+		result := runGlobWalk(t, globWalkParamsWith(want, "**/*.txt", &policy, tool.NewWorkspaceExcluder(want, nil, nil)))
+		assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"sandbox.txt"})
 	})
 }
 
@@ -447,7 +294,9 @@ func TestGrepSearch_FileRootAppliesSandboxTmpRewrite(t *testing.T) {
 	}
 }
 
-func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
+// TestGlobWalk_ListsSpecialFiles proves a listing returns a special file by
+// name without opening it, and that a blocked one stays hidden.
+func TestGlobWalk_ListsSpecialFiles(t *testing.T) {
 	root := t.TempDir()
 	mustWriteTree(t, root, "visible.txt", "visible")
 	fifo := filepath.Join(root, "pipe")
@@ -457,38 +306,6 @@ func TestLSTool_ShowsSpecialFilesThatPolicyCannotRead(t *testing.T) {
 	mustMkfifo(t, filepath.Join(secretsDir, "pipe"))
 
 	policy := tool.NewPathPolicy(root, config.PathsConfig{BlockedPaths: []string{"secrets"}})
-	toolDef := NewLSTool(Env{WorkDir: root, PathPolicy: &policy})
-	ctx := context.Background()
-
-	t.Run("non-recursive listing shows special files", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": "."})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"pipe", "visible.txt"})
-	})
-
-	t.Run("recursive listing shows special files", func(t *testing.T) {
-		resultI, err := toolDef.Handler(ctx, map[string]any{"path": ".", "recursive": true})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		result, ok := resultI.(*Result)
-		if !ok {
-			t.Fatalf("result type = %T, want *Result", resultI)
-		}
-		assertSameStringSet(t, "ls output lines", strings.Split(result.Output, "\n"), []string{"pipe", "visible.txt"})
-	})
-
-	t.Run("glob keeps read semantics for matched special files", func(t *testing.T) {
-		matches, err := globWalk(root, root, "*", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
-		if err != nil {
-			t.Fatalf("globWalk: %v", err)
-		}
-		assertSameStringSet(t, "glob matches", matches, []string{"visible.txt"})
-	})
+	result := runGlobWalk(t, globWalkParamsWith(root, "**", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"pipe", "visible.txt"})
 }

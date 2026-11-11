@@ -67,23 +67,16 @@ func grepPatternRows(t *testing.T, env Env, searchPath string) []string {
 // globPatternRows runs the glob tool and returns its rows.
 func globPatternRows(t *testing.T, env Env, searchPath, pattern string) []string {
 	t.Helper()
-	resultI, err := NewGlobTool(env).Handler(context.Background(), map[string]any{
+	return outputRows(runGlobTool(t, NewGlobTool(env), map[string]any{
 		"path":    searchPath,
 		"pattern": pattern,
-	})
-	if err != nil {
-		t.Fatalf("glob %q: %v", searchPath, err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("glob result type = %T, want Result", resultI)
-	}
-	return outputRows(result.Output, "")
+	}).Output, "")
 }
 
-// TestSymlinkSearchEntryEligibility proves grep and glob agree on which nested
-// symlink entries they may treat as regular files, and that the lexical link
-// name is what both return.
+// TestSymlinkSearchEntryEligibility proves grep follows a nested symlink only
+// when it resolves to an eligible regular file, while glob lists every nested
+// link by its lexical name, hiding only a link whose target is blocked. Both
+// report the link name rather than the target.
 func TestSymlinkSearchEntryEligibility(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -91,6 +84,7 @@ func TestSymlinkSearchEntryEligibility(t *testing.T) {
 		excludePatterns []string
 		blockedPaths    []string
 		want            []string
+		wantGlob        []string
 	}{
 		{
 			name: "eligible regular file links only",
@@ -103,9 +97,23 @@ func TestSymlinkSearchEntryEligibility(t *testing.T) {
 				"link-inside.go",
 				"link-workspace.go",
 			},
+			wantGlob: []string{
+				"inside.go",
+				"link-absolute.go",
+				"link-blocked.go",
+				"link-byname.go",
+				"link-chain.go",
+				"link-dangling.go",
+				"link-directory.go",
+				"link-excluded.go",
+				"link-escape.go",
+				"link-inside.go",
+				"link-special.go",
+				"link-workspace.go",
+			},
 		},
 		{
-			name:            "excluded link name and excluded or blocked targets are rejected",
+			name:            "excluded link names are filtered and only blocked targets hide links",
 			excludePaths:    []string{"src/link-byname.go"},
 			excludePatterns: []string{"excluded"},
 			blockedPaths:    []string{"blocked"},
@@ -115,13 +123,24 @@ func TestSymlinkSearchEntryEligibility(t *testing.T) {
 				"link-inside.go",
 				"link-workspace.go",
 			},
+			wantGlob: []string{
+				"inside.go",
+				"link-absolute.go",
+				"link-chain.go",
+				"link-directory.go",
+				"link-escape.go",
+				"link-excluded.go",
+				"link-inside.go",
+				"link-special.go",
+				"link-workspace.go",
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := symlinkSearchFixture(t, tt.excludePaths, tt.excludePatterns, tt.blockedPaths)
 			assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src"), tt.want)
-			assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), tt.want)
+			assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), tt.wantGlob)
 		})
 	}
 }
@@ -214,20 +233,68 @@ func TestGrepNestedSymlinkUsesSandboxTmpRewrite(t *testing.T) {
 	})
 
 	t.Run("glob lists the link", func(t *testing.T) {
-		matches, err := globWalk(src, src, "**/*.txt", tool.NewWorkspaceExcluder(root, nil, nil), &policy)
-		if err != nil {
-			t.Fatalf("globWalk: %v", err)
-		}
-		assertSameStringSet(t, "glob matches", matches, []string{"tmplink.txt"})
+		result := runGlobWalk(t, globWalkParamsWith(src, "**/*.txt", &policy, tool.NewWorkspaceExcluder(root, nil, nil)))
+		assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"tmplink.txt"})
 	})
+}
+
+// TestGlobHidesSymlinksToSandboxBlockedTargets proves glob applies the sandbox
+// /tmp rewrite to a nested link's target before the blocked_paths check. The
+// link's host target is not blocked, but its sandbox view is, so the link is
+// hidden by name. Grep already resolves a followed target through policy and
+// refuses a blocked one, so its behaviour is unchanged.
+func TestGlobHidesSymlinksToSandboxBlockedTargets(t *testing.T) {
+	hostDir, err := os.MkdirTemp("/tmp", "steiner-probe-")
+	if err != nil {
+		t.Skipf("cannot create directory under /tmp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(hostDir) })
+	mustWriteTree(t, hostDir, "key", "host-key\n")
+
+	root := t.TempDir()
+	mustWriteTree(t, root, "keep.txt", "keep\n")
+	sandboxTmp := filepath.Join(t.TempDir(), "sandbox-tmp")
+	mustMkdir(t, sandboxTmp)
+	// The sandbox copy of the host path sits inside the blocked directory.
+	blocked := filepath.Join(sandboxTmp, filepath.Base(hostDir))
+	mustWriteTree(t, blocked, "key", "sandbox-key\n")
+
+	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{BlockedPaths: []string{blocked}}, sandboxTmp)
+	sandboxTarget, err := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp).ResolveReadEntryPath(filepath.Join(hostDir, "key"))
+	if err != nil {
+		t.Fatalf("resolve sandbox target: %v", err)
+	}
+	if sandboxTarget != filepath.Join(blocked, "key") {
+		t.Skipf("sandbox /tmp rewrite does not apply to link targets on this platform (resolved %q)", sandboxTarget)
+	}
+
+	mustSymlink(t, filepath.Join(hostDir, "key"), filepath.Join(root, "lnk-sbx"))
+	mustSymlink(t, "keep.txt", filepath.Join(root, "lnk-ok"))
+	excluder := tool.NewWorkspaceExcluder(root, nil, nil)
+
+	result := runGlobWalk(t, globWalkParamsWith(root, "*", &policy, excluder))
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"keep.txt", "lnk-ok"})
+
+	results, _, err := grepSearch(context.Background(), grepSearchParams{
+		root:        root,
+		displayPath: ".",
+		pattern:     "key",
+		excluder:    &excluder,
+		policy:      &policy,
+	})
+	if err != nil {
+		t.Fatalf("grepSearch: %v", err)
+	}
+	assertSameStringSet(t, "grep files", grepResultFiles(results), nil)
 }
 
 // TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot covers a link under the
 // search root that points at a workspace file inside a built-in excluded
-// directory. The target has no walk-relative path, so the exclusion has to be
-// evaluated against the workspace root; otherwise node_modules and .git would be
-// bypassed. A search rooted inside such a directory keeps its own view, so links
-// whose targets stay inside that root are still eligible.
+// directory. Grep has no walk-relative path for the target, so the exclusion has
+// to be evaluated against the workspace root; otherwise node_modules and .git
+// would be bypassed. A search rooted inside such a directory keeps its own view,
+// so links whose targets stay inside that root are still eligible. Glob lists
+// links by name, so links into built-in directories stay visible there.
 func TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot(t *testing.T) {
 	root := t.TempDir()
 	for _, rel := range []string{
@@ -246,7 +313,8 @@ func TestSymlinkSearchAppliesBuiltinExcludesOutsideWalkRoot(t *testing.T) {
 
 	wantUnderSearchRoot := []string{"link-visible.go", "visible.go"}
 	assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src"), wantUnderSearchRoot)
-	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), wantUnderSearchRoot)
+	wantGlobUnderSearchRoot := []string{"link-git.go", "link-modules.go", "link-visible.go", "visible.go"}
+	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), wantGlobUnderSearchRoot)
 
 	wantUnderBuiltinDir := []string{"alias.go", "real.go"}
 	assertSameStringSet(t, "grep rows under built-in dir", grepPatternRows(t, env, "node_modules/pkg"), wantUnderBuiltinDir)
@@ -272,13 +340,17 @@ func TestSymlinkSearchUsesLexicalWorkspaceForConfiguredExcludes(t *testing.T) {
 	env := workspaceTestEnv(t, alias, []string{"secret"}, []string{"secret/*.txt"})
 	want := []string{"link-open.go", "main.go"}
 	assertSameStringSet(t, "grep rows", grepPatternRows(t, env, "src"), want)
-	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), want)
+	// A listing matches names only, so the link to the excluded target stays
+	// visible while the excluded directory itself is filtered out.
+	wantGlob := []string{"link-open.go", "link-secret.go", "main.go"}
+	assertSameStringSet(t, "glob rows", globPatternRows(t, env, "src", "**/*.go"), wantGlob)
 }
 
 // TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets proves a virtual /tmp
-// walk applies configured patterns to a link target outside the walk root. The
-// workspace view cannot describe such a target, so the pattern is matched
-// against the target's virtual /tmp path instead.
+// walk applies grep's configured patterns to a link target outside the walk
+// root. The workspace view cannot describe such a target, so the pattern is
+// matched against the target's virtual /tmp path instead. Glob lists the same
+// links by name, so its exclusion check never sees the target.
 func TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets(t *testing.T) {
 	root := t.TempDir()
 	sandboxTmp := filepath.Join(root, "sandbox-tmp")
@@ -292,12 +364,9 @@ func TestSymlinkSearchUsesVirtualTmpBaseForExternalTargets(t *testing.T) {
 	policy := tool.NewPathPolicyWithSandbox(root, config.PathsConfig{}, sandboxTmp).WithVirtualTmpRequest("/tmp")
 	excluder := tool.NewWorkspaceExcluder(root, nil, []string{"app.txt"})
 
-	matches, err := globWalk(session, session, "**/*.txt", excluder, &policy)
-	if err != nil {
-		t.Fatalf("globWalk: %v", err)
-	}
+	result := runGlobWalk(t, globWalkParamsWith(session, "**/*.txt", &policy, excluder))
 	want := []string{"link-allowed.txt", "report.txt"}
-	assertSameStringSet(t, "glob matches", matches, want)
+	assertSameStringSet(t, "glob matches", outputRows(result.Output, ""), []string{"link-allowed.txt", "link-app.txt", "report.txt"})
 
 	results, _, err := grepSearch(context.Background(), grepSearchParams{
 		root:        session,

@@ -65,122 +65,76 @@ func grepWorkspaceRows(t *testing.T, env Env, searchPath string) []string {
 
 func globWorkspaceRows(t *testing.T, env Env, searchPath string) []string {
 	t.Helper()
-	resultI, err := NewGlobTool(env).Handler(context.Background(), map[string]any{
+	return outputRows(runGlobTool(t, NewGlobTool(env), map[string]any{
 		"path":    searchPath,
 		"pattern": "**/*.go",
-	})
-	if err != nil {
-		t.Fatalf("glob %q: %v", searchPath, err)
-	}
-	result, ok := resultI.(Result)
-	if !ok {
-		t.Fatalf("glob result type = %T, want Result", resultI)
-	}
-	return outputRows(result.Output, "")
+	}).Output, "")
 }
 
-func lsWorkspaceRows(t *testing.T, env Env, searchPath string, recursive bool, limit int) []string {
-	t.Helper()
-	input := map[string]any{"path": searchPath}
-	if recursive {
-		input["recursive"] = true
-	}
-	if limit > 0 {
-		input["limit"] = limit
-	}
-	resultI, err := NewLSTool(env).Handler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("ls %q: %v", searchPath, err)
-	}
-	result, ok := resultI.(*Result)
-	if !ok {
-		t.Fatalf("ls result type = %T, want *Result", resultI)
-	}
-	return outputRows(result.Output, "")
-}
-
-// TestWorkspaceExclusions_ApplyAcrossSearchTools proves grep, glob, recursive
-// ls, and non-recursive ls agree on workspace-anchored exclusions, including
-// walks started from a workspace subdirectory.
+// TestWorkspaceExclusions_ApplyAcrossSearchTools proves grep and glob agree on
+// workspace-anchored exclusions, including walks started from a workspace
+// subdirectory.
 func TestWorkspaceExclusions_ApplyAcrossSearchTools(t *testing.T) {
 	root := workspaceExclusionFixture(t)
 	tests := []struct {
-		name               string
-		excludePaths       []string
-		excludePatterns    []string
-		searchPath         string
-		wantGrepGlob       []string
-		wantLSRecursive    []string
-		wantLSNonRecursive []string
+		name            string
+		excludePaths    []string
+		excludePatterns []string
+		searchPath      string
+		want            []string
 	}{
 		{
-			name:               "configured exact path below workspace subroot",
-			excludePaths:       []string{"sub/secret"},
-			searchPath:         "sub",
-			wantGrepGlob:       []string{"abs_skip/skipped.go", "keep.go"},
-			wantLSRecursive:    []string{"abs_skip/", "abs_skip/skipped.go", "keep.go"},
-			wantLSNonRecursive: []string{"abs_skip/", "keep.go"},
+			name:         "configured exact path below workspace subroot",
+			excludePaths: []string{"sub/secret"},
+			searchPath:   "sub",
+			want:         []string{"abs_skip/skipped.go", "keep.go"},
 		},
 		{
-			name:               "absolute configured exclude path",
-			excludePaths:       []string{filepath.Join(root, "sub", "abs_skip")},
-			searchPath:         "sub",
-			wantGrepGlob:       []string{"keep.go", "secret/hidden.go"},
-			wantLSRecursive:    []string{"keep.go", "secret/", "secret/hidden.go"},
-			wantLSNonRecursive: []string{"keep.go", "secret/"},
+			name:         "absolute configured exclude path",
+			excludePaths: []string{filepath.Join(root, "sub", "abs_skip")},
+			searchPath:   "sub",
+			want:         []string{"keep.go", "secret/hidden.go"},
 		},
 		{
-			name:               "slash pattern anchored to workspace",
-			excludePatterns:    []string{"src/gen"},
-			searchPath:         ".",
-			wantGrepGlob:       []string{"src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},
-			wantLSRecursive:    []string{"src/", "src/helper.go", "src/main.go", "sub/", "sub/abs_skip/", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/", "sub/secret/hidden.go"},
-			wantLSNonRecursive: []string{"src/", "sub/"},
+			name:            "slash pattern anchored to workspace",
+			excludePatterns: []string{"src/gen"},
+			searchPath:      ".",
+			want:            []string{"src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},
 		},
 		{
-			name:               "slash pattern stays anchored from subroot walk",
-			excludePatterns:    []string{"src/gen"},
-			searchPath:         "src",
-			wantGrepGlob:       []string{"helper.go", "main.go"},
-			wantLSRecursive:    []string{"helper.go", "main.go"},
-			wantLSNonRecursive: []string{"helper.go", "main.go"},
+			name:            "slash pattern stays anchored from subroot walk",
+			excludePatterns: []string{"src/gen"},
+			searchPath:      "src",
+			want:            []string{"helper.go", "main.go"},
 		},
 		{
-			name:               "builtin directory excluded from workspace walk",
-			searchPath:         ".",
-			wantGrepGlob:       []string{"src/gen/out.go", "src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},
-			wantLSRecursive:    []string{"src/", "src/gen/", "src/gen/out.go", "src/helper.go", "src/main.go", "sub/", "sub/abs_skip/", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/", "sub/secret/hidden.go"},
-			wantLSNonRecursive: []string{"src/", "sub/"},
+			name:       "builtin directory excluded from workspace walk",
+			searchPath: ".",
+			want:       []string{"src/gen/out.go", "src/helper.go", "src/main.go", "sub/abs_skip/skipped.go", "sub/keep.go", "sub/secret/hidden.go"},
 		},
 		{
-			name:               "explicit build root is searchable",
-			searchPath:         "build",
-			wantGrepGlob:       []string{"out.go"},
-			wantLSRecursive:    []string{"out.go"},
-			wantLSNonRecursive: []string{"out.go"},
+			name:       "explicit build root is searchable",
+			searchPath: "build",
+			want:       []string{"out.go"},
 		},
 		{
-			name:               "explicit worktree root is searchable",
-			searchPath:         ".steiner/worktrees/wt",
-			wantGrepGlob:       []string{"src/wt.go"},
-			wantLSRecursive:    []string{"src/", "src/wt.go"},
-			wantLSNonRecursive: []string{"src/"},
+			name:       "explicit worktree root is searchable",
+			searchPath: ".steiner/worktrees/wt",
+			want:       []string{"src/wt.go"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := workspaceTestEnv(t, root, tt.excludePaths, tt.excludePatterns)
-			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, tt.searchPath), tt.wantGrepGlob)
-			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, tt.searchPath), tt.wantGrepGlob)
-			assertSameStringSet(t, "recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, true, 0), tt.wantLSRecursive)
-			assertSameStringSet(t, "non-recursive ls rows", lsWorkspaceRows(t, env, tt.searchPath, false, 0), tt.wantLSNonRecursive)
+			assertSameStringSet(t, "grep rows", grepWorkspaceRows(t, env, tt.searchPath), tt.want)
+			assertSameStringSet(t, "glob rows", globWorkspaceRows(t, env, tt.searchPath), tt.want)
 		})
 	}
 }
 
-// TestLSExclusionsFilterBeforePagination proves non-recursive ls drops
-// configured and built-in exclusions before limit and offset are applied.
-func TestLSExclusionsFilterBeforePagination(t *testing.T) {
+// TestGlobExclusionsFilterBeforePagination proves configured and built-in
+// exclusions are dropped before limit and offset are applied.
+func TestGlobExclusionsFilterBeforePagination(t *testing.T) {
 	tests := []struct {
 		name         string
 		excludePaths []string
@@ -206,9 +160,13 @@ func TestLSExclusionsFilterBeforePagination(t *testing.T) {
 				mustWriteTree(t, root, rel, "x")
 			}
 			env := workspaceTestEnv(t, root, tt.excludePaths, nil)
-			got := lsWorkspaceRows(t, env, ".", false, 1)
-			if !slices.Equal(got, tt.want) {
-				t.Fatalf("ls rows = %v, want %v", got, tt.want)
+			result := runGlobTool(t, NewGlobTool(env), map[string]any{
+				"path":    ".",
+				"pattern": "*",
+				"limit":   1,
+			})
+			if got := outputRows(result.Output, ""); !slices.Equal(got, tt.want) {
+				t.Fatalf("glob rows = %v, want %v", got, tt.want)
 			}
 		})
 	}

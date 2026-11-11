@@ -2444,7 +2444,7 @@ func TestToolBorderStyleUsesMutedPalette(t *testing.T) {
 		{name: "glob", tool: "glob", want: lipgloss.Color(theme.ToolBlueLine)},
 		{name: "fetch_url", tool: "fetch_url", want: lipgloss.Color(theme.ToolBlueLine)},
 		{name: "todo", tool: "todo", want: lipgloss.Color(theme.WarnLine)},
-		{name: "default", tool: "ls", want: lipgloss.Color(theme.AccentLine)},
+		{name: "default", tool: "unknown", want: lipgloss.Color(theme.AccentLine)},
 	}
 
 	for _, tt := range tests {
@@ -2838,17 +2838,17 @@ func TestRenderToolPreviewUsesStructuredListViews(t *testing.T) {
 			want: []string{"glob results", "src", "main.go", "pkg/tool.go"},
 		},
 		{
-			name: "ls",
-			tool: "ls",
-			args: "src",
-			kind: "ls",
+			name: "glob with directories",
+			tool: "glob",
+			args: "*",
+			kind: "glob",
 			preview: output.ToolPreview{
-				Kind:     output.ToolPreviewKindLSList,
+				Kind:     output.ToolPreviewKindGlobList,
 				Path:     "src",
 				Returned: 2,
 				Entries:  []output.ToolPreviewListEntry{{Path: "cmd", IsDir: true}, {Path: "main.go"}},
 			},
-			want: []string{"directory listing", "src", "cmd/", "main.go"},
+			want: []string{"glob results", "src", "cmd/", "main.go"},
 		},
 	}
 

@@ -4,7 +4,7 @@ package tool
 func (p PathPolicy) ValidateToolInput(toolName string, input map[string]any) (map[string]any, error) {
 	normalized := CloneJSONMap(input)
 	switch toolName {
-	case "read", "glob", "grep", "ls":
+	case "read", "glob", "grep":
 		return p.validateReadOnlyToolInput(normalized)
 	case "mutate":
 		return p.validateMutateToolInput(normalized)

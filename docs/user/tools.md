@@ -7,9 +7,8 @@ The model works through tools. Steiner owns each tool's input schema and result 
 | Tool | Purpose | Available | Can ask for approval |
 |------|---------|-----------|----------------------|
 | `read` | Read a file with offset/limit paging; detects images | Always | No |
-| `glob` | Find files by pattern | Always | No |
+| `glob` | List files and directories matching a glob pattern. Directories end in `/`; `limit` and `offset` page results | Always | No |
 | `grep` | Search file contents with context and paging | Always | No |
-| `ls` | List a directory | Always | No |
 | `bash` | Run a shell command, sandboxed by default | Always | Yes: sandbox denial, or `cwd` outside the project root |
 | `display_file` | Show a file in the TUI overlay without adding it to the conversation | Always | No |
 | `mutate` | Apply file edits atomically: `create`, `write`, `replace`, `delete_file`, `move` | Always | Yes: a path outside the project root |
@@ -28,13 +27,25 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 
 ## Paths and exclusions
 
-`read`, `glob`, `grep`, `ls`, and `display_file` can read anywhere the filesystem allows, except `paths.blocked_paths`. Writes through `mutate` are limited to the project root while `paths.project_root_only` is on (the default), and to `paths.writable_paths` when that list is set. The `bash` working directory must be inside the project root while `project_root_only` is on and must not be blocked. These tools run inside Steiner, not in the sandbox. See the [`paths` block](configuration.md#paths-block).
+`read`, `glob`, `grep`, and `display_file` can read anywhere the filesystem allows, except `paths.blocked_paths`. Writes through `mutate` are limited to the project root while `paths.project_root_only` is on (the default), and to `paths.writable_paths` when that list is set. The `bash` working directory must be inside the project root while `project_root_only` is on and must not be blocked. These tools run inside Steiner, not in the sandbox. See the [`paths` block](configuration.md#paths-block).
 
-`glob`, `grep`, and `ls` skip excluded paths. Exclusions are filters, not access control: only `paths.blocked_paths` denies access.
+`glob` and `grep` skip excluded paths. Exclusions are filters, not access control: only `paths.blocked_paths` denies access.
 
 - Built-in exclusions match any path component named `.git`, `node_modules`, `.steiner`, `.claude`, `.git-worktrees`, `vendor`, `.cache`, `dist`, `build`, `out`, `target`, `.next`, or `.nuxt`. They are matched relative to the search root, so a search rooted inside one of these directories, such as `vendor/`, still runs.
 - `paths.exclude_paths` and `paths.exclude_patterns` add workspace exclusions. They still apply when the search root is inside an excluded directory, so that search returns nothing.
-- `grep` and `glob` follow a nested symlink only when its target is a regular file inside the search root or workspace that also passes `paths.blocked_paths` and the exclusions. Nested directory symlinks are not followed. Results show the link name, not the target. `ls` lists link names without resolving them.
+- `grep` follows a nested symlink only when its target is a regular file inside the search root or workspace that also passes `paths.blocked_paths` and the exclusions. Nested directory symlinks are not followed. Results show the link name, not the target.
+- `glob` lists entry names and never follows or opens an entry. Every nested symlink and every special file such as a device, pipe, or socket that passes `paths.blocked_paths` is listed; exclusions apply to each entry's own path, so a link whose target is excluded is still listed by name. A symlink is shown without a trailing `/`, so `*/` does not match a directory link, and only a link whose target is blocked is hidden. When `paths.blocked_paths` is set, a link whose target cannot be resolved, such as a dangling link, is hidden as well. Passing a symlink as `path` lists its target.
+
+## Glob patterns
+
+- `pattern` is a glob relative to `path`, which defaults to the current directory. The pattern defaults to `*`, which lists one level.
+- A leading `./` is ignored. An empty pattern, `.`, or `./` means the default pattern. A leading `/` or a `..` segment is an error: put the directory in `path` instead.
+- A `.` segment anywhere in a pattern, including inside a brace alternative such as `{./a,b}`, is dropped. A brace alternative made only of `.`, such as `{./,a}`, matches nothing, the same as an empty alternative. A dot inside a character class such as `a[/.]` is a class member, not a segment.
+- `**` recurses. Patterns match both files and directories, and a matching directory is returned with a trailing `/`: a pattern matches a directory when it matches the directory's path, or when the pattern ends in `/` and matches that path plus the slash. So `src/*` lists the children of `src` without returning `src/` itself, `src/*/` returns only the child directories, and `*/` returns only the top-level directories.
+- A result page holds 200 entries by default and at most 1000. Pass the `next_offset` value as `offset` to continue.
+- Results are in directory walk order: depth-first, each directory's entries in lexical order. They are not globally sorted.
+- Treating each `**/` as matching zero directories multiplies a pattern into several forms. The call fails when that expansion exceeds 256 forms.
+- Braces form alternations: `{a,b}` matches `a` or `b`. An unescaped brace with no counterpart is an error, so a literal brace is written `\{` or `\}`, and a brace inside a character class such as `[{]` is literal.
 
 ## File reading and editing
 
@@ -51,7 +62,7 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 - A `content` page renders at most 200 lines, including context lines and headers, so it can hold fewer results than `head_limit`.
 - `next_offset` is the offset of the next page. Pass it as `offset` to continue. It is omitted on the last page.
 - Rendered lines are capped at 400 characters around the match.
-- `glob` filters by path relative to the search root. A pattern without a slash matches a basename at any depth (`*.go`); a pattern with a slash matches the root-relative path (`src/*.go`); a leading `./` anchors to the root.
+- `glob` filters by path relative to the search root. A pattern without a slash matches a basename at any depth (`*.go`); a pattern with a slash matches the root-relative path (`src/*.go`); a leading `./` anchors to the root. Braces form alternations, an unescaped brace with no counterpart is an error, and a literal brace is written `\{` or `\}`.
 - `type` filters by extension. Accepted values: `c`, `cpp`, `css`, `go` (alias `golang`), `html`, `java`, `js`, `json`, `kotlin`, `md`, `php`, `py`, `rb`, `rust`, `scala`, `sh`, `sql`, `swift`, `ts`, `xml`, `yaml`.
 - `multiline: true` lets `.` match newlines and `^`/`$` match line boundaries.
 

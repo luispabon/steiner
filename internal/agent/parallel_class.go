@@ -17,7 +17,7 @@ const (
 	// sub-agent spawn, or follow_up), bounded by RunRequest.MaxParallelDelegations.
 	ParallelClassDelegation
 	// ParallelClassTool marks a parallel-safe non-delegation tool call
-	// (read, glob, grep, ls, fetch_url, web_search, MCP tools flagged
+	// (read, glob, grep, fetch_url, web_search, MCP tools flagged
 	// parallel-safe, ...), bounded by RunRequest.MaxParallelTools.
 	ParallelClassTool
 )

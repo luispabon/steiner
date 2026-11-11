@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -134,7 +135,7 @@ func (p PathPolicy) ResolveCWD(raw string) (string, error) {
 
 // ResolveReadPath normalizes a path for read-only access, checking only blocked
 // paths. The project-root constraint is intentionally skipped so that read,
-// glob, grep, and ls can operate anywhere the filesystem allows.
+// glob, and grep can operate anywhere the filesystem allows.
 func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
 	return p.resolveRead(raw, true)
 }
@@ -142,8 +143,8 @@ func (p PathPolicy) ResolveReadPath(raw string) (string, error) {
 // ResolveReadEntryPath normalizes a path discovered inside a directory walk and
 // reports whether policy blocks it. Unlike ResolveReadPath it does not reject
 // device, pipe, and socket files: listing a name is safe even when reading the
-// file is not, so listings can show special files that readers still refuse to
-// open.
+// file is not, so the glob listing can show special files that readers still
+// refuse to open.
 func (p PathPolicy) ResolveReadEntryPath(raw string) (string, error) {
 	return p.resolveRead(raw, false)
 }
@@ -151,7 +152,7 @@ func (p PathPolicy) ResolveReadEntryPath(raw string) (string, error) {
 func (p PathPolicy) resolveRead(raw string, rejectSpecial bool) (string, error) {
 	normalized := normalizePolicyPath(p.root, raw)
 	if normalized == "" {
-		return "", fmt.Errorf("path is required")
+		return "", errors.New("path is required")
 	}
 	normalized = p.rewriteTmpPath(normalized)
 	if blocked, err := p.blocked(normalized); err != nil {

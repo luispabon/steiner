@@ -371,7 +371,10 @@ func TestClaudeTokenFixturePayloadContentKinds(t *testing.T) {
 	}
 }
 
-func TestClaudeTokenFixtureToolsAreCoreBuiltinSet(t *testing.T) {
+// TestClaudeTokenFixtureToolsMatchRecordedSet checks tools.json against the
+// tool set recorded when the fixture was captured. Live core names are pinned
+// by the production test in token_estimator_claude_tools_test.go.
+func TestClaudeTokenFixtureToolsMatchRecordedSet(t *testing.T) {
 	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	names := make([]string, 0, len(set.Tools))
@@ -381,6 +384,8 @@ func TestClaudeTokenFixtureToolsAreCoreBuiltinSet(t *testing.T) {
 		}
 		names = append(names, spec.Function.Name)
 	}
+	// tools.json is frozen Claude request evidence, so it still records the
+	// retired ls tool.
 	want := []string{"bash", "display_file", "fetch_url", "glob", "grep", "ls", "mutate", "read", "workflow_handoff"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tool names = %v, want %v", names, want)

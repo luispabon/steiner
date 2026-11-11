@@ -77,7 +77,6 @@ func defaultConfig(env map[string]string) Config {
 				"bash": MustDuration("600s"),
 				"read": MustDuration("5s"),
 				"grep": MustDuration("30s"),
-				"ls":   MustDuration("5s"),
 			},
 			ToolOutputMaxBytes: 65536,
 			MaxParallelTools:   4,

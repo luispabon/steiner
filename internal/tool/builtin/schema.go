@@ -1,6 +1,9 @@
 package builtin
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ReadSchema returns the JSON schema for the read tool.
 func ReadSchema() map[string]any {
@@ -71,12 +74,13 @@ func GlobSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"pattern": map[string]any{"type": "string", "description": "Glob pattern to match"},
-			"path":    map[string]any{"type": "string", "description": "Directory to search in"},
-			"limit":   map[string]any{"type": "integer", "description": "Max results (default: 200)", "default": defaultGlobLimit, "maximum": maxGlobLimit},
-			"offset":  map[string]any{"type": "integer", "description": "Result offset (default: 0)", "default": 0},
+			"pattern": map[string]any{"type": "string", "description": fmt.Sprintf("Glob pattern relative to path, default %q (one level). "+
+				"A leading \"./\" is ignored, and a leading \"/\" or a \"..\" segment is an error. "+
+				"\"**\" recurses, a trailing \"/\" matches directories only, and the pattern matches both files and directories.", defaultGlobPattern)},
+			"path":   map[string]any{"type": "string", "description": "Directory to search in (default: current directory)"},
+			"limit":  map[string]any{"type": "integer", "description": fmt.Sprintf("Max results (default: %d)", defaultGlobLimit), "default": defaultGlobLimit, "maximum": maxGlobLimit},
+			"offset": map[string]any{"type": "integer", "description": "Result offset (default: 0)", "default": 0},
 		},
-		"required":             []string{"pattern"},
 		"additionalProperties": false,
 	}
 }
@@ -101,20 +105,6 @@ func GrepSchema() map[string]any {
 			"offset":           map[string]any{"type": "integer", "description": "Logical result offset", "default": 0},
 		},
 		"required":             []string{"pattern"},
-		"additionalProperties": false,
-	}
-}
-
-// LSSchema returns the JSON schema for the ls tool.
-func LSSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":      map[string]any{"type": "string", "description": "Directory to list"},
-			"recursive": map[string]any{"type": "boolean", "description": "List recursively"},
-			"limit":     map[string]any{"type": "integer", "description": "Max results", "default": defaultLSLimit, "maximum": maxLSLimit},
-			"offset":    map[string]any{"type": "integer", "description": "Result offset", "default": 0},
-		},
 		"additionalProperties": false,
 	}
 }

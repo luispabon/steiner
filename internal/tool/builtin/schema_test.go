@@ -76,8 +76,24 @@ func TestGlobSchema(t *testing.T) {
 		t.Error("additionalProperties should be false")
 	}
 	req := schemaRequired(s)
-	if len(req) != 1 || req[0] != "pattern" {
-		t.Errorf("required = %v, want [pattern]", req)
+	if len(req) != 0 {
+		t.Errorf("required = %v, want []", req)
+	}
+	props := schemaProperties(s)
+	if props == nil {
+		t.Fatal("properties is nil")
+	}
+	for _, name := range []string{"pattern", "path", "limit", "offset"} {
+		if _, ok := props[name]; !ok {
+			t.Errorf("missing %s property", name)
+		}
+	}
+	pattern, _ := props["pattern"].(map[string]any)
+	desc, _ := pattern["description"].(string)
+	for _, mention := range []string{"default", "**", "directories"} {
+		if !strings.Contains(desc, mention) {
+			t.Errorf("pattern description = %q, want it to mention %q", desc, mention)
+		}
 	}
 }
 
@@ -170,36 +186,6 @@ func TestGrepSchemaDescriptionsAndBounds(t *testing.T) {
 	}
 	if _, ok := offsetProp["minimum"]; ok {
 		t.Error("offset should not declare a minimum; negative values clamp to 0")
-	}
-}
-
-func TestLSSchema(t *testing.T) {
-	s := LSSchema()
-	if got := schemaType(s); got != "object" {
-		t.Errorf("type = %q, want %q", got, "object")
-	}
-	if schemaAdditionalProperties(s) {
-		t.Error("additionalProperties should be false")
-	}
-	req := schemaRequired(s)
-	if len(req) != 0 {
-		t.Errorf("required = %v, want []", req)
-	}
-	props := schemaProperties(s)
-	if props == nil {
-		t.Fatal("properties is nil")
-	}
-	if _, ok := props["path"]; !ok {
-		t.Error("missing path property")
-	}
-	if _, ok := props["recursive"]; !ok {
-		t.Error("missing recursive property")
-	}
-	if _, ok := props["limit"]; !ok {
-		t.Error("missing limit property")
-	}
-	if _, ok := props["offset"]; !ok {
-		t.Error("missing offset property")
 	}
 }
 

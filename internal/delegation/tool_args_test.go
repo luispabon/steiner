@@ -201,6 +201,111 @@ func TestSummarizeGlobArgs(t *testing.T) {
 			args:     map[string]any{"pattern": "**/*.go", "path": "internal/"},
 			expected: "./internal/**/*.go",
 		},
+		{
+			name:     "no path without pattern",
+			args:     map[string]any{},
+			expected: "glob",
+		},
+		{
+			name:     "no path with pattern",
+			args:     map[string]any{"pattern": "*.go"},
+			expected: "*.go",
+		},
+		{
+			name:     "dot path without pattern",
+			args:     map[string]any{"path": "."},
+			expected: "glob",
+		},
+		{
+			name:     "dot path with pattern",
+			args:     map[string]any{"path": ".", "pattern": "*.go"},
+			expected: "*.go",
+		},
+		{
+			name:     "dot slash path without pattern",
+			args:     map[string]any{"path": "./"},
+			expected: "glob",
+		},
+		{
+			name:     "dot slash path with pattern",
+			args:     map[string]any{"path": "./", "pattern": "*.go"},
+			expected: "*.go",
+		},
+		{
+			name:     "relative path without pattern",
+			args:     map[string]any{"path": "src"},
+			expected: "./src",
+		},
+		{
+			name:     "relative path with pattern",
+			args:     map[string]any{"path": "src", "pattern": "*.go"},
+			expected: "./src/*.go",
+		},
+		{
+			name:     "relative path with dot slash prefix and trailing slash, without pattern",
+			args:     map[string]any{"path": "./src/"},
+			expected: "./src",
+		},
+		{
+			name:     "relative path with dot slash prefix and trailing slash, with pattern",
+			args:     map[string]any{"path": "./src/", "pattern": "*.go"},
+			expected: "./src/*.go",
+		},
+		{
+			name:     "parent relative path without pattern",
+			args:     map[string]any{"path": "../x"},
+			expected: "../x",
+		},
+		{
+			name:     "parent relative path with pattern",
+			args:     map[string]any{"path": "../x", "pattern": "*.go"},
+			expected: "../x/*.go",
+		},
+		{
+			name:     "parent directory without pattern",
+			args:     map[string]any{"path": ".."},
+			expected: "..",
+		},
+		{
+			name:     "parent directory with pattern",
+			args:     map[string]any{"path": "..", "pattern": "*.go"},
+			expected: "../*.go",
+		},
+		{
+			name:     "parent directory with trailing slash without pattern",
+			args:     map[string]any{"path": "../"},
+			expected: "..",
+		},
+		{
+			name:     "parent directory with trailing slash with pattern",
+			args:     map[string]any{"path": "../", "pattern": "*.go"},
+			expected: "../*.go",
+		},
+		{
+			name:     "absolute path without pattern",
+			args:     map[string]any{"path": "/abs"},
+			expected: "/abs",
+		},
+		{
+			name:     "absolute path with pattern",
+			args:     map[string]any{"path": "/abs", "pattern": "*.go"},
+			expected: "/abs/*.go",
+		},
+		{
+			name:     "filesystem root without pattern",
+			args:     map[string]any{"path": "/"},
+			expected: "/",
+		},
+		{
+			name:     "filesystem root with pattern",
+			args:     map[string]any{"path": "/", "pattern": "*.go"},
+			expected: "/*.go",
+		},
+		{
+			name:     "home relative path with pattern",
+			args:     map[string]any{"path": "~/src", "pattern": "*.go"},
+			expected: "~/src/*.go",
+		},
 	}
 
 	for _, tt := range tests {
@@ -269,51 +374,6 @@ func TestSummarizeReadArgs(t *testing.T) {
 			result := summarizeReadArgs(tt.args)
 			if result != tt.expected {
 				t.Errorf("got %q, want %q", result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestSummarizeLSArgs(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name     string
-		args     map[string]any
-		expected string
-	}{
-		{
-			name:     "ls with path",
-			args:     map[string]any{"path": "./mydir"},
-			expected: "./mydir",
-		},
-		{
-			name:     "ls with path + recursive=true",
-			args:     map[string]any{"path": "./mydir", "recursive": true},
-			expected: "./mydir (recursive)",
-		},
-		{
-			name:     "ls with path + recursive=false",
-			args:     map[string]any{"path": "./mydir", "recursive": false},
-			expected: "./mydir",
-		},
-		{
-			name:     "ls with no args",
-			args:     map[string]any{},
-			expected: ".",
-		},
-		{
-			name:     "ls with recursive=true only",
-			args:     map[string]any{"recursive": true},
-			expected: ". (recursive)",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := summarizeLSArgs(tt.args)
-			if result != tt.expected {
-				t.Errorf("summarizeLSArgs(%v) = %q, want %q", tt.args, result, tt.expected)
 			}
 		})
 	}
@@ -518,12 +578,6 @@ func TestSummarizeToolArgs(t *testing.T) {
 			tool:     "read_file",
 			args:     map[string]any{"path": "config.yaml", "offset": 10.0, "limit": 30.0},
 			expected: "config.yaml:10–39",
-		},
-		{
-			name:     "ls tool dispatches to ls handler",
-			tool:     "ls",
-			args:     map[string]any{"path": "./src", "recursive": true},
-			expected: "./src (recursive)",
 		},
 		{
 			name: "mutate tool shows op type",

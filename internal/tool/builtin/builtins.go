@@ -8,7 +8,6 @@ func Builtins(env Env) []tool.ToolDef {
 		NewReadTool(env),
 		NewGlobTool(env),
 		NewGrepTool(env),
-		NewLSTool(env),
 		NewBashTool(env),
 		NewDisplayFileTool(env),
 		NewMutateTool(env),

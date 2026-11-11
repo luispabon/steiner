@@ -1,8 +1,6 @@
 package builtin
 
 import (
-	"strings"
-
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -201,28 +199,4 @@ func (r *MutateResult) WasMutated() bool {
 		return r.OperationsApplied > 0
 	}
 	return len(r.Paths) > 0
-}
-
-// pageResults builds a Result from a sorted list of entry names with pagination.
-func pageResults(allLines []string, limit, offset int) Result {
-	total := len(allLines)
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	page := allLines[start:end]
-
-	result := Result{
-		Output: strings.Join(page, "\n"),
-	}
-
-	if end < total {
-		result.NextOffset = offset + limit
-	}
-
-	return result
 }

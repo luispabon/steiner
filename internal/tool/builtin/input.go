@@ -59,14 +59,6 @@ type GrepInput struct {
 	Offset          int    `json:"offset,omitempty"`
 }
 
-// LSInput is the typed input for the ls tool.
-type LSInput struct {
-	Path      string `json:"path,omitempty"`
-	Recursive bool   `json:"recursive,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
-}
-
 // DisplayFileInput is the typed input for the display_file tool.
 type DisplayFileInput struct {
 	Path   string `json:"path"`
@@ -99,9 +91,8 @@ const (
 	defaultReadLimit          = 200
 	maxReadLimit              = 1000
 	defaultGlobLimit          = 200
+	defaultGlobPattern        = "*"
 	maxGlobLimit              = 1000
-	defaultLSLimit            = 200
-	maxLSLimit                = 1000
 	defaultGrepHeadLimit      = 100
 	maxGrepHeadLimit          = 500
 	defaultDisplayFileLimit   = 120
@@ -174,17 +165,6 @@ func validateGrep(in *GrepInput) error {
 	}
 	in.Type = canonical
 	return nil
-}
-
-// normalizeLS applies defaults and caps to ls input.
-func normalizeLS(in *LSInput) {
-	if in.Offset <= 0 {
-		in.Offset = 0
-	}
-	if in.Limit <= 0 {
-		in.Limit = defaultLSLimit
-	}
-	in.Limit = min(in.Limit, maxLSLimit)
 }
 
 // resolveBashTimeoutCapSeconds converts a configured bash timeout cap into

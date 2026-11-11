@@ -198,7 +198,7 @@ Runtime limits for turns, tokens, timeouts and tool concurrency. The caps apply 
 | `limits.max_tokens` | int | `500000` | Maximum output (completion) tokens generated across a run before it stops; at least 1. Input tokens are not counted. |
 | `limits.model_call_timeout` | duration | `10m` | Longest a single provider call may take. `0` disables it. Tool work and sub-agent calls inside a turn are not covered. |
 | `limits.tool_timeout_default` | duration | `30s` | Timeout for any tool without an entry in `tool_timeouts`; greater than zero. Also bounds MCP calls. |
-| `limits.tool_timeouts.<tool>` | duration | see below | Per-tool timeout; greater than zero. Defaults: `bash` `600s`, `read` `5s`, `grep` `30s`, `ls` `5s`. For an MCP tool the key is its registered name `mcp__<server>__<tool>`, as shown by `steiner tools`. The `bash` entry caps the built-in Bash tool: whole seconds, at most `600s`. |
+| `limits.tool_timeouts.<tool>` | duration | see below | Per-tool timeout; greater than zero. Defaults: `bash` `600s`, `read` `5s`, `grep` `30s`. For an MCP tool the key is its registered name `mcp__<server>__<tool>`, as shown by `steiner tools`. The `bash` entry caps the built-in Bash tool: whole seconds, at most `600s`. |
 | `limits.tool_output_max_bytes` | int | `65536` | Output kept from one tool call; the rest is truncated. At least 1. |
 | `limits.max_parallel_tools` | int | `4` | Parallel-safe tool calls run concurrently in one turn, including built-in read-only tools, LSP tools and MCP tools with a read-only hint. At least 1; `1` is serial. Separate from `sub_agent.max_parallel`. |
 
@@ -277,7 +277,7 @@ Background check for a newer Steiner release at startup. It runs in the interact
 
 ## `tools` block
 
-Custom subprocess tools registered next to the built-ins. The map key is the tool name the model sees. Names reserved by built-ins (`read`, `glob`, `grep`, `ls`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected. The stdin/stdout contract a tool must follow is in [Tools](tools.md).
+Custom subprocess tools registered next to the built-ins. The map key is the tool name the model sees. Names reserved by built-ins (`read`, `glob`, `grep`, `bash`, `display_file`, `mutate`, `fetch_url`, `workflow_handoff`) are rejected. The stdin/stdout contract a tool must follow is in [Tools](tools.md).
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -307,7 +307,7 @@ Filesystem access limits for file tools, including each sub-agent's tools. Exclu
 | `paths.project_root_only` | bool | `true` | Restrict tools to paths inside the project root. |
 | `paths.writable_paths` | []string | `[]` | When set, an allowlist that restricts mutation tools to these paths, including inside the project root. Outside the root it only adds to what `project_root_only` permits once that restriction is lifted by approval. May be inside or outside the project root; `~/` expands. |
 | `paths.blocked_paths` | []string | `[]` | Paths always denied, even inside the project root; `~/` expands. |
-| `paths.exclude_paths` | []string | none | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; `~/` expands. |
+| `paths.exclude_paths` | []string | none | Paths excluded from searches and directory walks. Relative entries are anchored to the workspace root; `~/` expands. `glob` applies them to each entry's own path, so a symlink into an excluded path is still listed by name. |
 | `paths.exclude_patterns` | []string | none | Globs excluded from searches and directory walks. |
 
 ## `logging` block

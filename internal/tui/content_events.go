@@ -49,7 +49,7 @@ type toolCallSegment struct {
 	tool           string // "bash", "read", "mutate", "glob", "grep", etc.
 	args           string // summarized args; truncated at render time to fit terminal width
 	meta           string // "✓" or "✗" for finished calls
-	bodyKind       string // "bash", "file", "glob", "grep", "ls", "json", "plain"
+	bodyKind       string // "bash", "file", "glob", "grep", "json", "plain"
 	body           string // raw result text
 	callID         string // for matching started→finished
 	collapsed      bool   // default true

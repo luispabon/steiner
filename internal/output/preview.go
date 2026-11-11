@@ -7,8 +7,6 @@ const (
 	ToolPreviewKindReadFile = "read_file"
 	// ToolPreviewKindGlobList is a glob results preview.
 	ToolPreviewKindGlobList = "glob_list"
-	// ToolPreviewKindLSList is a directory listing preview.
-	ToolPreviewKindLSList = "ls_list"
 	// ToolPreviewKindGrep is a grep results preview.
 	ToolPreviewKindGrep = "grep"
 	// ToolPreviewKindBash is a shell command preview.
@@ -124,8 +122,6 @@ func buildToolPreview(tool string, arguments map[string]any, result string) Tool
 		return buildReadPreview(arguments, result)
 	case "glob":
 		return buildGlobPreview(arguments, result)
-	case "ls":
-		return buildLSPreview(arguments, result)
 	case "grep":
 		return buildGrepPreview(arguments, result)
 	case "bash":
