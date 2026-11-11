@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-haiku-5-5","uuid":"a0"}
+{"type":"stream_event","event":{"type":"message_start","message":{"type":"message","model":"claude-haiku-5-5","id":"msg_a","role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":5}}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"a1"}
+{"type":"stream_event","event":{"type":"message_start","message":{"type":"message","model":"claude-opus-5-5","id":"msg_b","role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":5}}},"session_id":"sess-1","parent_tool_use_id":null,"uuid":"a2"}
