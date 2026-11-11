@@ -221,9 +221,6 @@ func (r *PlainRenderer) onEventLocked(event Event) {
 			r.renderPreviewDocumentLocked(preview, doc)
 		}
 	}
-	if payload, ok := event.Payload.(DisplayFilePayload); ok {
-		r.renderDisplayFilePreviewLocked(payload)
-	}
 }
 
 func (r *PlainRenderer) rememberToolCallLocked(payload ToolCallStartedEvent) {

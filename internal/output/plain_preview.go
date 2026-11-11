@@ -186,43 +186,6 @@ func stripReadLineNumberPrefixForLine(line string, lineNumber int) string {
 	return line[i:]
 }
 
-func (r *PlainRenderer) renderDisplayFilePreviewLocked(payload DisplayFilePayload) {
-	doc := SanitizePreviewDocument(payload.Preview)
-	if doc.Kind != PreviewFormatKindFile {
-		return
-	}
-
-	if caption := SanitizeDisplayText(renderDisplayFileCaption(payload)); caption != "" {
-		r.writeStringLocked(r.decorate(ChannelTool, "  "+caption) + "\n")
-	}
-	for _, line := range doc.Lines {
-		text := renderPreviewLineText(line)
-		if text == "" {
-			continue
-		}
-		r.writeStringLocked(r.decorate(renderPreviewChannel(line), "  "+text) + "\n")
-	}
-	if doc.Truncated {
-		truncation := fmt.Sprintf("  output truncated after %d lines", doc.LineLimit)
-		r.writeStringLocked(r.decorate(ChannelStatus, truncation) + "\n")
-	}
-}
-
-func renderDisplayFileCaption(payload DisplayFilePayload) string {
-	label := "display file preview"
-	if payload.Preview.Language != "" && payload.Preview.Language != "plain" {
-		label = fmt.Sprintf("%s · %s", label, payload.Preview.Language)
-	}
-	if payload.Path != "" {
-		if payload.Offset > 1 && payload.Preview.StartLine > 0 {
-			lineCount := previewDocumentLineCount(payload.Preview)
-			return fmt.Sprintf("%s · %s · lines %d–%d", payload.Path, label, payload.Preview.StartLine, payload.Preview.StartLine+lineCount-1)
-		}
-		return fmt.Sprintf("%s · %s · %d lines", payload.Path, label, previewDocumentLineCount(payload.Preview))
-	}
-	return fmt.Sprintf("%s · %d lines", label, previewDocumentLineCount(payload.Preview))
-}
-
 func (r *PlainRenderer) renderPreviewDocumentLocked(preview ToolPreview, doc PreviewDocument) {
 	if doc.Kind == "" {
 		return
