@@ -1,7 +1,9 @@
 package usagestats
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -452,6 +454,140 @@ func TestStorePruningBoundary(t *testing.T) {
 				t.Errorf("should keep: got %v, want %v", found, tt.shouldKeep)
 			}
 		})
+	}
+}
+
+func TestStoreWriteRefusesUnreadableFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr error
+	}{
+		{"malformed json", []byte("not json"), errStoreCorrupt},
+		{"unsupported schema version", []byte("{\"schema_version\":999,\"entries\":[]}"), errStoreUnsupportedSchema},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "cache-stats.json")
+			if err := os.WriteFile(path, tt.data, 0o600); err != nil {
+				t.Fatalf("write existing file: %v", err)
+			}
+
+			now := time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)
+			clock := newMockClock(now)
+
+			oldPath := storePath
+			defer func() { storePath = oldPath }()
+			storePath = func() string { return path }
+
+			s := newStore(clock.Now)
+			key := bucketKey{
+				providerAlias:  "p1",
+				providerType:   "t1",
+				backendModelID: "m1",
+				hourUnix:       now.Truncate(time.Hour).Unix(),
+			}
+
+			err := s.writeBatch(map[bucketKey]*bucket{key: {Requests: 1}})
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("write over unreadable file: got error %v, want %v", err, tt.wantErr)
+			}
+
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read file after refused write: %v", err)
+			}
+			if !bytes.Equal(got, tt.data) {
+				t.Errorf("file changed after refused write: got %q, want %q", got, tt.data)
+			}
+		})
+	}
+}
+
+func TestStoreWriteOverEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.json")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write empty file: %v", err)
+	}
+
+	now := time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)
+	clock := newMockClock(now)
+
+	oldPath := storePath
+	defer func() { storePath = oldPath }()
+	storePath = func() string { return path }
+
+	s := newStore(clock.Now)
+	key := bucketKey{providerAlias: "p1", providerType: "t1", backendModelID: "m1", hourUnix: now.Truncate(time.Hour).Unix()}
+	if err := s.writeBatch(map[bucketKey]*bucket{key: {Requests: 1}}); err != nil {
+		t.Fatalf("write over empty file: %v", err)
+	}
+
+	loaded := s.load()
+	if _, ok := loaded[key]; !ok {
+		t.Errorf("expected written bucket after empty file write, got %+v", loaded)
+	}
+}
+
+func TestStoreWritePreservesLegacySchema(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy-write.json")
+
+	now := time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)
+	hour := now.Truncate(time.Hour)
+
+	legacyEntries := []storeEntry{
+		{Provider: "p1", ProviderType: "t1", Model: "m1", HourUnix: hour.Unix(), Requests: 3, InputTokens: 30},
+	}
+	legacyData, err := json.Marshal(storeFile{SchemaVersion: legacySchemaVersion, Entries: legacyEntries})
+	if err != nil {
+		t.Fatalf("marshal legacy file: %v", err)
+	}
+	if err := os.WriteFile(path, legacyData, 0o600); err != nil {
+		t.Fatalf("write legacy file: %v", err)
+	}
+
+	clock := newMockClock(now)
+
+	oldPath := storePath
+	defer func() { storePath = oldPath }()
+	storePath = func() string { return path }
+
+	s := newStore(clock.Now)
+	newKey := bucketKey{providerAlias: "p2", providerType: "t2", backendModelID: "m2", hourUnix: hour.Unix()}
+	if err := s.writeBatch(map[bucketKey]*bucket{newKey: {Requests: 1}}); err != nil {
+		t.Fatalf("write over legacy file: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read upgraded file: %v", err)
+	}
+	var sf storeFile
+	if err := json.Unmarshal(data, &sf); err != nil {
+		t.Fatalf("parse upgraded file: %v", err)
+	}
+	if sf.SchemaVersion != schemaVersion {
+		t.Errorf("schema_version after legacy write: got %d, want %d", sf.SchemaVersion, schemaVersion)
+	}
+	if len(sf.Entries) != 2 {
+		t.Errorf("entries after legacy write: got %+v, want the legacy entry plus the new one", sf.Entries)
+	}
+
+	loaded := s.load()
+	legacyKey := bucketKey{providerAlias: "p1", providerType: "t1", backendModelID: "m1", hourUnix: hour.Unix(), source: SourceUnknown}
+	b, ok := loaded[legacyKey]
+	if !ok {
+		t.Fatalf("legacy entry lost on write, loaded = %+v", loaded)
+	}
+	if b.Requests != 3 || b.InputTokens != 30 {
+		t.Errorf("legacy bucket after write: got %+v, want Requests=3 InputTokens=30", b)
+	}
+	if _, ok := loaded[newKey]; !ok {
+		t.Errorf("new bucket missing after legacy write, loaded = %+v", loaded)
 	}
 }
 
