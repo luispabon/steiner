@@ -66,7 +66,7 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 - `glob` filters by path relative to the search root. A pattern without a slash matches a basename at any depth (`*.go`); a pattern with a slash matches the root-relative path (`src/*.go`); a leading `./` anchors to the root. Braces form alternations, an unescaped brace with no counterpart is an error, and a literal brace is written `\{` or `\}`.
 - `type` filters by extension. Accepted values: `c`, `cpp`, `css`, `go` (alias `golang`), `html`, `java`, `js`, `json`, `kotlin`, `md`, `php`, `py`, `rb`, `rust`, `scala`, `sh`, `sql`, `swift`, `ts`, `xml`, `yaml`.
 - `multiline: true` lets `.` match newlines and `^`/`$` match line boundaries.
-- `grep` enforces `limits.tool_timeouts.grep` (30s by default) cooperatively. When the deadline expires, the search stops at its next check and returns an error instead of partial results; a blocking filesystem operation can run past the deadline. Sub-agent `grep` calls use the same deadline.
+- `grep` enforces `limits.tool_timeouts.grep` (30s by default) cooperatively. When the deadline expires, the search stops at its next check and returns an error instead of partial results. Checks happen between directory entries and before each file is scanned, so CPU-bound regex matching on one file or a blocking filesystem operation can run past the deadline. Sub-agent `grep` calls use the same deadline.
 
 ## Bash output
 
