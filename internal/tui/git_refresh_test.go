@@ -25,7 +25,7 @@ func TestShouldRefreshGit(t *testing.T) {
 		{"glob", output.NewToolCallFinishedEvent(1, "glob", "c", "", nil), false},
 		{"grep", output.NewToolCallFinishedEvent(1, "grep", "c", "", nil), false},
 		{"fetch_url", output.NewToolCallFinishedEvent(1, "fetch_url", "c", "", nil), false},
-		{"display_file", output.NewToolCallFinishedEvent(1, "display_file", "c", "", nil), false},
+		{"custom tool named display_file", output.NewToolCallFinishedEvent(1, "display_file", "c", "", nil), true},
 		{"advisor", output.NewToolCallFinishedEvent(1, "advisor", "c", "", nil), false},
 		{"workflow_handoff", output.NewToolCallFinishedEvent(1, "workflow_handoff", "c", "", nil), false},
 		{"lsp tool", output.NewToolCallFinishedEvent(1, "lsp_hover", "c", "", nil), false},

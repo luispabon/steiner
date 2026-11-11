@@ -75,7 +75,7 @@ func shouldRefreshGit(event output.Event) bool {
 
 func isReadOnlyTool(name string) bool {
 	switch name {
-	case "read", "glob", "grep", "fetch_url", "display_file", "advisor", "workflow_handoff":
+	case "read", "glob", "grep", "fetch_url", "advisor", "workflow_handoff":
 		return true
 	}
 	return strings.HasPrefix(name, "lsp_")

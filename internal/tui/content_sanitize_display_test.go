@@ -95,54 +95,6 @@ func TestApprovalBlockSanitizesChildScopedMCPPreview(t *testing.T) {
 	}
 }
 
-// TestDisplayFileImageAndBinaryCaptionSanitized covers image and binary
-// display_file previews. Their path and lines are not built by the normalizing
-// formatters. The stored payload keeps the original bytes.
-func TestDisplayFileImageAndBinaryCaptionSanitized(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		msg  string
-	}{
-		{name: "image", msg: "image preview unavailable in text overlay"},
-		{name: "binary", msg: "binary file omitted from text preview"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			const raw = "img\x1b]0;pwned\x07\x1b[2J.png"
-			line := tt.msg + "\x1b[31m\r"
-			payload := output.DisplayFilePayload{
-				Path: raw,
-				Preview: output.PreviewDocument{
-					Kind:     output.PreviewFormatKindFile,
-					Language: "plain",
-					Lines:    []output.PreviewLine{{Kind: output.PreviewLineKindText, Spans: []output.PreviewSpan{{Text: line}}}},
-				},
-			}
-
-			b := &contentBuffer{styles: testStyles(theme.AccentAmber)}
-			b.AppendEvent(output.NewDisplayFileEvent(payload))
-			got := b.String(100)
-			requireOnlySGR(t, "display file", got)
-			plain := stripANSI(got)
-			for _, want := range []string{"img.png", tt.msg} {
-				if !strings.Contains(plain, want) {
-					t.Errorf("display file = %q, want %q", plain, want)
-				}
-			}
-			if strings.Contains(plain, "pwned") {
-				t.Errorf("display file = %q, OSC payload leaked", plain)
-			}
-			if payload.Path != raw || payload.Preview.Lines[0].Spans[0].Text != line {
-				t.Errorf("stored display payload changed: path %q, line %q", payload.Path, payload.Preview.Lines[0].Spans[0].Text)
-			}
-		})
-	}
-}
-
 // TestDelegationChildArgsAndOperationSanitized covers a delegated child's tool
 // call. Its args and the card's current operation are display text, so raw
 // controls are removed there. The scoped event keeps the original arguments.

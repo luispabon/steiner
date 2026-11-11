@@ -46,21 +46,20 @@ type thinkingBlockData struct {
 }
 
 type toolCallSegment struct {
-	tool           string // "bash", "read", "mutate", "glob", "grep", etc.
-	args           string // summarized args; truncated at render time to fit terminal width
-	meta           string // "✓" or "✗" for finished calls
-	bodyKind       string // "bash", "file", "glob", "grep", "json", "plain"
-	body           string // raw result text
-	callID         string // for matching started→finished
-	collapsed      bool   // default true
-	hasError       bool   // set when ToolCallFinished carries an error
-	active         bool
-	startTime      int64
-	elapsed        string
-	spinnerFrame   int
-	rawArgs        map[string]any
-	preview        output.ToolPreview
-	displayPreview *output.PreviewDocument
+	tool         string // "bash", "read", "mutate", "glob", "grep", etc.
+	args         string // summarized args; truncated at render time to fit terminal width
+	meta         string // "✓" or "✗" for finished calls
+	bodyKind     string // "bash", "file", "glob", "grep", "json", "plain"
+	body         string // raw result text
+	callID       string // for matching started→finished
+	collapsed    bool   // default true
+	hasError     bool   // set when ToolCallFinished carries an error
+	active       bool
+	startTime    int64
+	elapsed      string
+	spinnerFrame int
+	rawArgs      map[string]any
+	preview      output.ToolPreview
 	// approval state — embedded in the tool row instead of a sibling pill
 	approvalPending        bool
 	approvalResolved       bool
@@ -420,7 +419,6 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeToolCallStarted:           (*contentBuffer).appendToolCallStartedEvent,
 	output.EventTypeToolCallQueued:            (*contentBuffer).appendToolCallQueuedEvent,
 	output.EventTypeToolCallFinished:          (*contentBuffer).appendToolCallFinishedEvent,
-	output.EventTypeDisplayFile:               (*contentBuffer).appendDisplayFileEvent,
 	output.EventTypeStopReason:                (*contentBuffer).appendStopReasonEvent,
 	output.EventTypeAssistantMessage:          (*contentBuffer).appendAssistantMessageEvent,
 	output.EventTypeContextReport:             (*contentBuffer).appendContextReportEvent,
