@@ -36,7 +36,7 @@ func (m *Model) applySubAgentEvent(event output.Event) tea.Cmd {
 		}
 	}
 	if event.Type != output.EventTypeHistoryLoaded {
-		m.content.approvalHead, _ = m.approvalHead()
+		m.syncApprovalHead()
 		m.content.AppendEvent(event)
 	}
 	if payload, ok := event.Payload.(output.ApprovalEvent); ok {

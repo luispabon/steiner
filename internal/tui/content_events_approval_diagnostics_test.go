@@ -570,7 +570,7 @@ func TestClearApprovalStateMarksSegmentsRenderDirty(t *testing.T) {
 	}
 
 	// Clear approval state
-	b.clearApprovalState()
+	b.clearApprovalStateExcept(nil)
 
 	// Both segments should have been marked renderDirty
 	if !b.segments[0].renderDirty {
@@ -592,5 +592,48 @@ func TestClearApprovalStateMarksSegmentsRenderDirty(t *testing.T) {
 	}
 	if toolCallGroup.entries[0].approvalResolved {
 		t.Error("toolCallGroup entry approvalResolved should be false")
+	}
+}
+
+// Queue depth must distinguish a coordinated queue with no unclaimed head from
+// a run with no coordinator at all. Only a coordinator's head carries the
+// suffix, so a fully claimed queue carries none and transcript order never
+// invents one.
+func TestApprovalQueueDepthDistinguishesCoordinatedEmptyHead(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		coordinated bool
+		head        string
+		wantFirst   int
+		wantSecond  int
+	}{
+		{name: "no coordinator falls back to the first pending segment", wantFirst: 1, wantSecond: 0},
+		{name: "coordinated empty head attaches no suffix", coordinated: true, wantFirst: 0, wantSecond: 0},
+		{name: "coordinated head owns the suffix", coordinated: true, head: "approval-second", wantFirst: 0, wantSecond: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			buffer := &contentBuffer{collapseState: make(map[int]bool), styles: testStyles("#e8814b")}
+			buffer.appendApprovalRequestedEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: "write", RequestID: "approval-first", Mode: "prompt", Kind: "path"}))
+			buffer.appendApprovalRequestedEvent(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: "write", RequestID: "approval-second", Mode: "prompt", Kind: "path"}))
+
+			buffer.approvalCoordinated = tc.coordinated
+			buffer.approvalHead = tc.head
+			buffer.recomputeApprovalQueueDepths()
+
+			first := findApprovalPill(t, buffer, "approval-first")
+			second := findApprovalPill(t, buffer, "approval-second")
+			if first == nil || second == nil {
+				t.Fatalf("pills = %#v/%#v, want both present", first, second)
+			}
+			if first.queueDepth != tc.wantFirst {
+				t.Fatalf("first queue depth = %d, want %d", first.queueDepth, tc.wantFirst)
+			}
+			if second.queueDepth != tc.wantSecond {
+				t.Fatalf("second queue depth = %d, want %d", second.queueDepth, tc.wantSecond)
+			}
+		})
 	}
 }

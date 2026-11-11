@@ -373,9 +373,14 @@ type contentBuffer struct {
 	// approvalHead is the coordinator's current FIFO head identity, refreshed
 	// from the model before each event append. Queue depth suffixes attach to
 	// this request, not to transcript order, because child pills and embedded
-	// parent approvals may be appended out of coordinator order. Empty means
-	// no coordinator, and depth falls back to the first pending segment.
+	// parent approvals may be appended out of coordinator order.
 	approvalHead string
+
+	// approvalCoordinated reports whether a coordinator drives the approval
+	// queue. With one, an empty approvalHead means no request is left to prompt
+	// and no depth suffix is attached; without one, depth falls back to the first
+	// pending segment.
+	approvalCoordinated bool
 
 	// Settled-prefix cache: the joined render of segments [0, prefixCacheLen),
 	// reused across dirty frames so streaming only re-walks the changing tail

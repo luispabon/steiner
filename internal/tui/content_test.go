@@ -3420,7 +3420,7 @@ func TestClearApprovalState(t *testing.T) {
 			b := &contentBuffer{
 				segments: tt.segments,
 			}
-			b.clearApprovalState()
+			b.clearApprovalStateExcept(nil)
 
 			for i, seg := range b.segments {
 				switch seg.kind {

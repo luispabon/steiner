@@ -20,11 +20,11 @@ type approvalHeadController struct {
 
 func (c approvalHeadController) ApprovalHeadIdentity() string { return c.head }
 
-func (c approvalHeadController) ApprovalPendingIdentities() []string {
+func (c approvalHeadController) ApprovalSnapshot() (string, []string) {
 	if c.head == "" {
-		return nil
+		return "", nil
 	}
-	return []string{c.head}
+	return c.head, []string{c.head}
 }
 
 func TestUpdateRoutesPhaseIndicatorEvent(t *testing.T) {

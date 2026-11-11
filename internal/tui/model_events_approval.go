@@ -60,7 +60,7 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 // does not implement it leaves the event stream in charge of the tray.
 type approvalCoordinatorView interface {
 	ApprovalHeadIdentity() string
-	ApprovalPendingIdentities() []string
+	ApprovalSnapshot() (head string, identities []string)
 }
 
 // approvalHead returns the coordinator's FIFO head identity and reports whether
@@ -73,26 +73,35 @@ func (m *Model) approvalHead() (head string, coordinated bool) {
 	return coordinator.ApprovalHeadIdentity(), true
 }
 
+// syncApprovalHead publishes the coordinator view to the content buffer before
+// an event is appended. Without a coordinator the buffer falls back to the
+// first pending segment; with one, only the reported head carries the queue
+// suffix, and an empty head carries it nowhere.
+func (m *Model) syncApprovalHead() {
+	head, coordinated := m.approvalHead()
+	m.content.approvalHead = head
+	m.content.approvalCoordinated = coordinated
+}
+
 // approvalSnapshot returns the coordinator's FIFO head and the identities it
 // still has registered, reporting false when the controller does not coordinate
 // approvals. A terminal reset preserves exactly that registered set, so no live
-// request loses its control and no unregistered control survives. The set is
-// read before the head: a request that registers concurrently is preserved,
-// while an identity left behind by a concurrent Finish is harmless because its
-// decision event resolves the control.
+// request loses its control and no unregistered control survives. Head and
+// identities come from one coordinator snapshot, so a concurrent Finish cannot
+// leave the head outside the preserved set.
 func (m *Model) approvalSnapshot() (head string, preserve map[string]struct{}, coordinated bool) {
 	coordinator, ok := m.controller.(approvalCoordinatorView)
 	if !ok {
 		return "", nil, false
 	}
-	registered := coordinator.ApprovalPendingIdentities()
+	head, registered := coordinator.ApprovalSnapshot()
 	preserve = make(map[string]struct{}, len(registered))
 	for _, identity := range registered {
 		if identity != "" {
 			preserve[identity] = struct{}{}
 		}
 	}
-	return coordinator.ApprovalHeadIdentity(), preserve, true
+	return head, preserve, true
 }
 
 // approvalRequestPromptable reports whether a requested approval should open the

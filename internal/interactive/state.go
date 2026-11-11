@@ -335,18 +335,24 @@ func (c *ApprovalCoordinator) HeadIdentity() string {
 	return ""
 }
 
-// PendingIdentities returns the identities of every registered approval request
-// in FIFO order, including requests already claimed by a decision but not yet
-// unregistered. The returned slice is a snapshot, so a concurrent Finish cannot
-// mutate it.
-func (c *ApprovalCoordinator) PendingIdentities() []string {
+// Snapshot returns the FIFO head identity and the identities of every
+// registered approval request, in queue order, from one view of the queue. The
+// head is empty when every registered request already has a decision, so a
+// caller can tell a coordinated queue with nothing left to prompt from a
+// missing coordinator by whether it implements this view at all. Because both
+// values come from a single lock acquisition, the head is either empty or
+// present in identities even when a Finish races the snapshot.
+func (c *ApprovalCoordinator) Snapshot() (head string, identities []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	identities := make([]string, 0, len(c.queue))
+	identities = make([]string, 0, len(c.queue))
 	for _, pending := range c.queue {
 		identities = append(identities, pending.identity)
+		if head == "" && !pending.claimed {
+			head = pending.identity
+		}
 	}
-	return identities
+	return head, identities
 }
 
 // HasPending reports whether an approval request is currently awaiting a

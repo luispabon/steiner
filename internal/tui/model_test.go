@@ -2042,8 +2042,8 @@ func TestModelTickConsumesOnlyItsOwnGitError(t *testing.T) {
 }
 
 // approvalCoordinatorController routes ApprovalHeadIdentity and
-// ApprovalPendingIdentities queries to a real ApprovalCoordinator so the model
-// exercises FIFO tray gating and terminal resets.
+// ApprovalSnapshot queries to a real ApprovalCoordinator so the model exercises
+// FIFO tray gating and terminal resets.
 type approvalCoordinatorController struct {
 	*testController
 	coordinator *interactive.ApprovalCoordinator
@@ -2053,8 +2053,8 @@ func (c *approvalCoordinatorController) ApprovalHeadIdentity() string {
 	return c.coordinator.HeadIdentity()
 }
 
-func (c *approvalCoordinatorController) ApprovalPendingIdentities() []string {
-	return c.coordinator.PendingIdentities()
+func (c *approvalCoordinatorController) ApprovalSnapshot() (string, []string) {
+	return c.coordinator.Snapshot()
 }
 
 func TestModelApprovalFIFOIdentityAcrossReorderAndSubmit(t *testing.T) {

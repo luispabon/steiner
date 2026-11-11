@@ -141,48 +141,60 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	}
 }
 
-// PendingIdentities snapshots every registered request in FIFO order so a
-// terminal reset can preserve all live controls, including claimed requests
-// that have not unregistered yet.
-func TestApprovalCoordinatorPendingIdentities(t *testing.T) {
+// Snapshot returns the head and every registered identity from one view of the
+// queue, so a terminal reset preserves all live controls, including claimed
+// requests that have not unregistered yet.
+func TestApprovalCoordinatorSnapshot(t *testing.T) {
 	coord := &ApprovalCoordinator{}
 	headID, head := coord.Begin("head", "", "", "code")
 	middleID, middle := coord.Begin("middle", "", "", "review")
 	tailID, tail := coord.Begin("tail", "", "", "plan")
 
-	assertIdentities := func(stage string, want ...string) {
+	assertSnapshot := func(stage, wantHead string, wantIdentities ...string) {
 		t.Helper()
-		got := coord.PendingIdentities()
-		if len(got) != len(want) {
-			t.Fatalf("%s: identities = %v, want %v", stage, got, want)
+		hend, identities := coord.Snapshot()
+		if hend != wantHead {
+			t.Fatalf("%s: head = %q, want %q", stage, hend, wantHead)
 		}
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("%s: identities = %v, want %v", stage, got, want)
+		if len(identities) != len(wantIdentities) {
+			t.Fatalf("%s: identities = %v, want %v", stage, identities, wantIdentities)
+		}
+		for i := range wantIdentities {
+			if identities[i] != wantIdentities[i] {
+				t.Fatalf("%s: identities = %v, want %v", stage, identities, wantIdentities)
 			}
 		}
 	}
-	assertIdentities("all registered", headID, middleID, tailID)
+	assertSnapshot("all registered", headID, headID, middleID, tailID)
 
 	coord.Submit(SubmitApproval{Identity: middleID, Tool: "middle", Decision: "allow_once"})
-	assertIdentities("claimed stays registered", headID, middleID, tailID)
+	assertSnapshot("claimed stays registered", headID, headID, middleID, tailID)
 
 	// A snapshot is a copy: later registrations and finishes do not mutate it.
-	snapshot := coord.PendingIdentities()
+	snapshotHead, snapshot := coord.Snapshot()
 	coord.Finish(middle)
-	assertIdentities("after middle Finish", headID, tailID)
+	assertSnapshot("after middle Finish", headID, headID, tailID)
 	if len(snapshot) != 3 {
-		t.Fatalf("earlier snapshot = %v, want the three registrations it was taken with", snapshot)
+		t.Fatalf("earlier snapshot identities = %v, want the three registrations it was taken with", snapshot)
 	}
+	if snapshotHead != headID {
+		t.Fatalf("earlier snapshot head = %q, want %q", snapshotHead, headID)
+	}
+
+	// Claiming every remaining request leaves the queue registered but without
+	// an unclaimed head; that is distinct from having no coordinator at all.
+	coord.Submit(SubmitApproval{Identity: headID, Tool: "head", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: tailID, Tool: "tail", Decision: "deny"})
+	assertSnapshot("every request claimed", "", headID, tailID)
 
 	coord.Finish(head)
 	coord.Finish(tail)
-	assertIdentities("after all Finish")
+	assertSnapshot("after all Finish", "")
 }
 
-// A snapshot taken while requests register and finish must stay coherent: it
-// never repeats an identity and never observes one that already unregistered.
-func TestApprovalCoordinatorPendingIdentitiesConcurrentFinish(t *testing.T) {
+// A snapshot taken while requests register and finish must stay coherent: the
+// head is empty or present in the identities, and identities never repeat.
+func TestApprovalCoordinatorSnapshotConcurrentFinish(t *testing.T) {
 	coord := &ApprovalCoordinator{}
 	const rounds = 64
 	done := make(chan struct{})
@@ -194,17 +206,21 @@ func TestApprovalCoordinatorPendingIdentitiesConcurrentFinish(t *testing.T) {
 		}
 	}()
 	for i := 0; i < rounds; i++ {
+		head, identities := coord.Snapshot()
 		seen := make(map[string]bool)
-		for _, identity := range coord.PendingIdentities() {
+		for _, identity := range identities {
 			if seen[identity] {
 				t.Fatalf("snapshot repeated identity %q", identity)
 			}
 			seen[identity] = true
 		}
+		if head != "" && !seen[head] {
+			t.Fatalf("snapshot head %q missing from identities %v", head, identities)
+		}
 	}
 	<-done
-	if got := coord.PendingIdentities(); len(got) != 0 {
-		t.Fatalf("identities after every Finish = %v, want none", got)
+	if head, identities := coord.Snapshot(); head != "" || len(identities) != 0 {
+		t.Fatalf("snapshot after every Finish = (%q, %v), want (\"\", none)", head, identities)
 	}
 }
 

@@ -62,7 +62,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	}
 
 	if event.Type != output.EventTypeHistoryLoaded {
-		m.content.approvalHead, _ = m.approvalHead()
+		m.syncApprovalHead()
 		m.content.AppendEvent(event)
 	}
 	if cmd, done := m.applyPayloadEvent(event); done {
@@ -242,6 +242,7 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	m.approval = approvalState{}
 	m.content.clearApprovalStateExcept(registered)
 	m.content.approvalHead = head
+	m.content.approvalCoordinated = coordinated
 	m.content.recomputeApprovalQueueDepths()
 	m.content.ResetAdvisorSegment()
 	if m.workflowHandoff.IsOpen() {

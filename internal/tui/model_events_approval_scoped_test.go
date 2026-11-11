@@ -60,6 +60,30 @@ func findToolCallSegment(buffer *contentBuffer, callID string) *toolCallSegment 
 	return nil
 }
 
+// findApprovalControl returns the tool-call control carrying identity, whether
+// it renders as a standalone call or as an entry in a tool-call group.
+func findApprovalControl(buffer *contentBuffer, identity string) *toolCallSegment {
+	for i := range buffer.segments {
+		segment := &buffer.segments[i]
+		switch segment.kind {
+		case segmentToolCall:
+			if segment.toolData != nil && segment.toolData.approvalIdentity == identity {
+				return segment.toolData
+			}
+		case segmentToolCallGroup:
+			if segment.toolGroupData == nil {
+				continue
+			}
+			for _, entry := range segment.toolGroupData.entries {
+				if entry != nil && entry.approvalIdentity == identity {
+					return entry
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // A scoped child approval reaches the shared tray and submits the unique
 // request ID its coordinator registration uses.
 func TestApprovalScopedRequestPromptsWithQualifiedIdentity(t *testing.T) {
@@ -436,7 +460,7 @@ func TestApprovalClearStateDropsPendingPills(t *testing.T) {
 		t.Fatalf("pills = %#v/%#v, want both present", pending, resolved)
 	}
 
-	buffer.clearApprovalState()
+	buffer.clearApprovalStateExcept(nil)
 
 	if !pending.cleared {
 		t.Fatal("pending pill not cleared by terminal cleanup")
@@ -764,4 +788,146 @@ func TestApprovalTerminalResetClearsUnregisteredControls(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A coordinated queue whose requests were all decided has no unclaimed head,
+// which is not the same as having no coordinator. The reset keeps the controls
+// because their decision events are still in flight, attaches no queue depth
+// suffix, and promotes nothing from transcript order.
+func TestApprovalTerminalResetWithNoUnclaimedHeadPromptsNothing(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-a", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", "call-b", nil)})
+	aID, aCh := coordinator.Begin("write", "", "path", "")
+	bID, bCh := coordinator.Begin("read", "", "path", "")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-a", RequestID: aID, Mode: "prompt", Preview: `{"path":"a.txt"}`, Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-b", RequestID: bID, Mode: "prompt", Preview: `{"path":"b.txt"}`, Kind: "path"})})
+	coordinator.Submit(interactive.SubmitApproval{Identity: aID, Tool: "write", Decision: "allow_once"})
+	coordinator.Submit(interactive.SubmitApproval{Identity: bID, Tool: "read", Decision: "allow_once"})
+	if head := coordinator.HeadIdentity(); head != "" {
+		t.Fatalf("coordinator head = %q, want no unclaimed head", head)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunFinishedEvent(1, "complete", "", "", nil)})
+
+	if m.approval.active {
+		t.Fatalf("tray identity = %q, want no prompt without an unclaimed head", m.approval.identity)
+	}
+	for _, requestID := range []string{aID, bID} {
+		call := findApprovalControl(&m.content, requestID)
+		if call == nil || !call.approvalPending || call.approvalResolved {
+			t.Fatalf("%s control = %#v, want its decision still pending", requestID, call)
+		}
+		if got, want := call.approvalQueueDepth, 0; got != want {
+			t.Fatalf("%s queue depth = %d, want %d", requestID, got, want)
+		}
+	}
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := ctrl.submitApprovals(); len(got) != 0 {
+		t.Fatalf("submissions = %+v, want none", got)
+	}
+
+	// The in-flight decision events still resolve their own controls.
+	coordinator.Finish(aCh)
+	coordinator.Finish(bCh)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-a", RequestID: aID, Mode: "prompt", Preview: `{"path":"a.txt"}`, Message: "ok", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-b", RequestID: bID, Mode: "prompt", Preview: `{"path":"b.txt"}`, Message: "ok", Kind: "path"})})
+	for _, requestID := range []string{aID, bID} {
+		if call := findApprovalControl(&m.content, requestID); call == nil || !call.approvalResolved {
+			t.Fatalf("%s control = %#v, want resolved by its decision event", requestID, call)
+		}
+	}
+	if m.approval.active {
+		t.Fatalf("tray identity = %q, want no prompt after the decision events", m.approval.identity)
+	}
+}
+
+// A root approval cancelled by an interrupt must not survive the stop reset:
+// its responder unregisters before its denied event, and the interrupt
+// suppresses that event, so the reset is what clears its control. Registered
+// async children survive the reset because their contexts are detached from the
+// cancelled run, and a still-registered parent request keeps its tail control.
+func TestApprovalStopResetClearsCancelledRootAndKeepsRegisteredRequests(t *testing.T) {
+	t.Parallel()
+	coordinator := &interactive.ApprovalCoordinator{}
+	ctrl := &approvalCoordinatorController{testController: &testController{}, coordinator: coordinator}
+	m := newModel(Config{Controller: ctrl}, nil)
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "gpt-test", "", 4, 256)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-root", nil)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", "call-tail", nil)})
+	rootID, rootCh := coordinator.Begin("write", "", "path", "")
+	childID, childCh := coordinator.Begin("write", "", "path", "child-1")
+	tailID, tailCh := coordinator.Begin("read", "", "path", "")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-root", RequestID: rootID, Mode: "prompt", Preview: `{"path":"root.txt"}`, Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalRequestedEvent("child-1", childID, `{"path":"child.txt"}`)})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-tail", RequestID: tailID, Mode: "prompt", Preview: `{"path":"tail.txt"}`, Kind: "path"})})
+	if !m.approval.active || m.approval.identity != rootID {
+		t.Fatalf("tray identity = %q, want root head %q", m.approval.identity, rootID)
+	}
+
+	// The user interrupts. The cancelled root request unregisters first, and the
+	// TUI suppresses its denied event until the run finishes.
+	m = updateModel(t, m, tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if !m.interruptPending {
+		t.Fatal("interruptPending = false, want true while the run unwinds")
+	}
+	coordinator.Finish(rootCh)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalDeniedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-root", RequestID: rootID, Mode: "prompt", Preview: `{"path":"root.txt"}`, Message: "context canceled", Kind: "path"})})
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewStopReasonEvent(1, "cancelled", nil)})
+
+	rootCall := findApprovalControl(&m.content, rootID)
+	if rootCall == nil || rootCall.approvalPending || rootCall.approvalResolved {
+		t.Fatalf("cancelled root segment = %#v, want its control cleared", rootCall)
+	}
+	if !m.approval.active || m.approval.identity != childID {
+		t.Fatalf("tray identity after stop = %q, want the async child %q", m.approval.identity, childID)
+	}
+	if got, want := m.approval.preview, `{"path":"child.txt"}`; got != want {
+		t.Fatalf("tray preview after stop = %q, want %q", got, want)
+	}
+	if got, want := m.status.mode, "approval"; got != want {
+		t.Fatalf("status mode after stop = %q, want %q", got, want)
+	}
+	childPill := findApprovalPill(t, &m.content, childID)
+	if childPill == nil || childPill.cleared || childPill.resolved {
+		t.Fatalf("child pill = %#v, want preserved and pending", childPill)
+	}
+	if got, want := childPill.queueDepth, 1; got != want {
+		t.Fatalf("child queue depth = %d, want %d", got, want)
+	}
+	tailCall := findApprovalControl(&m.content, tailID)
+	if tailCall == nil || !tailCall.approvalPending || tailCall.approvalResolved || tailCall.approvalIdentity != tailID {
+		t.Fatalf("parent tail segment = %#v, want pending request %q", tailCall, tailID)
+	}
+
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	submissions := ctrl.submitApprovals()
+	if len(submissions) != 1 || submissions[0].Identity != childID {
+		t.Fatalf("submissions = %+v, want only the async child %q", submissions, childID)
+	}
+
+	coordinator.Submit(interactive.SubmitApproval{Identity: childID, Tool: "write", Decision: "allow_once"})
+	coordinator.Finish(childCh)
+	m = updateModel(t, m, runtimeEventMsg{Event: scopedApprovalDecisionEvent("child-1", true, childID, `{"path":"child.txt"}`)})
+	if !m.approval.active || m.approval.identity != tailID {
+		t.Fatalf("tray identity after child decision = %q, want the parent tail %q", m.approval.identity, tailID)
+	}
+	if got, want := m.approval.preview, `{"path":"tail.txt"}`; got != want {
+		t.Fatalf("tail tray preview = %q, want %q", got, want)
+	}
+
+	updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	submissions = ctrl.submitApprovals()
+	if len(submissions) != 2 || submissions[1].Identity != tailID {
+		t.Fatalf("submissions = %+v, want the parent tail %q second", submissions, tailID)
+	}
+
+	coordinator.Submit(interactive.SubmitApproval{Identity: tailID, Tool: "read", Decision: "allow_once"})
+	coordinator.Finish(tailCh)
 }

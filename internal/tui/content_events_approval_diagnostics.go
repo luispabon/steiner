@@ -341,11 +341,6 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 	})
 }
 
-// clearApprovalState clears stale pending approvals from the content buffer.
-func (b *contentBuffer) clearApprovalState() {
-	b.clearApprovalStateExcept(nil)
-}
-
 // clearApprovalStateExcept resets approval state on tool call and tool call
 // group segments, and drops unresolved approval pills, except for the pending
 // requests whose identities are listed in preserve. A top-level terminal reset
@@ -461,11 +456,12 @@ func (b *contentBuffer) recomputeApprovalQueueDepths() {
 }
 
 // approvalQueueHead resolves which pending approval should carry the queue
-// suffix. Without a coordinator the first pending segment does. With one, the
-// segment matching the coordinator head does, and an unknown head attaches no
-// suffix rather than guessing from transcript order.
+// suffix. Without a coordinator the first pending segment does. With one, only
+// the segment matching the coordinator head does, so a coordinated queue whose
+// head is empty (every request already decided) attaches no suffix, and an
+// unknown head attaches no suffix rather than guessing from transcript order.
 func (b *contentBuffer) approvalQueueHead(queued []queuedApproval) int {
-	if b.approvalHead == "" {
+	if !b.approvalCoordinated {
 		return 0
 	}
 	for i := range queued {

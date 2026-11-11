@@ -79,10 +79,11 @@ func (s *Session) ApprovalHeadIdentity() string {
 	return s.approvalCoordinator.HeadIdentity()
 }
 
-// ApprovalPendingIdentities returns the identities of every registered approval
-// request in FIFO order, so a terminal reset can preserve all of them.
-func (s *Session) ApprovalPendingIdentities() []string {
-	return s.approvalCoordinator.PendingIdentities()
+// ApprovalSnapshot returns the coordinator's FIFO head identity and the
+// identities of every registered request from one consistent view, so a
+// terminal reset can preserve all live approvals at once.
+func (s *Session) ApprovalSnapshot() (string, []string) {
+	return s.approvalCoordinator.Snapshot()
 }
 
 // WorkflowHandoffCoordinator returns the session's workflow handoff
