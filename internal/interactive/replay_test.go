@@ -397,6 +397,61 @@ func TestReplaySessionMessagesToolCallError(t *testing.T) {
 	}
 }
 
+// TestReplaySessionMessagesMultiCallResultsAlwaysFinish asserts that every
+// owned tool call in one assistant message is both started and finished during
+// replay, including when its persisted result cannot be decoded.
+func TestReplaySessionMessagesMultiCallResultsAlwaysFinish(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		BaseEvents: output.SinkFunc(func(e output.Event) { events = append(events, e) }),
+	})
+
+	msgs := []agent.Message{
+		{
+			Role:    agent.MessageRoleAssistant,
+			Content: "reading files",
+			ToolCalls: []agent.ToolCall{
+				{ID: "call-valid", Name: "read", Arguments: map[string]any{"path": "valid.go"}},
+				{ID: "call-bad", Name: "read", Arguments: map[string]any{"path": "bad.go"}},
+			},
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-valid",
+			Name:       "read",
+			Content:    "file content",
+		},
+		{
+			Role:       agent.MessageRoleTool,
+			ToolCallID: "call-bad",
+			Name:       "read",
+			Content:    `{malformed json}`,
+		},
+	}
+	s.replaySessionMessages(msgs, nil)
+
+	started := make(map[string]int)
+	finished := make(map[string]int)
+	for _, e := range events {
+		switch p := e.Payload.(type) {
+		case output.ToolCallStartedEvent:
+			started[p.CallID]++
+		case output.ToolCallFinishedEvent:
+			finished[p.CallID]++
+		}
+	}
+
+	for _, callID := range []string{"call-valid", "call-bad"} {
+		if started[callID] != 1 {
+			t.Errorf("tool call %s: got %d started events, want 1", callID, started[callID])
+		}
+		if finished[callID] != 1 {
+			t.Errorf("tool call %s: got %d finished events, want 1", callID, finished[callID])
+		}
+	}
+}
+
 func TestReplaySessionMessagesImagesAttached(t *testing.T) {
 	t.Parallel()
 	var events []output.Event
