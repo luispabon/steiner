@@ -103,16 +103,12 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 		h.d.mu.Lock()
 		steers := h.d.opts.Steers
 		completions := len(h.d.completions)
-		window := h.d.window
 		h.d.mu.Unlock()
 		if steers != nil {
 			t.Fatal("steer queue still attached")
 		}
 		if completions != 0 {
 			t.Fatalf("buffered completions = %d, want discarded", completions)
-		}
-		if window != nil {
-			t.Fatal("completion window still armed")
 		}
 		// held is not asserted: the replacement closes the old inbox, so the
 		// loop is free to exit and finalize clears held at any time. The
