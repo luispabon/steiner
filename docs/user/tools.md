@@ -50,6 +50,7 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 ## File reading and editing
 
 - `read` returns line numbers only when called with `line_numbers: true`. Text files over 1 MB are rejected, even when paging; use `grep` or `bash` to inspect them. Images are returned as image data, up to 5 MB.
+- `read` has no enforced deadline; a `limits.tool_timeouts.read` entry has no effect. A slow or blocked filesystem operation can delay the call until it is cancelled.
 - A file with a NUL byte in its first 8192 bytes is treated as binary: `read` rejects it and `grep` skips it.
 - `mutate` applies all operations in a call as one batch. `replace` on an existing file requires that the file was read earlier in the session, or that the call passes the `file_hash` from a `read` result. This catches edits to a file that changed since it was read.
 - After a successful `mutate`, Steiner may append diagnostics for the changed files from a language server that is already running. See [LSP](lsp.md).
@@ -65,6 +66,7 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 - `glob` filters by path relative to the search root. A pattern without a slash matches a basename at any depth (`*.go`); a pattern with a slash matches the root-relative path (`src/*.go`); a leading `./` anchors to the root. Braces form alternations, an unescaped brace with no counterpart is an error, and a literal brace is written `\{` or `\}`.
 - `type` filters by extension. Accepted values: `c`, `cpp`, `css`, `go` (alias `golang`), `html`, `java`, `js`, `json`, `kotlin`, `md`, `php`, `py`, `rb`, `rust`, `scala`, `sh`, `sql`, `swift`, `ts`, `xml`, `yaml`.
 - `multiline: true` lets `.` match newlines and `^`/`$` match line boundaries.
+- `grep` enforces `limits.tool_timeouts.grep` (30s by default) cooperatively. When the deadline expires, the search stops at its next check and returns an error instead of partial results; a blocking filesystem operation can run past the deadline. Sub-agent `grep` calls use the same deadline.
 
 ## Bash output
 
@@ -99,7 +101,7 @@ Set `search.backend` to `brave`, `kagi`, or `searxng` and supply that backend's 
 
 ## Custom tools
 
-Declare your own executables under `tools:`. Each needs `exec` and a `timeout` greater than zero; names of built-in tools are reserved. Field reference: [`tools` block](configuration.md#tools-block).
+Declare your own executables under `tools:`. Each needs `exec` and a `timeout` greater than zero; names of built-in tools are reserved. `timeout` bounds each call; `limits.tool_timeout_default` and `limits.tool_timeouts` do not apply. Field reference: [`tools` block](configuration.md#tools-block).
 
 ```yaml
 tools:
