@@ -43,6 +43,17 @@ type AdvertisedTool struct {
 	Outcome ToolOutcome // registered, filtered, or denied
 }
 
+// StatusReport is one status transition published by a Session to its owner.
+// Seq is a per-session monotonic sequence assigned under the session mutex at
+// the moment the transition is recorded. Reports reach the owner outside that
+// mutex, so a slow delivery can arrive after a newer transition; the owner drops
+// any report whose Seq is not newer than the last one it applied.
+type StatusReport struct {
+	Seq    uint64
+	Status ServerStatus
+	Err    error // nil for reconnecting and connected; the attempt error otherwise
+}
+
 // ServerState describes one configured MCP server's live lifecycle state.
 // Status is a snapshot: it starts as connecting and resolves to connected or
 // failed once the connection attempt settles.

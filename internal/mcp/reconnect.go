@@ -15,7 +15,7 @@ import (
 // guarantees it). The tool set is never re-listed (D14) and the failed call is
 // never replayed (D16).
 func (s *Session) reconnectWorker(attempt *reconnectAttempt) {
-	s.reportStatus(ServerStatusReconnecting, nil)
+	s.reportStatus(attempt.begin)
 
 	for {
 		if s.managerCtx.Err() != nil {
@@ -27,7 +27,7 @@ func (s *Session) reconnectWorker(attempt *reconnectAttempt) {
 
 		newSDK, newCmd, err := s.reconnectOnce()
 		if err == nil {
-			old, committed := s.commitReconnect(attempt, newSDK, newCmd)
+			old, report, committed := s.commitReconnect(attempt, newSDK, newCmd)
 			if !committed {
 				_ = newSDK.Close()
 				abortErr := errors.New("reconnect aborted: session closed")
@@ -40,7 +40,7 @@ func (s *Session) reconnectWorker(attempt *reconnectAttempt) {
 			if old != nil {
 				closeOldSession(old)
 			}
-			s.reportStatus(ServerStatusConnected, nil)
+			s.reportStatus(report)
 			return
 		}
 

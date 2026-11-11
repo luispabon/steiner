@@ -107,13 +107,13 @@ func TestResolveReconnectPublishesOutcomeOnce(t *testing.T) {
 	s = &Session{
 		name:       "fake",
 		managerCtx: context.Background(),
-		onStatus: func(status ServerStatus, _ error) {
+		onStatus: func(report StatusReport) {
 			if !s.mu.TryLock() {
 				t.Error("reportStatus ran with the session mutex held")
 				return
 			}
 			s.mu.Unlock()
-			statuses = append(statuses, status)
+			statuses = append(statuses, report.Status)
 		},
 	}
 
@@ -227,7 +227,7 @@ func TestCommitReconnectSwapsSessionAtomically(t *testing.T) {
 	s.consecutiveFailures = maxReconnectAttempts - 1
 	s.mu.Unlock()
 
-	old, committed := s.commitReconnect(attempt, next, nil)
+	old, _, committed := s.commitReconnect(attempt, next, nil)
 	if !committed {
 		t.Fatal("commitReconnect refused a live session")
 	}
@@ -298,7 +298,7 @@ func TestCommitReconnectRefusesAfterShutdown(t *testing.T) {
 
 			tc.shut(s, cancel)
 
-			old, committed := s.commitReconnect(attempt, next, nil)
+			old, _, committed := s.commitReconnect(attempt, next, nil)
 			if committed || old != nil {
 				t.Fatalf("commitReconnect committed after shutdown (old = %v)", old)
 			}
@@ -336,7 +336,7 @@ func TestCommitReconnectRejectsStaleAttempt(t *testing.T) {
 	s.resolveReconnect(stale, errors.New("unavailable"), ServerStatusUnavailable)
 	live := beginTestReconnect(t, s)
 
-	old, committed := s.commitReconnect(stale, next, nil)
+	old, _, committed := s.commitReconnect(stale, next, nil)
 	if committed || old != nil {
 		t.Fatal("commitReconnect committed a stale attempt")
 	}

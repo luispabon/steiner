@@ -38,6 +38,11 @@ type Manager struct {
 	planMode bool
 	approver tool.ApprovalResponder
 
+	// statusSeqs is the highest reconnect status sequence applied per server
+	// name. One session owns each server for the manager's lifetime, so its
+	// per-session sequence orders that server's reports.
+	statusSeqs map[string]uint64
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -86,10 +91,12 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		Stderr:     stderr,
 		Timeout:    timeout,
 		ManagerCtx: m.ctx,
-		OnStatus: func(status ServerStatus, reconnectErr error) {
+		OnStatus: func(report StatusReport) {
 			// Reconnect lifecycle: connected→reconnecting→connected/unavailable.
-			// Runs on the session's reconnect worker goroutine.
-			m.updateServerStatus(spec.Name, status, reconnectErr, onStateChange)
+			// Runs on the session's reconnect worker goroutine, outside the session
+			// mutex; updateServerStatus drops a report that a newer transition
+			// already superseded.
+			m.updateServerStatus(spec.Name, report, onStateChange)
 		},
 	})
 	if err != nil {
@@ -149,22 +156,34 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 	onStateChange()
 }
 
-// updateServerStatus transitions one server's status in place, preserving its
-// other state fields (tools, protocol version, transport). onStateChange fires
-// only when the status actually changed, so repeated reports of the same status
-// emit nothing.
-func (m *Manager) updateServerStatus(name string, status ServerStatus, err error, onStateChange func()) {
+// updateServerStatus applies one reconnect status report in place, preserving
+// the server's other state fields (tools, protocol version, transport). Reports
+// are delivered outside the session mutex, so a slow one can arrive after a
+// newer transition already landed: anything not newer than the highest sequence
+// applied for that server is dropped. The check applies after Close too, so a
+// delayed report cannot publish over newer state. onStateChange fires only when
+// the status actually changed, so repeated reports of the same status emit
+// nothing; a same-status report still advances the sequence.
+func (m *Manager) updateServerStatus(name string, report StatusReport, onStateChange func()) {
 	m.mu.Lock()
+	if m.statusSeqs == nil {
+		m.statusSeqs = make(map[string]uint64)
+	}
+	if report.Seq <= m.statusSeqs[name] {
+		m.mu.Unlock()
+		return
+	}
+	m.statusSeqs[name] = report.Seq
 	for i := range m.states {
 		if m.states[i].Name == name {
-			if m.states[i].Status == status {
+			if m.states[i].Status == report.Status {
 				m.mu.Unlock()
 				return
 			}
-			m.states[i].Status = status
+			m.states[i].Status = report.Status
 			m.states[i].Err = ""
-			if err != nil {
-				m.states[i].Err = err.Error()
+			if report.Err != nil {
+				m.states[i].Err = report.Err.Error()
 			}
 			m.mu.Unlock()
 			onStateChange()
