@@ -3484,9 +3484,10 @@ func TestApprovalRequestedTargetsGroupedToolCall(t *testing.T) {
 	b.appendApprovalRequestedEvent(output.Event{
 		Type: output.EventTypeApprovalRequested,
 		Payload: output.ApprovalEvent{
-			Tool:    "mutate",
-			Mode:    "prompt",
-			Preview: `{"path":"bar.go"}`,
+			Tool:      "mutate",
+			RequestID: "approval-group",
+			Mode:      "prompt",
+			Preview:   `{"path":"bar.go"}`,
 		},
 	})
 
@@ -3535,7 +3536,7 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 			tool: "mutate",
 			entries: []*toolCallSegment{
 				{tool: "mutate", meta: "✓"},
-				{tool: "mutate", approvalPending: true},
+				{tool: "mutate", approvalPending: true, approvalIdentity: "approval-group"},
 			},
 		},
 	})
@@ -3544,8 +3545,9 @@ func TestApprovalDecisionTargetsGroupedToolCall(t *testing.T) {
 	b.appendApprovalDecisionEvent(output.Event{
 		Type: output.EventTypeApprovalAccepted,
 		Payload: output.ApprovalEvent{
-			Tool:    "mutate",
-			Allowed: true,
+			Tool:      "mutate",
+			RequestID: "approval-group",
+			Allowed:   true,
 		},
 	})
 

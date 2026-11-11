@@ -35,10 +35,11 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 	b.appendApprovalRequestedEvent(output.Event{
 		Type: output.EventTypeApprovalRequested,
 		Payload: output.ApprovalEvent{
-			Tool:    "bash",
-			CallID:  "call-1",
-			Mode:    "prompt",
-			Preview: `{"command":"sleep 5"}`,
+			Tool:      "bash",
+			CallID:    "call-1",
+			RequestID: "call-1",
+			Mode:      "prompt",
+			Preview:   `{"command":"sleep 5"}`,
 		},
 	})
 
@@ -53,10 +54,11 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 	b.appendApprovalRequestedEvent(output.Event{
 		Type: output.EventTypeApprovalRequested,
 		Payload: output.ApprovalEvent{
-			Tool:    "bash",
-			CallID:  "call-2",
-			Mode:    "prompt",
-			Preview: `{"command":"sleep 10"}`,
+			Tool:      "bash",
+			CallID:    "call-2",
+			RequestID: "call-2",
+			Mode:      "prompt",
+			Preview:   `{"command":"sleep 10"}`,
 		},
 	})
 
@@ -79,9 +81,10 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 	b.appendApprovalDecisionEvent(output.Event{
 		Type: output.EventTypeApprovalAccepted,
 		Payload: output.ApprovalEvent{
-			Tool:    "bash",
-			CallID:  "call-2",
-			Allowed: true,
+			Tool:      "bash",
+			CallID:    "call-2",
+			RequestID: "call-2",
+			Allowed:   true,
 		},
 	})
 
@@ -99,9 +102,10 @@ func TestApprovalCorrelatesByCallIDAcrossConcurrentCalls(t *testing.T) {
 	b.appendApprovalDecisionEvent(output.Event{
 		Type: output.EventTypeApprovalDenied,
 		Payload: output.ApprovalEvent{
-			Tool:    "bash",
-			CallID:  "call-1",
-			Allowed: false,
+			Tool:      "bash",
+			CallID:    "call-1",
+			RequestID: "call-1",
+			Allowed:   false,
 		},
 	})
 
@@ -118,14 +122,14 @@ func TestApprovalRequestedRetainsCallIDInToolCallAndFallbackPill(t *testing.T) {
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	call := &toolCallSegment{tool: "bash", callID: "call-normal"}
 	b.segments = []contentSegment{{kind: segmentToolCall, toolData: call}}
-	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-normal"}})
-	if got, want := call.approvalIdentity, parentApprovalIdentity("call-normal"); got != want {
+	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-normal", RequestID: "approval-normal"}})
+	if got, want := call.approvalIdentity, "approval-normal"; got != want {
 		t.Fatalf("tool call identity = %q, want %q", got, want)
 	}
 
 	b.segments = nil
-	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-fallback"}})
-	if got, want := b.segments[0].approvalData.identity, parentApprovalIdentity("call-fallback"); got != want {
+	b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{Tool: "bash", CallID: "call-fallback", RequestID: "approval-fallback"}})
+	if got, want := b.segments[0].approvalData.identity, "approval-fallback"; got != want {
 		t.Fatalf("fallback identity = %q, want %q", got, want)
 	}
 }
@@ -135,14 +139,15 @@ func TestApprovalFallbackDecisionCorrelatesByCallID(t *testing.T) {
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	for _, callID := range []string{"call-A", "call-B"} {
 		b.appendApprovalRequestedEvent(output.Event{Payload: output.ApprovalEvent{
-			Tool:   "bash",
-			CallID: callID,
+			Tool:      "bash",
+			CallID:    callID,
+			RequestID: callID,
 		}})
 	}
 
 	b.appendApprovalDecisionEvent(output.Event{
 		Type:    output.EventTypeApprovalAccepted,
-		Payload: output.ApprovalEvent{CallID: "call-B"},
+		Payload: output.ApprovalEvent{CallID: "call-B", RequestID: "call-B"},
 	})
 
 	first := b.segments[0].approvalData

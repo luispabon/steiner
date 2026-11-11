@@ -258,10 +258,14 @@ type ApprovalCoordinator struct {
 	queue []*pendingApproval
 }
 
-// Begin registers a new pending approval request and returns a channel that
-// will receive the decision once the client submits one.
-func (c *ApprovalCoordinator) Begin(identity, toolName, mode, kind, agentID string) chan SubmitApproval {
+// Begin registers a new pending approval request and returns its unique
+// identity plus the channel that receives the decision. The identity is
+// generated here, so two requests that share an agent scope and provider call
+// ID never share a coordinator key, and an event can only resolve the request
+// that produced it.
+func (c *ApprovalCoordinator) Begin(toolName, mode, kind, agentID string) (string, chan SubmitApproval) {
 	response := make(chan SubmitApproval, 1)
+	identity := tool.NewApprovalRequestID()
 	c.mu.Lock()
 	c.queue = append(c.queue, &pendingApproval{
 		identity: identity,
@@ -272,7 +276,7 @@ func (c *ApprovalCoordinator) Begin(identity, toolName, mode, kind, agentID stri
 		response: response,
 	})
 	c.mu.Unlock()
-	return response
+	return identity, response
 }
 
 // Finish unregisters the pending approval associated with the given response

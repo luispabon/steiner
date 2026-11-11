@@ -65,6 +65,7 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 		return fmt.Errorf("approval response channel is required")
 	}
 	if h == nil || h.coordinator == nil {
+		req.RequestID = tool.NewApprovalRequestID()
 		return h.respond(ctx, req, func(context.Context, tool.ApprovalRequest) error {
 			return fmt.Errorf("approval UI is unavailable")
 		})
@@ -78,6 +79,7 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 	}
 
 	if h.isAlwaysAllowed(grantKey) {
+		req.RequestID = tool.NewApprovalRequestID()
 		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 			inner.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
 			return nil
@@ -85,18 +87,19 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 	}
 
 	agentID := tool.ApprovalAgentScope(ctx)
-	identity := ApprovalIdentity(agentID, req.CallID)
-	if identity == "" {
-		// Without a call ID the request has no identity a decision could ever
-		// match. Registering it would leave an unpromptable FIFO head blocking
-		// every later request, so fail closed without touching the queue.
+	if req.CallID == "" {
+		// Without a call ID the request cannot be correlated with the tool call
+		// that raised it. Deny it without registering so it never becomes an
+		// unpromptable FIFO head blocking every later request.
+		req.RequestID = tool.NewApprovalRequestID()
 		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 			inner.Response <- tool.ApprovalResponse{Allow: false, Message: approvalMissingCallIDMessage}
 			return nil
 		})
 	}
 
-	responseCh := h.coordinator.Begin(identity, toolName, "", string(req.Kind), agentID)
+	identity, responseCh := h.coordinator.Begin(toolName, "", string(req.Kind), agentID)
+	req.RequestID = identity
 	return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 		// Finish runs before the eventing wrapper emits a denied event for an error return.
 		defer h.coordinator.Finish(responseCh)

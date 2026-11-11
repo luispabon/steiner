@@ -3,25 +3,24 @@ package tui
 import (
 	"fmt"
 
-	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
 
 // applyApprovalEvent opens the approval prompt for a requested tool call and
 // clears it when the request is accepted or denied. With an approval
 // coordinator only the FIFO head prompts, and a decision for any other request
-// leaves a still-pending head in place. Scoped child requests share the same
-// coordinator FIFO but use a scope-qualified identity, so a call ID reused by
-// another agent never matches the wrong request.
+// leaves a still-pending head in place. The tray identity is the request ID
+// carried by the event, so a decision can only resolve the request that
+// produced it.
 func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEvent) {
-	identity := interactive.ApprovalIdentity(event.Scope.AgentID, payload.CallID)
+	identity := payload.RequestID
+	// An event without a request ID cannot be tied to a coordinator
+	// registration, so it never prompts, clears the tray, or promotes.
+	if identity == "" {
+		return
+	}
 	switch event.Type {
 	case output.EventTypeApprovalRequested:
-		// A scoped request without a call ID has no identity the coordinator
-		// could ever match, so it must never become promptable.
-		if event.Scope.AgentID != "" && identity == "" {
-			return
-		}
 		// Content retains every request. The tray only prompts the FIFO head,
 		// so cached grants that never registered stay silent.
 		if !m.approval.active && m.approvalRequestPromptable(identity) {
@@ -70,11 +69,16 @@ func (m *Model) approvalHead() (head string, coordinated bool) {
 // one, only a non-empty identity matching the FIFO head prompts, because cached
 // grants emit request events without registering.
 func (m *Model) approvalRequestPromptable(identity string) bool {
+	// An empty request ID can never be matched to a submission, so it never
+	// prompts, with or without a coordinator.
+	if identity == "" {
+		return false
+	}
 	head, coordinated := m.approvalHead()
 	if !coordinated {
 		return true
 	}
-	return identity != "" && identity == head
+	return identity == head
 }
 
 // decisionPreservesActiveApproval reports whether a decision for identity

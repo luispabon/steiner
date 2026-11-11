@@ -4,14 +4,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/output"
 )
 
 func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
-		identity := interactive.ApprovalIdentity(event.Scope.AgentID, payload.CallID)
+		// An event without a request ID can never be matched to a decision, so
+		// it is not rendered as an approval control that could never resolve.
+		if payload.RequestID == "" {
+			return
+		}
+		identity := payload.RequestID
 		// Parent approvals embed into the tool call that raised them. A scoped
 		// child approval renders as a standalone pill: its call ID may equal a
 		// parent call's, so embedding could attribute it to the wrong segment.
@@ -98,7 +102,12 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	accepted := event.Type == output.EventTypeApprovalAccepted
 	var identity string
 	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
-		identity = interactive.ApprovalIdentity(event.Scope.AgentID, payload.CallID)
+		identity = payload.RequestID
+	}
+	// A decision without a request ID cannot name a rendered request, so it
+	// leaves the transcript untouched.
+	if identity == "" {
+		return
 	}
 	if b.resolveEmbeddedApproval(accepted, identity) {
 		b.recomputeApprovalQueueDepths()
