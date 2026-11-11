@@ -636,7 +636,11 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 		if err := os.Chmod(root, 0o000); err != nil {
 			t.Fatalf("chmod root: %v", err)
 		}
-		defer func() { _ = os.Chmod(root, 0o755) }()
+		t.Cleanup(func() {
+			if err := os.Chmod(root, 0o755); err != nil {
+				t.Errorf("restore root permissions: %v", err)
+			}
+		})
 		if _, err := os.ReadDir(root); err == nil {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
@@ -660,7 +664,11 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 		if err := os.Chmod(blockedPath, 0o000); err != nil {
 			t.Fatalf("chmod blocked file: %v", err)
 		}
-		defer func() { _ = os.Chmod(blockedPath, 0o644) }()
+		t.Cleanup(func() {
+			if err := os.Chmod(blockedPath, 0o644); err != nil {
+				t.Errorf("restore blocked file permissions: %v", err)
+			}
+		})
 		if _, err := os.ReadFile(blockedPath); err == nil {
 			t.Skip("filesystem does not deny file reads after chmod 000")
 		}
@@ -690,7 +698,11 @@ func TestGrepSearch_SkipsInaccessibleEntries(t *testing.T) {
 		if err := os.Chmod(blockedDir, 0o000); err != nil {
 			t.Fatalf("chmod blocked dir: %v", err)
 		}
-		defer func() { _ = os.Chmod(blockedDir, 0o755) }()
+		t.Cleanup(func() {
+			if err := os.Chmod(blockedDir, 0o755); err != nil {
+				t.Errorf("restore blocked dir permissions: %v", err)
+			}
+		})
 		if _, err := os.ReadDir(blockedDir); err == nil {
 			t.Skip("filesystem does not deny directory traversal after chmod 000")
 		}
