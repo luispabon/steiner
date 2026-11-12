@@ -9,9 +9,11 @@ import (
 )
 
 // TestDefaultSkillBudgetCoversBundledSkills guards the default skill budget
-// against the bundled skill corpus: the active-skills framing block plus every
-// bundled skill body must fit the default policy's skill budget and every body
-// must fit the per-skill content cap.
+// against static assembly of the bundled skill corpus: the active-skills
+// framing block plus every bundled skill body must fit the default policy's
+// skill budget, and every body must fit the per-skill content cap. The budget
+// bounds this static stack, not interactive skill activation envelopes, which
+// carry their own framing text per activated skill.
 func TestDefaultSkillBudgetCoversBundledSkills(t *testing.T) {
 	t.Parallel()
 
