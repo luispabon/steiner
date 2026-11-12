@@ -58,9 +58,9 @@ When a compaction fallback model is configured and the provider's `compaction_fa
 | `cache ~1m left` | muted amber | One minute or less remains |
 | `cache expired` | amber | The cache is presumed cold |
 
-Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, and until the next successful main request after a successful model or profile switch, `/fork` or `/resume`.
+Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, and until the next successful main request after a model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume`.
 
-The indicator is an estimate from idle time, not confirmation from the provider. A successful model or profile switch, `/fork` or `/resume` clears it.
+The indicator is an estimate from idle time, not confirmation from the provider. A model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume` clears it. A model switch that applies only to the next run leaves the current estimate in place.
 
 ### `claude_subscription` limit
 
