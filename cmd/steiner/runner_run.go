@@ -182,6 +182,7 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 	if err != nil {
 		return nil, false, false, err
 	}
+	cfg := r.liveConfig()
 	req := agent.RunRequest{
 		Provider:          setup.provider,
 		Tools:             provider.CloneTools(tools),
@@ -201,6 +202,7 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 		CacheBaseline: r.cacheBaseline,
 		// The seed is identity-checked against the request, as in buildRunRequest.
 		SeedLastMainRequest: lastMainRequest,
+		PromptCacheTTL:      cfg.PromptCacheTTL(setup.resolvedModel.ProviderAlias),
 	}
 	req.CompactionFallback = r.compactionFallback(setup, req.TransportSession, req.PromptCacheKey)
 	if r.runtime.usageRecorder != nil {
@@ -342,6 +344,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.runtime.delegationSupervisor != nil {
 		sealer = r.runtime.delegationSupervisor
 	}
+	cfg := r.liveConfig()
 	req := agent.RunRequest{
 		Provider:      setup.provider,
 		Executor:      executor,
@@ -368,6 +371,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		PromptCacheKey:      r.promptCacheKey(),
 		TransportSession:    r.sessionID(),
 		CacheBaseline:       r.cacheBaseline,
+		PromptCacheTTL:      cfg.PromptCacheTTL(setup.resolvedModel.ProviderAlias),
 		VisionCapabilities:  visionCapabilities,
 		ImageStore:          r.runtime.imageStore,
 		SourceConversation:  setup.conversation,

@@ -99,12 +99,11 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
 	}
 
-	// The fallback estimate calls the cache cold once the threshold has passed
-	// since this request, so its deadline is the request start plus After. A
-	// disabled fallback leaves it zero: untracked.
+	// A positive prompt cache TTL enables the cache expiry estimate: the cache
+	// is cold once the TTL has passed since this request. Zero disables it.
 	var cacheColdAt time.Time
-	if compactionFallbackEnabled(p.request.CompactionFallback) {
-		cacheColdAt = requestAt.Add(p.request.CompactionFallback.After)
+	if p.request.PromptCacheTTL > 0 {
+		cacheColdAt = requestAt.Add(p.request.PromptCacheTTL)
 	}
 
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{

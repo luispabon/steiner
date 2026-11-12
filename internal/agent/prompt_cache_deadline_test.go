@@ -23,8 +23,9 @@ func modelCallFinishedPayloads(events []output.Event) []output.ModelCallFinished
 }
 
 // TestModelCallFinishedCarriesPromptCacheDeadline proves the successful main
-// call emits the compaction fallback's cold deadline (request start plus After)
-// when the fallback is enabled, and a zero deadline when it is disabled.
+// call emits the prompt cache expiry estimate (request start plus
+// PromptCacheTTL) when the TTL is positive, and a zero deadline when it is not.
+// The estimate does not depend on the compaction fallback.
 func TestModelCallFinishedCarriesPromptCacheDeadline(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
@@ -33,21 +34,27 @@ func TestModelCallFinishedCarriesPromptCacheDeadline(t *testing.T) {
 	}
 	tests := []struct {
 		name       string
+		ttl        time.Duration
 		fallback   CompactionFallback
 		wantColdAt time.Time
 	}{
 		{
-			name:       "enabled threshold sets the deadline",
-			fallback:   CompactionFallback{After: 5 * time.Minute, Resolve: resolve},
+			name:       "positive ttl sets the deadline without a fallback",
+			ttl:        5 * time.Minute,
 			wantColdAt: start.Add(5 * time.Minute),
 		},
 		{
-			name:     "zero threshold disables tracking",
-			fallback: CompactionFallback{Resolve: resolve},
+			name: "zero ttl disables tracking without a fallback",
 		},
 		{
-			name:     "missing resolver disables tracking",
-			fallback: CompactionFallback{After: 5 * time.Minute},
+			name:     "zero ttl stays off with a fallback",
+			fallback: CompactionFallback{After: 5 * time.Minute, Resolve: resolve},
+		},
+		{
+			name:       "ttl wins over a different fallback delay",
+			ttl:        50 * time.Minute,
+			fallback:   CompactionFallback{After: 5 * time.Minute, Resolve: resolve},
+			wantColdAt: start.Add(50 * time.Minute),
 		},
 	}
 
@@ -62,6 +69,7 @@ func TestModelCallFinishedCarriesPromptCacheDeadline(t *testing.T) {
 			req := mainRequestRun(prov, &steppingClock{base: start})
 			req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 			req.CompactionFallback = tt.fallback
+			req.PromptCacheTTL = tt.ttl
 
 			if _, err := NewRunner().Run(context.Background(), req); err != nil {
 				t.Fatalf("Run() error = %v", err)
@@ -98,6 +106,7 @@ func TestModelCallFinishedFailureAndCancellationAreNotSuccess(t *testing.T) {
 		req.CompactionFallback = CompactionFallback{After: 5 * time.Minute, Resolve: func(context.Context) (CompactionTarget, error) {
 			return CompactionTarget{}, nil
 		}}
+		req.PromptCacheTTL = 5 * time.Minute
 
 		if _, err := NewRunner().Run(context.Background(), req); err == nil {
 			t.Fatal("Run() error = nil, want provider error")
@@ -128,6 +137,7 @@ func TestModelCallFinishedFailureAndCancellationAreNotSuccess(t *testing.T) {
 		req.CompactionFallback = CompactionFallback{After: 5 * time.Minute, Resolve: func(context.Context) (CompactionTarget, error) {
 			return CompactionTarget{}, nil
 		}}
+		req.PromptCacheTTL = 5 * time.Minute
 
 		if _, err := NewRunner().Run(ctx, req); err != nil {
 			t.Fatalf("Run() error = %v, want a cancelled turn without error", err)

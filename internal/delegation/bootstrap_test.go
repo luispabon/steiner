@@ -1636,6 +1636,46 @@ func TestBuildChildRunRequestPromptCacheKeyFallsBackWhenStoreNil(t *testing.T) {
 	}
 }
 
+func TestBuildChildRunRequestPromptCacheTTL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		cfg  *config.Config
+		want time.Duration
+	}{
+		{
+			name: "type default",
+			cfg:  &config.Config{Providers: map[string]config.ProviderConfig{"testprov": {Type: config.ProviderTypeAnthropic}}},
+			want: 5 * time.Minute,
+		},
+		{
+			name: "explicit zero",
+			cfg:  &config.Config{Providers: map[string]config.ProviderConfig{"testprov": {Type: config.ProviderTypeAnthropic, PromptCacheTTL: config.MustDuration("0s")}}},
+			want: 0,
+		},
+		{
+			name: "nil config",
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := buildChildRunRequest(childRunRequestParams{
+				WorkDir:       "/tmp/work",
+				AgentID:       "prompt-cache-ttl",
+				VisibleReg:    tool.NewRegistry(),
+				ExecReg:       tool.NewRegistry(),
+				ResolvedModel: provider.ResolvedModel{ProviderAlias: "testprov"},
+				Config:        tt.cfg,
+			})
+			if req.PromptCacheTTL != tt.want {
+				t.Fatalf("PromptCacheTTL = %v, want %v", req.PromptCacheTTL, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildChildRunRequestEnablesParallelSafeToolsOnly(t *testing.T) {
 	t.Parallel()
 	execReg := tool.NewRegistry(

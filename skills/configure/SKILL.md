@@ -33,7 +33,8 @@ Compact canonical reference for safe configuration edits.
 |`providers.<name>.api_key_env`|string|unset|Environment variable containing the credential.|
 |`providers.<name>.headers.<key>`|string|unset|One extra header value.|
 |`providers.<name>.timeout`|duration|unset|Overall request timeout; unset has no overall limit. The default transport has a separate 30s response-header timeout.|
-|`providers.<name>.compaction_fallback_after`|duration|type default|Cold-cache delay; `0` disables.|
+|`providers.<name>.compaction_fallback_after`|duration|type default|Cold-cache delay; `0` disables. Unset inherits `prompt_cache_ttl`.|
+|`providers.<name>.prompt_cache_ttl`|duration|type default|Prompt cache expiry estimate shown in the UI; `0` disables.|
 |`providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests.|
 |`providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback.|
 |`models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only.|

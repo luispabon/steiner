@@ -157,6 +157,11 @@ type RunRequest struct {
 	// zero value disables the fallback.
 	CompactionFallback CompactionFallback
 
+	// PromptCacheTTL is the provider's prompt cache expiry estimate. A positive
+	// value enables the cache expiry estimate on the model call event; zero
+	// disables it. It is independent of CompactionFallback.
+	PromptCacheTTL time.Duration
+
 	// compactionFallbackTarget marks a request cloned for a fallback compaction
 	// target by compactionFallbackRequest.
 	compactionFallbackTarget bool

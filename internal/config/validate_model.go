@@ -141,6 +141,9 @@ func appendProviderProblems(problems *[]string, name string, p ProviderConfig) {
 	if p.CompactionFallbackAfter.Duration() < 0 {
 		*problems = append(*problems, fmt.Sprintf("providers[%q].compaction_fallback_after must not be negative", name))
 	}
+	if p.PromptCacheTTL.Duration() < 0 {
+		*problems = append(*problems, fmt.Sprintf("providers[%q].prompt_cache_ttl must not be negative", name))
+	}
 }
 
 // claudeSubscriptionRejectedFields lists the provider fields claude_subscription
