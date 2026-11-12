@@ -125,53 +125,87 @@ func (b *contentBuffer) compactionHeaderLeft(cd *compactionBannerData, budget in
 }
 
 // compactionHeaderMeta selects meta parts by priority and returns them joined in
-// display order. Only the model label may be truncated to make room.
+// display order with a middot between elements. The progress glyph stays
+// attached to the element before it. Only the model label may be truncated to
+// make room.
 func (b *contentBuffer) compactionHeaderMeta(cd *compactionBannerData, leftWidth, budget int) string {
 	parts := b.compactionHeaderMetaParts(cd)
 	chosen := make([]string, len(parts))
-	used := 0
 	for priority := compactionMetaGlyphPriority; priority <= compactionMetaCountPriority; priority++ {
 		for i := range parts {
 			part := parts[i]
 			if part.priority != priority || chosen[i] != "" {
 				continue
 			}
-			need := lipgloss.Width(part.plain)
-			if used > 0 {
-				need++
-			}
-			if leftWidth+used+need <= budget {
-				chosen[i] = part.styled
-				used += need
+			candidate := append([]string(nil), chosen...)
+			candidate[i] = part.styled
+			if leftWidth+compactionMetaWidth(parts, candidate) <= budget {
+				chosen = candidate
 				continue
 			}
-			room := budget - leftWidth - used
-			if used > 0 {
-				room--
-			}
 			// A shorter label is only worth showing when it still reads as one.
-			if !part.model || room < 4 {
+			if !part.model {
+				continue
+			}
+			without := append([]string(nil), chosen...)
+			without[i] = ""
+			room := budget - leftWidth - compactionMetaWidth(parts, without) - compactionMetaSepAfter(parts, without, i)
+			if room < 4 {
 				continue
 			}
 			truncated := truncateOverlayText(part.plain, room)
 			if truncated == "" {
 				continue
 			}
-			if used > 0 {
-				used++
-			}
-			chosen[i] = b.styles.FgMute.Render(truncated)
-			used += lipgloss.Width(truncated)
+			candidate = append([]string(nil), chosen...)
+			candidate[i] = b.styles.FgMute.Render(truncated)
+			chosen = candidate
 		}
 	}
+	return compactionMetaString(parts, chosen)
+}
 
-	var metaParts []string
-	for _, part := range chosen {
-		if part != "" {
-			metaParts = append(metaParts, part)
+// compactionMetaSeparator is the cell group linking a chosen part to the element
+// shown before it. The progress glyph stays attached with a space; every other
+// part is separated by a middot.
+func compactionMetaSeparator(part compactionHeaderPart) string {
+	if part.priority == compactionMetaGlyphPriority {
+		return " "
+	}
+	return " · "
+}
+
+// compactionMetaString joins the chosen parts in display order.
+func compactionMetaString(parts []compactionHeaderPart, chosen []string) string {
+	var out strings.Builder
+	wrote := false
+	for i, piece := range chosen {
+		if piece == "" {
+			continue
+		}
+		if wrote {
+			out.WriteString(compactionMetaSeparator(parts[i]))
+		}
+		out.WriteString(piece)
+		wrote = true
+	}
+	return out.String()
+}
+
+// compactionMetaWidth returns the rendered width of the chosen meta parts.
+func compactionMetaWidth(parts []compactionHeaderPart, chosen []string) int {
+	return lipgloss.Width(compactionMetaString(parts, chosen))
+}
+
+// compactionMetaSepAfter returns the width of the separator that follows the
+// part at index when it is chosen, or zero when it is the last shown part.
+func compactionMetaSepAfter(parts []compactionHeaderPart, chosen []string, index int) int {
+	for i := index + 1; i < len(chosen); i++ {
+		if chosen[i] != "" {
+			return lipgloss.Width(compactionMetaSeparator(parts[i]))
 		}
 	}
-	return strings.Join(metaParts, " ")
+	return 0
 }
 
 // compactionHeaderMetaParts returns the header meta candidates in display

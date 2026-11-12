@@ -176,6 +176,26 @@ func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
 	}
 }
 
+func TestCompactionHeaderSeparatesMetaWithMiddots(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:             true,
+		subtitle:             "context compacted",
+		elapsed:              "3s",
+		compactionCount:      2,
+		compactionModel:      "opencode-go/deepseek-v4.1-flash",
+		compactionModelAlias: "haiku",
+		cacheReadTokens:      950,
+		inputTokens:          50,
+	}
+
+	out := stripANSI(b.renderCompactionBanner(cd, 120))
+	if want := "haiku · cache 95.0% · 3s · #2 ✓"; !strings.Contains(out, want) {
+		t.Fatalf("compaction header meta = %q, want %q", out, want)
+	}
+}
+
 func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
@@ -240,7 +260,7 @@ func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
 	if strings.Contains(out, "cache") {
 		t.Fatalf("in-progress output should omit cache rate: %q", out)
 	}
-	if !strings.Contains(stripANSI(out), "3s #2 "+spinnerFrames[0]) {
+	if !strings.Contains(stripANSI(out), "3s · #2 "+spinnerFrames[0]) {
 		t.Fatalf("in-progress output = %q, want elapsed, count, then spinner glyph", stripANSI(out))
 	}
 }
@@ -259,7 +279,7 @@ func TestCompactionSkippedHeaderOmitsGlyph(t *testing.T) {
 	if strings.Contains(out, "✓") {
 		t.Fatalf("skipped compaction header should omit the check glyph: %q", out)
 	}
-	if !strings.Contains(out, "3s #2") {
+	if !strings.Contains(out, "3s · #2") {
 		t.Fatalf("skipped compaction header missing elapsed and count: %q", out)
 	}
 }
