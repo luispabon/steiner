@@ -99,6 +99,14 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
 	}
 
+	// The fallback estimate calls the cache cold once the threshold has passed
+	// since this request, so its deadline is the request start plus After. A
+	// disabled fallback leaves it zero: untracked.
+	var cacheColdAt time.Time
+	if compactionFallbackEnabled(p.request.CompactionFallback) {
+		cacheColdAt = requestAt.Add(p.request.CompactionFallback.After)
+	}
+
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
 		Turn:              turn,
 		Model:             p.request.ResolvedModel.BackendModelID,
@@ -111,6 +119,8 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		DurationMs:        durationMs,
 		TTFTMs:            ttftMs,
 		OutputTPS:         outputTPS,
+		Success:           true,
+		CacheColdAt:       cacheColdAt,
 	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))

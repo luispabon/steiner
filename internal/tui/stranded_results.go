@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -114,6 +115,9 @@ func (m *Model) applyConversationReset() {
 	if m.recorder != nil {
 		m.recorder.ResetSession()
 	}
+	// The loaded conversation has no live cache estimate.
+	m.promptCacheColdAt = time.Time{}
+	m.syncPromptCacheAt(time.Now())
 	m.syncSidebar()
 	m.syncViewport()
 }

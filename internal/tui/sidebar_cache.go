@@ -35,6 +35,8 @@ type sidebarStateComparable struct {
 	currentTurn            int
 	maxTurns               int
 	compaction             compactionState
+	cacheMinutes           int
+	cachePhase             promptCachePhase
 	branch                 string
 	dirty                  bool
 	ahead                  int
@@ -97,6 +99,8 @@ func (s sidebarState) comparable() sidebarStateComparable {
 		currentTurn:            s.currentTurn,
 		maxTurns:               s.maxTurns,
 		compaction:             s.compaction,
+		cacheMinutes:           s.cacheMinutes,
+		cachePhase:             s.cachePhase,
 		branch:                 s.branch,
 		dirty:                  s.dirty,
 		ahead:                  s.ahead,

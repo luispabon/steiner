@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -111,6 +112,10 @@ func (m *Model) commitModelSwitch(name string, reasoning *provider.ReasoningOver
 		m.reasoningLabels[name] = reasoningOverrideLabel(*reasoning)
 	}
 	m.applyModelSelection(name, providerBaseURL)
+	// The new model invalidates the prompt cache, so the previous estimate no
+	// longer applies.
+	m.promptCacheColdAt = time.Time{}
+	m.syncPromptCacheAt(time.Now())
 	status := fmt.Sprintf("status: model switched to %s", name)
 	if afterTurn {
 		status += " (applies to the next run)"

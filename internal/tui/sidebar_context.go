@@ -85,6 +85,22 @@ func (s sidebarState) contextGaugeLine(width int) string {
 	return prefix + emptyWithBg.Render(strings.Repeat(" ", pad)) + counts
 }
 
+// cacheLine renders the CONTEXT card's prompt cache estimate row: minutes left
+// while the estimate holds, "expired" once it has passed, and nothing when no
+// estimate is tracked.
+func (s sidebarState) cacheLine() string {
+	switch s.cachePhase {
+	case promptCacheWarm:
+		return cardFieldN("cache", 7, s.styles.FgDim, fmt.Sprintf("~%dm left", s.cacheMinutes), s.styles)
+	case promptCacheNear:
+		return cardFieldN("cache", 7, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WarnLine)), fmt.Sprintf("~%dm left", s.cacheMinutes), s.styles)
+	case promptCacheExpired:
+		return cardFieldN("cache", 7, s.styles.Warn, "expired", s.styles)
+	default:
+		return ""
+	}
+}
+
 func (s sidebarState) compactDotLine() string {
 	if !s.compaction.Active() {
 		return ""

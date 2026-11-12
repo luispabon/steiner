@@ -393,6 +393,9 @@ func (m *Model) handleSessionTickMsg(msg sessionTickMsg) (tea.Model, tea.Cmd) {
 		// A timer chain armed for a replaced session; let it expire.
 		return m, nil
 	}
+	// Refresh the cache estimate before the sidebar sync so an idle session
+	// flips to expired without waiting for another model call.
+	m.syncPromptCacheAt(time.Now())
 	m.syncSidebar()
 	if m.sessionStartedAt == nil {
 		return m, nil

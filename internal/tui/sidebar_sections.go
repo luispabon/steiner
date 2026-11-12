@@ -245,6 +245,9 @@ func (s sidebarState) contextSection(width int) []string {
 		cardLabel("context", s.styles),
 		s.contextGaugeLine(width),
 	}
+	if cache := s.cacheLine(); cache != "" {
+		lines = append(lines, cache)
+	}
 	if dot := s.compactDotLine(); dot != "" {
 		lines = append(lines, dot)
 	}

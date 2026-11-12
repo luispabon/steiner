@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"time"
 
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -33,6 +34,14 @@ type ModelCallFinishedEvent struct {
 	TTFTMs            int64   `json:"ttft_ms,omitempty"`
 	OutputTPS         float64 `json:"output_tps,omitempty"`
 	Error             string  `json:"error,omitempty"`
+	// Success marks a completed call whose response was accepted. Cancelled
+	// and failed calls leave it false, so consumers can distinguish a cleared
+	// estimate from an absent one.
+	Success bool `json:"success,omitempty"`
+	// CacheColdAt is when the compaction fallback estimate presumes the main
+	// prompt cache goes cold: the request start plus the configured fallback
+	// threshold. Zero means the estimate is untracked (fallback disabled).
+	CacheColdAt time.Time `json:"cache_cold_at,omitzero"`
 }
 
 // APIRequestEvent captures the provider request payload sent for a turn.
@@ -144,6 +153,8 @@ type ModelCallFinishedParams struct {
 	DurationMs        int64
 	TTFTMs            int64
 	OutputTPS         float64
+	Success           bool
+	CacheColdAt       time.Time
 }
 
 // NewModelCallFinishedEvent creates a new model call finished event.
@@ -160,6 +171,8 @@ func NewModelCallFinishedEvent(p ModelCallFinishedParams) Event {
 		DurationMs:        p.DurationMs,
 		TTFTMs:            p.TTFTMs,
 		OutputTPS:         p.OutputTPS,
+		Success:           p.Success,
+		CacheColdAt:       p.CacheColdAt,
 	}
 	if p.Err != nil {
 		payload.Error = p.Err.Error()
