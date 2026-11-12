@@ -75,8 +75,9 @@ func (r *wsDialRecorder) dialHeaders(i int) http.Header {
 }
 
 // newDialAuthWSProvider builds a Codex WebSocket provider with a dial-time
-// bearer resolver and the given build-time headers.
-func newDialAuthWSProvider(t *testing.T, wsURL string, headers map[string]string, resolver func(context.Context) (CodexAuth, error)) *codexWSProvider {
+// bearer resolver, the given build-time headers and the sign-in identity of the
+// credentials those headers describe.
+func newDialAuthWSProvider(t *testing.T, wsURL string, headers map[string]string, signIn CodexSignInIdentity, resolver func(context.Context) (CodexAuth, error)) *codexWSProvider {
 	t.Helper()
 
 	created, err := NewCodexResponsesWS(ClientConfig{
@@ -85,6 +86,7 @@ func newDialAuthWSProvider(t *testing.T, wsURL string, headers map[string]string
 		Headers:            headers,
 		Model:              "test-model",
 		DialBearerResolver: resolver,
+		CodexSignIn:        &signIn,
 	})
 	if err != nil {
 		t.Fatalf("create provider: %v", err)
@@ -115,7 +117,8 @@ func TestCodexWSDialUsesFreshTokenPerDial(t *testing.T) {
 	tokens := []string{"token-one", "token-two-longer"}
 	var mu sync.Mutex
 	calls := 0
-	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, func(context.Context) (CodexAuth, error) {
+	chatGPT := CodexSignInIdentity{AccountID: "acct-123"}
+	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, chatGPT, func(context.Context) (CodexAuth, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		token := tokens[min(calls, len(tokens)-1)]
@@ -173,17 +176,19 @@ func TestCodexWSDialUsesFreshTokenPerDial(t *testing.T) {
 	}
 }
 
-// TestCodexWSDialAPIKeyModeUsesResolvedKey pins that an API-key sign-in sends
-// the freshly resolved key and no account header.
-func TestCodexWSDialAPIKeyModeUsesResolvedKey(t *testing.T) {
+// TestCodexWSDialAPIKeyModeIgnoresAccountHeader pins that API-key mode comes
+// from the explicit sign-in identity, not from a configured account header, and
+// that the dial sends the freshly resolved key.
+func TestCodexWSDialAPIKeyModeIgnoresAccountHeader(t *testing.T) {
 	server := newWSDialRecorder(t)
-	p := newDialAuthWSProvider(t, server.wsURL(), nil, func(context.Context) (CodexAuth, error) {
+	apiSignIn := CodexSignInIdentity{APIKeyMode: true}
+	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-user-header"}, apiSignIn, func(context.Context) (CodexAuth, error) {
 		// An API-key token may carry an account ID; it is irrelevant here
-		// because no account header is sent.
+		// because no account identity is kept.
 		return CodexAuth{APIKey: "sk-rotated-key", AccountID: "acct-123"}, nil
 	})
-	if p.dialAuth == nil || !p.dialAuth.apiMode {
-		t.Fatalf("dial auth = %+v, want API-key mode", p.dialAuth)
+	if p.dialAuth == nil || p.dialAuth.signIn != apiSignIn {
+		t.Fatalf("dial auth = %+v, want the API-key sign-in identity", p.dialAuth)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -191,12 +196,31 @@ func TestCodexWSDialAPIKeyModeUsesResolvedKey(t *testing.T) {
 	if _, err := p.ChatCompletion(ctx, wsAuthRequest()); err != nil {
 		t.Fatalf("ChatCompletion: %v", err)
 	}
-	headers := server.dialHeaders(0)
-	if got := headers.Get("Authorization"); got != "Bearer sk-rotated-key" {
+	dialHeaders := server.dialHeaders(0)
+	if got := dialHeaders.Get("Authorization"); got != "Bearer sk-rotated-key" {
 		t.Errorf("Authorization = %q, want the resolved API key", got)
 	}
-	if got := headers.Get("ChatGPT-Account-ID"); got != "" {
-		t.Errorf("ChatGPT-Account-ID = %q, want none in API-key mode", got)
+	// A user-configured header is passed through, but it never decides the
+	// sign-in mode.
+	if got := dialHeaders.Get("ChatGPT-Account-ID"); got != "acct-user-header" {
+		t.Errorf("ChatGPT-Account-ID = %q, want the configured header", got)
+	}
+}
+
+// TestCodexWSRequiresSignInIdentityWithResolver pins that a resolver without an
+// explicit sign-in identity is rejected instead of inferred from headers.
+func TestCodexWSRequiresSignInIdentityWithResolver(t *testing.T) {
+	_, err := NewCodexResponsesWS(ClientConfig{
+		BaseURL: "http://127.0.0.1:1",
+		APIKey:  "static-bearer",
+		Headers: map[string]string{"ChatGPT-Account-ID": "acct-123"},
+		Model:   "test-model",
+		DialBearerResolver: func(context.Context) (CodexAuth, error) {
+			return CodexAuth{AccessToken: "token", AccountID: "acct-123"}, nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "sign-in identity") {
+		t.Fatalf("NewCodexResponsesWS error = %v, want a missing sign-in identity error", err)
 	}
 }
 
@@ -207,29 +231,34 @@ func TestCodexWSDialRejectsChangedSignIn(t *testing.T) {
 	tests := []struct {
 		name    string
 		headers map[string]string
+		signIn  CodexSignInIdentity
 		auth    CodexAuth
 		want    error
 	}{
 		{
 			name:    "different ChatGPT account",
 			headers: map[string]string{"ChatGPT-Account-ID": "acct-123"},
+			signIn:  CodexSignInIdentity{AccountID: "acct-123"},
 			auth:    CodexAuth{AccessToken: "token-other-account", AccountID: "acct-999"},
 			want:    errCodexSignInChanged,
 		},
 		{
 			name:    "ChatGPT sign-in replaced by an API key",
 			headers: map[string]string{"ChatGPT-Account-ID": "acct-123"},
+			signIn:  CodexSignInIdentity{AccountID: "acct-123"},
 			auth:    CodexAuth{APIKey: "sk-live-new", AccountID: "acct-123"},
 			want:    errCodexSignInChanged,
 		},
 		{
-			name: "API-key sign-in replaced by a ChatGPT sign-in",
-			auth: CodexAuth{AccessToken: "token-chatgpt", AccountID: "acct-123"},
-			want: errCodexSignInChanged,
+			name:   "API-key sign-in replaced by a ChatGPT sign-in",
+			signIn: CodexSignInIdentity{APIKeyMode: true},
+			auth:   CodexAuth{AccessToken: "token-chatgpt", AccountID: "acct-123"},
+			want:   errCodexSignInChanged,
 		},
 		{
 			name:    "ChatGPT sign-in without an access token",
 			headers: map[string]string{"ChatGPT-Account-ID": "acct-123"},
+			signIn:  CodexSignInIdentity{AccountID: "acct-123"},
 			auth:    CodexAuth{AccountID: "acct-123"},
 			want:    errCodexSignInNoToken,
 		},
@@ -238,7 +267,7 @@ func TestCodexWSDialRejectsChangedSignIn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := newWSDialRecorder(t)
-			p := newDialAuthWSProvider(t, server.wsURL(), tt.headers, func(context.Context) (CodexAuth, error) {
+			p := newDialAuthWSProvider(t, server.wsURL(), tt.headers, tt.signIn, func(context.Context) (CodexAuth, error) {
 				return tt.auth, nil
 			})
 
@@ -305,7 +334,7 @@ func TestCodexWSDialCredentialResolutionCancellation(t *testing.T) {
 	var once sync.Once
 	var mu sync.Mutex
 	calls := 0
-	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, func(ctx context.Context) (CodexAuth, error) {
+	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, CodexSignInIdentity{AccountID: "acct-123"}, func(ctx context.Context) (CodexAuth, error) {
 		mu.Lock()
 		calls++
 		mu.Unlock()
@@ -359,7 +388,7 @@ func TestCodexWSDialCredentialResolutionCancellation(t *testing.T) {
 // cached entry, so the next lookup rebuilds and re-resolves the sign-in.
 func TestCachingCodexWSEvictsOnSignInChange(t *testing.T) {
 	server := newWSDialRecorder(t)
-	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, func(context.Context) (CodexAuth, error) {
+	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, CodexSignInIdentity{AccountID: "acct-123"}, func(context.Context) (CodexAuth, error) {
 		return CodexAuth{AccessToken: "token-other-account", AccountID: "acct-999"}, nil
 	})
 	cache := NewCodexWSCache()
@@ -392,7 +421,7 @@ func TestCachingCodexWSKeepsEntryOnDialCancellation(t *testing.T) {
 	server := newWSDialRecorder(t)
 	resolveStarted := make(chan struct{})
 	var once sync.Once
-	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, func(ctx context.Context) (CodexAuth, error) {
+	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, CodexSignInIdentity{AccountID: "acct-123"}, func(ctx context.Context) (CodexAuth, error) {
 		once.Do(func() { close(resolveStarted) })
 		<-ctx.Done()
 		return CodexAuth{}, ctx.Err()

@@ -88,6 +88,9 @@ func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
 		provider.quotaAccountKey = codexQuotaAccountKeyFromHeaders(cfg.Headers)
 	}
 	if cfg.DialBearerResolver != nil {
+		if cfg.CodexSignIn == nil {
+			return nil, fmt.Errorf("codex sign-in identity is required with a dial bearer resolver")
+		}
 		provider.dialAuth = newWSDialAuth(cfg)
 	}
 

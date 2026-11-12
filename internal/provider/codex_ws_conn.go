@@ -75,21 +75,15 @@ func (e *wsAuthError) Unwrap() error { return e.err }
 // resolver that reports another account or auth mode fails the dial instead of
 // pairing the new credentials with stale identity headers.
 type wsDialAuth struct {
-	resolver   func(context.Context) (CodexAuth, error)
-	apiMode    bool
-	accountKey string
+	resolver func(context.Context) (CodexAuth, error)
+	signIn   CodexSignInIdentity
 }
 
-// newWSDialAuth captures the identity of the sign-in cfg was built from. The
-// CLI sets a ChatGPT-Account-ID header only for a ChatGPT sign-in, so its
-// absence marks API-key mode.
+// newWSDialAuth captures the identity of the sign-in cfg was built from.
+// Callers must have validated cfg.CodexSignIn; the identity is never derived
+// from configured headers, which a user can set independently of the sign-in.
 func newWSDialAuth(cfg ClientConfig) *wsDialAuth {
-	accountKey := codexQuotaAccountKeyFromHeaders(cfg.Headers)
-	return &wsDialAuth{
-		resolver:   cfg.DialBearerResolver,
-		apiMode:    accountKey == "",
-		accountKey: accountKey,
-	}
+	return &wsDialAuth{resolver: cfg.DialBearerResolver, signIn: *cfg.CodexSignIn}
 }
 
 // bearer resolves the credential for one dial and returns the bearer to send.
@@ -99,31 +93,16 @@ func (a *wsDialAuth) bearer(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", &wsAuthError{err: err}
 	}
-	apiMode := auth.APIKey != ""
-	if apiMode != a.apiMode {
+	if auth.SignInIdentity() != a.signIn {
 		return "", &wsAuthError{err: errCodexSignInChanged}
 	}
-	// An API-key request sends no account header, so only a ChatGPT sign-in has
-	// an account identity to keep.
-	if apiMode {
+	if a.signIn.APIKeyMode {
 		return auth.APIKey, nil
-	}
-	if wsAccountKey(auth.AccountID) != a.accountKey {
-		return "", &wsAuthError{err: errCodexSignInChanged}
 	}
 	if auth.AccessToken == "" {
 		return "", &wsAuthError{err: errCodexSignInNoToken}
 	}
 	return auth.AccessToken, nil
-}
-
-// wsAccountKey returns the quota account key of a ChatGPT account ID, in the
-// form codexQuotaAccountKeyFromHeaders derives from headers.
-func wsAccountKey(accountID string) string {
-	if accountID == "" {
-		return ""
-	}
-	return CodexQuotaAccountKey(accountID)
 }
 
 func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequest) error {
