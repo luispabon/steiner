@@ -53,6 +53,9 @@ func (p *turnProgressor) buildToolMessageWithEvent(turn int, call provider.ToolC
 		p.emitToolFinished(turn, call, toolContent, nil, preview, normalizedResult.DelegationAdmission, emitFinished)
 		p.emitBashArtifactTruncated(turn, call, result, emitFinished)
 	}
+	// The note is added only to the persisted message: the preview and the
+	// tool_call_finished event above keep the tool's own output.
+	toolContent = p.applyLookupStreakNudge(call.Name, toolContent)
 	toolMessage := Message{
 		Role:       MessageRoleTool,
 		Content:    toolContent,

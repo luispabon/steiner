@@ -274,6 +274,12 @@ type turnProgressor struct {
 	identicalFailures int
 	tripped           *toolFailureSignature
 
+	// lookupStreak counts consecutive lookup tool results and
+	// lookupStreakNudged latches the once-per-streak async wait note. See
+	// applyLookupStreakNudge.
+	lookupStreak       int
+	lookupStreakNudged bool
+
 	// queuedDelegations holds the delegation calls announced via
 	// tool_call_queued for the tool-execution phase currently running. Entries
 	// are marked started as each call is dispatched; any left when the phase
