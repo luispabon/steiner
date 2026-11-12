@@ -37,6 +37,10 @@ type statusState struct {
 	// devLogUnseen and devLogWorst drive the internal error badge.
 	devLogUnseen int
 	devLogWorst  devLogSeverity
+
+	// promptCacheExpired reports that the compaction fallback estimate says
+	// the main prompt cache is presumed cold.
+	promptCacheExpired bool
 }
 
 // statusSegment is one footer part plus the order in which truncation drops
@@ -59,6 +63,7 @@ const (
 	dropHelp
 	dropSidebar
 	dropSubAgents
+	dropCacheExpired
 	dropSandbox
 	dropMode
 	dropModel
@@ -89,12 +94,17 @@ func (s statusState) view(width int) string {
 	// Segment 1b: ctx (static, infrequently changing)
 	parts = append(parts, statusSegment{s.contextSegment(), dropContext})
 
-	// Segment 1c: sandbox status badge
+	// Segment 1c: cache expired marker, from the compaction fallback estimate
+	if s.promptCacheExpired {
+		parts = append(parts, statusSegment{s.styles.Warn.Render("cache expired"), dropCacheExpired})
+	}
+
+	// Segment 1d: sandbox status badge
 	if badge := renderSandboxBadge(s.styles, s.sandboxStatus); badge != "" {
 		parts = append(parts, statusSegment{badge, dropSandbox})
 	}
 
-	// Segment 1d: sub-agent chip (dropped only after ctx, help and sidebar)
+	// Segment 1e: sub-agent chip (dropped only after ctx, help and sidebar)
 	if chip := s.subAgentsChip(); chip != "" {
 		parts = append(parts, statusSegment{chip, dropSubAgents})
 	}

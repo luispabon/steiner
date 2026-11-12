@@ -30,6 +30,7 @@ func applyProviderPatch(dst *ProviderConfig, patch *providerPatch) {
 	setIfPresent(&dst.Headers, patch.Headers)
 	setIfPresent(&dst.Timeout, patch.Timeout)
 	setIfPresent(&dst.CompactionFallbackAfter, patch.CompactionFallbackAfter)
+	setIfPresent(&dst.PromptCacheTTL, patch.PromptCacheTTL)
 	if patch.Codex != nil {
 		applyCodexPatch(&dst.Codex, patch.Codex)
 	}

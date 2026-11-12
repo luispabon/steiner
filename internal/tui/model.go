@@ -233,6 +233,10 @@ type Model struct {
 	visionCapabilities           *agent.VisionCapabilities
 	sessionResetCleanup          func()
 	clearConversationHooks       func()
+	// promptCacheColdAt is the last successful main request start plus the
+	// provider's prompt cache TTL (RunRequest.PromptCacheTTL), independent of
+	// any compaction fallback. Zero means untracked.
+	promptCacheColdAt time.Time
 	// sessionStartedAt is the wall clock time of the current session's first
 	// prompt. The sidebar shows it as the start time.
 	sessionStartedAt *time.Time

@@ -33,7 +33,8 @@ Compact canonical reference for safe configuration edits.
 |`providers.<name>.api_key_env`|string|unset|Environment variable containing the credential.|
 |`providers.<name>.headers.<key>`|string|unset|One extra header value.|
 |`providers.<name>.timeout`|duration|unset|Overall request timeout; unset has no overall limit. The default transport has a separate 30s response-header timeout.|
-|`providers.<name>.compaction_fallback_after`|duration|type default|Cold-cache delay; `0` disables.|
+|`providers.<name>.prompt_cache_ttl`|duration|type default|Cache expiry estimate; `0` disables.|
+|`providers.<name>.compaction_fallback_after`|duration|unset, uses `prompt_cache_ttl`|Cold-cache compaction delay; `0` disables.|
 |`providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests.|
 |`providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback.|
 |`models.discovery_enabled`|bool|`true`|Discover provider models; false uses configured entries only.|
@@ -61,7 +62,7 @@ Compact canonical reference for safe configuration edits.
 |`models.definitions.<alias>.vision`|bool or null|null|Null assumes vision; false removes images.|
 |`models.profiles.<profile>.default_model`|string|unset|Required in every declared profile.|
 |`models.profiles.<profile>.advisor`|string|unset|Advisor model.|
-|`models.profiles.<profile>.compaction_fallback`|string|unset|Cold-cache compaction model; needs a positive provider fallback delay.|
+|`models.profiles.<profile>.compaction_fallback`|string|unset|Cold-cache compaction model; needs a positive effective cold-cache delay.|
 |`models.profiles.<profile>.sub_agents.<key>`|string|unset|Model by supported sub-agent type.|
 |`models.profiles.<profile>.oneshot.<key>`|string|unset|Model by `plan`, `implement`, or `review`.|
 |`models.profiles.<profile>.workflow_handoff.<key>`|string|unset|Model by `implement`, `review`, or `build`.|

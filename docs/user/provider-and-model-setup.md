@@ -88,6 +88,8 @@ providers:
 
 Reference its models as `openai/<model-id>`.
 
+`prompt_cache_ttl` defaults to `30m`, and `compaction_fallback_after` uses it when unset.
+
 #### Anthropic
 
 ```bash
@@ -102,6 +104,8 @@ providers:
 ```
 
 Reference its models as `anthropic/<model-id>`.
+
+`prompt_cache_ttl` defaults to `5m`, and `compaction_fallback_after` uses it when unset.
 
 #### OpenRouter
 
@@ -220,7 +224,7 @@ Optional settings:
 
 - `codex.transport` defaults to `http`. `websocket` is experimental and does not fall back to HTTP on failure. Each WebSocket dial reads the stored sign-in again, so a redial after a release does not reuse an expired token. After you sign in to a different account or auth mode, a provider that was already built fails its dials instead of sending the new credentials with the old account: the interactive session rebuilds its cached connection on the next request, while providers created for advisors or compaction fallbacks need a new run or a restart. The `http` transport keeps the credential resolved when its provider was built.
 - `codex.min_request_interval` sets the minimum gap between requests and defaults to `0s` (disabled).
-- `compaction_fallback_after` defaults to `30m`.
+- `prompt_cache_ttl` defaults to `30m`. `compaction_fallback_after` uses it when unset.
 
 See the [`providers` block](configuration.md#providers-block) for details.
 
@@ -240,7 +244,7 @@ providers:
     type: claude_subscription
 ```
 
-Configuration rejects `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout`. `compaction_fallback_after` defaults to `60m`. Model discovery asks the signed-in CLI for available models, with a built-in fallback list if the CLI is missing, signed out, or returns no usable models within 20 seconds. Reference models as `claude/<model-id>` using a full model ID reported by the CLI.
+Configuration rejects `base_url`, `api_key`, `api_key_env`, `headers`, and `timeout`. `prompt_cache_ttl` defaults to `60m`, and `compaction_fallback_after` uses it when unset. Model discovery asks the signed-in CLI for available models, with a built-in fallback list if the CLI is missing, signed out, or returns no usable models within 20 seconds. Reference models as `claude/<model-id>` using a full model ID reported by the CLI.
 
 See [Claude subscription](claude-subscription.md) for the extra usage safety gate, privacy, and limitations.
 

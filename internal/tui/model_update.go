@@ -282,6 +282,8 @@ func (m *Model) resetConversationUI() {
 	m.status.mode = ""
 	m.removePendingImages()
 	m.resetConversationDisplay()
+	// A cleared conversation leaves no live cache estimate.
+	m.clearPromptCacheEstimate(time.Now())
 	m.input.Reset()
 	m.syncInputChrome()
 	m.syncViewport()
@@ -393,6 +395,9 @@ func (m *Model) handleSessionTickMsg(msg sessionTickMsg) (tea.Model, tea.Cmd) {
 		// A timer chain armed for a replaced session; let it expire.
 		return m, nil
 	}
+	// Refresh the cache estimate before the sidebar sync so an idle session
+	// flips to expired without waiting for another model call.
+	m.syncPromptCacheAt(time.Now())
 	m.syncSidebar()
 	if m.sessionStartedAt == nil {
 		return m, nil

@@ -99,6 +99,13 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		outputTPS = float64(turnTokens) / (float64(durationMs) / 1000.0)
 	}
 
+	// A positive prompt cache TTL enables the cache expiry estimate: the cache
+	// is cold once the TTL has passed since this request. Zero disables it.
+	var cacheColdAt time.Time
+	if p.request.PromptCacheTTL > 0 {
+		cacheColdAt = requestAt.Add(p.request.PromptCacheTTL)
+	}
+
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
 		Turn:              turn,
 		Model:             p.request.ResolvedModel.BackendModelID,
@@ -111,6 +118,8 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		DurationMs:        durationMs,
 		TTFTMs:            ttftMs,
 		OutputTPS:         outputTPS,
+		Success:           true,
+		CacheColdAt:       cacheColdAt,
 	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))

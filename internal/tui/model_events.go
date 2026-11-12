@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -175,6 +176,7 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 		m.oneshotPhase = ""
 		m.status.oneshotPhase = ""
 		m.sidebar.oneshotPhase = ""
+		m.clearPromptCacheEstimate(time.Now())
 		m.syncSidebar()
 		m.syncInputChrome()
 	}

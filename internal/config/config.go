@@ -95,6 +95,7 @@ type ProviderConfig struct {
 	Headers                 map[string]string `yaml:"headers"`
 	Timeout                 Duration          `yaml:"timeout"`
 	CompactionFallbackAfter Duration          `yaml:"compaction_fallback_after"`
+	PromptCacheTTL          Duration          `yaml:"prompt_cache_ttl"`
 	Codex                   CodexConfig       `yaml:"codex"`
 }
 

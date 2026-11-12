@@ -182,6 +182,18 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 	if err != nil {
 		return nil, false, false, err
 	}
+	req := r.compactionRunRequest(setup, tools, lastMainRequest)
+	if r.runtime.usageRecorder != nil {
+		req.UsageRecorder = r.runtime.usageRecorder
+	}
+	return agent.NewRunner().CompactWithLineage(ctx, req, lineage, conversation, steering)
+}
+
+// compactionRunRequest builds the summary request CompactWithLineage issues. It
+// shares the session's cache identity and carries the provider's prompt cache
+// TTL, independent of the compaction fallback.
+func (r cliRunner) compactionRunRequest(setup runnerSetup, tools []provider.ToolSpec, lastMainRequest agent.LastMainRequest) agent.RunRequest {
+	cfg := r.liveConfig()
 	req := agent.RunRequest{
 		Provider:          setup.provider,
 		Tools:             provider.CloneTools(tools),
@@ -201,12 +213,10 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 		CacheBaseline: r.cacheBaseline,
 		// The seed is identity-checked against the request, as in buildRunRequest.
 		SeedLastMainRequest: lastMainRequest,
+		PromptCacheTTL:      cfg.PromptCacheTTL(setup.resolvedModel.ProviderAlias),
 	}
 	req.CompactionFallback = r.compactionFallback(setup, req.TransportSession, req.PromptCacheKey)
-	if r.runtime.usageRecorder != nil {
-		req.UsageRecorder = r.runtime.usageRecorder
-	}
-	return agent.NewRunner().CompactWithLineage(ctx, req, lineage, conversation, steering)
+	return req
 }
 
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {
@@ -342,6 +352,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 	if r.runtime.delegationSupervisor != nil {
 		sealer = r.runtime.delegationSupervisor
 	}
+	cfg := r.liveConfig()
 	req := agent.RunRequest{
 		Provider:      setup.provider,
 		Executor:      executor,
@@ -368,6 +379,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		PromptCacheKey:      r.promptCacheKey(),
 		TransportSession:    r.sessionID(),
 		CacheBaseline:       r.cacheBaseline,
+		PromptCacheTTL:      cfg.PromptCacheTTL(setup.resolvedModel.ProviderAlias),
 		VisionCapabilities:  visionCapabilities,
 		ImageStore:          r.runtime.imageStore,
 		SourceConversation:  setup.conversation,

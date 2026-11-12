@@ -132,6 +132,37 @@ func TestBuildRunRequestCompactionFallbackDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildRunRequestPromptCacheTTL(t *testing.T) {
+	tests := []struct {
+		name string
+		ttl  config.Duration
+		want time.Duration
+	}{
+		{name: "explicit value", ttl: config.MustDuration("3m"), want: 3 * time.Minute},
+		{name: "explicit zero", ttl: config.MustDuration("0s"), want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := compactionFallbackRuntimeConfig("fallback-model")
+			cfg.Providers["local"] = config.ProviderConfig{
+				Type:           config.ProviderTypeOpenAICompat,
+				BaseURL:        "http://localhost:11434/v1",
+				PromptCacheTTL: tt.ttl,
+			}
+			r := compactionFallbackRunner(cfg, (&fallbackBuildRecorder{}).factory, nil)
+
+			req := buildRunRequest(r, compactionFallbackSetup(t, r), tool.NewRegistry(), nil, runHooks{})
+			if req.PromptCacheTTL != tt.want {
+				t.Fatalf("PromptCacheTTL = %v, want %v", req.PromptCacheTTL, tt.want)
+			}
+			// An unset compaction_fallback_after inherits the prompt cache TTL.
+			if req.CompactionFallback.After != tt.want {
+				t.Fatalf("CompactionFallback.After = %v, want %v inherited from prompt_cache_ttl", req.CompactionFallback.After, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildRunRequestCompactionFallbackResolvesLazily(t *testing.T) {
 	rec := &fallbackBuildRecorder{}
 	r := compactionFallbackRunner(compactionFallbackRuntimeConfig("fallback-model"), rec.factory, nil)

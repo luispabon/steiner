@@ -210,6 +210,9 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 		} else {
 			m.content.AppendLine(fmt.Sprintf("status: profile switched to %s", name))
 			m.sidebar.profile = name
+			// A profile switch changes the provider or model, so the previous
+			// cache estimate no longer applies.
+			m.clearPromptCacheEstimate(time.Now())
 		}
 	}
 	m.relayoutInput()

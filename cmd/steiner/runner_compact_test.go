@@ -209,6 +209,27 @@ func TestCLIRunnerCompactWithLineageCarriesCacheBaselineAndUsageRecorder(t *test
 	}
 }
 
+// TestCLIRunnerCompactWithLineageCarriesPromptCacheTTL proves the summary
+// request carries the provider's prompt cache TTL, independent of the
+// compaction fallback.
+func TestCLIRunnerCompactWithLineageCarriesPromptCacheTTL(t *testing.T) {
+	r, _, _ := newCompactTestRunner(t)
+	r.runtime.cfg.Providers["openrouter"] = config.ProviderConfig{
+		Type:           config.ProviderTypeOpenRouter,
+		BaseURL:        compactTestProviderBaseURL,
+		PromptCacheTTL: config.MustDuration("7m"),
+	}
+	setup, err := r.prepareRun(nil, nil)
+	if err != nil {
+		t.Fatalf("prepareRun() error = %v", err)
+	}
+
+	req := r.compactionRunRequest(setup, nil, agent.LastMainRequest{})
+	if got := req.PromptCacheTTL; got != 7*time.Minute {
+		t.Fatalf("PromptCacheTTL = %v, want 7m0s", got)
+	}
+}
+
 // TestCLIRunnerCompactWithLineageDoesNotBecomeCacheBaseline establishes a
 // normal-turn baseline, runs manual compaction, then proves the next normal
 // request still compares against the pre-compaction baseline rather than the

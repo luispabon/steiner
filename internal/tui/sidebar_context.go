@@ -85,6 +85,24 @@ func (s sidebarState) contextGaugeLine(width int) string {
 	return prefix + emptyWithBg.Render(strings.Repeat(" ", pad)) + counts
 }
 
+// cacheValueLine renders the prompt cache estimate in the PERFORMANCE card,
+// aligned under the cache hit values. It has no label so it reads as a
+// continuation of the cache hit readings.
+func (s sidebarState) cacheValueLine(width int) string {
+	const keyW = 10
+	valueWidth := width - keyW
+	switch s.cachePhase {
+	case promptCacheWarm:
+		return cardFieldN("", keyW, s.styles.FgDim, fitText(fmt.Sprintf("~%dm left", s.cacheMinutes), valueWidth), s.styles)
+	case promptCacheNear:
+		return cardFieldN("", keyW, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WarnLine)), fitText(fmt.Sprintf("~%dm left", s.cacheMinutes), valueWidth), s.styles)
+	case promptCacheExpired:
+		return cardFieldN("", keyW, s.styles.Warn, fitText("expired", valueWidth), s.styles)
+	default:
+		return ""
+	}
+}
+
 func (s sidebarState) compactDotLine() string {
 	if !s.compaction.Active() {
 		return ""

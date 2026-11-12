@@ -37,6 +37,8 @@ type sidebarState struct {
 	currentTurn            int
 	maxTurns               int
 	compaction             compactionState
+	cacheMinutes           int
+	cachePhase             promptCachePhase
 	branch                 string
 	dirty                  bool
 	ahead                  int

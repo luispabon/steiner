@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestCompactionFallbackAfterDefaultsByProviderType(t *testing.T) {
+func TestPromptCacheTTLDefaultsByProviderType(t *testing.T) {
 	tests := []struct {
 		name         string
 		providerType ProviderType
@@ -34,26 +34,36 @@ func TestCompactionFallbackAfterDefaultsByProviderType(t *testing.T) {
 			if got := cfg.CompactionFallbackAfter("p"); got != tt.want {
 				t.Fatalf("CompactionFallbackAfter() = %v, want %v", got, tt.want)
 			}
+			if got := cfg.PromptCacheTTL("p"); got != tt.want {
+				t.Fatalf("PromptCacheTTL() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }
 
-func TestCompactionFallbackAfterExplicitOverrides(t *testing.T) {
+func TestPromptCacheTTLAndCompactionFallbackExplicitOverrides(t *testing.T) {
 	tests := []struct {
 		name     string
 		provider ProviderConfig
 		want     time.Duration
+		wantTTL  time.Duration
 	}{
-		{"anthropic override", ProviderConfig{Type: ProviderTypeAnthropic, CompactionFallbackAfter: MustDuration("2m")}, 2 * time.Minute},
-		{"anthropic explicit zero beats default", ProviderConfig{Type: ProviderTypeAnthropic, CompactionFallbackAfter: MustDuration("0s")}, 0},
-		{"claude_subscription explicit zero beats default", ProviderConfig{Type: ProviderTypeClaudeSubscription, CompactionFallbackAfter: MustDuration("0s")}, 0},
-		{"openai_compat override from zero default", ProviderConfig{Type: ProviderTypeOpenAICompat, CompactionFallbackAfter: MustDuration("10m")}, 10 * time.Minute},
+		{"anthropic override", ProviderConfig{Type: ProviderTypeAnthropic, CompactionFallbackAfter: MustDuration("2m")}, 2 * time.Minute, 5 * time.Minute},
+		{"anthropic explicit zero beats default", ProviderConfig{Type: ProviderTypeAnthropic, CompactionFallbackAfter: MustDuration("0s")}, 0, 5 * time.Minute},
+		{"claude_subscription explicit zero beats default", ProviderConfig{Type: ProviderTypeClaudeSubscription, CompactionFallbackAfter: MustDuration("0s")}, 0, 60 * time.Minute},
+		{"openai_compat override from zero default", ProviderConfig{Type: ProviderTypeOpenAICompat, CompactionFallbackAfter: MustDuration("10m")}, 10 * time.Minute, 0},
+		{"unset fallback inherits prompt_cache_ttl", ProviderConfig{Type: ProviderTypeAnthropic, PromptCacheTTL: MustDuration("7m")}, 7 * time.Minute, 7 * time.Minute},
+		{"explicit fallback override is independent", ProviderConfig{Type: ProviderTypeAnthropic, PromptCacheTTL: MustDuration("7m"), CompactionFallbackAfter: MustDuration("2m")}, 2 * time.Minute, 7 * time.Minute},
+		{"prompt_cache_ttl explicit zero beats default", ProviderConfig{Type: ProviderTypeAnthropic, PromptCacheTTL: MustDuration("0s")}, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{Providers: map[string]ProviderConfig{"p": tt.provider}}
 			if got := cfg.CompactionFallbackAfter("p"); got != tt.want {
 				t.Fatalf("CompactionFallbackAfter() = %v, want %v", got, tt.want)
+			}
+			if got := cfg.PromptCacheTTL("p"); got != tt.wantTTL {
+				t.Fatalf("PromptCacheTTL() = %v, want %v", got, tt.wantTTL)
 			}
 		})
 	}
@@ -64,31 +74,46 @@ func TestCompactionFallbackAfterNilConfigAndUnknownAlias(t *testing.T) {
 	if got := nilCfg.CompactionFallbackAfter("anthropic"); got != 0 {
 		t.Fatalf("nil config CompactionFallbackAfter() = %v, want 0", got)
 	}
+	if got := nilCfg.PromptCacheTTL("anthropic"); got != 0 {
+		t.Fatalf("nil config PromptCacheTTL() = %v, want 0", got)
+	}
 	cfg := &Config{Providers: map[string]ProviderConfig{"claude": {Type: ProviderTypeAnthropic}}}
 	if got := cfg.CompactionFallbackAfter("missing"); got != 0 {
 		t.Fatalf("unknown alias CompactionFallbackAfter() = %v, want 0", got)
 	}
+	if got := cfg.PromptCacheTTL("missing"); got != 0 {
+		t.Fatalf("unknown alias PromptCacheTTL() = %v, want 0", got)
+	}
 }
 
-func TestCompactionFallbackAfterYAMLMalformedAndNegative(t *testing.T) {
-	var malformed ProviderConfig
-	if err := yaml.Unmarshal([]byte("type: anthropic\ncompaction_fallback_after: soon\n"), &malformed); err == nil {
-		t.Fatal("yaml.Unmarshal() with malformed duration error = nil, want error")
+func TestCompactionFallbackAndPromptCacheTTLYAMLMalformedAndNegative(t *testing.T) {
+	for _, doc := range []string{
+		"type: anthropic\ncompaction_fallback_after: soon\n",
+		"type: anthropic\nprompt_cache_ttl: soon\n",
+	} {
+		var malformed ProviderConfig
+		if err := yaml.Unmarshal([]byte(doc), &malformed); err == nil {
+			t.Fatalf("yaml.Unmarshal(%q) error = nil, want error", doc)
+		}
 	}
 
 	tests := []struct {
 		name     string
+		key      string
 		value    string
 		wantProb string
 	}{
-		{"zero is valid", "0s", ""},
-		{"positive is valid", "5m", ""},
-		{"negative is rejected", "-1m", `providers["claude"].compaction_fallback_after must not be negative`},
+		{"fallback zero is valid", "compaction_fallback_after", "0s", ""},
+		{"fallback positive is valid", "compaction_fallback_after", "5m", ""},
+		{"fallback negative is rejected", "compaction_fallback_after", "-1m", `providers["claude"].compaction_fallback_after must not be negative`},
+		{"ttl zero is valid", "prompt_cache_ttl", "0s", ""},
+		{"ttl positive is valid", "prompt_cache_ttl", "5m", ""},
+		{"ttl negative is rejected", "prompt_cache_ttl", "-1m", `providers["claude"].prompt_cache_ttl must not be negative`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var provider ProviderConfig
-			doc := "type: anthropic\napi_key_env: ANTHROPIC_API_KEY\ncompaction_fallback_after: " + tt.value + "\n"
+			doc := "type: anthropic\napi_key_env: ANTHROPIC_API_KEY\n" + tt.key + ": " + tt.value + "\n"
 			if err := yaml.Unmarshal([]byte(doc), &provider); err != nil {
 				t.Fatalf("yaml.Unmarshal() error = %v", err)
 			}
@@ -108,30 +133,35 @@ func TestCompactionFallbackLayeredPatches(t *testing.T) {
 		name         string
 		doc          string
 		wantAfter    time.Duration
+		wantTTL      time.Duration
 		wantFallback string
 	}{
 		{
 			name:         "base layer sets value and profile",
-			doc:          "providers:\n  claude:\n    type: anthropic\n    compaction_fallback_after: 2m\nmodels:\n  profiles:\n    default:\n      compaction_fallback: fast\n",
+			doc:          "providers:\n  claude:\n    type: anthropic\n    compaction_fallback_after: 2m\n    prompt_cache_ttl: 3m\nmodels:\n  profiles:\n    default:\n      compaction_fallback: fast\n",
 			wantAfter:    2 * time.Minute,
+			wantTTL:      3 * time.Minute,
 			wantFallback: "fast",
 		},
 		{
 			name:         "later layer sets explicit zero and leaves profile",
 			doc:          "providers:\n  claude:\n    compaction_fallback_after: 0s\n",
 			wantAfter:    0,
+			wantTTL:      3 * time.Minute,
 			wantFallback: "fast",
 		},
 		{
 			name:         "layer without fields keeps explicit zero",
 			doc:          "providers:\n  claude:\n    api_key_env: ANTHROPIC_API_KEY\nmodels:\n  profiles:\n    default:\n      default_model: default\n",
 			wantAfter:    0,
+			wantTTL:      3 * time.Minute,
 			wantFallback: "fast",
 		},
 		{
-			name:         "later profile layer overrides fallback",
-			doc:          "models:\n  profiles:\n    default:\n      compaction_fallback: smart\n",
+			name:         "later layer sets explicit zero ttl and overrides fallback",
+			doc:          "providers:\n  claude:\n    prompt_cache_ttl: 0s\nmodels:\n  profiles:\n    default:\n      compaction_fallback: smart\n",
 			wantAfter:    0,
+			wantTTL:      0,
 			wantFallback: "smart",
 		},
 	}
@@ -140,6 +170,9 @@ func TestCompactionFallbackLayeredPatches(t *testing.T) {
 			applyPatch(&cfg, decodeCompactionFallbackPatch(t, layer.doc))
 			if got := cfg.CompactionFallbackAfter("claude"); got != layer.wantAfter {
 				t.Fatalf("CompactionFallbackAfter() = %v, want %v", got, layer.wantAfter)
+			}
+			if got := cfg.PromptCacheTTL("claude"); got != layer.wantTTL {
+				t.Fatalf("PromptCacheTTL() = %v, want %v", got, layer.wantTTL)
 			}
 			if got := cfg.Models.Profiles["default"].CompactionFallback; got != layer.wantFallback {
 				t.Fatalf("CompactionFallback = %q, want %q", got, layer.wantFallback)
