@@ -882,8 +882,8 @@ func TestClaudeSubAcquireLiveWithoutSession(t *testing.T) {
 	}
 }
 
-// claudeSubHistoryLocator is the history note a compaction adopts into the
-// system prompt next to the summary.
+// claudeSubHistoryLocator is the history note a compaction appends to the
+// adopted summary message.
 const claudeSubHistoryLocator = "[steiner:history] archived at /data/history.md"
 
 // claudeSubTwoTurnsUnderPrompt runs two parent turns under the system message
@@ -938,9 +938,10 @@ func claudeSubRunTurnPrompt(t *testing.T, pool *ClaudeSubscriptionPool, spawner 
 }
 
 // TestClaudeSubSummaryForkLocatorReachesNextTurn proves a fork summary leaves
-// the live parent untouched. The next normal request, under the adopted prompt
-// with the history locator, starts a fresh process whose transport prompt
-// carries the locator once. The old parent receives no new line.
+// the live parent untouched. The next normal request carries the adopted
+// summary and history locator as user-role conversation messages, starts a
+// fresh process whose transcript carries them, and keeps the transport prompt
+// free of them. The old parent receives no new line.
 func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 	parent := &claudeSubScript{batches: [][]claudeSubEvent{
 		claudeSubTextTurnWithUUID(t, "uuid-first"),
@@ -1031,9 +1032,10 @@ func TestClaudeSubSummaryForkLocatorReachesNextTurn(t *testing.T) {
 }
 
 // TestClaudeSubSummaryInPlaceLocatorReachesNextTurn proves an in-place summary
-// retires the live parent. The next normal request, under the adopted prompt
-// with the history locator, reseeds a fresh process whose transport prompt
-// carries the locator once. The old parent receives no new line.
+// retires the live parent. The next normal request carries the adopted summary
+// and history locator as user-role conversation messages, reseeds a fresh
+// process whose transcript carries them, and keeps the transport prompt free of
+// them. The old parent receives no new line.
 func TestClaudeSubSummaryInPlaceLocatorReachesNextTurn(t *testing.T) {
 	// An empty uuid models an assistant entry the CLI did not stamp, so a source
 	// ending on it cannot fork.

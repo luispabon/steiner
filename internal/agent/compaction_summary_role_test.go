@@ -68,6 +68,10 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 		t.Fatal("first compaction request contains a summary before one exists")
 	}
 	assertCompactionSourceAccounting(t, firstReq)
+	if got, want := firstReq.CompactionSourceMessages, 14; got != want {
+		t.Fatalf("first CompactionSourceMessages = %d, want fixed count %d", got, want)
+	}
+	assertCompactionInstruction(t, firstReq, prompt.CompactionModeNormal, req.Prompt.PromptOverrides.Compaction)
 
 	beforeProgressor := newTurnProgressor(req, prepareBasePrompt(req), nil)
 	_, beforeNormal, _, err := beforeProgressor.prepareTurn(context.Background(), state)
@@ -112,6 +116,8 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	assertSystemMessagesFirst(t, normalReq.Messages)
 	assertSingleLeadingSystem(t, normalReq.Messages)
 	assertSingleLeadingSystem(t, prefix)
+	assertToolCallBeforeResult(t, normalReq.Messages, "call-1")
+	assertToolCallBeforeResult(t, prefix, "call-1")
 
 	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix
 	if got := countProviderContent(normalReq.Messages, wantSummary); got != 1 {
@@ -155,6 +161,10 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	}
 
 	assertCompactionSourceAccounting(t, secondReq)
+	if got, want := secondReq.CompactionSourceMessages, 9; got != want {
+		t.Fatalf("recompaction CompactionSourceMessages = %d, want fixed count %d", got, want)
+	}
+	assertCompactionInstruction(t, secondReq, prompt.CompactionModeNormal, req.Prompt.PromptOverrides.Compaction)
 	summaryOrdinal := -1
 	ordinal := 0
 	for _, message := range secondReq.Messages[:len(secondReq.Messages)-1] {
@@ -179,6 +189,122 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	}
 	if stored.Role != MessageRoleSummary || stored.Content != summaryText {
 		t.Fatal("projection changed the stored summary")
+	}
+}
+
+// TestCompactionSummaryPromptSuffixAppliedOnce covers a compacted state whose
+// only user message is the summary. The prompt suffix lands on that summary
+// once, the tool pair stays ordered, and a repeated normal request is
+// byte-identical.
+func TestCompactionSummaryPromptSuffixAppliedOnce(t *testing.T) {
+	t.Parallel()
+
+	const summaryText = "suffix summary"
+	const suffix = "Be concise."
+	conversation := []Message{
+		{Role: MessageRoleSummary, Content: summaryText},
+		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call-1", Name: "read"}}},
+		{Role: MessageRoleTool, Content: "file body", ToolCallID: "call-1"},
+	}
+	state := RunState{Conversation: conversation, Lineage: newConversationLineage(conversation)}
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-suffix", PromptSuffix: suffix},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:         100000,
+			MaxCompletionTokens: 128,
+		},
+		Events: output.NoopSink{},
+		Prompt: prompt.AssemblyOptions{
+			SessionDate:     prompt.NewSessionDate(time.Date(2026, 11, 12, 9, 30, 0, 0, time.UTC)),
+			PromptOverrides: config.ModelPrompts{System: "summary role suffix system prompt"},
+		},
+	}
+
+	progressor := newTurnProgressor(req, prepareBasePrompt(req), nil)
+	_, first, _, err := progressor.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("prepareTurn() error = %v", err)
+	}
+	assertSingleLeadingSystem(t, first.Messages)
+	assertToolCallBeforeResult(t, first.Messages, "call-1")
+
+	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix
+	summaryIndex := -1
+	for i, message := range first.Messages {
+		if !strings.HasPrefix(message.Content, wantSummary) {
+			continue
+		}
+		summaryIndex = i
+		if got, want := message.Role, provider.MessageRoleUser; got != want {
+			t.Fatalf("summary role = %q, want %q", got, want)
+		}
+		if got, want := message.Content, wantSummary+" "+suffix; got != want {
+			t.Fatalf("summary content with suffix = %q, want %q", got, want)
+		}
+	}
+	if summaryIndex < 0 {
+		t.Fatal("normal request lacks the wrapped summary")
+	}
+	if got := strings.Count(first.Messages[summaryIndex].Content, suffix); got != 1 {
+		t.Fatalf("suffix appears %d times on the summary, want 1", got)
+	}
+	totalSuffix := 0
+	for _, message := range first.Messages {
+		totalSuffix += strings.Count(message.Content, suffix)
+	}
+	if totalSuffix != 1 {
+		t.Fatalf("suffix appears %d times across the request, want 1 (only on the summary)", totalSuffix)
+	}
+
+	repeatedProgressor := newTurnProgressor(req, prepareBasePrompt(req), nil)
+	_, repeated, _, err := repeatedProgressor.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("repeated prepareTurn() error = %v", err)
+	}
+	assertSingleLeadingSystem(t, repeated.Messages)
+	if !reflect.DeepEqual(repeated.Messages, first.Messages) {
+		t.Fatal("repeated normal request differs from the first normal request")
+	}
+}
+
+func assertCompactionInstruction(t *testing.T, req provider.ChatRequest, mode prompt.CompactionMode, override string) {
+	t.Helper()
+	if len(req.Messages) == 0 {
+		t.Fatal("request has no messages")
+	}
+	last := req.Messages[len(req.Messages)-1]
+	if got, want := last.Role, provider.MessageRoleUser; got != want {
+		t.Fatalf("compaction instruction role = %q, want %q", got, want)
+	}
+	want := prompt.RenderConversationCompactionInstruction(override, mode)
+	if last.Content != want {
+		t.Fatalf("compaction instruction content = %q, want %q", last.Content, want)
+	}
+}
+
+func assertToolCallBeforeResult(t *testing.T, messages []provider.Message, callID string) {
+	t.Helper()
+	callIndex, resultIndex := -1, -1
+	for i, message := range messages {
+		if message.Role == provider.MessageRoleAssistant {
+			for _, call := range message.ToolCalls {
+				if call.ID == callID {
+					callIndex = i
+				}
+			}
+		}
+		if message.Role == provider.MessageRoleTool && message.ToolCallID == callID {
+			resultIndex = i
+		}
+	}
+	if callIndex < 0 {
+		t.Fatalf("assistant tool call %q not found", callID)
+	}
+	if resultIndex < 0 {
+		t.Fatalf("tool result %q not found", callID)
+	}
+	if callIndex+1 != resultIndex {
+		t.Fatalf("tool call %q at index %d, want immediately before its result at index %d: %v", callID, callIndex, resultIndex, rolesOf(messages))
 	}
 }
 
