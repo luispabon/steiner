@@ -19,7 +19,8 @@ const (
 // progress cycle completes, when ReadyGracePeriod elapses without any begin,
 // or when ReadyTimeout elapses with an incomplete begin/end cycle.
 // The state is read-only after readyCh closes.
-// State transitions are owned exclusively by trackReadiness; awaitReady is a passive observer.
+// State transitions are owned exclusively by trackReadiness; awaitReadySession
+// is a passive observer.
 type readiness struct {
 	state        readinessState
 	readyCh      chan struct{}
@@ -59,32 +60,31 @@ func (r *readiness) isTerminal() bool {
 	return r.state != readinessNotReady
 }
 
-// awaitReady blocks until the entry's session has loaded, timeout expires,
-// or the caller's context is cancelled. It returns immediately if readiness
-// is already determined.
+// awaitReadySession blocks until the leased session's readiness is determined,
+// timeout expires, or the caller's context is cancelled. It returns immediately
+// if readiness is already determined.
 //
-// If ReadyTimeout expires before a complete begin/end cycle, awaitReady
+// r must be the tracker the lease captured with sess. Reading entry.readiness or
+// entry.session here would be wrong: a later respawn replaces the tracker, and a
+// concurrent crashed-session retirement clears the session while leaving the dead
+// session's readiness installed.
+//
+// If ReadyTimeout expires before a complete begin/end cycle, awaitReadySession
 // returns incomplete=true with err=nil, allowing the request to proceed anyway.
 // If the server exits while notReady, it returns the server's exit error.
 // Cancellation of ctx returns ctx.Err().
 //
 // Navigation, hover, and symbol queries await readiness; diagnostics does not.
-func (m *Manager) awaitReady(ctx context.Context, e *entry) (incomplete bool, err error) {
-	e.mu.Lock()
-	r := e.readiness
-	sess := e.session
-	e.mu.Unlock()
-
-	if r == nil {
+func (m *Manager) awaitReadySession(ctx context.Context, r *readiness, sess session) (incomplete bool, err error) {
+	if r == nil || sess == nil {
 		return false, nil
 	}
 
 	select {
 	case <-r.readyCh:
-		e.mu.Lock()
-		isTimedOut := r.state == readinessTimedOut
-		e.mu.Unlock()
-		return isTimedOut, nil
+		// markReady and markTimedOut set the state before closing readyCh, so
+		// receiving from it orders this read.
+		return r.state == readinessTimedOut, nil
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case <-sess.Exited():
@@ -153,7 +153,7 @@ func finishReadinessAfterTimer(e *entry, r *readiness, gracePeriodFired, gracePe
 // becomes live. It is responsible for closing e.readiness.readyCh when
 // readiness is determined (ready or timedOut) via markReady() or markTimedOut().
 // It exits cleanly when the session ends or the manager context is cancelled,
-// leaving the state unmodified for those cases; awaitReady independently
+// leaving the state unmodified for those cases; awaitReadySession independently
 // observes sess.Exited() or caller ctx.Done() to signal early exit.
 func (m *Manager) trackReadiness(e *entry, sess session, r *readiness) {
 	gracePeriodTimer := time.NewTimer(time.Duration(m.cfg.ReadyGracePeriod.Duration()))

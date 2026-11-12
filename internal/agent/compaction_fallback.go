@@ -192,6 +192,11 @@ func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compacti
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
+	// The fallback provider is memoized by CompactionFallbackTargets for this
+	// identity and cache scope, so no owner ever closes it. Release its
+	// connection after this operation; the release is non-terminal, so the next
+	// fallback compaction on the same target dials again.
+	defer provider.ReleaseConnection(target.Provider)
 	return run(&fallback)
 }
 

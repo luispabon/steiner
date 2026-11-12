@@ -58,12 +58,14 @@ func newApprovalResponder(coordinator *ApprovalCoordinator, events output.EventS
 
 // RequestApproval registers a user-input approval with the coordinator before
 // its requested event is emitted, so an event subscriber can respond
-// synchronously. Cached grants and an unavailable coordinator skip registration.
+// synchronously. Cached grants, uncorrelatable requests, and an unavailable
+// coordinator skip registration.
 func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.ApprovalRequest) error {
 	if req.Response == nil {
 		return fmt.Errorf("approval response channel is required")
 	}
 	if h == nil || h.coordinator == nil {
+		req.RequestID = tool.NewApprovalRequestID()
 		return h.respond(ctx, req, func(context.Context, tool.ApprovalRequest) error {
 			return fmt.Errorf("approval UI is unavailable")
 		})
@@ -77,13 +79,27 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 	}
 
 	if h.isAlwaysAllowed(grantKey) {
+		req.RequestID = tool.NewApprovalRequestID()
 		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 			inner.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
 			return nil
 		})
 	}
 
-	responseCh := h.coordinator.Begin(req.CallID, toolName, "", string(req.Kind), tool.ApprovalAgentScope(ctx))
+	agentID := tool.ApprovalAgentScope(ctx)
+	if req.CallID == "" {
+		// Without a call ID the request cannot be correlated with the tool call
+		// that raised it. Deny it without registering so it never becomes an
+		// unpromptable FIFO head blocking every later request.
+		req.RequestID = tool.NewApprovalRequestID()
+		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
+			inner.Response <- tool.ApprovalResponse{Allow: false, Message: approvalMissingCallIDMessage}
+			return nil
+		})
+	}
+
+	identity, responseCh := h.coordinator.Begin(toolName, "", string(req.Kind), agentID)
+	req.RequestID = identity
 	return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 		// Finish runs before the eventing wrapper emits a denied event for an error return.
 		defer h.coordinator.Finish(responseCh)
@@ -137,6 +153,10 @@ func approvalResponseForDecision(decision string) tool.ApprovalResponse {
 		return tool.ApprovalResponse{Allow: false, Message: "denied"}
 	}
 }
+
+// approvalMissingCallIDMessage is the denial message for an approval request
+// that has no tool call ID, so no decision could ever be correlated with it.
+const approvalMissingCallIDMessage = "approval request has no tool call ID"
 
 type workflowHandoffResponder struct {
 	coordinator *WorkflowHandoffCoordinator

@@ -253,6 +253,11 @@ func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider
 		return provider.ChatResponse{}, fmt.Errorf("advisor: model is required")
 	}
 
+	// The advisor provider comes from the runtime factory and is not cache-owned,
+	// so its WebSocket connection closes once this call has drained rather than
+	// staying alive for the life of the process.
+	defer provider.ReleaseConnection(prov)
+
 	req := provider.ChatRequest{
 		Model:                  rm.BackendModelID,
 		Messages:               messages,

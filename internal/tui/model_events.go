@@ -62,6 +62,7 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	}
 
 	if event.Type != output.EventTypeHistoryLoaded {
+		m.syncApprovalHead()
 		m.content.AppendEvent(event)
 	}
 	if cmd, done := m.applyPayloadEvent(event); done {
@@ -230,8 +231,19 @@ func (m *Model) applyMCPStatusEvent(payload output.MCPStatusEvent) {
 }
 
 func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
+	// Async children can still be waiting on approval after the top-level run
+	// finishes. Preserve every request the coordinator still has registered so
+	// each control survives the reset; the head is re-promoted below and the
+	// rest prompt as they reach the front of the FIFO.
+	head, registered, coordinated := m.approvalSnapshot()
+	if !coordinated {
+		head = ""
+	}
 	m.approval = approvalState{}
-	m.content.clearApprovalState()
+	m.content.clearApprovalStateExcept(registered)
+	m.content.approvalHead = head
+	m.content.approvalCoordinated = coordinated
+	m.content.recomputeApprovalQueueDepths()
 	m.content.ResetAdvisorSegment()
 	if m.workflowHandoff.IsOpen() {
 		m.workflowHandoff = m.workflowHandoff.close()
@@ -239,7 +251,9 @@ func (m *Model) resetTopLevelTerminalState(clearInterrupt bool) {
 	if clearInterrupt {
 		m.interruptPending = false
 	}
-	m.input.Focus()
+	if head == "" || !m.promoteNextApproval() {
+		m.input.Focus()
+	}
 	m.syncInputChrome()
 	m.relayoutInput()
 	m.syncSidebar()

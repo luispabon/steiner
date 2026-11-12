@@ -11,7 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-// approvalHeadController reports a fixed approval head identity. The embedded
+// approvalHeadController reports a fixed approval head request ID. The embedded
 // Controller is nil and is never called on these paths.
 type approvalHeadController struct {
 	interactive.Controller
@@ -19,6 +19,13 @@ type approvalHeadController struct {
 }
 
 func (c approvalHeadController) ApprovalHeadIdentity() string { return c.head }
+
+func (c approvalHeadController) ApprovalSnapshot() (string, []string) {
+	if c.head == "" {
+		return "", nil
+	}
+	return c.head, []string{c.head}
+}
 
 func TestUpdateRoutesPhaseIndicatorEvent(t *testing.T) {
 	t.Parallel()
@@ -114,8 +121,8 @@ func TestUpdateApprovalRequestedRespectsHeadIdentity(t *testing.T) {
 		{name: "another call is head", coordinated: true, callID: "call-1", head: "call-0", wantActive: false},
 		{name: "cached grant leaves no coordinator head", coordinated: true, callID: "call-cached", wantActive: false},
 		{name: "empty head and empty request call ID", coordinated: true, wantActive: false},
-		{name: "empty request call ID with coordinator", coordinated: true, head: "call-1", wantActive: false},
-		{name: "empty request call ID without coordinator", coordinated: false, wantActive: true},
+		{name: "empty request ID with coordinator", coordinated: true, head: "call-1", wantActive: false},
+		{name: "empty request ID without coordinator", coordinated: false, wantActive: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,7 +133,7 @@ func TestUpdateApprovalRequestedRespectsHeadIdentity(t *testing.T) {
 			} else {
 				m.controller = &testController{}
 			}
-			requested := output.Event{Type: output.EventTypeApprovalRequested, Payload: output.ApprovalEvent{CallID: tc.callID, Tool: "bash"}}
+			requested := output.Event{Type: output.EventTypeApprovalRequested, Payload: output.ApprovalEvent{CallID: tc.callID, RequestID: tc.callID, Tool: "bash"}}
 			m = updateModel(t, m, runtimeEventMsg{Event: requested})
 			if m.approval.active != tc.wantActive {
 				t.Errorf("approval active = %t, want %t", m.approval.active, tc.wantActive)
@@ -149,7 +156,7 @@ func TestUpdateCachedApprovalRequestLeavesComposerAndTrayAlone(t *testing.T) {
 	m.input.SetValue("draft instruction")
 	m.input.Focus()
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-cached", Mode: "session grant", Preview: `{"path":"x"}`, Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-cached", RequestID: "call-cached", Mode: "session grant", Preview: `{"path":"x"}`, Kind: "path"})})
 
 	if m.approval.active {
 		t.Fatal("cached grant activated the approval tray")
@@ -189,7 +196,7 @@ func TestUpdateApprovalRequestNotifiesOnlyForCoordinatorHead(t *testing.T) {
 			m := newModel(Config{WorkingDir: "/home/user/myproject", Notifier: fn}, nil)
 			m.controller = approvalHeadController{head: tc.head}
 
-			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", CallID: tc.callID, Mode: "prompt", Preview: "{}", Kind: "path"})})
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "bash", CallID: tc.callID, RequestID: tc.callID, Mode: "prompt", Preview: "{}", Kind: "path"})})
 
 			if tc.wantNotify {
 				if !m.approval.active {
@@ -221,14 +228,14 @@ func TestUpdateApprovalPromotionDoesNotNotify(t *testing.T) {
 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "write", "call-B", nil)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "read", "call-A", nil)})
-	bCh := coord.Begin("call-B", "write", "", "path", "")
-	aCh := coord.Begin("call-A", "read", "", "path", "")
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", Mode: "prompt", Preview: "{}", Kind: "path"})})
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Kind: "path"})})
+	bID, bCh := coord.Begin("write", "", "path", "")
+	aID, aCh := coord.Begin("read", "", "path", "")
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-A", RequestID: aID, Mode: "prompt", Preview: "{}", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", RequestID: bID, Mode: "prompt", Preview: "{}", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false for coordinator head call-B request")
 	}
-	if got, want := m.approval.identity, "call-B"; got != want {
+	if got, want := m.approval.identity, bID; got != want {
 		t.Fatalf("approval.identity = %q, want %q", got, want)
 	}
 	// Only opening the tray notifies; the queued call-A request stayed silent.
@@ -246,13 +253,13 @@ func TestUpdateApprovalPromotionDoesNotNotify(t *testing.T) {
 	}
 
 	fn.reset()
-	coord.Submit(interactive.SubmitApproval{Identity: "call-B", Tool: "write", Mode: "prompt", Decision: "allow_once"})
+	coord.Submit(interactive.SubmitApproval{Identity: bID, Tool: "write", Mode: "prompt", Decision: "allow_once"})
 	coord.Finish(bCh)
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-B", RequestID: bID, Mode: "prompt", Preview: "{}", Message: "ok", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false after call-B promotion, want call-A")
 	}
-	if got, want := m.approval.identity, "call-A"; got != want {
+	if got, want := m.approval.identity, aID; got != want {
 		t.Fatalf("approval.identity after promotion = %q, want %q", got, want)
 	}
 	fn.expectNoCall(t)
@@ -300,7 +307,7 @@ func TestUpdateUnrelatedApprovalDecisionPreservesTrayAndSelection(t *testing.T) 
 	m := newModel(Config{}, nil)
 	m.controller = approvalHeadController{head: "call-A"}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", Mode: "prompt", Preview: `{"path":"a"}`, Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", RequestID: "call-A", Mode: "prompt", Preview: `{"path":"a"}`, Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("approval.active = false for coordinator head call-A request")
 	}
@@ -309,7 +316,7 @@ func TestUpdateUnrelatedApprovalDecisionPreservesTrayAndSelection(t *testing.T) 
 		t.Fatalf("selectedAction = %d, want %d", got, want)
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-cached", Mode: "always allowed", Preview: "{}", Message: "always allowed", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "read", CallID: "call-cached", RequestID: "call-cached", Mode: "always allowed", Preview: "{}", Message: "always allowed", Kind: "path"})})
 	if !m.approval.active {
 		t.Fatal("unrelated decision cleared the active tray")
 	}
@@ -323,7 +330,7 @@ func TestUpdateUnrelatedApprovalDecisionPreservesTrayAndSelection(t *testing.T) 
 		t.Errorf("status mode = %q, want %q", got, want)
 	}
 
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", Mode: "prompt", Preview: `{"path":"a"}`, Message: "ok", Kind: "path"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Turn: 1, Tool: "write", CallID: "call-A", RequestID: "call-A", Mode: "prompt", Preview: `{"path":"a"}`, Message: "ok", Kind: "path"})})
 	if m.approval.active {
 		t.Fatal("approval.active = true after the active call-A decision")
 	}

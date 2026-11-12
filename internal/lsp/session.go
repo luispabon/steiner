@@ -30,7 +30,17 @@ type impl struct {
 	// request decoding deliberately never branches on it.
 	capabilities    protocol.ServerCapabilities
 	shutdownTimeout time.Duration
-	mux             sync.Mutex
+
+	// closeOnce owns the single shutdown sequence; closeDone closes when it
+	// finishes and closeErr holds its result. abortOnce runs the connection and
+	// process teardown at most once, however the shutdown paths race, and
+	// abortDone reports when it finishes.
+	closeOnce sync.Once
+	closeDone chan struct{}
+	closeErr  error
+	abortOnce sync.Once
+	abortDone chan struct{}
+
 	diagnosticsChan chan PublishedDiagnostics
 	progressChan    chan ProgressEvent
 }
@@ -38,6 +48,14 @@ type impl struct {
 // newSession performs the LSP handshake over stream and returns the live
 // session. Process lifecycle is owned by proc, so callers can supply either a
 // spawned child process or a test double.
+//
+// The handshake runs on its own goroutine so the context can end a handshake
+// whose initialize write is blocked on a pipe the server never drains: request
+// deadlines do not interrupt a blocked stream write. On cancellation this aborts
+// the transport by killing the process and closing the connection, which releases
+// the write, then joins the handshake before returning the context error. The
+// return follows that join, so it is not a hard bound if the aborted transport
+// itself stalls.
 func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, initOpts map[string]any, proc childProcess) (*impl, error) {
 	diagnosticsChan := make(chan PublishedDiagnostics, notifyBuffer)
 	progressChan := make(chan ProgressEvent, notifyBuffer)
@@ -48,10 +66,24 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 	connCtx, connCancel := context.WithCancel(context.WithoutCancel(ctx))
 	_, conn, server := protocol.NewClient(connCtx, handler, stream)
 
-	result, err := handshake(ctx, server, rootPath, initOpts)
+	handshakeDone := make(chan struct{})
+	var (
+		result *protocol.InitializeResult
+		err    error
+	)
+	go func() {
+		defer close(handshakeDone)
+		result, err = handshake(ctx, server, rootPath, initOpts)
+	}()
+
+	if !completedBeforeDeadline(ctx, handshakeDone) {
+		abortHandshake(proc, conn, connCancel)
+		<-handshakeDone // join, so no handshake goroutine outlives the spawn
+		return nil, ctx.Err()
+	}
+
 	if err != nil {
-		connCancel()
-		_ = conn.Close() // best-effort: the session is being abandoned
+		abortHandshake(proc, conn, connCancel)
 		return nil, err
 	}
 
@@ -65,6 +97,33 @@ func newSession(ctx context.Context, stream jsonrpc2.Stream, rootPath string, in
 		diagnosticsChan: diagnosticsChan,
 		progressChan:    progressChan,
 	}, nil
+}
+
+// completedBeforeDeadline reports whether done is closed, preferring it over a
+// context that ended at the same moment. A deadline that arrives after usable
+// work completed must not discard that work.
+func completedBeforeDeadline(ctx context.Context, done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+// abortHandshake abandons a connection whose handshake will not complete. Killing
+// the process and closing the connection together abort the transport: both are
+// needed, because a blocked stream write is released only once the transport is
+// torn down, and closing the connection can wait for in-flight writes to retire.
+func abortHandshake(proc childProcess, conn jsonrpc2.Conn, connCancel context.CancelFunc) {
+	proc.Kill()
+	connCancel()
+	_ = conn.Close() // best-effort: the connection is being abandoned
 }
 
 // DidOpen notifies the server that a document was opened.

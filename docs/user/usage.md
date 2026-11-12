@@ -128,3 +128,5 @@ Both features store data under `$XDG_STATE_HOME/steiner/`, or `~/.local/state/st
 | `cache-stats.json` | Cache statistics in hourly buckets: provider key and type, backend model ID, source (parent, sub-agent, or advisor), request count, and input, cache-read, cache-write, and output token counts. | 8 days. |
 
 Neither file contains prompts, responses, file contents, or API keys. API-key accounts on the dashboard are identified by their provider key, not by the key or base URL. A removed provider's dashboard history stays in `quota-history.json` until it ages out, and reappears if you add the provider back.
+
+If `cache-stats.json` is corrupt or was written by a schema version your Steiner build does not support, its stored history shows as empty, new cache statistics are never saved, and the refusal is logged. Steiner does not overwrite a file it cannot read. To resume saving, keep a copy of the file and then either repair it, restore it from a backup, or run a Steiner version that supports its schema version; otherwise move it aside and Steiner starts a new, empty file.

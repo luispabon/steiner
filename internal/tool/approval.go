@@ -2,6 +2,8 @@ package tool
 
 import (
 	"context"
+	"strconv"
+	"sync/atomic"
 )
 
 // ApprovalResponder handles sandbox boundary violation prompts.
@@ -15,6 +17,16 @@ type ApprovalResponderFunc func(ctx context.Context, req ApprovalRequest) error
 // RequestApproval adapts f to the ApprovalResponder interface.
 func (f ApprovalResponderFunc) RequestApproval(ctx context.Context, req ApprovalRequest) error {
 	return f(ctx, req)
+}
+
+var approvalRequestSeq atomic.Uint64
+
+// NewApprovalRequestID returns an opaque identity unique for the life of the
+// process. Approval events and the coordinator carry it so a decision targets
+// the exact request that produced it, even when two requests share an agent
+// scope and provider call ID.
+func NewApprovalRequestID() string {
+	return "approval-" + strconv.FormatUint(approvalRequestSeq.Add(1), 10)
 }
 
 // ApprovalKind distinguishes the kinds of approval requests.
@@ -35,6 +47,12 @@ type ApprovalRequest struct {
 	CallID   string
 	Response chan ApprovalResponse
 	Kind     ApprovalKind
+	// RequestID uniquely identifies this approval request. The approval
+	// responder assigns it before the requested event is emitted, and the
+	// coordinator, events, tray and content carry it so a decision always
+	// targets this exact request even when another request shares the agent
+	// scope and provider call ID.
+	RequestID string
 
 	Reason            string // human-readable reason for the prompt
 	GrantInstructions string // how to permanently allow this

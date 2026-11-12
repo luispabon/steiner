@@ -92,7 +92,9 @@ type cliRuntime struct {
 	providerFactory func(provider.ResolvedModel, string) (provider.Provider, error)
 	// codexWSProviderCache holds process-lifetime Codex WebSocket provider
 	// instances so a session's live connection is reused across turns instead
-	// of being reconstructed (and reconnected) every turn. Only
+	// of being reconstructed (and reconnected) every turn. Entries are scoped
+	// to the session's prompt cache key generation, and closeRuntime closes the
+	// cache so cached connections do not outlive the runtime. Only
 	// cliRunner.runtimeProvider consults this cache; providerFactory itself
 	// stays uncached so sub-agent and advisor calls through
 	// delegation.DelegateDeps.ProviderFactory always build a fresh provider.
@@ -187,6 +189,12 @@ func closeRuntime(rt *cliRuntime) {
 	shutdownDelegation(context.Background(), rt, delegation.CancelCauseSystem)
 	if rt.claudeSubPool != nil {
 		emitCloseWarning(rt.events, "close claude_subscription pool", rt.claudeSubPool.Close())
+	}
+	// Cached Codex WebSocket providers hold live connections. Close after the
+	// children that use them have stopped; entries with a request still in
+	// flight are detached now and close when that request ends.
+	if rt.codexWSProviderCache != nil {
+		emitCloseWarning(rt.events, "close codex websocket cache", rt.codexWSProviderCache.Close())
 	}
 	// Quota history is written on the service's own goroutine, so drain it after
 	// the pool that observes usage has stopped, then stop the writer.

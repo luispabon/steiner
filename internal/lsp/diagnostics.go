@@ -47,10 +47,11 @@ func (m *Manager) Diagnostics(ctx context.Context, file string) (DiagResult, err
 	}
 
 	// Get the entry so we can lock the cycle.
-	ent, sess, err := m.entryFor(ctx, file)
+	ent, sess, lease, err := m.acquireEntry(ctx, file)
 	if err != nil {
 		return DiagResult{}, err
 	}
+	defer lease.Release()
 
 	// Now acquire the cycle lock and hold it for drain → open → collect → close.
 	ent.cycleMu.Lock()

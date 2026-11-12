@@ -38,6 +38,11 @@ type Manager struct {
 	planMode bool
 	approver tool.ApprovalResponder
 
+	// statusSeqs is the highest reconnect status sequence applied per server
+	// name. One session owns each server for the manager's lifetime, so its
+	// per-session sequence orders that server's reports.
+	statusSeqs map[string]uint64
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -49,6 +54,10 @@ type Manager struct {
 	// calls (concurrent or repeated) return its result.
 	closeOnce sync.Once
 	closeErr  error
+
+	// closed is set under mu when shutdown starts. It gates status reports that
+	// would claim a live session after Close.
+	closed bool
 }
 
 // syncWriter serialises writes from the per-process stderr copier goroutines
@@ -86,10 +95,12 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 		Stderr:     stderr,
 		Timeout:    timeout,
 		ManagerCtx: m.ctx,
-		OnStatus: func(status ServerStatus, reconnectErr error) {
+		OnStatus: func(report StatusReport) {
 			// Reconnect lifecycle: connected→reconnecting→connected/unavailable.
-			// Runs on the session's reconnect worker goroutine.
-			m.updateServerStatus(spec.Name, status, reconnectErr, onStateChange)
+			// Runs on the session's reconnect worker goroutine, outside the session
+			// mutex; updateServerStatus drops a report that a newer transition
+			// already superseded.
+			m.updateServerStatus(spec.Name, report, onStateChange)
 		},
 	})
 	if err != nil {
@@ -149,22 +160,41 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 	onStateChange()
 }
 
-// updateServerStatus transitions one server's status in place, preserving its
-// other state fields (tools, protocol version, transport). onStateChange fires
+// updateServerStatus applies one reconnect status report in place, preserving
+// the server's other state fields (tools, protocol version, transport). Reports
+// are delivered outside the session mutex, so a slow one can arrive after a
+// newer transition already landed: anything not newer than the highest sequence
+// applied for that server is dropped. A connected or reconnecting report that
+// arrives once shutdown has started is dropped too, even when its sequence is the
+// newest available: a stopped manager never has a live server again, and an
+// attempt can commit just before shutdown and deliver its report just after. The
+// unavailable abort of an in-flight attempt still publishes. onStateChange fires
 // only when the status actually changed, so repeated reports of the same status
-// emit nothing.
-func (m *Manager) updateServerStatus(name string, status ServerStatus, err error, onStateChange func()) {
+// emit nothing; a same-status report still advances the sequence.
+func (m *Manager) updateServerStatus(name string, report StatusReport, onStateChange func()) {
 	m.mu.Lock()
+	if m.statusSeqs == nil {
+		m.statusSeqs = make(map[string]uint64)
+	}
+	if report.Seq <= m.statusSeqs[name] {
+		m.mu.Unlock()
+		return
+	}
+	if m.stoppingLocked() && (report.Status == ServerStatusConnected || report.Status == ServerStatusReconnecting) {
+		m.mu.Unlock()
+		return
+	}
+	m.statusSeqs[name] = report.Seq
 	for i := range m.states {
 		if m.states[i].Name == name {
-			if m.states[i].Status == status {
+			if m.states[i].Status == report.Status {
 				m.mu.Unlock()
 				return
 			}
-			m.states[i].Status = status
+			m.states[i].Status = report.Status
 			m.states[i].Err = ""
-			if err != nil {
-				m.states[i].Err = err.Error()
+			if report.Err != nil {
+				m.states[i].Err = report.Err.Error()
 			}
 			m.mu.Unlock()
 			onStateChange()
@@ -172,6 +202,15 @@ func (m *Manager) updateServerStatus(name string, status ServerStatus, err error
 		}
 	}
 	m.mu.Unlock()
+}
+
+// stoppingLocked reports whether the manager is shutting down: Close has started,
+// or the caller context Connect derives the manager context from is cancelled.
+// That parent can be cancelled without Close, and every session, reconnect
+// worker, and stdio process is bound to it, so no server can become live again.
+// m.ctx is never nil on a manager that owns sessions. Callers must hold mu.
+func (m *Manager) stoppingLocked() bool {
+	return m.closed || m.ctx.Err() != nil
 }
 
 // setServerState records s under the manager mutex, replacing any earlier
@@ -296,12 +335,17 @@ func (m *Manager) Close() error {
 	return m.closeErr
 }
 
-// close runs the actual shutdown once. The manager context is cancelled before
-// any session is closed: every stdio process group bound to it is SIGKILLed
-// immediately, so a server that ignores SIGTERM cannot stall the shutdown, and
-// a connect goroutine whose dial completed concurrently is rejected by the
-// generation guard in connectServer.
+// close runs the actual shutdown once. The closed gate is set under the manager
+// mutex before anything else, so a status report already in flight cannot claim
+// a live session once shutdown has started; the manager context is then
+// cancelled before any session is closed, so every stdio process group bound to
+// it is SIGKILLed immediately and a server that ignores SIGTERM cannot stall the
+// shutdown. A connect goroutine whose dial completed concurrently is rejected by
+// the generation guard in connectServer.
 func (m *Manager) close() error {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
 	m.cancel()
 
 	m.mu.Lock()

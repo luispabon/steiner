@@ -2,6 +2,7 @@ package usagestats
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -27,7 +28,17 @@ const (
 	legacySchemaVersion = 1
 )
 
-var storePath = defaultStorePath
+var (
+	storePath = defaultStorePath
+
+	// errStoreCorrupt marks on-disk data that is not decodable JSON. Reads treat
+	// it as an empty store; writes refuse to replace it.
+	errStoreCorrupt = errors.New("store file is corrupt")
+	// errStoreUnsupportedSchema marks a file written by a schema version this
+	// build cannot migrate in place. Reads treat it as an empty store; writes
+	// refuse to replace it.
+	errStoreUnsupportedSchema = errors.New("store file has an unsupported schema version")
+)
 
 func defaultStorePath() string {
 	if xdg := os.Getenv("XDG_STATE_HOME"); xdg != "" {
@@ -112,18 +123,31 @@ func (s *store) load() map[bucketKey]*bucket {
 }
 
 // decodeBuckets decodes entries from JSON data, applies pruning, and returns a bucket map.
+// Unreadable data decodes as an empty map: the read path tolerates a damaged file.
 func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
+	buckets, err := s.decode(data)
+	if err != nil {
+		return make(map[bucketKey]*bucket)
+	}
+	return buckets
+}
+
+// decode decodes entries from JSON data, applies pruning, and returns a bucket map.
+// Empty data decodes as an empty store. Corrupt data or an unsupported schema
+// version returns an error so the write path can fail closed instead of
+// replacing history it cannot read.
+func (s *store) decode(data []byte) (map[bucketKey]*bucket, error) {
 	buckets := make(map[bucketKey]*bucket)
 	if len(data) == 0 {
-		return buckets
+		return buckets, nil
 	}
 
 	var sf storeFile
 	if err := json.Unmarshal(data, &sf); err != nil {
-		return buckets
+		return nil, fmt.Errorf("%w: %w", errStoreCorrupt, err)
 	}
 	if sf.SchemaVersion != schemaVersion && sf.SchemaVersion != legacySchemaVersion {
-		return buckets
+		return nil, fmt.Errorf("%w: %d", errStoreUnsupportedSchema, sf.SchemaVersion)
 	}
 
 	// Entries from a legacySchemaVersion file predate storeEntry.Source: they
@@ -158,7 +182,7 @@ func (s *store) decodeBuckets(data []byte) map[bucketKey]*bucket {
 		}
 	}
 
-	return buckets
+	return buckets, nil
 }
 
 // atomicWrite marshals buckets to JSON and writes to disk with temp+rename.
@@ -238,7 +262,12 @@ func (s *store) writeBatch(deltas map[bucketKey]*bucket) error {
 		return fmt.Errorf("read current store: %w", err)
 	}
 
-	diskBuckets := s.decodeBuckets(currentData)
+	diskBuckets, err := s.decode(currentData)
+	if err != nil {
+		// Fail closed: leave the existing file byte-for-byte untouched rather
+		// than overwrite history this build cannot read.
+		return fmt.Errorf("decode current store: %w", err)
+	}
 
 	for key, delta := range deltas {
 		b, ok := diskBuckets[key]

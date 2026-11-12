@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,46 @@ type ServerState struct {
 	Err error
 	// StartedAt is when the spawn attempt started.
 	StartedAt time.Time
-	// LastUsed is when the server was last accessed (updated on every entryFor hit).
+	// LastUsed is when the server was last accessed: refreshed when a lookup
+	// finds the entry and, again, when a document cycle releases its lease.
 	LastUsed time.Time
+}
+
+// entryLease pins an entry's live session against the idle reaper for the
+// duration of one document cycle. Callers get one from Manager.acquireEntry or
+// Manager.acquireEntryForKey, hold it across readiness waiting, the cycle queue
+// and the open, request and close cycle, and Release it once that whole cycle
+// finishes. The reaper only claims entries with no outstanding leases.
+// Manager.Close overrides leases: shutdown does not wait for them.
+//
+// The lease records the readiness tracker installed with the session it pinned,
+// so readiness waiting observes that session and not a later respawn's tracker.
+type entryLease struct {
+	ent       *entry
+	readiness *readiness
+	once      sync.Once
+}
+
+// Release drops the lease. It is safe to call on a nil lease and more than
+// once, so callers can defer it before checking the acquire error. Release
+// refreshes LastUsed so a cycle that outlasted IdleTimeout is not reaped on the
+// next tick.
+func (l *entryLease) Release() {
+	if l == nil {
+		return
+	}
+	l.once.Do(func() {
+		l.ent.mu.Lock()
+		l.ent.leases--
+		l.ent.state.LastUsed = time.Now()
+		l.ent.mu.Unlock()
+	})
+}
+
+// acquireLease pins the entry's session and its readiness tracker against the
+// idle reaper. The caller must hold ent.mu, so the lease cannot race the
+// reaper's zero-lease claim or a respawn replacing either field.
+func (e *entry) acquireLease() *entryLease {
+	e.leases++
+	return &entryLease{ent: e, readiness: e.readiness}
 }

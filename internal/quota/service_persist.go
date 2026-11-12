@@ -129,10 +129,12 @@ func (w *persistWriter) drain(ctx context.Context) error {
 	}
 }
 
-// close stops the writer goroutine and wakes drainers waiting on it. Jobs queued
-// at that moment are dropped when the writer stops, and an append already in
-// flight still finishes (or stays blocked on the store lock until the lock is
-// released or the process exits). Idempotent.
+// close stops the writer goroutine and wakes drainers waiting on it. Once close
+// returns, no queued job is claimed: the claim check runs under the writer mutex
+// with stopped already set. Jobs queued at that moment are dropped when the
+// writer stops, and an append already in flight still finishes (or stays blocked
+// on the store lock until the lock is released or the process exits).
+// Idempotent.
 func (w *persistWriter) close() {
 	w.closeOnce.Do(func() {
 		w.mu.Lock()
@@ -153,18 +155,15 @@ func (w *persistWriter) run() {
 		case <-w.wake:
 		}
 		for {
-			// Checked before popping so Close never lets one more append start.
-			select {
-			case <-w.stop:
+			claim := w.next()
+			if claim.stopped {
 				w.abandon()
 				return
-			default:
 			}
-			job, ok := w.next()
-			if !ok {
+			if !claim.claimed {
 				break
 			}
-			w.appendJob(job)
+			w.appendJob(claim.job)
 			w.finish()
 		}
 	}
@@ -183,17 +182,34 @@ func (w *persistWriter) appendJob(job persistJob) {
 	}
 }
 
-// next pops the oldest queued job and marks its append in flight.
-func (w *persistWriter) next() (persistJob, bool) {
+// jobClaim is what next found under the writer mutex.
+type jobClaim struct {
+	// job is the claimed job; valid only when claimed is true.
+	job persistJob
+	// claimed is true when a job was popped and its append is now in flight.
+	claimed bool
+	// stopped is true when Close has run, so no job may be claimed.
+	stopped bool
+}
+
+// next pops the oldest queued job and marks its append in flight. The claim is
+// taken under the writer mutex with stopped still false, and a claim is the only
+// thing that starts an append, so a Close that has completed by the time the
+// mutex is acquired prevents any later claim instead of racing the run loop's
+// stop check.
+func (w *persistWriter) next() jobClaim {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.stopped {
+		return jobClaim{stopped: true}
+	}
 	if len(w.queue) == 0 {
-		return persistJob{}, false
+		return jobClaim{}
 	}
 	job := w.queue[0]
 	w.queue = w.queue[1:]
 	w.writing = true
-	return job, true
+	return jobClaim{job: job, claimed: true}
 }
 
 // finish clears the in-flight marker and releases drainers once nothing is left

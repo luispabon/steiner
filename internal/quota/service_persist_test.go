@@ -551,6 +551,69 @@ func TestCloseStopsWriterAndDropsQueuedJobs(t *testing.T) {
 	}
 }
 
+// TestCloseRefusesQueuedJobClaim pins that Close and the writer's claim are
+// serialized under the writer mutex: once Close returns, a job still queued is
+// not claimed, while the append already in flight is allowed to finish.
+func TestCloseRefusesQueuedJobClaim(t *testing.T) {
+	requireFileLocking(t)
+	path := filepath.Join(t.TempDir(), "quota-history.json")
+	logs := &logBuffer{}
+	svc := NewService(ServiceOptions{
+		Store: NewStore(path),
+		Now:   func() time.Time { return testBase },
+		Logf:  logs.logf,
+	})
+	// Registered before the store lock so its cleanup runs after the lock is
+	// released: the blocked append finishes and the writer stops before
+	// t.TempDir removes the directory.
+	t.Cleanup(func() {
+		svc.Close()
+		select {
+		case <-svc.writer.done:
+		case <-time.After(5 * time.Second):
+			t.Error("writer did not stop after Close")
+		}
+	})
+	release := holdStoreLock(t, path)
+	svc.Register(Account{Key: "k", Aliases: []string{"k"}})
+
+	// The first observation is claimed and blocks on the store lock; the second
+	// stays queued.
+	svc.Observe(sampleSnapshot("k", testBase, 10))
+	waitForWriterBusy(t, svc)
+	svc.Observe(sampleSnapshot("k", testBase.Add(time.Minute), 20))
+	if pending := pendingJobs(svc); pending != 2 {
+		t.Fatalf("%d jobs pending, want the in-flight append plus the queued one", pending)
+	}
+
+	svc.Close()
+	// Close returns with the queued job still present. The writer goroutine is
+	// blocked in the in-flight append, so this is the first claim taken after
+	// stopped was set: it must refuse the queued job instead of popping it.
+	if claim := svc.writer.next(); claim.claimed || !claim.stopped {
+		t.Errorf("claim after Close = %+v, want stopped without a claimed job", claim)
+	}
+
+	release()
+	select {
+	case <-svc.writer.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writer did not stop after Close")
+	}
+
+	// Only the in-flight append reached the store; the queued job was dropped.
+	stored, err := NewStore(path).readAll()
+	if err != nil {
+		t.Fatalf("readAll: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Windows[0].UsedPercent != 10 {
+		t.Errorf("stored %+v, want only the in-flight 10%% snapshot", stored)
+	}
+	if logs.count("dropped 1 queued snapshots") == 0 {
+		t.Errorf("logged %v, want the queued snapshot drop", logs.messages())
+	}
+}
+
 // TestCloseWakesWaitingDrain pins that Close releases a Drain already blocked on
 // the writer, instead of leaving it to run out its context deadline.
 func TestCloseWakesWaitingDrain(t *testing.T) {

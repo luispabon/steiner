@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,6 +49,77 @@ const (
 	wsWriteTimeout = 30 * time.Second
 )
 
+var (
+	// errCodexSignInChanged reports a stored sign-in whose auth mode or account
+	// differs from the one the provider was built with, so the provider's base
+	// URL, account header and quota key no longer describe it.
+	errCodexSignInChanged = errors.New("stored Codex sign-in changed account or auth mode")
+	// errCodexSignInNoToken reports a stored sign-in that yields no bearer
+	// credential at all.
+	errCodexSignInNoToken = errors.New("stored Codex sign-in has no access token")
+)
+
+// wsAuthErrorPrefix names the failing step without quoting the cause: an OAuth
+// retrieve error can embed the token endpoint's response body, which may carry
+// credential material.
+const wsAuthErrorPrefix = "codex websocket credentials: "
+
+// wsAuthError marks a dial that failed while resolving credentials. Its message
+// is a fixed category rather than the resolver's text, so no credential can
+// reach an error string or the diagnostics record. Unwrap keeps the cause
+// reachable through errors.Is, notably context cancellation.
+type wsAuthError struct {
+	err     error
+	message string
+}
+
+func (e *wsAuthError) Error() string { return e.message }
+
+func (e *wsAuthError) Unwrap() error { return e.err }
+
+// newWSAuthError wraps err with a message naming category. err is kept for
+// errors.Is and errors.As only; it is never formatted into the message.
+func newWSAuthError(err error, category string) *wsAuthError {
+	return &wsAuthError{err: err, message: wsAuthErrorPrefix + category}
+}
+
+// wsDialAuth resolves the bearer credential for each Codex WebSocket dial. It
+// captures the sign-in identity the provider was built from, because the base
+// URL, ChatGPT-Account-ID header and quota key all belong to that identity: a
+// resolver that reports another account or auth mode fails the dial instead of
+// pairing the new credentials with stale identity headers.
+type wsDialAuth struct {
+	resolver func(context.Context) (CodexAuth, error)
+	signIn   CodexSignInIdentity
+}
+
+// newWSDialAuth captures the identity of the sign-in cfg was built from.
+// Callers must have validated cfg.CodexSignIn; the identity is never derived
+// from configured headers, which a user can set independently of the sign-in.
+func newWSDialAuth(cfg ClientConfig) *wsDialAuth {
+	return &wsDialAuth{resolver: cfg.DialBearerResolver, signIn: *cfg.CodexSignIn}
+}
+
+// bearer resolves the credential for one dial and returns the bearer to send.
+// A resolver failure keeps its cause for errors.Is but reports only a fixed
+// category, so a response body quoted in the resolver error cannot leak.
+func (a *wsDialAuth) bearer(ctx context.Context) (string, error) {
+	auth, err := a.resolver(ctx)
+	if err != nil {
+		return "", newWSAuthError(err, "resolving the stored Codex sign-in failed")
+	}
+	if auth.SignInIdentity() != a.signIn {
+		return "", newWSAuthError(errCodexSignInChanged, errCodexSignInChanged.Error())
+	}
+	if a.signIn.APIKeyMode {
+		return auth.APIKey, nil
+	}
+	if auth.AccessToken == "" {
+		return "", newWSAuthError(errCodexSignInNoToken, errCodexSignInNoToken.Error())
+	}
+	return auth.AccessToken, nil
+}
+
 func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequest) error {
 	if p.conn != nil {
 		return nil
@@ -57,7 +129,16 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequ
 		p.dialCacheKey = request.PromptCacheKey
 	}
 
-	headers := buildWSHeaders(p.apiKey, p.headers, p.dialCacheKey)
+	apiKey := p.apiKey
+	if p.dialAuth != nil {
+		resolved, err := p.dialAuth.bearer(ctx)
+		if err != nil {
+			return err
+		}
+		apiKey = resolved
+	}
+
+	headers := buildWSHeaders(apiKey, p.headers, p.dialCacheKey)
 	conn, resp, err := websocket.Dial(ctx, p.wsURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})
@@ -88,6 +169,54 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequ
 	p.connCancel = cancel
 	p.keepaliveDone = done
 	return nil
+}
+
+// enterRequest records that a request is about to use the connection. It must
+// run before the request takes p.mu, and leaveRequest after it drops p.mu, on
+// the goroutine that performs the socket I/O, so a concurrent release can tell
+// an idle connection from one in use.
+func (p *codexWSProvider) enterRequest() {
+	p.gateMu.Lock()
+	p.inFlight++
+	p.gateMu.Unlock()
+}
+
+// leaveRequest ends the request enterRequest began. The last request out closes
+// a connection whose release arrived while it ran. The gate stays held across
+// the close, so a request starting at that moment cannot dial into a connection
+// the close is about to drop. closeConn joins the keepalive goroutine, which
+// takes neither p.mu nor the gate.
+func (p *codexWSProvider) leaveRequest() {
+	p.gateMu.Lock()
+	defer p.gateMu.Unlock()
+
+	p.inFlight--
+	if p.inFlight > 0 || !p.releasePending {
+		return
+	}
+	p.releasePending = false
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closeConn()
+}
+
+// ReleaseConnection closes the connection and stops its keepalive, leaving the
+// provider usable: the next request dials again with the same affinity headers.
+// A request in flight is not interrupted; the connection closes when that
+// request ends, so a release returns promptly either way. Part of
+// provider.ConnectionReleaser; the cached wrapper deliberately omits it so the
+// cache keeps ownership of cached connections.
+func (p *codexWSProvider) ReleaseConnection() {
+	p.gateMu.Lock()
+	defer p.gateMu.Unlock()
+
+	if p.inFlight > 0 {
+		p.releasePending = true
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closeConn()
 }
 
 // closeConn drops the current connection and its keepalive. Every path that

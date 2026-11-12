@@ -37,6 +37,20 @@ type codexWSProvider struct {
 	keepaliveDone chan struct{}
 	dialCacheKey  string
 
+	// dialAuth, when non-nil, resolves the bearer credential for every dial, so
+	// a redial uses the current stored sign-in instead of the build-time token.
+	// It is nil for a static APIKey.
+	dialAuth *wsDialAuth
+
+	// gateMu orders ConnectionReleaser releases against request execution. A
+	// request enters before it takes mu and leaves after it drops mu, on the
+	// goroutine that performs the socket I/O. A release that lands while a
+	// request is in flight is recorded in releasePending and applied by the last
+	// request to leave, so no release can close a connection a request is using.
+	gateMu         sync.Mutex
+	inFlight       int
+	releasePending bool
+
 	// quotaObserver and quotaAccountKey enable passive quota capture; the key
 	// is empty when capture is off. quotaPending holds snapshots parsed while
 	// mu is held. They are delivered after mu is released, so the observer
@@ -73,6 +87,12 @@ func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
 		provider.quotaObserver = cfg.QuotaObserver
 		provider.quotaAccountKey = codexQuotaAccountKeyFromHeaders(cfg.Headers)
 	}
+	if cfg.DialBearerResolver != nil {
+		if cfg.CodexSignIn == nil {
+			return nil, fmt.Errorf("codex sign-in identity is required with a dial bearer resolver")
+		}
+		provider.dialAuth = newWSDialAuth(cfg)
+	}
 
 	return provider, nil
 }
@@ -86,10 +106,12 @@ func (p *codexWSProvider) ChatCompletion(ctx context.Context, request ChatReques
 	// No sink: the unary path buffers the whole response, so a mid-stream
 	// reconnect cannot duplicate anything the caller has seen.
 	emitter := &wsEmitter{}
+	p.enterRequest()
 	p.mu.Lock()
 	result, attempts, err := p.executeRequest(ctx, request, emitter)
 	quotas := p.codexQuotaTake()
 	p.mu.Unlock()
+	p.leaveRequest()
 
 	p.codexQuotaNotify(quotas)
 	p.emitProviderCall(ctx, start, emitter, attempts, err)
@@ -123,10 +145,14 @@ func (p *codexWSProvider) streamOnce(ctx context.Context, request ChatRequest, o
 		}
 	}}
 
+	// streamOnce runs on the goroutine that performs the socket I/O, so the
+	// request window covers the whole stream and a release waits for it.
+	p.enterRequest()
 	p.mu.Lock()
 	result, attempts, err := p.executeRequest(ctx, request, emitter)
 	quotas := p.codexQuotaTake()
 	p.mu.Unlock()
+	p.leaveRequest()
 
 	p.codexQuotaNotify(quotas)
 	p.emitProviderCall(ctx, start, emitter, attempts, err)
@@ -222,6 +248,12 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 		if err := p.ensureConnection(ctx, request); err != nil {
 			if reconnectAttempt {
 				return ChatResponse{}, sendAttempts, fmt.Errorf("reconnect failed: %w", err)
+			}
+			// Credentials that cannot be resolved fail the same way twice, and a
+			// retry would resolve them again, so report the failure as it is.
+			var authErr *wsAuthError
+			if errors.As(err, &authErr) {
+				return ChatResponse{}, sendAttempts, err
 			}
 			if ctx.Err() != nil {
 				return ChatResponse{}, sendAttempts, err

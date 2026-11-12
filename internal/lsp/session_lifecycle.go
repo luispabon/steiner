@@ -10,10 +10,77 @@ import (
 // Close shuts the server down gracefully: it sends shutdown, awaits the
 // response, then sends exit. A server that does not exit within
 // shutdownTimeout is force-terminated.
+//
+// The graceful sequence runs in its own goroutine because an LSP frame write is
+// a blocking stream write: a server that stops draining its stdin wedges the
+// write and no request deadline interrupts it. When the first caller's ctx ends
+// before the sequence finishes, Close aborts the transport: it kills the process
+// and closes the connection, which releases the stalled write, then joins the
+// graceful goroutine and the teardown. The deadline decides when the abort starts;
+// the return happens once the released write, the teardown and the joins finish,
+// so a stalled transport can delay it past the deadline.
+//
+// The first caller's context controls when that abort starts, so it must carry a
+// deadline; the manager always passes sessionCloseTimeout. Close is idempotent:
+// later callers get the owner's result, or their own context error if it ends
+// first, while the owner still joins the teardown.
 func (s *impl) Close(ctx context.Context) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
+	owner := false
+	s.closeOnce.Do(func() {
+		owner = true
+		s.closeDone = make(chan struct{})
+		go func() {
+			defer close(s.closeDone)
+			s.closeErr = s.shutdown(ctx)
+		}()
+	})
 
+	if owner {
+		<-s.closeDone
+		return s.closeErr
+	}
+
+	select {
+	case <-s.closeDone:
+		return s.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// shutdown runs the graceful sequence and aborts the transport when ctx ends
+// before it finishes, so a stalled stream write cannot hold the caller past the
+// deadline. The aborted teardown is joined before returning, so no goroutine
+// outlives Close.
+func (s *impl) shutdown(ctx context.Context) error {
+	graceful := make(chan error, 1)
+	go func() { graceful <- s.gracefulClose(ctx) }()
+
+	var err error
+	select {
+	case err = <-graceful:
+	case <-ctx.Done():
+		// Prefer a sequence that finished as the deadline arrived: nothing is
+		// left to abort in that case.
+		select {
+		case err = <-graceful:
+		default:
+			// Killing the process and closing the connection together abort the
+			// transport, which releases a write the server will never drain;
+			// waiting for the graceful path alone could block forever.
+			s.abort(fmt.Errorf("shutdown interrupted: %w", ctx.Err())) //nolint:errcheck // the abort cause is the caller's deadline, reported below
+			<-graceful
+			err = ctx.Err()
+		}
+	}
+
+	s.awaitTeardown()
+	return err
+}
+
+// gracefulClose is the shutdown/exit handshake. It may block on stream writes,
+// so callers must bound it (see shutdown).
+func (s *impl) gracefulClose(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(ctx, s.shutdownTimeout)
 	defer cancel()
 
@@ -37,12 +104,30 @@ func (s *impl) Close(ctx context.Context) error {
 	}
 }
 
-// abort tears down an unresponsive server and returns the originating cause.
+// abort tears down an unresponsive server and returns the originating cause. The
+// teardown runs once, on its own goroutine, and reports completion on abortDone:
+// the process is killed first because a stream write blocked on a pipe the server
+// no longer drains only returns once the peer is gone, and conn.Close waits for
+// in-flight writes to retire. Callers must not wait on abortDone before the
+// graceful sequence has returned.
 func (s *impl) abort(cause error) error {
-	s.connCancel()
-	_ = s.conn.Close() // best-effort: the session is being torn down regardless
-	s.proc.Kill()
+	s.abortOnce.Do(func() {
+		s.abortDone = make(chan struct{})
+		go func() {
+			defer close(s.abortDone)
+			s.proc.Kill()
+			s.connCancel()
+			_ = s.conn.Close() // best-effort: the session is being torn down regardless
+		}()
+	})
 	return cause
+}
+
+// awaitTeardown waits for an aborted teardown to finish, if one started.
+func (s *impl) awaitTeardown() {
+	if s.abortDone != nil {
+		<-s.abortDone
+	}
 }
 
 // callWithExitCheck runs a request, failing fast if the server exits first.

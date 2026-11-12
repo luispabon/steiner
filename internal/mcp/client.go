@@ -73,9 +73,10 @@ type Session struct {
 	// respawned process outlives the (timeout-bounded) connect context.
 	managerCtx context.Context
 	// onStatus, when non-nil, reports reconnect status transitions to the owner
-	// (the Manager): reconnecting (err nil), then connected (err nil) or
-	// unavailable (err = the final attempt error).
-	onStatus func(ServerStatus, error)
+	// (the Manager): reconnecting (Err nil), then connected (Err nil) or
+	// unavailable (Err = the final attempt error). It runs outside mu, so the
+	// report carries the transition's sequence for the owner to order.
+	onStatus func(StatusReport)
 
 	mu  sync.Mutex
 	sdk *mcpsdk.ClientSession
@@ -84,6 +85,7 @@ type Session struct {
 	// reconnect state, guarded by mu.
 	reconnect           *reconnectAttempt // in-flight transition; nil when idle
 	consecutiveFailures int               // consecutive failed reconnect attempts
+	statusSeq           uint64            // last status transition sequence assigned
 	closed              bool              // Close was called; failed calls no longer kick a reconnect
 }
 
@@ -93,6 +95,9 @@ type Session struct {
 type reconnectAttempt struct {
 	done    chan struct{} // closed when the attempt resolves
 	outcome error         // non-nil when the attempt ended unavailable
+	// begin is the attempt's reconnecting transition, sequenced by
+	// beginReconnectLocked under mu and reported by the worker outside it.
+	begin StatusReport
 }
 
 // SessionOptions configures a Session at connect time. Its zero value is valid
@@ -112,8 +117,9 @@ type SessionOptions struct {
 	// timeout-bounded and its expiry would kill a respawned process).
 	ManagerCtx context.Context
 	// OnStatus, when non-nil, is invoked from the reconnect worker on each
-	// reconnect status transition.
-	OnStatus func(ServerStatus, error)
+	// reconnect status transition. It runs outside the session mutex, so the
+	// report's sequence orders transitions the owner receives out of order.
+	OnStatus func(StatusReport)
 }
 
 // ConnectSession establishes a connection to an MCP server and completes the
@@ -389,7 +395,9 @@ func waitReconnectAttempt(ctx context.Context, attempt *reconnectAttempt) error 
 // Callers must hold mu. It returns the transition, whose future is also the
 // ownership token for resolving it: the worker started with that attempt is the
 // only one allowed to publish it (D16: the failed call is never replayed). A nil
-// return means no transition started and no worker should run.
+// return means no transition started and no worker should run. The attempt's
+// reconnecting report is sequenced here, in transition order, and reported by
+// the worker outside the lock.
 func (s *Session) beginReconnectLocked() *reconnectAttempt {
 	if s.reconnect != nil {
 		return nil
@@ -397,7 +405,10 @@ func (s *Session) beginReconnectLocked() *reconnectAttempt {
 	if s.consecutiveFailures >= maxReconnectAttempts {
 		return nil // cap reached: server unavailable, no further workers
 	}
-	s.reconnect = &reconnectAttempt{done: make(chan struct{})}
+	s.reconnect = &reconnectAttempt{
+		done:  make(chan struct{}),
+		begin: s.nextStatusLocked(ServerStatusReconnecting, nil),
+	}
 	return s.reconnect
 }
 
@@ -410,10 +421,11 @@ func (s *Session) ownsReconnectLocked(attempt *reconnectAttempt) bool {
 }
 
 // resolveReconnect publishes an attempt's outcome: recording it on the attempt,
-// ending the in-flight transition, and closing the future happen in one critical
-// section, so a waiter released by the close always observes this attempt's
-// outcome. A token that no longer owns the transition is a no-op. Must not be
-// called with the session mutex held, so status reporting stays outside the lock.
+// ending the in-flight transition, sequencing the terminal report, and closing
+// the future happen in one critical section, so a waiter released by the close
+// always observes this attempt's outcome. A token that no longer owns the
+// transition is a no-op. Must not be called with the session mutex held, so
+// status reporting stays outside the lock.
 func (s *Session) resolveReconnect(attempt *reconnectAttempt, outcome error, status ServerStatus) {
 	s.mu.Lock()
 	if !s.ownsReconnectLocked(attempt) {
@@ -422,26 +434,36 @@ func (s *Session) resolveReconnect(attempt *reconnectAttempt, outcome error, sta
 	}
 	s.reconnect = nil
 	attempt.outcome = outcome
+	report := s.nextStatusLocked(status, outcome)
 	close(attempt.done)
 	s.mu.Unlock()
-	s.reportStatus(status, outcome)
+	s.reportStatus(report)
+}
+
+// nextStatusLocked records one status transition and returns its report.
+// Callers must hold mu. Assigning the sequence inside the lock orders the
+// reports by the transitions they describe, not by when a slow callback
+// delivers them.
+func (s *Session) nextStatusLocked(status ServerStatus, err error) StatusReport {
+	s.statusSeq++
+	return StatusReport{Seq: s.statusSeq, Status: status, Err: err}
 }
 
 // commitReconnect adopts the freshly connected session of the attempt that began
-// with attempt as its token. The SDK swap and the publication of the successful
-// outcome happen in one critical section, so callers released by the closed
-// future and Call snapshots taken afterwards both see the new session; the
-// replaced session is returned for the caller to close outside the lock. It
-// reports committed=false when the manager context is cancelled, the session was
-// closed, or attempt no longer owns the transition, leaving the live session,
-// failure cap, and future untouched; the caller then closes next and resolves the
-// abort through resolveReconnect. Status reporting stays with the caller, outside
-// the lock.
-func (s *Session) commitReconnect(attempt *reconnectAttempt, next *mcpsdk.ClientSession, cmd *exec.Cmd) (old *mcpsdk.ClientSession, committed bool) {
+// with attempt as its token. The SDK swap, the sequencing of the connected
+// report, and the publication of the successful outcome happen in one critical
+// section, so callers released by the closed future and Call snapshots taken
+// afterwards both see the new session; the replaced session is returned for the
+// caller to close outside the lock, and so is the connected report, which the
+// caller delivers outside the lock. It reports committed=false when the manager
+// context is cancelled, the session was closed, or attempt no longer owns the
+// transition, leaving the live session, failure cap, and future untouched; the
+// caller then closes next and resolves the abort through resolveReconnect.
+func (s *Session) commitReconnect(attempt *reconnectAttempt, next *mcpsdk.ClientSession, cmd *exec.Cmd) (old *mcpsdk.ClientSession, report StatusReport, committed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.managerCtx.Err() != nil || s.closed || !s.ownsReconnectLocked(attempt) {
-		return nil, false
+		return nil, StatusReport{}, false
 	}
 	old = s.sdk
 	s.sdk = next
@@ -449,14 +471,16 @@ func (s *Session) commitReconnect(attempt *reconnectAttempt, next *mcpsdk.Client
 	s.protocolVersion = next.InitializeResult().ProtocolVersion
 	s.consecutiveFailures = 0 // a successful reconnect resets the cap
 	s.reconnect = nil
+	report = s.nextStatusLocked(ServerStatusConnected, nil)
 	close(attempt.done)
-	return old, true
+	return old, report, true
 }
 
-// reportStatus forwards a reconnect status transition to the owner, if any.
-func (s *Session) reportStatus(status ServerStatus, err error) {
+// reportStatus forwards a reconnect status transition to the owner, if any. It
+// must be called without the session mutex held.
+func (s *Session) reportStatus(report StatusReport) {
 	if s.onStatus != nil {
-		s.onStatus(status, err)
+		s.onStatus(report)
 	}
 }
 

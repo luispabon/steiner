@@ -2,7 +2,11 @@ package lsp
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +58,71 @@ func fakeServerForHelper() *fakeServer {
 		close(fs.exited)
 	}
 	return fs
+}
+
+// TestNewTransportAbortsInitializeBlockedOnPipe pins that the handshake deadline
+// ends a spawn whose initialize request cannot be written: the silent helper never
+// reads its stdin, so a payload larger than the pipe buffer blocks the write, and
+// aborting the transport is what releases it. EOF on the helper's stderr pipe
+// means no writer is left, which a helper that outlives the test would not reach.
+func TestNewTransportAbortsInitializeBlockedOnPipe(t *testing.T) {
+	t.Parallel()
+
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	t.Cleanup(func() { _ = stderrR.Close() })
+
+	spec := TransportSpec{
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestLSPHelperProcess"},
+		Env:     append(os.Environ(), helperEnv+"=silent"),
+		// Far larger than any pipe buffer, so the write cannot complete while the
+		// helper leaves stdin unread.
+		InitializationOptions: map[string]any{"padding": strings.Repeat("x", 256*1024)},
+		Stderr:                stderrW,
+		// Dropping our copy of the write end after Start leaves the child as the
+		// only writer, so the read end sees EOF when the child is gone.
+		Release: func(*exec.Cmd) { _ = stderrW.Close() },
+	}
+
+	handshakeCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// The command context kills the helper if an assertion below fails before the
+	// abort does, so a leaked test fails rather than leaving it sleeping.
+	processCtx, stopProcess := context.WithCancel(context.Background())
+	t.Cleanup(stopProcess)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := newTransport(handshakeCtx, processCtx, spec)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("newTransport error = %v, want the handshake deadline", err)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("newTransport did not return after the initialize write blocked")
+	}
+
+	terminated := make(chan error, 1)
+	go func() {
+		_, readErr := stderrR.Read(make([]byte, 1))
+		terminated <- readErr
+	}()
+	select {
+	case readErr := <-terminated:
+		if !errors.Is(readErr, io.EOF) {
+			t.Errorf("stderr read error = %v, want EOF once the helper terminated", readErr)
+		}
+	case <-time.After(testTimeout):
+		t.Fatal("the helper process was still running after the aborted handshake")
+	}
 }
 
 func TestNewTransportRejectsProcessesThatDoNotSpeakLSP(t *testing.T) {

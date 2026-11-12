@@ -31,6 +31,26 @@ type CodexIdentity struct {
 	SignedIn  bool
 }
 
+// CodexSignInIdentity identifies the stored Codex sign-in a provider was built
+// from: APIKeyMode marks a token that carries an exchanged OpenAI API key, and
+// AccountID is the ChatGPT account of a ChatGPT sign-in. It is captured from the
+// resolved token, never derived from configured headers, so a user header cannot
+// mask a sign-in mode.
+type CodexSignInIdentity struct {
+	APIKeyMode bool
+	AccountID  string
+}
+
+// SignInIdentity returns the identity of the resolved sign-in. Callers pass it
+// back through ClientConfig.CodexSignIn so a later dial can tell whether the
+// stored sign-in still matches.
+func (a CodexAuth) SignInIdentity() CodexSignInIdentity {
+	if a.APIKey != "" {
+		return CodexSignInIdentity{APIKeyMode: true}
+	}
+	return CodexSignInIdentity{AccountID: a.AccountID}
+}
+
 // codexAuthResolver caches the stored Codex token per token path for the life
 // of the process, so repeated resolution neither reloads an unchanged token file
 // nor refreshes it twice.

@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -63,9 +64,8 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create token dir: %w", err)
+	if err := s.ensureDir(); err != nil {
+		return err
 	}
 
 	existing, err := s.readLocked()
@@ -105,6 +105,45 @@ func (s *TokenStore) Save(token *oauth2.Token) error {
 		return fmt.Errorf("write token file: %w", err)
 	}
 
+	return nil
+}
+
+// SaveLocked writes token under the cross-process token lock that refresh
+// holds for its read-refresh-save cycle, so a login save serializes with a
+// refresh already in progress and is not overwritten by it.
+//
+// An already-cancelled ctx, or one cancelled while waiting on a contended
+// lock, prevents the save. Cancellation racing ensureDir or the first
+// successful flock attempt is not checked, so that save may still be written.
+//
+// Save itself takes no lock, because refresh calls it while already holding the
+// token lock; locking there would deadlock.
+func (s *TokenStore) SaveLocked(ctx context.Context, token *oauth2.Token) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("save token under lock: %w", err)
+	}
+	// The lock file lives beside the token, so its directory must exist before
+	// the lock can be taken, with the same permissions Save gives it.
+	if err := s.ensureDir(); err != nil {
+		return err
+	}
+	unlock, err := acquireTokenLock(ctx, s.path)
+	if err != nil {
+		return fmt.Errorf("save token under lock: %w", err)
+	}
+	defer unlock()
+
+	return s.Save(token)
+}
+
+// ensureDir creates the token file's parent directory with 0o700 permissions.
+func (s *TokenStore) ensureDir() error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return fmt.Errorf("create token dir: %w", err)
+	}
 	return nil
 }
 

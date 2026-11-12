@@ -4,16 +4,17 @@ import "strings"
 
 // ApprovalEvent captures approval lifecycle decisions for mutation tools.
 type ApprovalEvent struct {
-	Turn     int    `json:"turn"`
-	Tool     string `json:"tool,omitempty"`
-	CallID   string `json:"call_id,omitempty"`
-	Mode     string `json:"mode,omitempty"`
-	Preview  string `json:"preview,omitempty"`
-	Allowed  bool   `json:"allowed"`
-	Message  string `json:"message,omitempty"`
-	Kind     string `json:"kind,omitempty"`
-	Server   string `json:"server,omitempty"`
-	ToolName string `json:"tool_name,omitempty"`
+	Turn      int    `json:"turn"`
+	Tool      string `json:"tool,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	Preview   string `json:"preview,omitempty"`
+	Allowed   bool   `json:"allowed"`
+	Message   string `json:"message,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Server    string `json:"server,omitempty"`
+	ToolName  string `json:"tool_name,omitempty"`
 }
 
 // WorkflowHandoffEvent captures a workflow handoff request for later handling.
@@ -33,6 +34,10 @@ type ApprovalEventParams struct {
 	Tool string
 	// CallID is the provider tool call ID the approval applies to.
 	CallID string
+	// RequestID is the unique identity the coordinator registered for this
+	// request. It is carried by the requested and decision events so a
+	// decision can only resolve the exact request that produced it.
+	RequestID string
 	// Mode is the approval reason shown to the user.
 	Mode string
 	// Preview is the summary of the call awaiting approval.
@@ -64,16 +69,17 @@ func NewApprovalDeniedEvent(p ApprovalEventParams) Event {
 
 func newApprovalEvent(eventType string, p ApprovalEventParams, message string, allowed bool) Event {
 	return newEvent(eventType, ApprovalEvent{
-		Turn:     p.Turn,
-		Tool:     p.Tool,
-		CallID:   p.CallID,
-		Mode:     p.Mode,
-		Preview:  p.Preview,
-		Allowed:  allowed,
-		Message:  message,
-		Kind:     p.Kind,
-		Server:   p.Server,
-		ToolName: p.ToolName,
+		Turn:      p.Turn,
+		Tool:      p.Tool,
+		CallID:    p.CallID,
+		RequestID: p.RequestID,
+		Mode:      p.Mode,
+		Preview:   p.Preview,
+		Allowed:   allowed,
+		Message:   message,
+		Kind:      p.Kind,
+		Server:    p.Server,
+		ToolName:  p.ToolName,
 	})
 }
 

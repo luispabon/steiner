@@ -149,6 +149,13 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	})
 
 	req.TurnBudgetNotice = turnBudgetNoticeFunc()
+	// A child's provider comes from the runtime factory and is not cache-owned, so
+	// its WebSocket connection closes when the child's last run ends instead of
+	// staying alive for the life of the process. Remediation reruns the same
+	// request, so the release is deferred past it. An async child's job calls
+	// SpawnDelegate on a supervisor worker, so the release still lands after that
+	// worker's run rather than at dispatch.
+	defer provider.ReleaseConnection(req.Provider)
 	state, err := runner.Run(childCtx, req)
 	// Snapshot the child context as the run returns, before the deferred
 	// timeout cancel fires. A provider transport timeout (for example an HTTP

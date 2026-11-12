@@ -103,7 +103,6 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 		h.d.mu.Lock()
 		steers := h.d.opts.Steers
 		completions := len(h.d.completions)
-		window := h.d.window
 		h.d.mu.Unlock()
 		if steers != nil {
 			t.Fatal("steer queue still attached")
@@ -111,16 +110,72 @@ func TestConversationDriverReplaceWhileHeldOutcomes(t *testing.T) {
 		if completions != 0 {
 			t.Fatalf("buffered completions = %d, want discarded", completions)
 		}
-		if window != nil {
-			t.Fatal("completion window still armed")
-		}
-		if _, held := h.d.State(); !held {
-			t.Fatal("replacement released the hold")
-		}
+		// held is not asserted: the replacement closes the old inbox, so the
+		// loop is free to exit and finalize clears held at any time. The
+		// assertions above cover effects that outlive that.
 		if !h.d.isClosing() {
 			t.Fatal("replaced driver inbox still open")
 		}
 	})
+}
+
+// A coalescing window cannot be armed while the driver is held, so the held
+// fixture above never arms one. This test arms a window while the driver is
+// waiting, stops the turn, then verifies the replacement disarms it.
+func TestConversationDriverReplaceWhileHeldDisarmsArmedWindow(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarness(t, nil, nil)
+	h.bg.setPending("a", "b")
+	h.start()
+
+	h.d.Submit("go", nil, SubmitMeta{})
+	h.nextRun().finish()
+	h.waitSettled(DriverWaiting, false)
+
+	h.bg.markFinished("a")
+	h.d.DeliverCompletions([]SubAgentCompletion{completionFor(1, "a")})
+	if got := h.clock.armed(); got != 1 {
+		t.Fatalf("armed timers = %d, want the coalescing window", got)
+	}
+	h.d.StopTurn()
+	ctx, cancel := context.WithTimeout(context.Background(), driverTestTimeout)
+	defer cancel()
+	if err := h.d.WaitIdle(ctx); err != nil {
+		t.Fatalf("WaitIdle: %v", err)
+	}
+	if state, held := h.d.State(); state != DriverWaiting || !held {
+		t.Fatalf("State = %s held=%v, want waiting held", state, held)
+	}
+
+	swapped := false
+	// swap runs under the driver lock after the discard and before closing, so
+	// the captured window cannot have been cleared by finalize instead.
+	var windowAtSwap Timer
+	var armedAtSwap int
+	outcome := h.d.ReplaceWhileHeld(
+		func() bool { return true },
+		func() {
+			swapped = true
+			windowAtSwap = h.d.window
+			armedAtSwap = h.clock.armed()
+		},
+	)
+	if outcome != ReplaceDone {
+		t.Fatalf("outcome = %v, want ReplaceDone", outcome)
+	}
+	if !swapped {
+		t.Fatal("swap did not run after check accepted")
+	}
+	if windowAtSwap != nil {
+		t.Fatal("completion window still armed during swap")
+	}
+	if armedAtSwap != 0 {
+		t.Fatalf("armed timers at swap = %d, want 0", armedAtSwap)
+	}
+	h.noRun()
+	if !h.d.isClosing() {
+		t.Fatal("replaced driver inbox still open")
+	}
 }
 
 func TestConversationDriverReplaceWhileHeldBlocksCompletionDelivery(t *testing.T) {
@@ -159,7 +214,7 @@ func TestConversationDriverReplaceWhileHeldBlocksCompletionDelivery(t *testing.T
 		t.Fatal("completion delivery did not finish")
 	}
 	h.noRun()
-	if _, held := h.d.State(); !held {
-		t.Fatal("replacement released the hold")
+	if !h.d.isClosing() {
+		t.Fatal("replaced driver inbox still open")
 	}
 }

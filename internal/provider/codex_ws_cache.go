@@ -10,43 +10,147 @@ import (
 // keyed by caller-defined cache keys (typically "<alias>|<promptCacheKey>"),
 // so a session's live connection is reused across turns instead of being
 // reconstructed (and reconnected) every turn.
+//
+// Entries are generation-scoped. The generation is the session's prompt cache
+// key, and acquiring an entry for a new generation retires every entry of the
+// previous one, so a connection cannot outlive the session generation that
+// created it (interactive rotation, clear, load and fork each mint a new key).
+// Only cliRunner.runtimeProvider acquires entries, and one interactive live
+// driver serialises runs and compactions while those operations keep the driver
+// idle, so generations advance between runs rather than during one.
+//
+// Close retires every entry and rejects later acquisition. Retirement detaches
+// entries under the cache lock and closes their connections outside it. A
+// retirement does not interrupt an entry with a request in flight: its
+// connection closes when that request ends.
 type CodexWSCache struct {
-	mu        sync.Mutex
-	instances map[string]Provider
+	mu         sync.Mutex
+	instances  map[string]*CachingCodexWS
+	generation string
+	closed     bool
 }
+
+var (
+	errCodexWSCacheClosed            = errors.New("codex websocket cache closed")
+	errCodexWSCacheGenerationChanged = errors.New("codex websocket cache generation changed")
+)
 
 // NewCodexWSCache returns an empty CodexWSCache ready for use.
 func NewCodexWSCache() *CodexWSCache {
-	return &CodexWSCache{instances: make(map[string]Provider)}
+	return &CodexWSCache{instances: make(map[string]*CachingCodexWS)}
 }
 
-// NewCachingCodexWS returns the cached provider for key, building one via
-// build on a miss and storing it. Concurrent misses for the same key are
-// resolved by keeping whichever entry lands first and discarding the other.
-func NewCachingCodexWS(cache *CodexWSCache, key string, build func() (Provider, error)) (Provider, error) {
+// Close retires every cached entry and rejects later acquisition. It is
+// idempotent and does not wait for requests in flight: an active entry is
+// detached now and closed when its request ends.
+func (c *CodexWSCache) Close() error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	detached := c.detachAllLocked()
+	c.mu.Unlock()
+
+	retireCodexWSEntries(detached)
+	return nil
+}
+
+// beginGenerationLocked makes generation the current generation, detaching the
+// entries of the previous one. A closed cache rejects the acquisition. Callers
+// hold c.mu and must retire the returned entries after releasing it.
+func (c *CodexWSCache) beginGenerationLocked(generation string) ([]*CachingCodexWS, error) {
+	if c.closed {
+		return nil, errCodexWSCacheClosed
+	}
+	if c.generation == generation {
+		return nil, nil
+	}
+	c.generation = generation
+	return c.detachAllLocked(), nil
+}
+
+// currentLocked reports whether generation is still the cache's current
+// generation and the cache is open. Callers hold c.mu.
+func (c *CodexWSCache) currentLocked(generation string) error {
+	if c.closed {
+		return errCodexWSCacheClosed
+	}
+	if c.generation != generation {
+		return errCodexWSCacheGenerationChanged
+	}
+	return nil
+}
+
+// detachAllLocked removes every cached entry and returns it. Callers hold c.mu.
+func (c *CodexWSCache) detachAllLocked() []*CachingCodexWS {
+	if len(c.instances) == 0 {
+		return nil
+	}
+	detached := make([]*CachingCodexWS, 0, len(c.instances))
+	for key, entry := range c.instances {
+		detached = append(detached, entry)
+		delete(c.instances, key)
+	}
+	return detached
+}
+
+// retireCodexWSEntries retires detached entries. Callers must not hold cache.mu.
+func retireCodexWSEntries(entries []*CachingCodexWS) {
+	for _, entry := range entries {
+		entry.retire()
+	}
+}
+
+// NewCachingCodexWS returns the cached provider for key within generation,
+// building one via build on a miss and storing it. A new generation retires the
+// previous generation's entries. A build that finishes after the cache closes,
+// or after another generation became current, is rejected without being stored
+// or used; only that never-dialled provider is closed.
+func NewCachingCodexWS(cache *CodexWSCache, generation, key string, build func() (Provider, error)) (Provider, error) {
 	cache.mu.Lock()
-	if prov, ok := cache.instances[key]; ok {
+	retired, err := cache.beginGenerationLocked(generation)
+	if err != nil {
 		cache.mu.Unlock()
-		return prov, nil
+		return nil, err
+	}
+	if entry, ok := cache.instances[key]; ok {
+		cache.mu.Unlock()
+		retireCodexWSEntries(retired)
+		return entry, nil
 	}
 	cache.mu.Unlock()
+	retireCodexWSEntries(retired)
 
 	built, err := build()
 	if err != nil {
 		return nil, err
 	}
 
-	wrapped := &CachingCodexWS{cache: cache, inner: built, key: key, idle: make(chan struct{})}
+	entry := &CachingCodexWS{cache: cache, inner: built, key: key, idle: make(chan struct{})}
 
 	cache.mu.Lock()
-	if existing, ok := cache.instances[key]; ok {
-		cache.mu.Unlock()
-		return existing, nil
+	// Recheck on insertion: another build for this key, a newer generation or
+	// Close may have landed while build ran.
+	err = cache.currentLocked(generation)
+	if err == nil {
+		if existing, ok := cache.instances[key]; ok {
+			cache.mu.Unlock()
+			// The provider was never dialled: no request has run on it, so
+			// closing it cannot interrupt a stream.
+			entry.retire()
+			return existing, nil
+		}
+		cache.instances[key] = entry
 	}
-	cache.instances[key] = wrapped
 	cache.mu.Unlock()
 
-	return wrapped, nil
+	if err != nil {
+		entry.retire()
+		return nil, err
+	}
+	return entry, nil
 }
 
 // CachingCodexWS wraps a cached Codex WebSocket provider instance, evicting
@@ -62,6 +166,9 @@ type CachingCodexWS struct {
 	idle    chan struct{}
 	active  bool
 	retired bool
+	// closed records that the wrapped connection has been closed, so
+	// retirement and the end of an active request close it at most once.
+	closed bool
 }
 
 var errCachingCodexWSEvicted = errors.New("codex websocket cache entry evicted")
@@ -100,34 +207,65 @@ func (p *CachingCodexWS) begin(ctx context.Context) error {
 	}
 }
 
+// end marks the request done. A retirement that arrived while it was active
+// closes the wrapped connection here, after the wrapper lock is released.
 func (p *CachingCodexWS) end() {
 	p.mu.Lock()
 	p.active = false
+	closeNow := p.retired && !p.closed
+	if closeNow {
+		p.closed = true
+	}
 	close(p.idle)
 	p.idle = make(chan struct{})
 	p.mu.Unlock()
+
+	if closeNow {
+		p.closeInner()
+	}
 }
 
-func (p *CachingCodexWS) evict() {
+// retire rejects new requests and closes the wrapped connection once no request
+// is in flight. Retirement never interrupts an active request: the request ends
+// when it would have ended anyway, on success or through its own context
+// cancellation, and the connection closes on end. It is idempotent. Callers
+// must not hold cache.mu.
+func (p *CachingCodexWS) retire() {
 	p.mu.Lock()
-	if p.retired {
-		p.mu.Unlock()
+	p.retired = true
+	closeNow := !p.active && !p.closed
+	if closeNow {
+		p.closed = true
+	}
+	p.mu.Unlock()
+
+	if closeNow {
+		p.closeInner()
+	}
+}
+
+// closeInner closes the wrapped provider's connection, if it has one. It runs
+// outside the wrapper lock because closing joins the keepalive goroutine.
+func (p *CachingCodexWS) closeInner() {
+	inner, ok := p.inner.(*codexWSProvider)
+	if !ok {
 		return
 	}
-	p.retired = true
+	inner.mu.Lock()
+	inner.closeConn()
+	inner.mu.Unlock()
+}
 
+// evict detaches p from the cache so the next lookup for this key builds a
+// fresh provider, then retires it.
+func (p *CachingCodexWS) evict() {
 	p.cache.mu.Lock()
 	if p.cache.instances[p.key] == p {
 		delete(p.cache.instances, p.key)
 	}
 	p.cache.mu.Unlock()
-	p.mu.Unlock()
 
-	if inner, ok := p.inner.(*codexWSProvider); ok {
-		inner.mu.Lock()
-		inner.closeConn()
-		inner.mu.Unlock()
-	}
+	p.retire()
 }
 
 // ChatCompletion delegates to the wrapped provider, evicting p from the

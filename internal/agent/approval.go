@@ -27,6 +27,13 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	if req.Response == nil {
 		return errors.New("approval response channel is required")
 	}
+	// Every request carries a unique identity. The interactive responder sets
+	// it before emitting the requested event so the coordinator registration
+	// and both lifecycle events share one key; a bare approver still gets a
+	// distinct key per request.
+	if req.RequestID == "" {
+		req.RequestID = tool.NewApprovalRequestID()
+	}
 	preview := ""
 	if req.Kind == tool.ApprovalKindMCP && req.MCP != nil {
 		preview = req.MCP.ArgumentsPreview
@@ -48,11 +55,11 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	// the child agent scope threaded through the execution context, so the TUI
 	// can attribute the prompt to the child transcript.
 	agentID := tool.ApprovalAgentScope(ctx)
-	emitEvent(a.sink, output.WithAgentScope(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, Mode: req.Reason, Preview: preview, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
+	emitEvent(a.sink, output.WithAgentScope(output.NewApprovalRequestedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
 	if a.inner == nil {
 		response := tool.ApprovalResponse{Allow: false, Message: "approval is required"}
 		req.Response <- response
-		emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, Mode: req.Reason, Preview: preview, Message: response.Message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
+		emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Message: response.Message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
 		return nil
 	}
 	bridge := make(chan tool.ApprovalResponse, 1)
@@ -61,7 +68,7 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 	if err := a.inner.RequestApproval(ctx, innerReq); err != nil {
 		response := tool.ApprovalResponse{Allow: false, Message: err.Error()}
 		req.Response <- response
-		emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, Mode: req.Reason, Preview: preview, Message: response.Message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
+		emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Message: response.Message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
 		return err
 	}
 	go func() {
@@ -72,13 +79,13 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 			response = tool.ApprovalResponse{Allow: false, Message: ctx.Err().Error()}
 		}
 		if response.Allow {
-			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, Mode: req.Reason, Preview: preview, Message: response.Message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
+			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalAcceptedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Message: response.Message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
 		} else {
 			message := strings.TrimSpace(response.Message)
 			if message == "" {
 				message = "tool execution denied"
 			}
-			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, Mode: req.Reason, Preview: preview, Message: message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
+			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Message: message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
 		}
 		req.Response <- response
 	}()

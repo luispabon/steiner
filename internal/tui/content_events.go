@@ -102,8 +102,14 @@ type approvalPillData struct {
 	agentID     string
 	identity    string
 	queueDepth  int
-	resolved    bool
-	accepted    bool
+	// selectedAction mirrors the tray selection for this request: 0=allow
+	// once, 1=always allow, 2=deny.
+	selectedAction int
+	// cleared marks a pending pill dropped by terminal cleanup. It renders
+	// nothing, unlike a resolved pill which reports its outcome.
+	cleared  bool
+	resolved bool
+	accepted bool
 }
 
 type compactionBannerData struct {
@@ -363,6 +369,18 @@ type contentBuffer struct {
 	// append). It invalidates the settled-prefix cache below so a retroactive
 	// mutation of an already-settled segment cannot serve stale output.
 	gen int
+
+	// approvalHead is the coordinator's current FIFO head identity, refreshed
+	// from the model before each event append. Queue depth suffixes attach to
+	// this request, not to transcript order, because child pills and embedded
+	// parent approvals may be appended out of coordinator order.
+	approvalHead string
+
+	// approvalCoordinated reports whether a coordinator drives the approval
+	// queue. With one, an empty approvalHead means no request is left to prompt
+	// and no depth suffix is attached; without one, depth falls back to the first
+	// pending segment.
+	approvalCoordinated bool
 
 	// Settled-prefix cache: the joined render of segments [0, prefixCacheLen),
 	// reused across dirty frames so streaming only re-walks the changing tail

@@ -155,10 +155,12 @@ func (r cliRunner) runtimeProvider(rm provider.ResolvedModel) (provider.Provider
 
 // cachedCodexWSProvider returns a process-lifetime cached Codex WebSocket
 // provider for rm's (alias, promptCacheKey), building one via
-// providerFactory on a miss.
+// providerFactory on a miss. The prompt cache key is the cache generation, so
+// acquiring a provider for a new key retires the previous generation's entries.
 func (r cliRunner) cachedCodexWSProvider(cache *provider.CodexWSCache, rm provider.ResolvedModel) (provider.Provider, error) {
-	key := rm.Alias + "|" + r.promptCacheKey()
-	return provider.NewCachingCodexWS(cache, key, func() (provider.Provider, error) {
+	generation := r.promptCacheKey()
+	key := rm.Alias + "|" + generation
+	return provider.NewCachingCodexWS(cache, generation, key, func() (provider.Provider, error) {
 		built, err := r.runtime.providerFactory(rm, r.sessionID())
 		if err != nil {
 			return nil, err

@@ -206,7 +206,7 @@ steiner login codex
 steiner login codex status
 ```
 
-`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for browser sign-in. Use `--debug-url` to print the authorisation URL before opening the browser, which helps if the browser does not open. The status command prints token expiry and `valid` or `needs refresh`, or tells you to sign in. Steiner refreshes the token automatically when it is close to expiry. If refresh fails or there is no login, run `steiner login codex` again.
+`steiner login codex` opens your browser and saves the token to `steiner/codex_auth.json` in your user config directory (`~/.config/steiner/codex_auth.json` on Linux by default); the command prints the path. It waits up to `--timeout` (default `120s`) for browser sign-in. Use `--debug-url` to print the authorisation URL before opening the browser, which helps if the browser does not open. The status command prints token expiry and `valid` or `needs refresh`, or tells you to sign in. Steiner refreshes the token automatically when it is close to expiry; a login save takes the same token-file lock as that refresh, so signing in while a refresh is running does not lose the login. If saving a refreshed token fails (for example the config directory is read-only), Steiner keeps using the refreshed token and retries the save a few times over the next minutes. If refresh fails or there is no login, run `steiner login codex` again.
 
 Configure the provider:
 
@@ -218,7 +218,7 @@ providers:
 
 Optional settings:
 
-- `codex.transport` defaults to `http`. `websocket` is experimental and does not fall back to HTTP on failure.
+- `codex.transport` defaults to `http`. `websocket` is experimental and does not fall back to HTTP on failure. Each WebSocket dial reads the stored sign-in again, so a redial after a release does not reuse an expired token. After you sign in to a different account or auth mode, a provider that was already built fails its dials instead of sending the new credentials with the old account: the interactive session rebuilds its cached connection on the next request, while providers created for advisors or compaction fallbacks need a new run or a restart. The `http` transport keeps the credential resolved when its provider was built.
 - `codex.min_request_interval` sets the minimum gap between requests and defaults to `0s` (disabled).
 - `compaction_fallback_after` defaults to `30m`.
 

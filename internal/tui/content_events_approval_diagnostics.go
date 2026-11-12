@@ -10,55 +10,17 @@ import (
 func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 	b.finishStreaming()
 	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
-		// Embed approval into the most recent tool call segment.
-		for i := len(b.segments) - 1; i >= 0; i-- {
-			seg := &b.segments[i]
-			switch seg.kind {
-			case segmentToolCall:
-				if seg.toolData == nil || seg.toolData.approvalPending || !callIDsMatch(seg.toolData.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(seg.toolData.tool), normalizeToolName(payload.Tool)) {
-					continue
-				}
-				seg.toolData.approvalPending = true
-				seg.toolData.approvalMode = payload.Mode
-				seg.toolData.approvalPreview = payload.Preview
-				seg.toolData.approvalIdentity = payload.CallID
-				seg.toolData.approvalKind = payload.Kind
-				seg.toolData.approvalServer = payload.Server
-				seg.toolData.approvalMCPTool = payload.ToolName
-				seg.toolData.approvalAgentID = event.Scope.AgentID
-				seg.toolData.approvalQueueDepth = 0
-				seg.toolData.approvalSelectedAction = 0
-				seg.toolData.collapsed = false
-				seg.renderDirty = true
-				b.gen++
-				b.recomputeApprovalQueueDepths()
-				return
-			case segmentToolCallGroup:
-				if seg.toolGroupData == nil {
-					continue
-				}
-				for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
-					entry := seg.toolGroupData.entries[j]
-					if entry == nil || entry.approvalPending || !callIDsMatch(entry.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(entry.tool), normalizeToolName(payload.Tool)) {
-						continue
-					}
-					entry.approvalKind = payload.Kind
-					entry.approvalServer = payload.Server
-					entry.approvalMCPTool = payload.ToolName
-					entry.approvalAgentID = event.Scope.AgentID
-					entry.approvalIdentity = payload.CallID
-					entry.approvalQueueDepth = 0
-					entry.approvalPending = true
-					entry.approvalMode = payload.Mode
-					entry.approvalPreview = payload.Preview
-					entry.approvalSelectedAction = 0
-					entry.collapsed = false
-					seg.renderDirty = true
-					b.recomputeApprovalQueueDepths()
-					b.gen++
-					return
-				}
-			}
+		// An event without a request ID can never be matched to a decision, so
+		// it is not rendered as an approval control that could never resolve.
+		if payload.RequestID == "" {
+			return
+		}
+		identity := payload.RequestID
+		// Parent approvals embed into the tool call that raised them. A scoped
+		// child approval renders as a standalone pill: its call ID may equal a
+		// parent call's, so embedding could attribute it to the wrong segment.
+		if event.Scope.AgentID == "" && b.embedApprovalRequest(payload, identity) {
+			return
 		}
 		// Fallback: no tool segment found — render as standalone pill.
 		b.segments = append(b.segments, contentSegment{
@@ -70,7 +32,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				kind:        payload.Kind,
 				server:      payload.Server,
 				mcpToolName: payload.ToolName,
-				identity:    payload.CallID,
+				identity:    identity,
 				agentID:     event.Scope.AgentID,
 				queueDepth:  0,
 			},
@@ -82,20 +44,78 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 	b.appendStyled(formatApprovalEvent(event), segmentApproval)
 }
 
+// embedApprovalRequest marks the parent tool call that raised an unscoped
+// approval request. It reports false when no eligible segment matches.
+func (b *contentBuffer) embedApprovalRequest(payload output.ApprovalEvent, identity string) bool {
+	for i := len(b.segments) - 1; i >= 0; i-- {
+		seg := &b.segments[i]
+		switch seg.kind {
+		case segmentToolCall:
+			if seg.toolData == nil || seg.toolData.approvalPending || !callIDsMatch(seg.toolData.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(seg.toolData.tool), normalizeToolName(payload.Tool)) {
+				continue
+			}
+			seg.toolData.approvalPending = true
+			seg.toolData.approvalMode = payload.Mode
+			seg.toolData.approvalPreview = payload.Preview
+			seg.toolData.approvalIdentity = identity
+			seg.toolData.approvalKind = payload.Kind
+			seg.toolData.approvalServer = payload.Server
+			seg.toolData.approvalMCPTool = payload.ToolName
+			seg.toolData.approvalQueueDepth = 0
+			seg.toolData.approvalSelectedAction = 0
+			seg.toolData.collapsed = false
+			seg.renderDirty = true
+			b.gen++
+			b.recomputeApprovalQueueDepths()
+			return true
+		case segmentToolCallGroup:
+			if seg.toolGroupData == nil {
+				continue
+			}
+			for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
+				entry := seg.toolGroupData.entries[j]
+				if entry == nil || entry.approvalPending || !callIDsMatch(entry.callID, payload.CallID) || !strings.EqualFold(normalizeToolName(entry.tool), normalizeToolName(payload.Tool)) {
+					continue
+				}
+				entry.approvalKind = payload.Kind
+				entry.approvalServer = payload.Server
+				entry.approvalMCPTool = payload.ToolName
+				entry.approvalIdentity = identity
+				entry.approvalQueueDepth = 0
+				entry.approvalPending = true
+				entry.approvalMode = payload.Mode
+				entry.approvalPreview = payload.Preview
+				entry.approvalSelectedAction = 0
+				entry.collapsed = false
+				seg.renderDirty = true
+				b.recomputeApprovalQueueDepths()
+				b.gen++
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	b.finishStreaming()
 	accepted := event.Type == output.EventTypeApprovalAccepted
-	var callID string
+	var identity string
 	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
-		callID = payload.CallID
+		identity = payload.RequestID
 	}
-	if b.resolveEmbeddedApproval(accepted, callID) {
+	// A decision without a request ID cannot name a rendered request, so it
+	// leaves the transcript untouched.
+	if identity == "" {
+		return
+	}
+	if b.resolveEmbeddedApproval(accepted, identity) {
 		b.recomputeApprovalQueueDepths()
 		return
 	}
 	// Fallback: resolve a standalone approval pill.
 	for i := range b.segments {
-		if b.segments[i].kind != segmentApprovalPill || b.segments[i].approvalData == nil || b.segments[i].approvalData.resolved || b.segments[i].approvalData.identity != callID {
+		if b.segments[i].kind != segmentApprovalPill || b.segments[i].approvalData == nil || b.segments[i].approvalData.resolved || b.segments[i].approvalData.identity != identity {
 			continue
 		}
 		b.segments[i].approvalData.resolved = true
@@ -108,12 +128,12 @@ func (b *contentBuffer) appendApprovalDecisionEvent(event output.Event) {
 	b.appendStyled(formatApprovalEvent(event), segmentApproval)
 }
 
-func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, callID string) bool {
+func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, identity string) bool {
 	for i := len(b.segments) - 1; i >= 0; i-- {
 		seg := &b.segments[i]
 		switch seg.kind {
 		case segmentToolCall:
-			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && callIDsMatch(seg.toolData.callID, callID) {
+			if seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && seg.toolData.approvalIdentity == identity {
 				seg.toolData.approvalResolved = true
 				seg.toolData.approvalAccepted = accepted
 				seg.renderDirty = true
@@ -127,7 +147,7 @@ func (b *contentBuffer) resolveEmbeddedApproval(accepted bool, callID string) bo
 			}
 			for j := len(seg.toolGroupData.entries) - 1; j >= 0; j-- {
 				entry := seg.toolGroupData.entries[j]
-				if entry != nil && entry.approvalPending && !entry.approvalResolved && callIDsMatch(entry.callID, callID) {
+				if entry != nil && entry.approvalPending && !entry.approvalResolved && entry.approvalIdentity == identity {
 					entry.approvalResolved = true
 					entry.approvalAccepted = accepted
 					seg.renderDirty = true
@@ -321,65 +341,138 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 	})
 }
 
-// clearApprovalState resets approval state on all tool call and tool call group
-// segments. Used when a run ends or is stopped to clear stale pending approvals
-// from the content buffer.
-func (b *contentBuffer) clearApprovalState() {
+// clearApprovalStateExcept resets approval state on tool call and tool call
+// group segments, and drops unresolved approval pills, except for the pending
+// requests whose identities are listed in preserve. A top-level terminal reset
+// passes every request the coordinator still has registered, so live async
+// child approvals keep their control and unregistered ones do not survive.
+// Resolved pills keep their outcome line.
+func (b *contentBuffer) clearApprovalStateExcept(preserve map[string]struct{}) {
 	b.gen++
 	for i := range b.segments {
 		seg := &b.segments[i]
 		switch seg.kind {
+		case segmentApprovalPill:
+			clearApprovalPill(seg, preserve)
 		case segmentToolCall:
-			if seg.toolData != nil {
-				seg.toolData.approvalPending = false
-				seg.toolData.approvalResolved = false
-				seg.renderDirty = true
-			}
+			clearToolCallApproval(seg, preserve)
 		case segmentToolCallGroup:
-			if seg.toolGroupData != nil {
-				for _, entry := range seg.toolGroupData.entries {
-					if entry != nil {
-						entry.approvalPending = false
-						entry.approvalResolved = false
-					}
-				}
-				seg.renderDirty = true
-			}
+			clearToolGroupApproval(seg, preserve)
 		}
 	}
 }
 
+// approvalIdentityPreserved reports whether the pending request identity is
+// still registered and must keep its control.
+func approvalIdentityPreserved(preserve map[string]struct{}, identity string) bool {
+	if identity == "" {
+		return false
+	}
+	_, ok := preserve[identity]
+	return ok
+}
+
+func clearApprovalPill(seg *contentSegment, preserve map[string]struct{}) {
+	if seg.approvalData == nil || seg.approvalData.resolved || seg.approvalData.cleared {
+		return
+	}
+	if approvalIdentityPreserved(preserve, seg.approvalData.identity) {
+		return
+	}
+	seg.approvalData.cleared = true
+	seg.renderDirty = true
+}
+
+func clearToolCallApproval(seg *contentSegment, preserve map[string]struct{}) {
+	if seg.toolData == nil {
+		return
+	}
+	if approvalIdentityPreserved(preserve, seg.toolData.approvalIdentity) {
+		return
+	}
+	seg.toolData.approvalPending = false
+	seg.toolData.approvalResolved = false
+	seg.renderDirty = true
+}
+
+func clearToolGroupApproval(seg *contentSegment, preserve map[string]struct{}) {
+	if seg.toolGroupData == nil {
+		return
+	}
+	for _, entry := range seg.toolGroupData.entries {
+		if entry == nil {
+			continue
+		}
+		if approvalIdentityPreserved(preserve, entry.approvalIdentity) {
+			continue
+		}
+		entry.approvalPending = false
+		entry.approvalResolved = false
+	}
+	seg.renderDirty = true
+}
+
+// queuedApproval pairs a pending approval's identity with its depth field so
+// the FIFO head can be found by identity rather than transcript position.
+type queuedApproval struct {
+	identity string
+	depth    *int
+}
+
 // recomputeApprovalQueueDepths sets depth to the number of unresolved approval
-// requests queued behind each request. Only the FIFO head receives a suffix.
+// requests queued behind each request. Only the coordinator's FIFO head receives
+// a suffix; without a coordinator the first pending segment does.
 func (b *contentBuffer) recomputeApprovalQueueDepths() {
-	var queued []*int
+	var queued []queuedApproval
 	for i := range b.segments {
 		seg := &b.segments[i]
 		switch seg.kind {
 		case segmentApprovalPill:
 			if seg.approvalData != nil {
 				seg.approvalData.queueDepth = 0
-				if !seg.approvalData.resolved {
-					queued = append(queued, &seg.approvalData.queueDepth)
+				if !seg.approvalData.resolved && !seg.approvalData.cleared {
+					queued = append(queued, queuedApproval{identity: seg.approvalData.identity, depth: &seg.approvalData.queueDepth})
 				}
 			}
 		case segmentToolCall:
 			if seg.toolData != nil {
 				seg.toolData.approvalQueueDepth = 0
 				if seg.toolData.approvalPending && !seg.toolData.approvalResolved {
-					queued = append(queued, &seg.toolData.approvalQueueDepth)
+					queued = append(queued, queuedApproval{identity: seg.toolData.approvalIdentity, depth: &seg.toolData.approvalQueueDepth})
 				}
 			}
 		case segmentToolCallGroup:
 			queued = appendToolGroupApprovalQueueDepths(seg, queued)
 		}
 	}
-	if len(queued) > 0 {
-		*queued[0] = len(queued) - 1
+	if len(queued) == 0 {
+		return
 	}
+	head := b.approvalQueueHead(queued)
+	if head < 0 {
+		return
+	}
+	*queued[head].depth = len(queued) - 1
 }
 
-func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []*int) []*int {
+// approvalQueueHead resolves which pending approval should carry the queue
+// suffix. Without a coordinator the first pending segment does. With one, only
+// the segment matching the coordinator head does, so a coordinated queue whose
+// head is empty (every request already decided) attaches no suffix, and an
+// unknown head attaches no suffix rather than guessing from transcript order.
+func (b *contentBuffer) approvalQueueHead(queued []queuedApproval) int {
+	if !b.approvalCoordinated {
+		return 0
+	}
+	for i := range queued {
+		if queued[i].identity == b.approvalHead {
+			return i
+		}
+	}
+	return -1
+}
+
+func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []queuedApproval) []queuedApproval {
 	if seg.toolGroupData == nil {
 		return queued
 	}
@@ -389,7 +482,7 @@ func appendToolGroupApprovalQueueDepths(seg *contentSegment, queued []*int) []*i
 		}
 		entry.approvalQueueDepth = 0
 		if entry.approvalPending && !entry.approvalResolved {
-			queued = append(queued, &entry.approvalQueueDepth)
+			queued = append(queued, queuedApproval{identity: entry.approvalIdentity, depth: &entry.approvalQueueDepth})
 		}
 	}
 	return queued

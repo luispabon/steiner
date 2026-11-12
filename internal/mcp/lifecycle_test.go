@@ -708,6 +708,115 @@ func TestLifecycleCloseDuringReconnect(t *testing.T) {
 	}
 }
 
+// TestLifecycleGatedStatusOrdering proves the real reconnect worker cannot
+// supersede newer state with a delayed report. The first reconnect commits and
+// its connected report is held back by the test; a second disconnect then
+// exhausts the retry cap to unavailable; releasing the connected report must
+// leave the server unavailable.
+//
+// The session's status callback is wrapped after the initial connect, before any
+// worker exists, so the gate sits between the worker and the manager without
+// touching the production wiring.
+func TestLifecycleGatedStatusOrdering(t *testing.T) {
+	fixtureBin := buildFixture(t)
+	record := filepath.Join(t.TempDir(), "record.txt")
+
+	// Spawns: 1 initial connect, 2 the successful reconnect. Every later
+	// respawn fails, so the second attempt burns through the retry cap.
+	var spawns atomic.Int32
+	wrap := func(c *exec.Cmd) (*exec.Cmd, error) {
+		if spawns.Add(1) > 2 {
+			return nil, errors.New("reconnect spawn blocked")
+		}
+		return c, nil
+	}
+
+	cfg := config.MCPConfig{
+		Enabled: true,
+		Servers: map[string]config.MCPServerConfig{
+			"fixture": {
+				Enabled: true,
+				Command: fixtureBin,
+				Env: map[string]string{
+					"STEINER_FIXTURE_ENABLE_DIE": "1",
+					"STEINER_FIXTURE_RECORD":     record,
+				},
+			},
+		},
+	}
+
+	m := Connect(context.Background(), cfg, config.LimitsConfig{}, wrap, ConnectOptions{WarnFn: func(string) {}, InfoFn: func(string) {}, Stderr: io.Discard})
+	defer m.Close() //nolint:errcheck
+	waitInit(t, m)
+	m.UpdateApprover(allowApprover())
+	if st := stateByName(m.ServerStates(), "fixture"); st == nil || st.Status != ServerStatusConnected {
+		t.Fatalf("initial state = %+v, want connected", st)
+	}
+
+	m.mu.Lock()
+	sessions := append([]*Session(nil), m.sessions...)
+	m.mu.Unlock()
+	if len(sessions) != 1 {
+		t.Fatalf("manager holds %d sessions, want 1", len(sessions))
+	}
+	session := sessions[0]
+
+	held := make(chan struct{})
+	released := make(chan struct{})
+	delivered := make(chan struct{})
+	session.onStatus = func(report StatusReport) {
+		if report.Status == ServerStatusConnected {
+			// Exactly one attempt connects in this scenario: the retry cap
+			// fails every later respawn.
+			close(held)
+			<-released
+			defer close(delivered)
+		}
+		m.updateServerStatus(session.Name(), report, func() {})
+	}
+
+	// First disconnect: the worker respawns the server, commits, and blocks in
+	// the gate with its connected report.
+	if _, err := findTool(t, m.ToolDefs(), "mcp__fixture__die").Handler(context.Background(), nil); err == nil {
+		t.Fatal("die call returned nil error, want a disconnect error")
+	}
+	select {
+	case <-held:
+	case <-time.After(10 * time.Second):
+		t.Fatal("connected report was never delivered")
+	}
+	if st := stateByName(m.ServerStates(), "fixture"); st == nil || st.Status != ServerStatusReconnecting {
+		t.Fatalf("state while the connected report is held = %+v, want reconnecting", st)
+	}
+
+	// Second disconnect: the newer unavailable report lands while the connected
+	// report is still held.
+	if _, err := findTool(t, m.ToolDefs(), "mcp__fixture__die").Handler(context.Background(), nil); err == nil {
+		t.Fatal("second die call returned nil error, want a disconnect error")
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if st := stateByName(m.ServerStates(), "fixture"); st != nil && st.Status == ServerStatusUnavailable {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never became unavailable while the connected report was held: %+v", stateByName(m.ServerStates(), "fixture"))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(released)
+	select {
+	case <-delivered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("released connected report was never applied")
+	}
+
+	if st := stateByName(m.ServerStates(), "fixture"); st == nil || st.Status != ServerStatusUnavailable {
+		t.Fatalf("state after the released connected report = %+v, want unavailable", st)
+	}
+}
+
 // transitionRecorder captures the status transitions of one server from
 // onStateChange callbacks. name must be set before Connect (the callback may
 // fire from the connect goroutine); the manager is stored afterwards via an

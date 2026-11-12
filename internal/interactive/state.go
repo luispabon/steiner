@@ -258,10 +258,14 @@ type ApprovalCoordinator struct {
 	queue []*pendingApproval
 }
 
-// Begin registers a new pending approval request and returns a channel that
-// will receive the decision once the client submits one.
-func (c *ApprovalCoordinator) Begin(identity, toolName, mode, kind, agentID string) chan SubmitApproval {
+// Begin registers a new pending approval request and returns its unique
+// identity plus the channel that receives the decision. The identity is
+// generated here, so two requests that share an agent scope and provider call
+// ID never share a coordinator key, and an event can only resolve the request
+// that produced it.
+func (c *ApprovalCoordinator) Begin(toolName, mode, kind, agentID string) (string, chan SubmitApproval) {
 	response := make(chan SubmitApproval, 1)
+	identity := tool.NewApprovalRequestID()
 	c.mu.Lock()
 	c.queue = append(c.queue, &pendingApproval{
 		identity: identity,
@@ -272,7 +276,7 @@ func (c *ApprovalCoordinator) Begin(identity, toolName, mode, kind, agentID stri
 		response: response,
 	})
 	c.mu.Unlock()
-	return response
+	return identity, response
 }
 
 // Finish unregisters the pending approval associated with the given response
@@ -329,6 +333,26 @@ func (c *ApprovalCoordinator) HeadIdentity() string {
 		}
 	}
 	return ""
+}
+
+// Snapshot returns the FIFO head identity and the identities of every
+// registered approval request, in queue order, from one view of the queue. The
+// head is empty when every registered request already has a decision, so a
+// caller can tell a coordinated queue with nothing left to prompt from a
+// missing coordinator by whether it implements this view at all. Because both
+// values come from a single lock acquisition, the head is either empty or
+// present in identities even when a Finish races the snapshot.
+func (c *ApprovalCoordinator) Snapshot() (head string, identities []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	identities = make([]string, 0, len(c.queue))
+	for _, pending := range c.queue {
+		identities = append(identities, pending.identity)
+		if head == "" && !pending.claimed {
+			head = pending.identity
+		}
+	}
+	return head, identities
 }
 
 // HasPending reports whether an approval request is currently awaiting a

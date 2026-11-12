@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -78,10 +79,20 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 		cfg.BaseURL = codexChatGPTBackendURL
 		cfg.APIKey = auth.AccessToken
 		cfg.Headers = cloneStringMap(cfg.Headers)
-		cfg.Headers["ChatGPT-Account-ID"] = auth.AccountID
+		setHeaderReplacingCaseVariants(cfg.Headers, "ChatGPT-Account-ID", auth.AccountID)
 	}
 	if !isCodexWSDispatch(rm) {
 		return newCodexResponses(cfg)
+	}
+	// A WebSocket provider outlives this build: releases and evictions make it
+	// redial long after the token read above, so it resolves the stored sign-in
+	// again on every dial instead of replaying an expired bearer. The identity of
+	// this build's sign-in is passed explicitly, so a later dial can reject a
+	// re-login to another account or auth mode.
+	signIn := auth.SignInIdentity()
+	cfg.CodexSignIn = &signIn
+	cfg.DialBearerResolver = func(ctx context.Context) (provider.CodexAuth, error) {
+		return provider.ResolveCodexAuth(ctx, httpClient)
 	}
 	return newCodexResponsesWS(cfg)
 }
@@ -135,4 +146,18 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[key] = value
 	}
 	return dst
+}
+
+// setHeaderReplacingCaseVariants sets name to value after deleting every key
+// that matches it without regard to case. A plain assignment would leave a
+// user-configured "chatgpt-account-id" next to the injected
+// "ChatGPT-Account-ID"; both canonicalise to one wire header, so map iteration
+// order would decide which account ID is sent alongside the bearer.
+func setHeaderReplacingCaseVariants(headers map[string]string, name, value string) {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			delete(headers, key)
+		}
+	}
+	headers[name] = value
 }

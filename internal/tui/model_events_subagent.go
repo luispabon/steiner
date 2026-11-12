@@ -10,7 +10,9 @@ import (
 
 // applySubAgentEvent applies an event scoped to a sub-agent. Sub-agent events
 // update delegation transcript segments only. They must not overwrite the main
-// agent's sidebar, status bar, or activity state.
+// agent's sidebar, status bar, or activity state. Approval events are the
+// exception: they reach the same tray and coordinator FIFO as parent approvals,
+// keyed by their scope-qualified identity.
 func (m *Model) applySubAgentEvent(event output.Event) tea.Cmd {
 	if event.Type == output.EventTypeDelegationWorktreeDisposal {
 		if payload, ok := event.Payload.(output.DelegationWorktreeDisposalEvent); ok {
@@ -34,7 +36,12 @@ func (m *Model) applySubAgentEvent(event output.Event) tea.Cmd {
 		}
 	}
 	if event.Type != output.EventTypeHistoryLoaded {
+		m.syncApprovalHead()
 		m.content.AppendEvent(event)
+	}
+	if payload, ok := event.Payload.(output.ApprovalEvent); ok {
+		m.applyApprovalEvent(event, payload)
+		m.syncInputChrome()
 	}
 	var cmds []tea.Cmd
 	if shouldRefreshGit(event) {

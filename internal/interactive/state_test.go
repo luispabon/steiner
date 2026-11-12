@@ -110,9 +110,9 @@ func TestActiveRunControllerSteerQueue(t *testing.T) {
 
 func TestApprovalCoordinatorQueue(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	head := coord.Begin("head", "head", "", "", "code")
-	middle := coord.Begin("middle", "middle", "", "", "review")
-	tail := coord.Begin("tail", "tail", "", "", "plan")
+	headID, head := coord.Begin("head", "", "", "code")
+	_, middle := coord.Begin("middle", "", "", "review")
+	tailID, tail := coord.Begin("tail", "", "", "plan")
 	if !coord.HasPending() || coord.PendingDepth() != 3 {
 		t.Fatalf("pending state = %v/%d, want true/3", coord.HasPending(), coord.PendingDepth())
 	}
@@ -121,7 +121,7 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	if coord.PendingDepth() != 2 {
 		t.Fatalf("depth after middle Finish = %d, want 2", coord.PendingDepth())
 	}
-	coord.Submit(SubmitApproval{Identity: "head", Tool: "head", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: headID, Tool: "head", Decision: "allow_once"})
 	if got := (<-head).Decision; got != "allow_once" {
 		t.Errorf("head decision = %q, want allow_once", got)
 	}
@@ -131,7 +131,7 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	default:
 	}
 	coord.Finish(head)
-	coord.Submit(SubmitApproval{Identity: "tail", Tool: "tail", Decision: "deny"})
+	coord.Submit(SubmitApproval{Identity: tailID, Tool: "tail", Decision: "deny"})
 	if got := (<-tail).Decision; got != "deny" {
 		t.Errorf("tail decision = %q, want deny", got)
 	}
@@ -141,13 +141,96 @@ func TestApprovalCoordinatorQueue(t *testing.T) {
 	}
 }
 
+// Snapshot returns the head and every registered identity from one view of the
+// queue, so a terminal reset preserves all live controls, including claimed
+// requests that have not unregistered yet.
+func TestApprovalCoordinatorSnapshot(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	headID, head := coord.Begin("head", "", "", "code")
+	middleID, middle := coord.Begin("middle", "", "", "review")
+	tailID, tail := coord.Begin("tail", "", "", "plan")
+
+	assertSnapshot := func(stage, wantHead string, wantIdentities ...string) {
+		t.Helper()
+		hend, identities := coord.Snapshot()
+		if hend != wantHead {
+			t.Fatalf("%s: head = %q, want %q", stage, hend, wantHead)
+		}
+		if len(identities) != len(wantIdentities) {
+			t.Fatalf("%s: identities = %v, want %v", stage, identities, wantIdentities)
+		}
+		for i := range wantIdentities {
+			if identities[i] != wantIdentities[i] {
+				t.Fatalf("%s: identities = %v, want %v", stage, identities, wantIdentities)
+			}
+		}
+	}
+	assertSnapshot("all registered", headID, headID, middleID, tailID)
+
+	coord.Submit(SubmitApproval{Identity: middleID, Tool: "middle", Decision: "allow_once"})
+	assertSnapshot("claimed stays registered", headID, headID, middleID, tailID)
+
+	// A snapshot is a copy: later registrations and finishes do not mutate it.
+	snapshotHead, snapshot := coord.Snapshot()
+	coord.Finish(middle)
+	assertSnapshot("after middle Finish", headID, headID, tailID)
+	if len(snapshot) != 3 {
+		t.Fatalf("earlier snapshot identities = %v, want the three registrations it was taken with", snapshot)
+	}
+	if snapshotHead != headID {
+		t.Fatalf("earlier snapshot head = %q, want %q", snapshotHead, headID)
+	}
+
+	// Claiming every remaining request leaves the queue registered but without
+	// an unclaimed head; that is distinct from having no coordinator at all.
+	coord.Submit(SubmitApproval{Identity: headID, Tool: "head", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: tailID, Tool: "tail", Decision: "deny"})
+	assertSnapshot("every request claimed", "", headID, tailID)
+
+	coord.Finish(head)
+	coord.Finish(tail)
+	assertSnapshot("after all Finish", "")
+}
+
+// A snapshot taken while requests register and finish must stay coherent: the
+// head is empty or present in the identities, and identities never repeat.
+func TestApprovalCoordinatorSnapshotConcurrentFinish(t *testing.T) {
+	coord := &ApprovalCoordinator{}
+	const rounds = 64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < rounds; i++ {
+			_, ch := coord.Begin("write", "", "", "")
+			coord.Finish(ch)
+		}
+	}()
+	for i := 0; i < rounds; i++ {
+		head, identities := coord.Snapshot()
+		seen := make(map[string]bool)
+		for _, identity := range identities {
+			if seen[identity] {
+				t.Fatalf("snapshot repeated identity %q", identity)
+			}
+			seen[identity] = true
+		}
+		if head != "" && !seen[head] {
+			t.Fatalf("snapshot head %q missing from identities %v", head, identities)
+		}
+	}
+	<-done
+	if head, identities := coord.Snapshot(); head != "" || len(identities) != 0 {
+		t.Fatalf("snapshot after every Finish = (%q, %v), want (\"\", none)", head, identities)
+	}
+}
+
 func TestApprovalCoordinatorDuplicateSubmitClaimsOnlyHead(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	head := coord.Begin("head-id", "head", "", "", "")
-	tail := coord.Begin("tail-id", "tail", "", "", "")
+	headID, head := coord.Begin("head", "", "", "")
+	tailID, tail := coord.Begin("tail", "", "", "")
 
-	coord.Submit(SubmitApproval{Identity: "head-id", Tool: "head", Decision: "first"})
-	coord.Submit(SubmitApproval{Identity: "head-id", Tool: "head", Decision: "duplicate"})
+	coord.Submit(SubmitApproval{Identity: headID, Tool: "head", Decision: "first"})
+	coord.Submit(SubmitApproval{Identity: headID, Tool: "head", Decision: "duplicate"})
 
 	if got := (<-head).Decision; got != "first" {
 		t.Fatalf("head decision = %q, want first", got)
@@ -157,55 +240,59 @@ func TestApprovalCoordinatorDuplicateSubmitClaimsOnlyHead(t *testing.T) {
 		t.Fatalf("tail received stale decision %q", got.Decision)
 	default:
 	}
-	if got := coord.HeadIdentity(); got != "tail-id" {
-		t.Fatalf("head identity = %q, want tail-id", got)
+	if got := coord.HeadIdentity(); got != tailID {
+		t.Fatalf("head identity = %q, want %q", got, tailID)
 	}
 }
 
 func TestApprovalCoordinatorDuplicateSameToolIdentityDoesNotAdvanceTail(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	first := coord.Begin("call-1", "bash", "", "", "")
-	second := coord.Begin("call-2", "bash", "", "", "")
+	firstID, first := coord.Begin("bash", "", "", "")
+	secondID, second := coord.Begin("bash", "", "", "")
 
-	coord.Submit(SubmitApproval{Identity: "call-1", Tool: "bash", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: firstID, Tool: "bash", Decision: "allow_once"})
 	if got := <-first; got.Decision != "allow_once" {
 		t.Fatalf("first decision = %q, want allow_once", got.Decision)
 	}
 	for i := 0; i < 2; i++ {
-		coord.Submit(SubmitApproval{Identity: "call-1", Tool: "bash", Decision: "duplicate"})
+		coord.Submit(SubmitApproval{Identity: firstID, Tool: "bash", Decision: "duplicate"})
 	}
 	select {
 	case got := <-second:
 		t.Fatalf("second received duplicate decision %q", got.Decision)
 	default:
 	}
-	if got := coord.HeadIdentity(); got != "call-2" {
-		t.Fatalf("head identity = %q, want call-2", got)
+	if got := coord.HeadIdentity(); got != secondID {
+		t.Fatalf("head identity = %q, want %q", got, secondID)
 	}
 }
 
 func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 	coord := &ApprovalCoordinator{}
 	started := make(chan struct {
+		name     string
 		identity string
 		ch       chan SubmitApproval
 	}, 2)
 	for _, name := range []string{"a", "b"} {
 		n := name
 		go func() {
+			identity, ch := coord.Begin(n, "", "", "")
 			started <- struct {
+				name     string
 				identity string
 				ch       chan SubmitApproval
-			}{identity: n, ch: coord.Begin(n, n, "", "", "")}
+			}{name: n, identity: identity, ch: ch}
 		}()
 	}
-	channelA := <-started
-	channelB := <-started
-	if channelA.identity == "b" {
+	first := <-started
+	second := <-started
+	channelA, channelB := first, second
+	if channelA.name != "a" {
 		channelA, channelB = channelB, channelA
 	}
 
-	coord.Submit(SubmitApproval{Identity: "a", Decision: "first"})
+	coord.Submit(SubmitApproval{Identity: channelA.identity, Decision: "first"})
 	select {
 	case got := <-channelA.ch:
 		if got.Decision != "first" {
@@ -216,7 +303,7 @@ func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 	}
 	coord.Finish(channelA.ch)
 
-	coord.Submit(SubmitApproval{Identity: "b", Decision: "second"})
+	coord.Submit(SubmitApproval{Identity: channelB.identity, Decision: "second"})
 	select {
 	case got := <-channelB.ch:
 		if got.Decision != "second" {
@@ -230,8 +317,8 @@ func TestApprovalCoordinatorConcurrentBeginAndSubmit(t *testing.T) {
 
 func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {
 	coord := &ApprovalCoordinator{}
-	a := coord.Begin("a", "a", "", "", "")
-	b := coord.Begin("b", "b", "", "", "")
+	_, a := coord.Begin("a", "", "", "")
+	bID, b := coord.Begin("b", "", "", "")
 	finishStarted := make(chan struct{})
 	finishDone := make(chan struct{})
 	go func() {
@@ -240,7 +327,7 @@ func TestApprovalCoordinatorSubmitFinishRace(t *testing.T) {
 		close(finishDone)
 	}()
 	<-finishStarted
-	coord.Submit(SubmitApproval{Identity: "b", Tool: "b", Decision: "allow_once"})
+	coord.Submit(SubmitApproval{Identity: bID, Tool: "b", Decision: "allow_once"})
 	<-finishDone
 	select {
 	case got := <-b:

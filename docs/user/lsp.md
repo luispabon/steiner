@@ -94,9 +94,10 @@ Steiner builds the server environment from its own environment and the server's 
 
 ## Lifecycle
 
-- A server starts on the first tool call that needs it, waits up to `lsp.ready_timeout` to finish starting, and stops after `lsp.idle_timeout` without requests.
+- A server starts on the first tool call that needs it, waits up to `lsp.ready_timeout` to finish starting, and stops after `lsp.idle_timeout` with no requests in progress. A request that is running, waiting for the server to become ready, or queued behind another request keeps the server alive even past that timeout.
 - Each request is bounded by `lsp.request_timeout`.
 - A server that crashes is started again on the next call. A server that fails to start is retried after 30 seconds.
+- Closing steiner shuts down running servers. A server still starting when shutdown begins is shut down instead of being kept, and a server that stops responding is terminated instead of waited on for a graceful reply. Shutdown is not a hard time limit: when a server's transport stalls outright, closing it can still take longer than the shutdown deadline.
 - `/lsp` in the TUI lists running and configured servers. The sidebar shows an LSP row once a server is active: green when ready, a spinner while starting, red after a failure.
 
 ## Diagnostics after edits

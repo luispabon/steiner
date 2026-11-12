@@ -145,10 +145,10 @@ func TestManagerSessionSurvivesRequestContextCancellation(t *testing.T) {
 
 // TestManagerIdleReapRespawnsSession pins the idle-reaping behavior this test
 // actually exercises: an idle session is closed (its process exits) and a
-// later request for the same file spawns a fresh, usable session. It does
-// not exercise in-flight request survival, since the manager has no
-// mechanism that tracks or protects requests in flight against the reaper -
-// only entry.LastUsed, refreshed at the start of entryFor, guards reaping.
+// later request for the same file spawns a fresh, usable session. The entryFor
+// test shim releases its lease immediately, so the session is idle as soon as
+// the lookup returns; in-flight document cycles hold a lease that the reaper
+// honours (TestDoReapSkipsLeasedEntry).
 func TestManagerIdleReapRespawnsSession(t *testing.T) {
 	t.Parallel()
 	tmpdir := t.TempDir()

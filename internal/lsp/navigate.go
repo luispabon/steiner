@@ -74,12 +74,13 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 		}
 	}
 
-	ent, sess, err := m.entryFor(ctx, file)
+	ent, sess, lease, err := m.acquireEntry(ctx, file)
 	if err != nil {
 		return Result{}, err
 	}
+	defer lease.Release()
 
-	incomplete, err := m.awaitReady(ctx, ent)
+	incomplete, err := m.awaitReadySession(ctx, lease.readiness, sess)
 	if err != nil {
 		return Result{}, err
 	}
@@ -154,13 +155,14 @@ func (m *Manager) Hover(ctx context.Context, file string, line, col int) (HoverR
 	}
 
 	// Get the entry so we can lock the cycle.
-	ent, sess, err := m.entryFor(ctx, file)
+	ent, sess, lease, err := m.acquireEntry(ctx, file)
 	if err != nil {
 		return HoverResult{}, err
 	}
+	defer lease.Release()
 
 	// Await readiness (but don't hold the lock during the wait).
-	incomplete, err := m.awaitReady(ctx, ent)
+	incomplete, err := m.awaitReadySession(ctx, lease.readiness, sess)
 	if err != nil {
 		return HoverResult{}, err
 	}
@@ -279,12 +281,13 @@ func (m *Manager) documentSymbolCacheKey(file string) (cacheKey, bool) {
 // fetchDocumentSymbols resolves a session for file, awaits readiness, and
 // issues a textDocument/documentSymbol request, returning the sorted result.
 func (m *Manager) fetchDocumentSymbols(ctx context.Context, file string) ([]SymbolInfo, bool, error) {
-	ent, sess, err := m.entryFor(ctx, file)
+	ent, sess, lease, err := m.acquireEntry(ctx, file)
 	if err != nil {
 		return nil, false, err
 	}
+	defer lease.Release()
 
-	incomplete, err := m.awaitReady(ctx, ent)
+	incomplete, err := m.awaitReadySession(ctx, lease.readiness, sess)
 	if err != nil {
 		return nil, false, err
 	}
@@ -382,12 +385,13 @@ func (m *Manager) workspaceSymbolsForServer(ctx context.Context, name, query str
 		key = sessionKey{server: name, root: resolveWorkspaceRoot(m.workspace, srv.RootMarkers)}
 	}
 
-	ent, sess, err := m.entryForKey(ctx, name, srv, key)
+	ent, sess, lease, err := m.acquireEntryForKey(ctx, name, srv, key)
 	if err != nil {
 		return nil, false, false
 	}
+	defer lease.Release()
 
-	incomplete, err = m.awaitReady(ctx, ent)
+	incomplete, err = m.awaitReadySession(ctx, lease.readiness, sess)
 	if err != nil {
 		return nil, false, false
 	}

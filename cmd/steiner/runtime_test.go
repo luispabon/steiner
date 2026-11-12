@@ -136,6 +136,26 @@ func TestCloseRuntimeClosesClaudeSubscriptionPool(t *testing.T) {
 	}
 }
 
+func TestCloseRuntimeClosesCodexWSCache(t *testing.T) {
+	cache := provider.NewCodexWSCache()
+	rt := cliRuntime{codexWSProviderCache: cache, events: output.NoopSink{}}
+	if _, err := provider.NewCachingCodexWS(cache, "gen-1", "codex|gen-1", func() (provider.Provider, error) {
+		return &fakeProvider{}, nil
+	}); err != nil {
+		t.Fatalf("NewCachingCodexWS: %v", err)
+	}
+
+	closeRuntime(&rt)
+	closeRuntime(&rt)
+
+	if _, err := provider.NewCachingCodexWS(cache, "gen-1", "codex|gen-1", func() (provider.Provider, error) {
+		t.Error("build called on a cache closed by closeRuntime")
+		return &fakeProvider{}, nil
+	}); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("acquisition after closeRuntime error = %v, want a closed-cache error", err)
+	}
+}
+
 // TestBuildInteractiveRuntimeWiresMCPApprover pins the ordering inside
 // buildInteractiveRuntime: the MCP approver must be installed BEFORE the
 // registry is built. The registry copies ToolDef values (handler closures
@@ -167,13 +187,25 @@ func TestBuildInteractiveRuntimeWiresMCPApprover(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Without a tool call ID the request cannot be correlated with a decision,
+	// so the approver fails closed instead of hanging on the prompt.
+	env, handlerErr := def.Handler(ctx, map[string]any{"text": "hi"})
+	envelope, isEnv := env.(tool.JSONEnvelope)
+	if !isEnv || envelope.Error == nil || envelope.Error.Kind != "approval_denied" {
+		t.Fatalf("no-call-ID handler result = %#v (err %v), want approval_denied", env, handlerErr)
+	}
+
+	// A real call ID reaches the interactive approver wired before registry
+	// construction and blocks on the approval prompt.
+	callCtx := context.WithValue(ctx, tool.ExecutionCallIDKey{}, "call-mcp-approval")
+
 	type outcome struct {
 		env any
 		err error
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		env, handlerErr := def.Handler(ctx, map[string]any{"text": "hi"})
+		env, handlerErr := def.Handler(callCtx, map[string]any{"text": "hi"})
 		done <- outcome{env: env, err: handlerErr}
 	}()
 
