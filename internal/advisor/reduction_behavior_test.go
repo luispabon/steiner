@@ -282,12 +282,13 @@ func TestReductionLedgerReplayAppendDivergenceAndInFlight(t *testing.T) {
 		{Role: provider.MessageRoleTool, Name: "bash", ToolCallID: "b1", Content: "long output"},
 	}
 	replay := replayReductionLedger(transcript, nil)
+	hashes := replay.sourceHashes()
 	entries := []reductionLedgerEntry{
-		{sourceHash: replay.hashes[0]},
-		{sourceHash: replay.hashes[1], replacement: "stub", stage: reductionStageStub},
+		{sourceHash: hashes[0]},
+		{sourceHash: hashes[1], replacement: "stub", stage: reductionStageStub},
 	}
 	replayed := replayReductionLedger(transcript, entries)
-	if !replayed.changed || replayed.transcript[1].Content != "stub" || replayed.valid != 2 {
+	if replayed.transcript[1].Content != "stub" || replayed.valid != 2 || replayed.stages[1] != reductionStageStub {
 		t.Fatalf("initial replay = %#v, want frozen stub", replayed)
 	}
 
@@ -300,21 +301,21 @@ func TestReductionLedgerReplayAppendDivergenceAndInFlight(t *testing.T) {
 	changedFirst := append([]provider.Message(nil), transcript...)
 	changedFirst[0].Content = "compacted"
 	replayed = replayReductionLedger(changedFirst, entries)
-	if replayed.valid != 0 || replayed.changed {
+	if replayed.valid != 0 || replayed.transcript[1].Content != "long output" {
 		t.Fatalf("index0 divergence = %#v, want cleared ledger", replayed)
 	}
 
 	changedSecond := append([]provider.Message(nil), transcript...)
 	changedSecond[1].Content = "different"
 	replayed = replayReductionLedger(changedSecond, entries)
-	if replayed.valid != 1 || replayed.changed {
+	if replayed.valid != 1 || replayed.transcript[1].Content != "different" {
 		t.Fatalf("later divergence = %#v, want only prefix valid", replayed)
 	}
 
 	transcriptWithInflight := append(append([]provider.Message(nil), transcript...), provider.Message{Role: provider.MessageRoleAssistant, Content: "in flight"})
-	base, inFlight := splitTranscript(transcriptWithInflight)
+	base, inFlight := splitTrailingAssistant(transcriptWithInflight)
 	if inFlight == nil || inFlight.Content != "in flight" || len(base) != len(transcript) {
-		t.Fatalf("splitTranscript() = %#v, %#v", base, inFlight)
+		t.Fatalf("splitTrailingAssistant() = %#v, %#v", base, inFlight)
 	}
 	replayed = replayReductionLedger(base, entries)
 	if replayed.valid != 2 || replayed.transcript[1].Content != "stub" {
@@ -344,7 +345,8 @@ func TestSharedStateReductionScopeIsolationAndLRU(t *testing.T) {
 func TestSharedStateReductionLedgerConcurrentAccess(t *testing.T) {
 	state := NewSharedState()
 	transcript := []provider.Message{{Role: provider.MessageRoleUser, Content: "concurrent"}}
-	hashes := replayReductionLedger(transcript, nil).hashes
+	baseReplay := replayReductionLedger(transcript, nil)
+	hashes := baseReplay.sourceHashes()
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(1)
@@ -367,7 +369,7 @@ func TestSharedStateReductionLedgerConcurrentAccess(t *testing.T) {
 			t.Fatalf("scope %q ledger = %#v, want one matching entry after concurrent stores", scope, view)
 		}
 		replay := replayReductionLedger(transcript, view.entries)
-		if replay.valid != len(transcript) || replay.changed {
+		if replay.valid != len(transcript) {
 			t.Fatalf("scope %q replay = %#v, want a valid unchanged transcript", scope, replay)
 		}
 	}

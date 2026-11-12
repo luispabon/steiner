@@ -3,6 +3,7 @@ package advisor
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/provider"
@@ -138,6 +139,17 @@ func flattenToolMessages(messages []provider.Message) []provider.Message {
 	return out
 }
 
+// splitTrailingAssistant separates a trailing assistant message from the
+// stable transcript before it. That message is the parent assistant turn still
+// in flight while an advisor call runs, so callers render it separately.
+func splitTrailingAssistant(messages []provider.Message) ([]provider.Message, *provider.Message) {
+	if n := len(messages); n > 0 && messages[n-1].Role == provider.MessageRoleAssistant {
+		inFlight := messages[n-1]
+		return messages[:n-1], &inFlight
+	}
+	return messages, nil
+}
+
 // renderAdvisorFiles renders the caller-supplied files as labelled fenced
 // code blocks, capping each file and the aggregate payload independently so
 // the advisor suffix stays bounded regardless of how large the underlying
@@ -147,10 +159,38 @@ func renderAdvisorFiles(files []advisorFile) string {
 		return ""
 	}
 	var sb strings.Builder
+	writeAdvisorFiles(&sb, files)
+	return sb.String()
+}
+
+// advisorFilesRenderedLen returns the exact byte length renderAdvisorFiles
+// would produce without allocating the rendered payload.
+func advisorFilesRenderedLen(files []advisorFile) int {
+	if len(files) == 0 {
+		return 0
+	}
+	var counter countingWriter
+	writeAdvisorFiles(&counter, files)
+	return counter.n
+}
+
+// countingWriter discards written bytes and counts them.
+type countingWriter struct{ n int }
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	w.n += len(p)
+	return len(p), nil
+}
+
+// writeAdvisorFiles writes the rendered files through w so rendering and
+// length probing share the exact formatting, caps, and elision logic. Both
+// sinks are in-memory and cannot fail, so write errors are intentionally
+// ignored.
+func writeAdvisorFiles(w io.Writer, files []advisorFile) {
 	remaining := maxAdvisorFilesTotalBytes
 	for _, f := range files {
 		if f.Deduped {
-			fmt.Fprintf(&sb, "File: %s (already fully present above from an earlier read in this conversation; content unchanged)\n\n", f.DisplayPath)
+			_, _ = fmt.Fprintf(w, "File: %s (already fully present above from an earlier read in this conversation; content unchanged)\n\n", f.DisplayPath)
 			continue
 		}
 		content := elideKnownTotal(f.Content, maxAdvisorFileBytes, f.TotalBytes)
@@ -161,9 +201,8 @@ func renderAdvisorFiles(files []advisorFile) string {
 		if remaining < 0 {
 			remaining = 0
 		}
-		fmt.Fprintf(&sb, "File: %s\n```\n%s\n```\n\n", f.DisplayPath, content)
+		_, _ = fmt.Fprintf(w, "File: %s\n```\n%s\n```\n\n", f.DisplayPath, content)
 	}
-	return sb.String()
 }
 
 // buildMessages assembles the advisor request. The conversation snapshot is
@@ -173,16 +212,14 @@ func renderAdvisorFiles(files []advisorFile) string {
 // after it so the prefix stays position-stable across calls regardless of
 // what artifacts a caller passes.
 func buildMessages(snapshot []provider.Message, question string, files []advisorFile) []provider.Message {
-	transcript := flattenToolMessages(snapshot)
+	transcript, inFlightMessage := splitTrailingAssistant(flattenToolMessages(snapshot))
 
-	// A trailing assistant message is the parent message that is still in
-	// flight while this advisor call runs. Move its text to the final user
-	// message so the cached prefix ends on a message whose rendering never
-	// changes between advisor calls.
+	// The in-flight assistant message text moves to the final user message so
+	// the cached prefix ends on a message whose rendering never changes
+	// between advisor calls.
 	var inFlight string
-	if n := len(transcript); n > 0 && transcript[n-1].Role == provider.MessageRoleAssistant {
-		inFlight = strings.TrimSpace(transcript[n-1].Content)
-		transcript = transcript[:n-1]
+	if inFlightMessage != nil {
+		inFlight = strings.TrimSpace(inFlightMessage.Content)
 	}
 
 	messages := make([]provider.Message, 0, len(transcript)+2)

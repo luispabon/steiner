@@ -21,19 +21,20 @@ const (
 	reductionClipTailBytes = reductionClipBytes - reductionClipHeadBytes
 )
 
-// delegationToolNames mirrors delegation.SubAgentToolName and
-// delegation.FollowUpToolName. internal/delegation imports this package, so a
-// direct import would cycle; the names are part of the provider-facing tool
-// contract and are already restated in docs. Results from these tools carry
-// child work that the advisor must see in full. Prior advisor notes are
-// protected the same way because they are distilled guidance.
-var delegationToolNames = map[string]bool{
+// protectedToolNames lists tool results the advisor must always see in full:
+// child-agent work, prior advisor notes, and mutate receipts. internal/delegation
+// imports this package, so the delegation names are restated here rather than
+// imported; they are already part of the provider-facing tool contract and are
+// documented. Mutate receipts prove what actually changed on disk, so reducing
+// them would hide the evidence the advisor reasons about.
+var protectedToolNames = map[string]bool{
 	"sub_agent": true,
 	"follow_up": true,
+	"mutate":    true,
 }
 
 func isProtectedToolName(name string) bool {
-	return name == ToolName || isDelegationToolName(name)
+	return name == ToolName || protectedToolNames[name]
 }
 
 type toolClassification struct {
@@ -85,37 +86,6 @@ func classifyToolResults(transcript []provider.Message) toolClassification {
 	return classification
 }
 
-func isDelegationToolName(name string) bool {
-	return name != "" && delegationToolNames[name]
-}
-
-// fullReadKey identifies a full-file read without relying on file_hash, which
-// normalizes trailing whitespace and cannot prove byte equality.
-type fullReadKey struct {
-	path   string
-	output string
-}
-
-func fullReadIdentity(message provider.Message, name string) (fullReadKey, bool) {
-	if name != "read" {
-		return fullReadKey{}, false
-	}
-	var result builtin.ReadResult
-	if err := json.Unmarshal([]byte(message.Content), &result); err != nil {
-		return fullReadKey{}, false
-	}
-	if result.Image != nil || result.NextOffset != 0 || result.TotalLines == 0 {
-		return fullReadKey{}, false
-	}
-	if result.StartLine != 1 || result.EndLine != result.TotalLines {
-		return fullReadKey{}, false
-	}
-	if result.Output == "" || strings.Contains(result.Output, builtin.LineTruncationMarker) {
-		return fullReadKey{}, false
-	}
-	return fullReadKey{path: result.Path, output: result.Output}, true
-}
-
 // protectedTail marks ordinary tool results that fall inside the most recent
 // tailByte bytes of tool output. Those results stay untouched so the advisor
 // keeps the freshest evidence.
@@ -139,62 +109,6 @@ func tokensForBytes(bytes int, ratio float64) int {
 	return int(math.Ceil(float64(bytes) * ratio))
 }
 
-// dedupeAttachments drops requested file content only when an untouched full
-// read of that file remains in the reduced transcript and its Output matches
-// the file bytes exactly. It deliberately avoids file_hash, which normalizes
-// trailing whitespace. Any uncertainty leaves the attachment in place.
-func dedupeAttachments(files []advisorFile, transcript []provider.Message, stages []reductionStage, workDir string) []advisorFile {
-	if len(files) == 0 {
-		return nil
-	}
-	cloned := append([]advisorFile(nil), files...)
-	for i := range cloned {
-		file := &cloned[i]
-		if file.TotalBytes > maxAdvisorFileBytes || len(file.Content) != file.TotalBytes {
-			continue
-		}
-		if !hasUntouchedFullReadBytes(transcript, stages, file.DisplayPath, file.Content, workDir) {
-			continue
-		}
-		file.Content = ""
-		file.Deduped = true
-	}
-	return cloned
-}
-
-func hasUntouchedFullReadBytes(transcript []provider.Message, stages []reductionStage, path, content, workDir string) bool {
-	for i := len(transcript) - 1; i >= 0; i-- {
-		if i < len(stages) && stages[i] != reductionStageNone {
-			continue
-		}
-		message := transcript[i]
-		if message.Role != provider.MessageRoleTool || message.Name != "read" {
-			continue
-		}
-		var result builtin.ReadResult
-		if err := json.Unmarshal([]byte(message.Content), &result); err != nil {
-			continue
-		}
-		if result.Image != nil || result.NextOffset != 0 || result.TotalLines == 0 {
-			continue
-		}
-		if result.StartLine != 1 || result.EndLine != result.TotalLines {
-			continue
-		}
-		if strings.Contains(result.Output, builtin.LineTruncationMarker) {
-			continue
-		}
-		if relDisplayPath(workDir, result.Path) != path {
-			continue
-		}
-		if result.Output != content {
-			continue
-		}
-		return true
-	}
-	return false
-}
-
 type reductionPlanInput struct {
 	transcript    []provider.Message
 	stages        []reductionStage
@@ -208,7 +122,6 @@ type reductionPlan struct {
 	transcript    []provider.Message
 	stages        []reductionStage
 	references    []int
-	savedBytes    int
 	savedTokens   int
 	appliedStages []string
 }
@@ -303,7 +216,6 @@ func (p *reductionPlanner) tryApply(index int, stage reductionStage, replacement
 	}
 	p.contentSavings += len(oldContent) - len(replacement)
 	p.appliedTokens = netTokens
-	p.plan.savedBytes = netBytes
 	p.plan.savedTokens = netTokens
 	p.recordStage(stage)
 	return true
@@ -398,7 +310,6 @@ func (p *reductionPlanner) reconcileReferences() {
 		p.plan.references[i] = -1
 		p.contentSavings += len(oldContent) - len(stub)
 		p.appliedTokens = tokensForBytes(p.contentSavings, p.ratio)
-		p.plan.savedBytes = p.contentSavings
 		p.plan.savedTokens = p.appliedTokens
 		p.recordStage(reductionStageStub)
 	}
@@ -408,14 +319,19 @@ func (p *reductionPlanner) reconcileReferences() {
 // also reduced. It is self-contained and points at no unavailable evidence.
 const unavailableDuplicateStub = "[duplicate read output omitted by advisor context reduction; the earlier copy was also reduced. Re-read the file if you need the content.]"
 
-// outputReplacement changes only Output for structured read and bash results,
-// keeping every other field intact. Unknown tools use the replacement as raw
-// content.
-func outputReplacement(name, content, output string) (string, bool) {
+// rewriteToolOutput decodes a structured read or bash result, transforms only
+// its Output, and re-marshals it with every other field intact. Other tools
+// transform their raw content directly. Malformed structured results are left
+// unchanged.
+func rewriteToolOutput(name, content string, transform func(string) (string, bool)) (string, bool) {
 	switch name {
 	case "read":
 		var result builtin.ReadResult
 		if err := json.Unmarshal([]byte(content), &result); err != nil {
+			return "", false
+		}
+		output, ok := transform(result.Output)
+		if !ok {
 			return "", false
 		}
 		result.Output = output
@@ -427,6 +343,10 @@ func outputReplacement(name, content, output string) (string, bool) {
 	case "bash":
 		var result builtin.BashResult
 		if err := json.Unmarshal([]byte(content), &result); err != nil {
+			return "", false
+		}
+		output, ok := transform(result.Output)
+		if !ok {
 			return "", false
 		}
 		result.Output = output
@@ -436,37 +356,25 @@ func outputReplacement(name, content, output string) (string, bool) {
 		}
 		return string(data), true
 	default:
-		return output, true
+		return transform(content)
 	}
+}
+
+// outputReplacement replaces the Output of a structured read or bash result,
+// or the raw content of an unknown tool.
+func outputReplacement(name, content, output string) (string, bool) {
+	return rewriteToolOutput(name, content, func(string) (string, bool) {
+		return output, true
+	})
 }
 
 // clipOrdinaryToolContent reduces a tool result. Structured read and bash
 // results keep every field except Output; other tool output is clipped as raw
 // text because the advisor flattens it anyway.
 func clipOrdinaryToolContent(name, content string) (string, bool) {
-	switch name {
-	case "read":
-		var result builtin.ReadResult
-		if err := json.Unmarshal([]byte(content), &result); err != nil {
-			return "", false
-		}
-		clipped, changed := clipHeadTail(result.Output, reductionClipBytes)
-		if !changed {
-			return "", false
-		}
-		return outputReplacement(name, content, clipped)
-	case "bash":
-		var result builtin.BashResult
-		if err := json.Unmarshal([]byte(content), &result); err != nil {
-			return "", false
-		}
-		clipped, changed := clipHeadTail(result.Output, reductionClipBytes)
-		if !changed {
-			return "", false
-		}
-		return outputReplacement(name, content, clipped)
-	}
-	return clipHeadTail(content, reductionClipBytes)
+	return rewriteToolOutput(name, content, func(text string) (string, bool) {
+		return clipHeadTail(text, reductionClipBytes)
+	})
 }
 
 // clipHeadTail keeps a UTF-8-safe head and tail of text with an omitted-byte
