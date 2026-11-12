@@ -149,6 +149,17 @@ Memoization (`CompactionFallbackTargets`, `internal/delegation/compaction_fallba
 - The session ID is not part of the key. The provider is built with the session ID of the first call for its key, and later calls with a different session ID reuse it.
 - `Resolve` calls `ResolveModel` on every compaction that reaches it. Only the built target is memoized.
 
+### Cache expiry indicator
+
+The TUI reports the idle deadline that `compactionCacheCold` uses, without waiting for a compaction to run. The cache is presumed cold once `After` has elapsed since the last successful main request.
+
+- `output.ModelCallFinishedEvent` (`internal/output/event_model_call.go`) carries `Success bool` and `CacheColdAt time.Time`. `turnProgressor.executeModelCall` (`internal/agent/turn_progression.go`) emits a successful main call with `Success` true and `CacheColdAt` set to the request start plus `CompactionFallback.After`, when a fallback target is configured and `After` is positive. Otherwise `CacheColdAt` is zero. Failed and cancelled calls report `Success` false and no deadline.
+- `Model` stores the deadline when it handles the event (`applyModelCallFinishedEvent`, `internal/tui/model_events_run.go`). Events between `output.EventTypeReplayStarted` and `output.EventTypeReplayFinished` are skipped, so a resumed session starts without an indicator.
+- A successful model switch, a successful profile switch, and a conversation reset (`resetConversationUI`, `internal/tui/model_update.go`) clear the deadline.
+- `promptCacheStateAt` derives the state: the cache is cold only when `now.After(CacheColdAt)` is true. It also derives the remaining time, which the sidebar holds as `cacheMinutes` and `cachePhase`.
+- The `context` card renders the `cache` row from those fields (`contextSection`, `internal/tui/sidebar_sections.go`): whole minutes rounded up in dim text, `theme.WarnLine` at one minute or less, and `theme.Warn` for `cache expired`. The row is omitted when no deadline is stored. The status bar (`statusState`, `internal/tui/statusbar.go`) appends `cache expired` after the context segment once cold.
+- There is no dedicated timer. The existing 1s session tick (`sessionTickInterval`, `internal/tui/model_update.go`) recomputes the state through the sidebar sync.
+
 ### Compaction history archive
 
 `agent.HistoryArchive` (`internal/agent/history_archive.go`) is optional on `RunRequest`. `summarizeCompactionStage` calls `withHistoryNote` after a summary is returned and before it builds the next state. `withHistoryNote` removes old lines beginning with `HistoryNoteMarker`, calls `Note`, and adds the current archive note to the summary. A `Note` error emits a compact conversation warning and applies the summary without a note. A successful note keeps the source messages in `CompactionOutcome.pendingArchive`.

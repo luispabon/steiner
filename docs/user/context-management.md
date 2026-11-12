@@ -48,6 +48,20 @@ When the main model's prompt cache has probably expired, a compaction can run it
 
 If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, history counts, summary size and budget, and cache components. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
 
+### Cache expiry indicator
+
+When [compaction fallback](#compaction-fallback) is configured, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold. It follows the provider's `compaction_fallback_after` threshold and restarts after each successful request to the main model.
+
+| Row text | Colour | Meaning |
+|----------|--------|---------|
+| `cache ~4m left` | dim | More than one minute remains, in whole minutes rounded up |
+| `cache ~1m left` | muted amber | One minute or less remains |
+| `cache expired` | amber | The cache is presumed cold |
+
+Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, or when no main request has succeeded yet.
+
+The indicator is an estimate from idle time, not confirmation from the provider. A successful model or profile switch, `/clear`, `/fork` or `/resume` clears it.
+
 ### `claude_subscription` limit
 
 If the first response after a `claude_subscription` compaction still reports prompt usage at or above 90% of the context window, Steiner stops instead of compacting again and asks you to start a new session.
