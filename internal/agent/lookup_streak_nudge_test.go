@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -176,9 +177,9 @@ func TestApplyLookupStreakNudge(t *testing.T) {
 			name:       "finished sub-agents do not nudge",
 			async:      true,
 			pending:    finished,
-			calls:      []string{"read", "grep", "glob"},
-			wantNudged: []bool{false, false, false},
-			wantStreak: 3,
+			calls:      []string{"read", "grep", "glob", "read"},
+			wantNudged: []bool{false, false, false, false},
+			wantStreak: 4,
 		},
 		{
 			name:       "empty pending list does not nudge",
@@ -226,10 +227,62 @@ func TestApplyLookupStreakNudge(t *testing.T) {
 					t.Fatalf("call %d (%s) content = %q, want %q", i+1, name, got, content)
 				}
 			}
-			if p.lookupStreak != test.wantStreak {
-				t.Fatalf("lookupStreak = %d, want %d", p.lookupStreak, test.wantStreak)
+			if p.lookupStreak.count != test.wantStreak {
+				t.Fatalf("lookupStreak = %d, want %d", p.lookupStreak.count, test.wantStreak)
 			}
 		})
+	}
+}
+
+func TestApplyLookupStreakNudgeCountsFailedLookups(t *testing.T) {
+	p := newTurnProgressor(RunRequest{
+		PendingSubAgents: func() []PendingSubAgent {
+			return []PendingSubAgent{{AgentID: "agent", State: SubAgentRunning}}
+		},
+		Prompt: prompt.AssemblyOptions{AsyncSubAgents: true},
+	}, prompt.AssemblyOptions{}, nil)
+	for _, id := range []string{"call_1", "call_2"} {
+		message := p.buildToolMessage(1, provider.ToolCall{ID: id, Name: "read"}, "ok", nil, nil)
+		if strings.Contains(message.Content, lookupNoteField) {
+			t.Fatalf("%s carried the note: %q", id, message.Content)
+		}
+	}
+	failed := p.buildToolMessage(1, provider.ToolCall{ID: "call_3", Name: "read"}, nil, errors.New("open a.go: permission denied"), nil)
+	if !strings.Contains(failed.Content, `"`+lookupNoteField+`":`) {
+		t.Fatalf("failed read missing the note: %q", failed.Content)
+	}
+	var envelope tool.JSONEnvelope
+	if err := json.Unmarshal([]byte(failed.Content), &envelope); err != nil {
+		t.Fatalf("failed read content is not the error envelope: %v (%q)", err, failed.Content)
+	}
+	if envelope.OK || envelope.Error == nil {
+		t.Fatalf("failed read envelope = %+v, want an error", envelope)
+	}
+	if p.lookupStreak.count != lookupStreakThreshold {
+		t.Fatalf("lookupStreak = %d, want %d", p.lookupStreak.count, lookupStreakThreshold)
+	}
+	// Tool errors format as a JSON envelope, so the note joins that envelope as
+	// a field; plain-text content takes the trailing-line fallback.
+	plain := withLookupNote("read a.go: permission denied")
+	if !strings.HasSuffix(plain, "\n\n"+lookupStreakNote) {
+		t.Fatalf("plain-text content = %q, want the note on a trailing line", plain)
+	}
+}
+
+func TestExecuteToolCallsLookupStreakNudgeThirdParallelRead(t *testing.T) {
+	req := RunRequest{
+		Executor:         parallelTestExecutor{fn: func(_ context.Context, name string) (any, error) { return name, nil }},
+		ParallelClassOf:  func(string) ParallelClass { return ParallelClassTool },
+		MaxParallelTools: lookupStreakThreshold,
+		Prompt:           prompt.AssemblyOptions{AsyncSubAgents: true},
+		PendingSubAgents: func() []PendingSubAgent {
+			return []PendingSubAgent{{AgentID: "agent", State: SubAgentRunning}}
+		},
+	}
+	state := runParallel(t, req, "read", "read", "read")
+	want := []string{"read", "read", "read\n\n" + lookupStreakNote}
+	if got := parallelContents(state); !equalStrings(got, want) {
+		t.Fatalf("contents = %q, want %q", got, want)
 	}
 }
 

@@ -28,12 +28,24 @@ func isLookupTool(name string) bool {
 	return strings.HasPrefix(name, "lsp_")
 }
 
-// resetLookupStreak clears the lookup streak and the once-per-streak nudge
-// latch. A delegation call, a non-lookup tool call, or a mid-run delivery
-// restarts counting.
+// lookupStreakTracker holds the progressor's lookup streak: the number of
+// consecutive lookup tool results and whether the current streak already
+// carried the async wait note.
+type lookupStreakTracker struct {
+	count  int
+	nudged bool
+}
+
+// reset clears the streak and the once-per-streak nudge latch.
+func (t *lookupStreakTracker) reset() {
+	t.count = 0
+	t.nudged = false
+}
+
+// resetLookupStreak clears the lookup streak. A delegation call, a non-lookup
+// tool call, or a mid-run delivery restarts counting.
 func (p *turnProgressor) resetLookupStreak() {
-	p.lookupStreak = 0
-	p.lookupStreakNudged = false
+	p.lookupStreak.reset()
 }
 
 // applyLookupStreakNudge appends lookupStreakNote to a tool result once per
@@ -50,11 +62,11 @@ func (p *turnProgressor) applyLookupStreakNudge(name, content string) string {
 		p.resetLookupStreak()
 		return content
 	}
-	p.lookupStreak++
-	if p.lookupStreak < lookupStreakThreshold || p.lookupStreakNudged {
+	p.lookupStreak.count++
+	if p.lookupStreak.count < lookupStreakThreshold || p.lookupStreak.nudged {
 		return content
 	}
-	p.lookupStreakNudged = true
+	p.lookupStreak.nudged = true
 	if !pendingSubAgentsActive(p.request.PendingSubAgents()) {
 		return content
 	}
