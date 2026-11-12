@@ -282,6 +282,8 @@ func (m *Model) resetConversationUI() {
 	m.status.mode = ""
 	m.removePendingImages()
 	m.resetConversationDisplay()
+	// A cleared conversation leaves no live cache estimate.
+	m.clearPromptCacheEstimate(time.Now())
 	m.input.Reset()
 	m.syncInputChrome()
 	m.syncViewport()

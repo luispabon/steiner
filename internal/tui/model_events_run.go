@@ -82,9 +82,10 @@ func (m *Model) applyModelCallFinishedEvent(payload output.ModelCallFinishedEven
 	m.sidebar.perfDurationMs = payload.DurationMs
 	m.sidebar.perfTTFTMs = payload.TTFTMs
 	m.sidebar.perfOutputTPS = payload.OutputTPS
-	// Only a live successful call carries an estimate. A failed or cancelled
-	// call reports no cache deadline, and a replayed one describes a past run.
-	if !m.devLog.replaying && payload.Success {
+	// Only a live successful main call carries an estimate. A failed or
+	// cancelled call reports no cache deadline, a replayed one describes a past
+	// run, and a oneshot phase runs against its own prompt cache.
+	if !m.devLog.replaying && !m.oneshotRunning && payload.Success {
 		m.promptCacheColdAt = payload.CacheColdAt
 		m.syncPromptCacheAt(time.Now())
 	}

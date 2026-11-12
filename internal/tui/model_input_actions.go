@@ -212,8 +212,7 @@ func (m *Model) executeSwitchProfileAction(name string) (tea.Model, tea.Cmd) {
 			m.sidebar.profile = name
 			// A profile switch changes the provider or model, so the previous
 			// cache estimate no longer applies.
-			m.promptCacheColdAt = time.Time{}
-			m.syncPromptCacheAt(time.Now())
+			m.clearPromptCacheEstimate(time.Now())
 		}
 	}
 	m.relayoutInput()

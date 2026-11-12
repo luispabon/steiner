@@ -116,6 +116,69 @@ func TestStatusBarShowsCacheExpired(t *testing.T) {
 	}
 }
 
+func TestStatusBarCacheExpiredFollowsContext(t *testing.T) {
+	t.Parallel()
+	plain := stripANSI(statusState{styles: testStyles(theme.AccentAmber), promptCacheExpired: true}.view(120))
+	ctxAt := strings.Index(plain, "ctx ")
+	cacheAt := strings.Index(plain, "cache expired")
+	if ctxAt < 0 || cacheAt < 0 {
+		t.Fatalf("status bar = %q, want both the ctx segment and the expired marker", plain)
+	}
+	if cacheAt < ctxAt {
+		t.Errorf("status bar = %q, want cache expired after the ctx segment", plain)
+	}
+}
+
+func TestApplyModelCallFinishedEventIgnoredDuringOneshot(t *testing.T) {
+	t.Parallel()
+	m := &Model{oneshotRunning: true}
+
+	m.applyModelCallFinishedEvent(output.ModelCallFinishedEvent{Success: true, CacheColdAt: time.Now().Add(5 * time.Minute)})
+
+	if !m.promptCacheColdAt.IsZero() {
+		t.Errorf("promptCacheColdAt = %v, want zero: a oneshot phase has its own prompt cache", m.promptCacheColdAt)
+	}
+}
+
+func TestOneshotFinishedEventClearsPromptCacheDeadline(t *testing.T) {
+	t.Parallel()
+	m := &Model{promptCacheColdAt: time.Now().Add(5 * time.Minute)}
+	m.status.promptCacheExpired = true
+	m.sidebar.cachePhase = promptCacheExpired
+
+	m.applyPayloadEvent(output.NewOneshotFinishedEvent("run-1", nil))
+
+	if !m.promptCacheColdAt.IsZero() {
+		t.Errorf("promptCacheColdAt = %v, want zero after the oneshot finished", m.promptCacheColdAt)
+	}
+	if m.sidebar.cachePhase != promptCacheOff {
+		t.Errorf("sidebar.cachePhase = %d, want off", m.sidebar.cachePhase)
+	}
+	if m.status.promptCacheExpired {
+		t.Error("status.promptCacheExpired = true, want false after the oneshot finished")
+	}
+}
+
+func TestResetConversationUIClearsPromptCacheDeadline(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{}, nil)
+	m.promptCacheColdAt = time.Now().Add(5 * time.Minute)
+	m.status.promptCacheExpired = true
+	m.sidebar.cachePhase = promptCacheExpired
+
+	m.resetConversationUI()
+
+	if !m.promptCacheColdAt.IsZero() {
+		t.Errorf("promptCacheColdAt = %v, want zero after /clear", m.promptCacheColdAt)
+	}
+	if m.sidebar.cachePhase != promptCacheOff {
+		t.Errorf("sidebar.cachePhase = %d, want off after /clear", m.sidebar.cachePhase)
+	}
+	if m.status.promptCacheExpired {
+		t.Error("status.promptCacheExpired = true, want false after /clear")
+	}
+}
+
 func TestApplyModelCallFinishedEventSetsPromptCacheDeadline(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
@@ -202,12 +265,35 @@ func TestConversationResetClearsPromptCacheDeadline(t *testing.T) {
 func TestCommitModelSwitchClearsPromptCacheDeadline(t *testing.T) {
 	t.Parallel()
 	m := newSwitchTestModel(t, Config{Controller: &testController{}})
+	if m.switchAppliesAfterTurn() {
+		t.Fatal("switchAppliesAfterTurn() = true on an idle session, want false")
+	}
 	m.promptCacheColdAt = time.Now().Add(5 * time.Minute)
 
 	m.commitModelSwitch("large", nil)
 
 	if !m.promptCacheColdAt.IsZero() {
 		t.Errorf("promptCacheColdAt = %v, want zero after a successful model switch", m.promptCacheColdAt)
+	}
+}
+
+// TestDeferredModelSwitchPreservesPromptCacheDeadline proves a switch that only
+// applies to the next run keeps the in-flight run's estimate, so the running
+// model's success event cannot race the clear.
+func TestDeferredModelSwitchPreservesPromptCacheDeadline(t *testing.T) {
+	t.Parallel()
+	m := newSwitchTestModel(t, Config{Controller: &testController{}})
+	m.oneshotRunning = true // forces the deferred switch path
+	if !m.switchAppliesAfterTurn() {
+		t.Fatal("switchAppliesAfterTurn() = false with a oneshot in flight, want true")
+	}
+	deadline := time.Now().Add(5 * time.Minute)
+	m.promptCacheColdAt = deadline
+
+	m.commitModelSwitch("large", nil)
+
+	if !m.promptCacheColdAt.Equal(deadline) {
+		t.Errorf("promptCacheColdAt = %v, want the unchanged deadline %v after a deferred switch", m.promptCacheColdAt, deadline)
 	}
 }
 
@@ -231,6 +317,17 @@ func TestProfileSwitchClearsPromptCacheDeadline(t *testing.T) {
 
 	if _, _ = m.executeSwitchProfileAction("fast"); !m.promptCacheColdAt.IsZero() {
 		t.Errorf("promptCacheColdAt = %v, want zero after a successful profile switch", m.promptCacheColdAt)
+	}
+}
+
+func TestProfileSwitchFailurePreservesPromptCacheDeadline(t *testing.T) {
+	t.Parallel()
+	m := newSwitchTestModel(t, Config{Controller: &testController{err: errors.New("switch rejected")}})
+	deadline := time.Now().Add(5 * time.Minute)
+	m.promptCacheColdAt = deadline
+
+	if _, _ = m.executeSwitchProfileAction("fast"); !m.promptCacheColdAt.Equal(deadline) {
+		t.Errorf("promptCacheColdAt = %v, want the unchanged deadline %v after a failed profile switch", m.promptCacheColdAt, deadline)
 	}
 }
 

@@ -47,3 +47,10 @@ func (m *Model) syncPromptCacheAt(now time.Time) {
 	m.sidebar.cacheMinutes = minutes
 	m.sidebar.cachePhase = phase
 }
+
+// clearPromptCacheEstimate forgets the tracked estimate and projects the
+// cleared state at now.
+func (m *Model) clearPromptCacheEstimate(now time.Time) {
+	m.promptCacheColdAt = time.Time{}
+	m.syncPromptCacheAt(now)
+}

@@ -116,8 +116,7 @@ func (m *Model) applyConversationReset() {
 		m.recorder.ResetSession()
 	}
 	// The loaded conversation has no live cache estimate.
-	m.promptCacheColdAt = time.Time{}
-	m.syncPromptCacheAt(time.Now())
+	m.clearPromptCacheEstimate(time.Now())
 	m.syncSidebar()
 	m.syncViewport()
 }
