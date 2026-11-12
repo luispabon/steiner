@@ -1,6 +1,8 @@
 package interactive
 
 import (
+	"time"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tool"
@@ -26,8 +28,8 @@ func acceptedAdmission(msg agent.Message) *tool.DelegationAdmission {
 func (s *Session) replayOwnedToolResult(msg agent.Message, owner replayOccurrenceKey, call agent.ToolCall, state replayState, entry agent.SubAgentLedgerEntry) {
 	if isAdvisorToolCall(call.Name) {
 		question, files := advisorQuestionAndFilesFromArgs(call.Arguments)
-		s.events.Emit(output.NewAdvisorStartedEvent("", 0, 0, question, files))
-		s.events.Emit(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}))
+		s.events.Emit(eventWithTimestamp(output.NewAdvisorStartedEvent("", 0, 0, question, files), msg.Timestamp))
+		s.events.Emit(eventWithTimestamp(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Note: msg.Content}), msg.Timestamp))
 	} else if isDelegateToolCall(call.Name) {
 		s.replayDelegateResult(msg, call, owner, state.acks, entry)
 	}
@@ -65,22 +67,22 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 		return
 	}
 	if outstanding {
-		s.emitDelegationProgress(occ, task, state.status)
+		s.emitDelegationProgress(occ, task, state.status, msg.Timestamp)
 		acks.add(occ, task, true)
 		return
 	}
 	if state.status == "failed" && state.output == "" && acceptedAdmission(msg) != nil {
-		s.emitDelegationFailure(occ, task, state.error)
+		s.emitDelegationFailure(occ, task, state.error, msg.Timestamp)
 		return
 	}
-	s.emitDelegationProgress(occ, task, state.status)
+	s.emitDelegationProgress(occ, task, state.status, msg.Timestamp)
 	switch {
 	case isAckStatus(state.status):
 		acks.add(occ, task, false)
 	case state.status == "failed":
-		s.emitDelegationFailure(occ, task, state.error)
+		s.emitDelegationFailure(occ, task, state.error, msg.Timestamp)
 	default:
-		s.emitDelegationComplete(occ, state)
+		s.emitDelegationComplete(occ, state, msg.Timestamp)
 	}
 }
 
@@ -109,18 +111,18 @@ func legacyChildAdmitted(msg agent.Message, status string) bool {
 }
 
 // emitDelegationProgress emits the queued or started event.
-func (s *Session) emitDelegationProgress(occ output.DelegationOccurrence, task, status string) {
+func (s *Session) emitDelegationProgress(occ output.DelegationOccurrence, task, status string, timestamp time.Time) {
 	if status == "queued" {
-		s.events.Emit(output.NewDelegationQueuedEvent(occ, "", task))
+		s.events.Emit(eventWithTimestamp(output.NewDelegationQueuedEvent(occ, "", task), timestamp))
 		return
 	}
-	s.events.Emit(output.NewDelegationStartedEvent(occ, task, "", ""))
+	s.events.Emit(eventWithTimestamp(output.NewDelegationStartedEvent(occ, task, "", ""), timestamp))
 }
 
-func (s *Session) emitDelegationFailure(occ output.DelegationOccurrence, task, err string) {
-	s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: occ, TaskPreview: task, Error: err}))
+func (s *Session) emitDelegationFailure(occ output.DelegationOccurrence, task, err string, timestamp time.Time) {
+	s.events.Emit(eventWithTimestamp(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: occ, TaskPreview: task, Error: err}), timestamp))
 }
 
-func (s *Session) emitDelegationComplete(occ output.DelegationOccurrence, state replayedDelegationState) {
-	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}))
+func (s *Session) emitDelegationComplete(occ output.DelegationOccurrence, state replayedDelegationState, timestamp time.Time) {
+	s.events.Emit(eventWithTimestamp(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}), timestamp))
 }

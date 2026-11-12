@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -85,8 +84,9 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 				// A delivery is an answer the orchestrator was waiting for, so
 				// the next lookup starts a fresh streak.
 				p.resetLookupStreak()
-				state.Conversation = append(state.Conversation, *drain.Message)
-				state.Lineage = state.Lineage.WithAppendedMessages([]Message{*drain.Message})
+				delivered := stampMessageTimestamp(*drain.Message)
+				state.Conversation = append(state.Conversation, delivered)
+				state.Lineage = state.Lineage.WithAppendedMessages([]Message{delivered})
 			}
 			if drain.UserText != "" {
 				emitEvent(req.Events, output.NewSteerReceivedEvent(drain.UserText, outputImageBlocks(drain.Images)))
@@ -165,7 +165,7 @@ func initializeRunState(req RunRequest) RunState {
 func seedRunLineage(seed ConversationLineage, conversation []Message) ConversationLineage {
 	lineage := newConversationLineage(conversation)
 	latest, ok := seed.Latest()
-	if !ok || !reflect.DeepEqual(latest.FullMessages(), lineage.FullMessages()) {
+	if !ok || !sameMessages(latest.FullMessages(), lineage.FullMessages()) {
 		return lineage
 	}
 	return lineage.withBackendState(lineage.latestGenerationID(), latest.BackendState, false)

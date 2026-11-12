@@ -48,7 +48,7 @@ func TestUnansweredResultEnvelopes(t *testing.T) {
 			t.Parallel()
 			var got []string
 			for _, e := range unansweredResultEnvelopes(tc.conv) {
-				got = append(got, e.AgentID)
+				got = append(got, e.result.AgentID)
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("ids = %v, want %v", got, tc.want)

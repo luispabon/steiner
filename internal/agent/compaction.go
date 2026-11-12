@@ -627,6 +627,7 @@ func appendPendingSubAgentsLine(req RunRequest, state *RunState) {
 	if !ok {
 		return
 	}
+	msg = stampMessageTimestamp(msg)
 	state.Conversation = append(state.Conversation, msg)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{msg})
 }

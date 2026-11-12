@@ -197,6 +197,7 @@ func (l ConversationLineage) WithAppendedMessages(messages []Message) Conversati
 	if len(messages) == 0 {
 		return l.Clone()
 	}
+	messages = stampMessageTimestamps(messages)
 	next := l.Clone()
 	if len(next.Generations) == 0 {
 		return newConversationLineage(messages)

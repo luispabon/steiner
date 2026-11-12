@@ -64,22 +64,24 @@ type replayLedger struct {
 // replayDelegationBundle emits one owned persisted delegation result exactly
 // once: the parent start, admission, lifecycle and terminal, and the actual
 // parent finish, before the next delegation occurrence. replayMessage skips the
-// bundled result message, so its events are not emitted a second time.
+// bundled result message, so its events are not emitted a second time. The
+// parent start carries the owning assistant message's time.
 func (s *Session) replayDelegationBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
-	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+	s.events.Emit(eventWithTimestamp(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments), ledger.msgs[key.messageIndex].Timestamp))
 	state.startedToolCalls[key] = true
 	s.replayOwnedToolResult(ledger.msgs[occurrence.resultMessageIndex], key, call, state, ledgerEntryForOccurrence(ledger, occurrence))
 }
 
 // replayLedgerOrphanBundle emits a ledger orphan: a delegate call with ledger
 // evidence but no persisted result. It emits the start, authoritative
-// acceptance and lifecycle; no orphan finish is fabricated.
+// acceptance and lifecycle; no orphan finish is fabricated. The ledger holds no
+// message time, so the lifecycle events keep a zero timestamp.
 func (s *Session) replayLedgerOrphanBundle(call agent.ToolCall, key replayOccurrenceKey, occurrence *replayOccurrence, state replayState, ledger replayLedger) {
-	s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+	s.events.Emit(eventWithTimestamp(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments), ledger.msgs[key.messageIndex].Timestamp))
 	entry := ledger.entries[occurrence.ledgerIndex]
 	occ := replayOccurrenceFor(call.ID, key.messageIndex, nil, entry, "")
-	s.events.Emit(output.NewDelegationAcceptedEvent(occ, entry.Group))
-	s.events.Emit(output.NewDelegationStartedEvent(occ, taskFromArgs(call.Arguments), "", ""))
+	s.events.Emit(withoutTimestamp(output.NewDelegationAcceptedEvent(occ, entry.Group)))
+	s.events.Emit(withoutTimestamp(output.NewDelegationStartedEvent(occ, taskFromArgs(call.Arguments), "", "")))
 	state.startedToolCalls[key] = true
 }
 
