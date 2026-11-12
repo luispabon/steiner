@@ -20,7 +20,7 @@ func (e *SetupError) ProjectToolError() agent.DelegationResultEnvelope {
 	case errors.As(e.err, &reservationErr):
 		reason = reservationErr.correctiveReason()
 	case errors.Is(e.err, ErrAgentAlreadyActive):
-		reason = "agent_id already has a call in flight — wait for that result before sending another follow_up to the same agent_id; end your turn unless you have work no running agent covers, and the harness resumes you when the result arrives"
+		reason = "agent_id already has a call in flight: wait for that result before sending another follow_up to the same agent_id; end your turn unless you have work no running agent covers, and the harness resumes you when the result arrives"
 	case errors.Is(e.err, ErrCodeWorktreeRequiresCommit):
 		reason = "worktree-isolated sub-agent requires a Git repository with at least one commit; commit the project files and retry"
 	}
