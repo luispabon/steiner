@@ -83,6 +83,46 @@ func TestReplayStampsEventsWithMessageTimestamps(t *testing.T) {
 	set.assertTimestamps(t, replayEvents(t, set.msgs))
 }
 
+// TestReplayDelegationAcceptedUsesResultMessageTime covers the three replay
+// paths that emit delegation accepted: an explicit admission, a ledger entry
+// for an outstanding sub-agent, and a legacy result that shows a child ran.
+func TestReplayDelegationAcceptedUsesResultMessageTime(t *testing.T) {
+	t.Parallel()
+	historic := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
+	tests := []struct {
+		name   string
+		result func(t *testing.T) agent.Message
+		ledger []agent.SubAgentLedgerEntry
+	}{
+		{
+			name:   "admission",
+			result: func(_ *testing.T) agent.Message { return admissionResult("call-1", "agent-a", "batch", "group") },
+		},
+		{
+			name:   "outstanding ledger entry",
+			result: func(t *testing.T) agent.Message { return ackResult(t, "call-1", "sub_agent", "agent-a", "queued") },
+			ledger: []agent.SubAgentLedgerEntry{{ParentCallID: "call-1", AgentID: "agent-a"}},
+		},
+		{
+			name: "legacy admitted child",
+			result: func(t *testing.T) agent.Message {
+				result := ackResult(t, "call-1", "sub_agent", "agent-a", "complete")
+				result.DelegationAdmission = nil
+				return result
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := tt.result(t)
+			result.Timestamp = historic
+			msgs := []agent.Message{delegateCall("call-1", "sub_agent", "find bug"), result}
+			assertEventTimestamp(t, replayEventsWithLedger(t, msgs, tt.ledger), output.EventTypeDelegationAccepted, historic)
+		})
+	}
+}
+
 func TestReplayKeepsZeroTimestampsForLegacyMessages(t *testing.T) {
 	t.Parallel()
 	set := newReplayedMessageSet(t, time.Time{})
@@ -198,10 +238,11 @@ func TestReplaySyntheticDelegationEventsHaveNoTimestamp(t *testing.T) {
 
 func TestLiveUnansweredResultsCarryMessageTime(t *testing.T) {
 	t.Parallel()
+	historic := time.Date(2025, 3, 4, 5, 6, 7, 0, time.UTC)
 	lineage := agent.ConversationLineage{}
 	lineage = lineage.WithAppendedMessages([]agent.Message{
-		{Role: agent.MessageRoleAssistant, Content: "ok"},
-		{Role: agent.MessageRoleUser, Content: resultEnvelope(t, "call-1", "complete", "x", 1)},
+		{Role: agent.MessageRoleAssistant, Content: "ok", Timestamp: historic.Add(-time.Minute)},
+		{Role: agent.MessageRoleUser, Content: resultEnvelope(t, "call-1", "complete", "x", 1), Timestamp: historic},
 	})
 	msgs := lineage.FullMessages()
 
@@ -215,10 +256,7 @@ func TestLiveUnansweredResultsCarryMessageTime(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("events = %d, want 1", len(got))
 	}
-	if got[0].Timestamp.IsZero() {
-		t.Fatal("live event Timestamp is zero, want the stamped message time")
-	}
-	if !got[0].Timestamp.Equal(msgs[1].Timestamp) {
-		t.Fatalf("event Timestamp = %v, want %v", got[0].Timestamp, msgs[1].Timestamp)
+	if !got[0].Timestamp.Equal(historic) {
+		t.Fatalf("event Timestamp = %v, want historic %v", got[0].Timestamp, historic)
 	}
 }

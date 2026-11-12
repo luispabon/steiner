@@ -56,11 +56,11 @@ func (s *Session) replayDelegateResult(msg agent.Message, call agent.ToolCall, o
 	outstanding := entry.AgentID != "" && isAckStatus(state.status)
 	switch admission := acceptedAdmission(msg); {
 	case admission != nil:
-		s.events.Emit(output.NewDelegationAcceptedEvent(occ, admission.Group))
+		s.events.Emit(eventWithTimestamp(output.NewDelegationAcceptedEvent(occ, admission.Group), msg.Timestamp))
 	case outstanding:
-		s.events.Emit(output.NewDelegationAcceptedEvent(occ, entry.Group))
+		s.events.Emit(eventWithTimestamp(output.NewDelegationAcceptedEvent(occ, entry.Group), msg.Timestamp))
 	case legacyChildAdmitted(msg, state.status):
-		s.events.Emit(output.NewDelegationAcceptedEvent(occ, legacyCallGroup(call)))
+		s.events.Emit(eventWithTimestamp(output.NewDelegationAcceptedEvent(occ, legacyCallGroup(call)), msg.Timestamp))
 	default:
 		// No admission, no ledger entry and no sign a child ran: a setup
 		// failure. Like a rejected call it replays tool_call_finished only.

@@ -15,13 +15,15 @@ func stampMessageTimestamp(msg Message) Message {
 	return msg
 }
 
-// stampMessageTimestamps stamps every message in msgs that has a zero
-// timestamp in place and returns the same slice.
+// stampMessageTimestamps returns a copy of msgs with every zero timestamp
+// stamped. A non-zero timestamp is preserved. The caller's slice is left
+// untouched, matching WithAppendedMessages' copy semantics.
 func stampMessageTimestamps(msgs []Message) []Message {
+	stamped := make([]Message, len(msgs))
 	for i := range msgs {
-		msgs[i] = stampMessageTimestamp(msgs[i])
+		stamped[i] = stampMessageTimestamp(msgs[i])
 	}
-	return msgs
+	return stamped
 }
 
 // sameMessages reports whether a and b carry the same messages, ignoring their
