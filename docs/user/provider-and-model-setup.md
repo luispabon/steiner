@@ -88,6 +88,8 @@ providers:
 
 Reference its models as `openai/<model-id>`.
 
+`prompt_cache_ttl` defaults to `30m`, and `compaction_fallback_after` uses it when unset.
+
 #### Anthropic
 
 ```bash
@@ -103,7 +105,7 @@ providers:
 
 Reference its models as `anthropic/<model-id>`.
 
-`prompt_cache_ttl` defaults to `5m`.
+`prompt_cache_ttl` defaults to `5m`, and `compaction_fallback_after` uses it when unset.
 
 #### OpenRouter
 
