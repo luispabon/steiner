@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -29,33 +31,34 @@ func TestCompactionBoxCollapsedInProgress(t *testing.T) {
 		spinnerFrame: 3,
 	}
 
+	rows := b.compactionBoxRows(cd, 80)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want one collapsed header row: %q", len(rows), rows)
+	}
 	out := b.renderCompactionBanner(cd, 80)
 
 	// Must end with newline.
 	if !strings.HasSuffix(out, "\n") {
 		t.Errorf("output does not end with newline")
 	}
-	// Must contain the tag.
-	if !strings.Contains(out, "compaction") {
-		t.Errorf("output missing 'compaction' tag: %q", out)
+	// Must contain the tag with the collapsed disclosure triangle.
+	plain := stripANSI(out)
+	if !strings.Contains(plain, "▸ compaction") {
+		t.Errorf("output missing '▸ compaction' header: %q", plain)
+	}
+	if strings.Contains(plain, "▾") {
+		t.Errorf("collapsed output should not contain the expanded triangle: %q", plain)
 	}
 	// Must contain a spinner character (braille).
 	hasSpinner := false
 	for _, frame := range spinnerFrames {
-		if strings.Contains(out, frame) {
+		if strings.Contains(plain, frame) {
 			hasSpinner = true
 			break
 		}
 	}
 	if !hasSpinner {
-		t.Errorf("collapsed in-progress output missing spinner: %q", out)
-	}
-	// Box is now non-uncollapsable: no disclosure triangle in either form.
-	if strings.Contains(out, "▸") {
-		t.Errorf("output should not contain '▸' disclosure triangle: %q", out)
-	}
-	if strings.Contains(out, "▾") {
-		t.Errorf("output should not contain '▾' disclosure triangle: %q", out)
+		t.Errorf("collapsed in-progress output missing spinner: %q", plain)
 	}
 }
 
@@ -69,10 +72,17 @@ func TestCompactionBoxCollapsedFinished(t *testing.T) {
 		compactionCount: 2,
 	}
 
-	out := b.renderCompactionBanner(cd, 80)
+	rows := b.compactionBoxRows(cd, 80)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want one collapsed header row: %q", len(rows), rows)
+	}
+	out := stripANSI(b.renderCompactionBanner(cd, 80))
 
-	if !strings.Contains(out, "compaction") {
-		t.Errorf("output missing 'compaction' tag: %q", out)
+	if !strings.Contains(out, "▸ compaction") {
+		t.Errorf("output missing '▸ compaction' header: %q", out)
+	}
+	if strings.Contains(out, "▾") {
+		t.Errorf("collapsed output should not contain the expanded triangle: %q", out)
 	}
 	// Must show success checkmark.
 	if !strings.Contains(out, "✓") {
@@ -85,17 +95,6 @@ func TestCompactionBoxCollapsedFinished(t *testing.T) {
 	// Must show count.
 	if !strings.Contains(out, "#2") {
 		t.Errorf("finished collapsed output missing '#2': %q", out)
-	}
-	// Collapsed: detail rows must NOT appear.
-	if strings.Contains(out, "Compacted") {
-		t.Errorf("collapsed output should not contain detail rows: %q", out)
-	}
-	// Box is now non-uncollapsable: no disclosure triangle in either form.
-	if strings.Contains(out, "▸") {
-		t.Errorf("output should not contain '▸' disclosure triangle: %q", out)
-	}
-	if strings.Contains(out, "▾") {
-		t.Errorf("output should not contain '▾' disclosure triangle: %q", out)
 	}
 }
 
@@ -177,6 +176,26 @@ func TestCompactionHeaderOmitsCacheRateWithoutUsage(t *testing.T) {
 	}
 }
 
+func TestCompactionHeaderSeparatesMetaWithMiddots(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		finished:             true,
+		subtitle:             "context compacted",
+		elapsed:              "3s",
+		compactionCount:      2,
+		compactionModel:      "opencode-go/deepseek-v4.1-flash",
+		compactionModelAlias: "haiku",
+		cacheReadTokens:      950,
+		inputTokens:          50,
+	}
+
+	out := stripANSI(b.renderCompactionBanner(cd, 120))
+	if want := "haiku · cache 95.0% · 3s · #2 ✓"; !strings.Contains(out, want) {
+		t.Fatalf("compaction header meta = %q, want %q", out, want)
+	}
+}
+
 func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
@@ -241,7 +260,7 @@ func TestCompactionInProgressHeaderOmitsCacheRate(t *testing.T) {
 	if strings.Contains(out, "cache") {
 		t.Fatalf("in-progress output should omit cache rate: %q", out)
 	}
-	if !strings.Contains(stripANSI(out), "3s #2 "+spinnerFrames[0]) {
+	if !strings.Contains(stripANSI(out), "3s · #2 "+spinnerFrames[0]) {
 		t.Fatalf("in-progress output = %q, want elapsed, count, then spinner glyph", stripANSI(out))
 	}
 }
@@ -260,104 +279,360 @@ func TestCompactionSkippedHeaderOmitsGlyph(t *testing.T) {
 	if strings.Contains(out, "✓") {
 		t.Fatalf("skipped compaction header should omit the check glyph: %q", out)
 	}
-	if !strings.Contains(out, "3s #2") {
+	if !strings.Contains(out, "3s · #2") {
 		t.Fatalf("skipped compaction header missing elapsed and count: %q", out)
 	}
 }
 
-func TestCompactionBoxRendersFallbackNoteRow(t *testing.T) {
+// TestCompactionBoxCollapsedIsSingleRow renders a realistic fallback banner and
+// checks the collapsed header stays one content row at every box width. The
+// banner must render as top border, header, bottom border and nothing else.
+func TestCompactionBoxCollapsedIsSingleRow(t *testing.T) {
 	t.Parallel()
-	b := newTestBuffer(t)
-	base := &compactionBannerData{
-		finished:        true,
-		elapsed:         "3s",
-		compactionCount: 2,
+	finished := func() *compactionBannerData {
+		return &compactionBannerData{
+			label:                "Context compacted",
+			subtitle:             "3 messages summarized into 1",
+			finished:             true,
+			elapsed:              "3s",
+			compactionCount:      2,
+			compactionModel:      "anthropic/claude-haiku-5-5",
+			compactionModelAlias: "haiku",
+			fallbackStatus:       output.CompactionFallbackUsed,
+			fallbackReason:       "primary over budget",
+			cacheReadTokens:      950,
+			inputTokens:          50,
+		}
 	}
-	withNote := *base
-	withNote.fallbackNote = "via claude-haiku-5-5 (primary over budget)"
+	selection := func() *compactionBannerData {
+		return &compactionBannerData{
+			label:                "Compacting",
+			subtitle:             "summarizing context",
+			compactionModel:      "anthropic/claude-haiku-5-5",
+			compactionModelAlias: "haiku",
+			fallbackStatus:       output.CompactionFallbackUsed,
+			fallbackReason:       "primary over budget",
+		}
+	}
+	renderOneRow := func(t *testing.T, cd *compactionBannerData, width int) string {
+		t.Helper()
+		out := newTestBuffer(t).renderCompactionBanner(cd, width)
+		if !strings.HasSuffix(out, "\n") {
+			t.Fatalf("width %d: output does not end with newline: %q", width, out)
+		}
+		lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+		if len(lines) != 3 {
+			t.Fatalf("width %d: banner lines = %d, want top, one content row, bottom: %q", width, len(lines), stripANSI(out))
+		}
+		content := stripANSI(lines[1])
+		if got := lipgloss.Width(content); got != width {
+			t.Errorf("width %d: content row = %q is %d cells, want %d", width, content, got, width)
+		}
+		return content
+	}
 
-	baseOut := stripANSI(b.renderCompactionBanner(base, 80))
-	noteOut := stripANSI(b.renderCompactionBanner(&withNote, 80))
-
-	if strings.Contains(baseOut, "via ") {
-		t.Errorf("banner without fallbackNote should not show a note: %q", baseOut)
+	for _, width := range []int{12, 16, 20, 24, 30, 40, 60, 80, 120} {
+		t.Run("finished width "+strconv.Itoa(width), func(t *testing.T) {
+			content := renderOneRow(t, finished(), width)
+			if !strings.Contains(content, "▸") {
+				t.Errorf("width %d: content row = %q, want the collapsed triangle", width, content)
+			}
+			if strings.Contains(content, "primary over budget") {
+				t.Errorf("width %d: content row = %q, want no fallback reason", width, content)
+			}
+		})
 	}
-	if got, want := strings.Count(noteOut, "\n"), strings.Count(baseOut, "\n")+1; got != want {
-		t.Fatalf("note banner has %d lines, want %d (one extra row): %q", got, want, noteOut)
+	for _, width := range []int{12, 16, 20, 24, 30, 40} {
+		t.Run("selection width "+strconv.Itoa(width), func(t *testing.T) {
+			renderOneRow(t, selection(), width)
+		})
 	}
-	headerIndex := strings.Index(noteOut, "compaction")
-	noteIndex := strings.Index(noteOut, withNote.fallbackNote)
-	if noteIndex < 0 {
-		t.Fatalf("output missing fallback note: %q", noteOut)
+	if content := renderOneRow(t, finished(), 120); !strings.Contains(content, "haiku") {
+		t.Errorf("width 120: content row = %q, want the fallback alias", content)
 	}
-	if noteIndex <= headerIndex {
-		t.Errorf("fallback note index = %d, want below header at %d: %q", noteIndex, headerIndex, noteOut)
+	if content := renderOneRow(t, finished(), 12); strings.Contains(content, "haiku") {
+		t.Errorf("width 12: content row = %q, want no model label", content)
 	}
 }
 
-// TestCompactionFallbackNoteIsSingleBoundedRow checks that a note with long or
-// multiline reasons stays one row no wider than the box's inner width.
-func TestCompactionFallbackNoteIsSingleBoundedRow(t *testing.T) {
+func TestCompactionBoxExpandedShowsDetailRows(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
+	cd := &compactionBannerData{
+		subtitle:             "summarizing context",
+		finished:             true,
+		elapsed:              "3s",
+		compactionCount:      2,
+		compactionModel:      "anthropic/claude-haiku-5-5",
+		compactionModelAlias: "haiku",
+		fallbackStatus:       output.CompactionFallbackUsed,
+		fallbackReason:       "primary over budget",
+		beforeTokens:         120000,
+		beforePct:            80,
+		afterTokens:          48000,
+		afterPct:             32,
+		compactedTurns:       12,
+		compactedMessages:    34,
+		retainedTurns:        4,
+		retainedMessages:     9,
+		retainedRawTurns:     3,
+		mode:                 "stage",
+		summaryBytes:         2048,
+		summaryTokenBudget:   4000,
+		contextWindow:        200000,
+		thresholdTokens:      140000,
+		compactionThreshold:  70,
+		thresholdAchieved:    true,
+		cacheReadTokens:      900,
+		inputTokens:          100,
+		cacheCreateTokens:    50,
+	}
+
+	collapsed := *cd
+	if rows := b.compactionBoxRows(&collapsed, 120); len(rows) != 1 {
+		t.Fatalf("collapsed rows = %d, want one header row: %q", len(rows), rows)
+	}
+
+	expanded := *cd
+	expanded.expanded = true
+	rows := b.compactionBoxRows(&expanded, 120)
+	if len(rows) != 9 {
+		t.Fatalf("expanded rows = %d, want header, blank, and seven detail rows: %q", len(rows), rows)
+	}
+	if rows[1] != "" {
+		t.Errorf("row 1 = %q, want the blank separator row", rows[1])
+	}
+
+	details := []struct{ key, want string }{
+		{"model", "haiku (anthropic/claude-haiku-5-5)"},
+		{"fallback", "used · primary over budget"},
+		{"tokens", "120k → 48k prompt"},
+		{"window", "200k context · threshold 70% (140k) · achieved"},
+		{"history", "12 turns / 34 messages compacted · 4 turns / 9 messages retained · 3 raw turns retained"},
+		{"summary", "stage mode · 2KB · budget 4000 tokens"},
+		{"cache", "read 900 · input 100 · create 50"},
+	}
+	for i, detail := range details {
+		row := stripANSI(rows[i+2])
+		if !strings.HasPrefix(row, detail.key) {
+			t.Errorf("row %d = %q, want it to start with the %q key", i+2, row, detail.key)
+		}
+		if !strings.Contains(row, detail.want) {
+			t.Errorf("%q row = %q, want it to contain %q", detail.key, row, detail.want)
+		}
+	}
+	if tokens := stripANSI(rows[4]); !strings.Contains(tokens, "80% → 32% context") {
+		t.Errorf("tokens row = %q, want the context percentages", tokens)
+	}
+
+	for _, width := range []int{20, 120} {
+		innerWidth := max(1, width-4)
+		// The detail rows carry free-form values (a long error reason), so each
+		// one is flattened and truncated to the inner width.
+		for _, row := range b.compactionBoxRows(&expanded, width)[2:] {
+			plain := stripANSI(row)
+			if got := lipgloss.Width(plain); got > innerWidth {
+				t.Errorf("width %d: detail row = %q is %d cells, want <= %d", width, plain, got, innerWidth)
+			}
+			if strings.ContainsAny(plain, "\n\r\t") {
+				t.Errorf("width %d: detail row = %q contains a line break or tab", width, plain)
+			}
+		}
+	}
+
+	if header := stripANSI(rows[0]); !strings.HasPrefix(header, "▾ compaction") {
+		t.Errorf("expanded header = %q, want the expanded triangle and tag", header)
+	}
+
+	running := &compactionBannerData{
+		subtitle:             "summarizing context",
+		compactionModel:      "anthropic/claude-haiku-5-5",
+		compactionModelAlias: "haiku",
+		fallbackStatus:       output.CompactionFallbackUsed,
+		fallbackReason:       "primary over budget",
+		expanded:             true,
+	}
+	var runningRows []string
+	for _, row := range b.compactionBoxRows(running, 120) {
+		runningRows = append(runningRows, stripANSI(row))
+	}
+	runningPlain := strings.Join(runningRows, "\n")
+	for _, key := range []string{"model", "fallback"} {
+		if !strings.Contains(runningPlain, key) {
+			t.Errorf("running banner rows = %q, want the %q row", runningPlain, key)
+		}
+	}
+	for _, key := range []string{"tokens", "history", "summary", "cache"} {
+		if strings.Contains(runningPlain, key) {
+			t.Errorf("running banner rows = %q, want no %q row", runningPlain, key)
+		}
+	}
+}
+
+// TestCompactionExpansionPersistsAcrossUpdates checks a clicked banner keeps its
+// detail rows through live spinner ticks and the finish event.
+func TestCompactionExpansionPersistsAcrossUpdates(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name  string
-		note  string
-		width int
-		want  string // substring the note row must contain
+		name   string
+		update func(b *contentBuffer)
 	}{
 		{
-			name:  "long reason at narrow width",
-			note:  "via claude-haiku-5-5 (" + strings.Repeat("very long reason ", 8) + ")",
-			width: 20,
-			want:  "…",
+			name: "finish event",
+			update: func(b *contentBuffer) {
+				b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+					Severity:             "ok",
+					SummaryTitle:         "ctx",
+					CompactionCount:      1,
+					CompactedTurns:       2,
+					CompactedMessages:    3,
+					BeforePromptTokens:   1000,
+					AfterPromptTokens:    500,
+					CompactionModel:      "anthropic/claude-haiku-5-5",
+					CompactionModelAlias: "haiku",
+					FallbackStatus:       output.CompactionFallbackUsed,
+					FallbackReason:       "primary over budget",
+				})
+			},
+		},
+		{name: "spinner tick", update: func(b *contentBuffer) { b.AdvanceCompactionSpinners() }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel(Config{Model: "test-model", ModelContexts: map[string]int{"test-model": 100000}}, nil)
+			m = updateModelDirect(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+			m.content.handleCompactionDiagnostics(output.ContextCompactionEvent{
+				Severity:             "compacting",
+				CompactionCount:      1,
+				CompactionModel:      "anthropic/claude-haiku-5-5",
+				CompactionModelAlias: "haiku",
+				FallbackStatus:       output.CompactionFallbackUsed,
+				FallbackReason:       "primary over budget",
+			})
+			m.handleSegmentClick(&m.content.segments[len(m.content.segments)-1], 0)
+
+			if seg := lastCompactionBanner(m); seg == nil || !seg.compactionData.expanded {
+				t.Fatal("click did not expand the live banner")
+			}
+
+			tt.update(&m.content)
+
+			seg := lastCompactionBanner(m)
+			if seg == nil {
+				t.Fatal("compaction banner disappeared after the update")
+			}
+			if !seg.compactionData.expanded {
+				t.Fatal("update collapsed the expanded banner")
+			}
+			rows := m.content.compactionBoxRows(seg.compactionData, 120)
+			if len(rows) < 3 || rows[1] != "" {
+				t.Fatalf("rows = %q, want header, blank, and detail rows", rows)
+			}
+			if joined := stripANSI(strings.Join(rows, "\n")); !strings.Contains(joined, "fallback") {
+				t.Errorf("rows = %q, want the detail rows", joined)
+			}
+		})
+	}
+}
+
+func lastCompactionBanner(m *Model) *contentSegment {
+	for i := len(m.content.segments) - 1; i >= 0; i-- {
+		if m.content.segments[i].kind == segmentCompactionBanner {
+			return &m.content.segments[i]
+		}
+	}
+	return nil
+}
+
+// TestCompactionFinishedBannerStartsCollapsed pins the replay default: a banner
+// built from a finish event alone opens collapsed.
+func TestCompactionFinishedBannerStartsCollapsed(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:        "ok",
+		SummaryTitle:    "ctx",
+		CompactionCount: 1,
+	})
+	if len(b.segments) != 1 || b.segments[0].compactionData == nil {
+		t.Fatalf("segments = %#v, want one compaction banner", b.segments)
+	}
+	data := b.segments[0].compactionData
+	if data.expanded {
+		t.Error("finished compaction banner starts expanded, want collapsed")
+	}
+	rows := b.compactionBoxRows(data, 120)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want one collapsed header row: %q", len(rows), rows)
+	}
+	if header := stripANSI(rows[0]); strings.Contains(header, "▾") {
+		t.Errorf("header = %q, want no expanded triangle", header)
+	}
+}
+
+func TestCompactionModelLabelPrefersAlias(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		cd      *compactionBannerData
+		want    string
+		notWant string
+	}{
+		{
+			name:    "alias preferred over canonical",
+			cd:      &compactionBannerData{finished: true, compactionModel: "anthropic/claude-haiku-5-5", compactionModelAlias: "haiku"},
+			want:    "haiku",
+			notWant: "anthropic/claude-haiku-5-5",
 		},
 		{
-			name:  "multiline reason flattens to one row",
-			note:  "fallback skipped: first line\nsecond\tline\n\nthird",
-			width: 80,
-			want:  "fallback skipped: first line second line third",
+			name: "raw canonical without alias",
+			cd:   &compactionBannerData{finished: true, compactionModel: "anthropic/claude-haiku-5-5"},
+			want: "anthropic/claude-haiku-5-5",
 		},
 		{
-			name:  "multiline at minimum width",
-			note:  "fallback skipped: first line\nsecond line",
-			width: 12,
-			want:  "…",
+			name:    "skipped fallback reports the skip",
+			cd:      &compactionBannerData{finished: true, skipped: true, compactionModel: "anthropic/claude-haiku-5-5", compactionModelAlias: "haiku", fallbackStatus: output.CompactionFallbackSkipped, fallbackReason: "fallback failed: boom"},
+			want:    "fallback skipped",
+			notWant: "haiku",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cd := &compactionBannerData{
-				finished:        true,
-				elapsed:         "3s",
-				compactionCount: 2,
-				fallbackNote:    tt.note,
+			t.Parallel()
+			b := newTestBuffer(t)
+			header := stripANSI(b.compactionBoxRows(tt.cd, 120)[0])
+			if !strings.Contains(header, tt.want) {
+				t.Errorf("header = %q, want it to contain %q", header, tt.want)
 			}
-			rows := b.compactionBoxRows(cd, tt.width)
-			if len(rows) != 2 {
-				t.Fatalf("rows = %d, want header plus one note row: %q", len(rows), rows)
-			}
-			note := stripANSI(rows[1])
-			// Content area is the box width minus the 2 border cells and the 1-cell
-			// padding each side, matching boxStyle's Width accounting.
-			if innerWidth := max(1, tt.width-4); lipgloss.Width(note) > innerWidth {
-				t.Errorf("note width = %d, want <= %d: %q", lipgloss.Width(note), innerWidth, note)
-			}
-			if strings.ContainsAny(note, "\n\r\t") {
-				t.Errorf("note row contains line break or tab: %q", note)
-			}
-			if !strings.Contains(note, tt.want) {
-				t.Errorf("note = %q, want it to contain %q", note, tt.want)
-			}
-
-			noNote := *cd
-			noNote.fallbackNote = ""
-			withLines := strings.Count(b.renderCompactionBanner(cd, tt.width), "\n")
-			withoutLines := strings.Count(b.renderCompactionBanner(&noNote, tt.width), "\n")
-			if withLines != withoutLines+1 {
-				t.Errorf("note adds %d rendered lines, want exactly 1", withLines-withoutLines)
+			if tt.notWant != "" && strings.Contains(header, tt.notWant) {
+				t.Errorf("header = %q, want it to omit %q", header, tt.notWant)
 			}
 		})
+	}
+}
+
+func TestCompactionBannerClickTogglesExpanded(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Model: "test-model", ModelContexts: map[string]int{"test-model": 100000}}, nil)
+	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.content.segments = append(m.content.segments, contentSegment{
+		kind:           segmentCompactionBanner,
+		compactionData: &compactionBannerData{finished: true, elapsed: "3s"},
+		renderDirty:    true,
+	})
+	m.syncViewport()
+
+	last := func() *contentSegment { return &m.content.segments[len(m.content.segments)-1] }
+	if last().compactionData.expanded {
+		t.Fatal("compaction banner starts expanded, want collapsed")
+	}
+	m.handleSegmentClick(last(), 0)
+	if !last().compactionData.expanded {
+		t.Error("click did not expand the compaction banner")
+	}
+	m.handleSegmentClick(last(), 0)
+	if last().compactionData.expanded {
+		t.Error("second click did not collapse the compaction banner")
 	}
 }
 

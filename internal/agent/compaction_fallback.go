@@ -154,10 +154,11 @@ type compactionRun func(summaryReq *RunRequest) (CompactionOutcome, error)
 
 // compactWithFallback runs one compaction operation on the fallback target when
 // selectCompactionFallback selects it for state's last main request, and on main
-// otherwise. A failed target attempt is discarded and the operation reruns once
-// on main from the original state. Cancellation and run limit timeouts return
-// the error without a rerun.
-func compactWithFallback(ctx context.Context, req RunRequest, state RunState, run compactionRun) (CompactionOutcome, error) {
+// otherwise. A selected target is announced on turn with a compacting event
+// before its summary calls. A failed target attempt is discarded and the
+// operation reruns once on main from the original state. Cancellation and run
+// limit timeouts return the error without a rerun.
+func compactWithFallback(ctx context.Context, req RunRequest, state RunState, turn int, run compactionRun) (CompactionOutcome, error) {
 	if !compactionFallbackEnabled(req.CompactionFallback) {
 		return run(nil)
 	}
@@ -169,6 +170,8 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, ru
 	if !selected {
 		return run(nil)
 	}
+	reason := compactionUsedReason(now, state.LastMainRequest, req.CompactionFallback.After)
+	emitCompactionFallbackSelectedEvent(req.Events, turn, compactionModelName(target.ResolvedModel), compactionModelAlias(target.ResolvedModel), reason)
 	outcome, err := runCompactionOnTarget(req, target, run)
 	if err != nil {
 		return compactionOnMainAfterFallback(ctx, req, run, err)
@@ -181,8 +184,9 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, ru
 		return outcome, nil
 	}
 	outcome.CompactionModel = compactionModelName(target.ResolvedModel)
+	outcome.CompactionModelAlias = compactionModelAlias(target.ResolvedModel)
 	outcome.FallbackStatus = output.CompactionFallbackUsed
-	outcome.FallbackReason = compactionUsedReason(now, state.LastMainRequest, req.CompactionFallback.After)
+	outcome.FallbackReason = reason
 	return outcome, nil
 }
 
@@ -218,6 +222,7 @@ func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run comp
 		return outcome, err
 	}
 	outcome.CompactionModel = compactionModelName(req.ResolvedModel)
+	outcome.CompactionModelAlias = compactionModelAlias(req.ResolvedModel)
 	outcome.FallbackStatus = output.CompactionFallbackSkipped
 	outcome.FallbackReason = compactionSkipReason(req, fallbackErr)
 	return outcome, nil
@@ -248,6 +253,17 @@ func hideFallbackRetirement(err error) error {
 // compactionModelName returns the canonical ProviderAlias/BackendModelID of model.
 func compactionModelName(model provider.ResolvedModel) string {
 	return model.ProviderAlias + "/" + model.BackendModelID
+}
+
+// compactionModelAlias returns the configured alias of model, or empty when the
+// reference was raw or no alias was recorded. A raw reference repeats the
+// canonical ProviderAlias/BackendModelID, so it carries no alias.
+func compactionModelAlias(model provider.ResolvedModel) string {
+	alias := strings.TrimSpace(model.Alias)
+	if alias == "" || alias == compactionModelName(model) {
+		return ""
+	}
+	return alias
 }
 
 // compactionUsedReason explains a selected fallback decided at now. It is "no

@@ -4,7 +4,7 @@ Run `steiner` with no arguments to start the interactive terminal UI (TUI). For 
 
 ## Layout
 
-- **Transcript**: the main pane. It shows your messages, model replies, thinking blocks, tool calls, approval prompts and sub-agent cards.
+- **Transcript**: the main pane. It shows your messages, model replies, thinking blocks, tool calls, approval prompts, sub-agent cards and the compaction banner. Click a tool call, thinking block, sub-agent card or the compaction banner to expand or collapse its detail.
 - **Composer**: the input box at the bottom. Queued messages appear in a box above it.
 - **Status bar**: below the composer. It shows the model, context usage, the execution mode and key hints. Context usage reads `ctx --` until a model request reports usage together with a usable context window, and stays `ctx --` if no usable window is reported; after that it shows used / budget tokens with a percentage.
 - **Sidebar**: model and profile, context gauge, sandbox status, orchestration level, active skill, MCP and LSP server counts, sub-agents, performance, session start and active runtime, repository branch and modified files. When a newer release is available, the sidebar shows `↑ <version> · upgrade` (see [Installation](installation.md)). Press `ctrl+b` to show or hide it. It is hidden when the terminal is narrower than 100 columns.

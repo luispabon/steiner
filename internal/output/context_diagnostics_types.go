@@ -65,6 +65,7 @@ type ContextDiagnosticsEvent struct {
 	SummaryTokenBudget        int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved         bool     `json:"threshold_achieved,omitempty"`
 	CompactionModel           string   `json:"compaction_model,omitempty"`
+	CompactionModelAlias      string   `json:"compaction_model_alias,omitempty"`
 	FallbackStatus            string   `json:"fallback_status,omitempty"`
 	FallbackReason            string   `json:"fallback_reason,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
@@ -111,6 +112,7 @@ type ContextCompactionEvent struct {
 	SummaryTokenBudget        int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved         bool     `json:"threshold_achieved,omitempty"`
 	CompactionModel           string   `json:"compaction_model,omitempty"`
+	CompactionModelAlias      string   `json:"compaction_model_alias,omitempty"`
 	FallbackStatus            string   `json:"fallback_status,omitempty"`
 	FallbackReason            string   `json:"fallback_reason,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
@@ -242,6 +244,7 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		SummaryTokenBudget:        payload.SummaryTokenBudget,
 		ThresholdAchieved:         payload.ThresholdAchieved,
 		CompactionModel:           payload.CompactionModel,
+		CompactionModelAlias:      payload.CompactionModelAlias,
 		FallbackStatus:            payload.FallbackStatus,
 		FallbackReason:            payload.FallbackReason,
 		Notes:                     append([]string(nil), payload.Notes...),
@@ -360,6 +363,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			SummaryTokenBudget:        payload.SummaryTokenBudget,
 			ThresholdAchieved:         payload.ThresholdAchieved,
 			CompactionModel:           payload.CompactionModel,
+			CompactionModelAlias:      payload.CompactionModelAlias,
 			FallbackStatus:            payload.FallbackStatus,
 			FallbackReason:            payload.FallbackReason,
 			Notes:                     append([]string(nil), payload.Notes...),

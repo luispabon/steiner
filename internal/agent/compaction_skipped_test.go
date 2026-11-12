@@ -68,6 +68,7 @@ func TestHandleCompactionSkippedReportsFallbackReason(t *testing.T) {
 	conv := compactionTestTurns()[:2]
 	var rec eventRecorder
 	req := statefulRunRequest(prov, nil)
+	req.ResolvedModel = provider.ResolvedModel{Alias: "gpt-main-alias", ProviderAlias: "openai", BackendModelID: "gpt-main"}
 	req.SourceConversation = conv
 	req.Events = rec.sink()
 	req.CompactionFallback = CompactionFallback{
@@ -106,6 +107,12 @@ func TestHandleCompactionSkippedReportsFallbackReason(t *testing.T) {
 	}
 	if skipped.FallbackStatus != output.CompactionFallbackSkipped {
 		t.Errorf("FallbackStatus = %q, want %q", skipped.FallbackStatus, output.CompactionFallbackSkipped)
+	}
+	if want := "openai/gpt-main"; skipped.CompactionModel != want {
+		t.Errorf("CompactionModel = %q, want %q", skipped.CompactionModel, want)
+	}
+	if skipped.CompactionModelAlias != "gpt-main-alias" {
+		t.Errorf("CompactionModelAlias = %q, want %q", skipped.CompactionModelAlias, "gpt-main-alias")
 	}
 	if want := "fallback failed: resolve compaction fallback: boom"; skipped.FallbackReason != want {
 		t.Errorf("FallbackReason = %q, want %q", skipped.FallbackReason, want)

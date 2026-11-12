@@ -337,24 +337,48 @@ func TestCompactionBannerElapsedMeasuresFromFirstEventEvenWithInterleaved(t *tes
 	}
 }
 
-func TestCompactionBannerFallbackNote(t *testing.T) {
+func TestCompactionBannerFallbackFields(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
-		payload output.ContextCompactionEvent
-		want    string
+		name       string
+		payload    output.ContextCompactionEvent
+		wantModel  string
+		wantAlias  string
+		wantStatus string
+		wantReason string
+		wantHeader string
 	}{
 		{
-			name: "used",
+			name: "used with alias",
+			payload: output.ContextCompactionEvent{
+				Severity:             "ok",
+				SummaryTitle:         "ctx",
+				CompactionCount:      1,
+				CompactionModel:      "anthropic/claude-haiku-5-5",
+				CompactionModelAlias: "haiku",
+				FallbackStatus:       output.CompactionFallbackUsed,
+				FallbackReason:       "primary over budget",
+			},
+			wantModel:  "anthropic/claude-haiku-5-5",
+			wantAlias:  "haiku",
+			wantStatus: output.CompactionFallbackUsed,
+			wantReason: "primary over budget",
+			wantHeader: "haiku",
+		},
+		{
+			name: "used without alias",
 			payload: output.ContextCompactionEvent{
 				Severity:        "ok",
 				SummaryTitle:    "ctx",
 				CompactionCount: 1,
 				CompactionModel: "claude-haiku-5-5",
 				FallbackStatus:  output.CompactionFallbackUsed,
-				FallbackReason:  "primary over budget",
+				FallbackReason:  "cache expired",
 			},
-			want: "via claude-haiku-5-5 (primary over budget)",
+			wantModel:  "claude-haiku-5-5",
+			wantStatus: output.CompactionFallbackUsed,
+			wantReason: "cache expired",
+			wantHeader: "claude-haiku-5-5",
 		},
 		{
 			name: "skipped",
@@ -366,7 +390,10 @@ func TestCompactionBannerFallbackNote(t *testing.T) {
 				FallbackStatus:  output.CompactionFallbackSkipped,
 				FallbackReason:  "no fallback configured",
 			},
-			want: "fallback skipped: no fallback configured",
+			wantModel:  "claude-haiku-5-5",
+			wantStatus: output.CompactionFallbackSkipped,
+			wantReason: "no fallback configured",
+			wantHeader: "fallback skipped",
 		},
 		{
 			name: "skipped severity",
@@ -376,7 +403,9 @@ func TestCompactionBannerFallbackNote(t *testing.T) {
 				FallbackStatus:  output.CompactionFallbackSkipped,
 				FallbackReason:  "fallback failed: boom",
 			},
-			want: "fallback skipped: fallback failed: boom",
+			wantStatus: output.CompactionFallbackSkipped,
+			wantReason: "fallback failed: boom",
+			wantHeader: "fallback skipped",
 		},
 		{
 			name: "absent",
@@ -385,7 +414,6 @@ func TestCompactionBannerFallbackNote(t *testing.T) {
 				SummaryTitle:    "ctx",
 				CompactionCount: 1,
 			},
-			want: "",
 		},
 	}
 	for _, tt := range tests {
@@ -399,17 +427,34 @@ func TestCompactionBannerFallbackNote(t *testing.T) {
 			if seg.kind != segmentCompactionBanner || seg.compactionData == nil {
 				t.Fatalf("segment = %#v, want compaction banner with data", seg)
 			}
-			if seg.compactionData.fallbackNote != tt.want {
-				t.Errorf("fallbackNote = %q, want %q", seg.compactionData.fallbackNote, tt.want)
+			data := seg.compactionData
+			if data.compactionModel != tt.wantModel {
+				t.Errorf("compactionModel = %q, want %q", data.compactionModel, tt.wantModel)
+			}
+			if data.compactionModelAlias != tt.wantAlias {
+				t.Errorf("compactionModelAlias = %q, want %q", data.compactionModelAlias, tt.wantAlias)
+			}
+			if data.fallbackStatus != tt.wantStatus {
+				t.Errorf("fallbackStatus = %q, want %q", data.fallbackStatus, tt.wantStatus)
+			}
+			if data.fallbackReason != tt.wantReason {
+				t.Errorf("fallbackReason = %q, want %q", data.fallbackReason, tt.wantReason)
+			}
+			header := stripANSI(b.compactionBoxRows(data, 120)[0])
+			if !strings.Contains(header, tt.wantHeader) {
+				t.Errorf("header = %q, want it to contain %q", header, tt.wantHeader)
+			}
+			if tt.wantReason != "" && strings.Contains(header, tt.wantReason) {
+				t.Errorf("header = %q, want the fallback reason kept to the detail rows", header)
 			}
 		})
 	}
 }
 
-// TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallbackNote checks that a
+// TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallback checks that a
 // compaction event scoped to a bound sub-agent updates only that delegation and
-// leaves the orchestrator banner's fallback note untouched.
-func TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallbackNote(t *testing.T) {
+// leaves the orchestrator banner's fallback model untouched.
+func TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallback(t *testing.T) {
 	t.Parallel()
 	b := &contentBuffer{
 		segments:      make([]contentSegment, 0),
@@ -436,18 +481,22 @@ func TestScopedSubAgentCompactionDoesNotAlterOrchestratorFallbackNote(t *testing
 	}), "child-1"))
 
 	banners := 0
-	var note string
+	var model, status string
 	for _, seg := range b.segments {
 		if seg.kind == segmentCompactionBanner && seg.compactionData != nil {
 			banners++
-			note = seg.compactionData.fallbackNote
+			model = seg.compactionData.compactionModel
+			status = seg.compactionData.fallbackStatus
 		}
 	}
 	if banners != 1 {
 		t.Fatalf("compaction banners = %d, want 1", banners)
 	}
-	if want := "via claude-haiku-5-5 (primary over budget)"; note != want {
-		t.Errorf("orchestrator fallbackNote = %q, want %q", note, want)
+	if want := "claude-haiku-5-5"; model != want {
+		t.Errorf("orchestrator compactionModel = %q, want %q", model, want)
+	}
+	if want := output.CompactionFallbackUsed; status != want {
+		t.Errorf("orchestrator fallbackStatus = %q, want %q", status, want)
 	}
 }
 
@@ -478,13 +527,16 @@ func TestUnboundScopedCompactionDoesNotAlterOrchestratorBanner(t *testing.T) {
 	}{
 		{name: "no orchestrator banner"},
 		{
-			name: "finished banner with fallback note",
+			name: "finished banner with fallback model",
 			prior: &compactionBannerData{
-				label:           "Context compacted",
-				subtitle:        "ctx",
-				finished:        true,
-				compactionCount: 1,
-				fallbackNote:    "via claude-haiku-5-5 (primary over budget)",
+				label:                "Context compacted",
+				subtitle:             "ctx",
+				finished:             true,
+				compactionCount:      1,
+				compactionModel:      "anthropic/claude-haiku-5-5",
+				compactionModelAlias: "haiku",
+				fallbackStatus:       output.CompactionFallbackUsed,
+				fallbackReason:       "primary over budget",
 			},
 		},
 		{
@@ -529,6 +581,61 @@ func TestUnboundScopedCompactionDoesNotAlterOrchestratorBanner(t *testing.T) {
 				t.Errorf("orchestrator banner changed: got %+v, want %+v", *seg.compactionData, want)
 			}
 		})
+	}
+}
+
+// TestCompactionCompactingEventShowsFallbackModel checks the running banner
+// names the fallback model in its one-row header as soon as the selection event
+// arrives, before the summary call finishes.
+func TestCompactionCompactingEventShowsFallbackModel(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:             "compacting",
+		CompactionCount:      2,
+		CompactionModel:      "anthropic/claude-haiku-5-5",
+		CompactionModelAlias: "haiku",
+		FallbackStatus:       output.CompactionFallbackUsed,
+		FallbackReason:       "primary over budget",
+	})
+
+	if len(b.segments) != 1 {
+		t.Fatalf("segments = %d, want 1", len(b.segments))
+	}
+	data := b.segments[0].compactionData
+	if data == nil || data.finished {
+		t.Fatalf("banner data = %+v, want an unfinished banner", data)
+	}
+	rows := b.compactionBoxRows(data, 120)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want one header row: %q", len(rows), rows)
+	}
+	header := stripANSI(rows[0])
+	if !strings.Contains(header, "haiku") {
+		t.Errorf("header = %q, want the fallback alias", header)
+	}
+	if strings.Contains(header, "primary over budget") {
+		t.Errorf("header = %q, want the fallback reason kept to the detail rows", header)
+	}
+}
+
+// TestCompactionActiveEventsDoNotDuplicateStatusFragment checks a second active
+// event for the same run does not stack another compacting status fragment.
+func TestCompactionActiveEventsDoNotDuplicateStatusFragment(t *testing.T) {
+	t.Parallel()
+	m := newModel(Config{Model: "test-model", ModelContexts: map[string]int{"test-model": 100000}}, nil)
+	m.applyCompactionEvent(output.ContextCompactionEvent{Severity: "compacting", CompactionCount: 1})
+	m.applyCompactionEvent(output.ContextCompactionEvent{
+		Severity:             "compacting",
+		CompactionCount:      1,
+		CompactionModel:      "anthropic/claude-haiku-5-5",
+		CompactionModelAlias: "haiku",
+		FallbackStatus:       output.CompactionFallbackUsed,
+		FallbackReason:       "primary over budget",
+	})
+
+	if got := strings.Count(m.status.context, "compacting"); got != 1 {
+		t.Errorf("status context = %q, has %d compacting fragments, want 1", m.status.context, got)
 	}
 }
 

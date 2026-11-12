@@ -26,6 +26,8 @@ const fallbackOperationAfter = 5 * time.Minute
 const (
 	fallbackOperationTargetRef = "anthropic/claude-small"
 	fallbackOperationMainRef   = "openai/gpt-main"
+	// fallbackOperationMainAlias is the configured alias of main in the skip tests.
+	fallbackOperationMainAlias = "gpt-main-alias"
 )
 
 // fallbackOperationMessages is the conversation of
@@ -378,7 +380,7 @@ func TestCompactionFallbackNotAppliedIsNotLabeledUsed(t *testing.T) {
 		}
 		return CompactionOutcome{}, nil
 	}
-	outcome, err := compactWithFallback(context.Background(), r.req, state, run)
+	outcome, err := compactWithFallback(context.Background(), r.req, state, 1, run)
 	if err != nil {
 		t.Fatalf("compactWithFallback() error = %v, want nil", err)
 	}
@@ -403,7 +405,7 @@ func TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing(t *testing.T)
 		}
 		return CompactionOutcome{}, nil
 	}
-	outcome, err := compactWithFallback(context.Background(), r.req, state, run)
+	outcome, err := compactWithFallback(context.Background(), r.req, state, 1, run)
 	if err != nil {
 		t.Fatalf("compactWithFallback() error = %v, want nil", err)
 	}
@@ -454,7 +456,9 @@ func TestCompactionFallbackOperationDoesNotRerunOnCancellation(t *testing.T) {
 	}
 }
 
-// fallbackCompactionPayload returns the single completed compaction diagnostic in events.
+// fallbackCompactionPayload returns the single completed compaction diagnostic in
+// events. A selected fallback also emits a compaction diagnostic at compacting
+// severity before its summary call, which is skipped here.
 func fallbackCompactionPayload(t *testing.T, events []output.Event) output.ContextCompactionEvent {
 	t.Helper()
 	var payloads []output.ContextCompactionEvent
@@ -465,6 +469,9 @@ func fallbackCompactionPayload(t *testing.T, events []output.Event) output.Conte
 		payload, ok := output.AsContextCompactionEvent(event.Payload)
 		if !ok {
 			t.Fatalf("diagnostic payload type = %T, want output.ContextCompactionEvent", event.Payload)
+		}
+		if payload.Severity == "compacting" {
+			continue
 		}
 		payloads = append(payloads, payload)
 	}
@@ -486,6 +493,7 @@ func TestCompactWithLineageFallbackSeed(t *testing.T) {
 	mismatched := warm
 	mismatched.BackendModelID = "gpt-other"
 
+	const alias = "claude-mini"
 	tests := []struct {
 		name       string
 		seed       LastMainRequest
@@ -493,16 +501,18 @@ func TestCompactWithLineageFallbackSeed(t *testing.T) {
 		wantTarget int
 		wantStatus string
 		wantModel  string
+		wantAlias  string
 		wantReason string
 	}{
 		{name: "matching warm seed runs main", seed: warm, wantMain: 2},
-		{name: "mismatched seed is dropped and runs target", seed: mismatched, wantTarget: 2, wantStatus: output.CompactionFallbackUsed, wantModel: fallbackOperationTargetRef, wantReason: "no recent request"},
-		{name: "matching idle seed runs target", seed: idle, wantTarget: 2, wantStatus: output.CompactionFallbackUsed, wantModel: fallbackOperationTargetRef, wantReason: "idle 10m > 5m"},
+		{name: "mismatched seed is dropped and runs target", seed: mismatched, wantTarget: 2, wantStatus: output.CompactionFallbackUsed, wantModel: fallbackOperationTargetRef, wantAlias: alias, wantReason: "no recent request"},
+		{name: "matching idle seed runs target", seed: idle, wantTarget: 2, wantStatus: output.CompactionFallbackUsed, wantModel: fallbackOperationTargetRef, wantAlias: alias, wantReason: "idle 10m > 5m"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			r := newFallbackOperationRun(now)
+			r.resolved.ResolvedModel.Alias = alias
 			r.req.PromptCacheKey = "cache-key"
 			r.req.SeedLastMainRequest = tt.seed
 			var events []output.Event
@@ -524,6 +534,9 @@ func TestCompactWithLineageFallbackSeed(t *testing.T) {
 			payload := fallbackCompactionPayload(t, events)
 			if payload.CompactionModel != tt.wantModel {
 				t.Errorf("CompactionModel = %q, want %q", payload.CompactionModel, tt.wantModel)
+			}
+			if payload.CompactionModelAlias != tt.wantAlias {
+				t.Errorf("CompactionModelAlias = %q, want %q", payload.CompactionModelAlias, tt.wantAlias)
 			}
 			if payload.FallbackStatus != tt.wantStatus {
 				t.Errorf("FallbackStatus = %q, want %q", payload.FallbackStatus, tt.wantStatus)
@@ -566,6 +579,7 @@ func TestCompactWithLineageFallbackSkippedEvent(t *testing.T) {
 			t.Parallel()
 			r := newFallbackOperationRun(fallbackOperationNow)
 			tt.setup(r)
+			r.req.ResolvedModel.Alias = fallbackOperationMainAlias
 			var events []output.Event
 			r.req.Events = output.SinkFunc(func(event output.Event) { events = append(events, event) })
 
@@ -582,6 +596,9 @@ func TestCompactWithLineageFallbackSkippedEvent(t *testing.T) {
 			payload := fallbackCompactionPayload(t, events)
 			if payload.CompactionModel != fallbackOperationMainRef {
 				t.Errorf("CompactionModel = %q, want %q", payload.CompactionModel, fallbackOperationMainRef)
+			}
+			if payload.CompactionModelAlias != fallbackOperationMainAlias {
+				t.Errorf("CompactionModelAlias = %q, want %q", payload.CompactionModelAlias, fallbackOperationMainAlias)
 			}
 			if payload.FallbackStatus != output.CompactionFallbackSkipped {
 				t.Errorf("FallbackStatus = %q, want %q", payload.FallbackStatus, output.CompactionFallbackSkipped)

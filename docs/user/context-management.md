@@ -46,7 +46,7 @@ Use `/recall` to view the current session's archive. `--exec` runs and sub-agent
 
 When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive `compaction_fallback_after` on the main model's provider (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). See [Configuration](configuration.md#providers-block).
 
-If the fallback fails, the compaction reruns once on the main model. The compaction banner notes `via <provider>/<model> (<reason>)` when the fallback ran, or `fallback skipped: <reason>` when it did not.
+If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, history counts, summary size and budget, and cache components. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
 
 ### `claude_subscription` limit
 

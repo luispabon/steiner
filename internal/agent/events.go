@@ -91,16 +91,19 @@ func emitCompactionStartedEvent(sink output.EventSink, turn int) {
 }
 
 // emitCompactionSkippedEvent closes a started compaction when no stage applied,
-// so consumers clear the compacting state without reporting a compaction.
-// fallbackReason explains a discarded fallback and is empty otherwise. A
-// non-empty fallbackReason reports the fallback as skipped.
-func emitCompactionSkippedEvent(sink output.EventSink, turn int, fallbackReason string) {
+// so consumers clear the compacting state without reporting a compaction. model
+// and alias name the main model that holds the conversation, with alias empty
+// for a raw reference. fallbackReason explains a discarded fallback and is empty
+// otherwise. A non-empty fallbackReason reports the fallback as skipped.
+func emitCompactionSkippedEvent(sink output.EventSink, turn int, model, alias, fallbackReason string) {
 	payload := output.ContextDiagnosticsEvent{
-		Kind:     "compaction",
-		Scope:    "conversation",
-		Turn:     turn,
-		Severity: "skipped",
-		Notes:    []string{"compaction skipped: no stage applied"},
+		Kind:                 "compaction",
+		Scope:                "conversation",
+		Turn:                 turn,
+		Severity:             "skipped",
+		CompactionModel:      model,
+		CompactionModelAlias: alias,
+		Notes:                []string{"compaction skipped: no stage applied"},
 	}
 	if fallbackReason != "" {
 		payload.FallbackStatus = output.CompactionFallbackSkipped
@@ -109,21 +112,44 @@ func emitCompactionSkippedEvent(sink output.EventSink, turn int, fallbackReason 
 	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))
 }
 
+// emitCompactionFallbackSelectedEvent announces the fallback model a compaction
+// operation will run on, before its summary calls. model is canonical
+// ProviderAlias/BackendModelID and alias is the configured reference, empty for
+// a raw one. No session health event is emitted: the compacting state belongs to
+// the start and finish events.
+func emitCompactionFallbackSelectedEvent(sink output.EventSink, turn int, model, alias, reason string) {
+	if sink == nil {
+		return
+	}
+	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:                 "compaction",
+		Scope:                "conversation",
+		Turn:                 turn,
+		Severity:             "compacting",
+		CompactionModel:      model,
+		CompactionModelAlias: alias,
+		FallbackStatus:       output.CompactionFallbackUsed,
+		FallbackReason:       reason,
+		Notes:                []string{"compacting on fallback model"},
+	}))
+}
+
 type compactionDiagnosticsParams struct {
-	turn               int
-	compactionCount    int
-	beforeFit          prompt.RequestTokenBudget
-	afterFit           prompt.RequestTokenBudget
-	mode               prompt.CompactionMode
-	summaryTokenBudget int
-	retainedMessages   []Message
-	candidate          ConversationCandidate
-	summaryText        string
-	promptText         string
-	usage              *provider.UsageStats
-	compactionModel    string
-	fallbackStatus     string
-	fallbackReason     string
+	turn                 int
+	compactionCount      int
+	beforeFit            prompt.RequestTokenBudget
+	afterFit             prompt.RequestTokenBudget
+	mode                 prompt.CompactionMode
+	summaryTokenBudget   int
+	retainedMessages     []Message
+	candidate            ConversationCandidate
+	summaryText          string
+	promptText           string
+	usage                *provider.UsageStats
+	compactionModel      string
+	compactionModelAlias string
+	fallbackStatus       string
+	fallbackReason       string
 }
 
 func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
@@ -189,6 +215,7 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		Status:                    requestTokenBudgetStatus(params.afterFit),
 		Truncated:                 params.afterFit.ContextSize > 0 && params.afterFit.TotalTokens > params.afterFit.ContextSize,
 		CompactionModel:           params.compactionModel,
+		CompactionModelAlias:      params.compactionModelAlias,
 		FallbackStatus:            params.fallbackStatus,
 		FallbackReason:            params.fallbackReason,
 		Notes:                     notes,

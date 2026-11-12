@@ -204,22 +204,29 @@ func (b *contentBuffer) appendModelCallDiagnosticsEvent(event output.Event) {
 func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompactionEvent) {
 	if payload.Severity == "compacting" {
 		b.upsertCompactionBanner(compactionBannerData{
-			label:           "Compacting",
-			subtitle:        "summarizing context",
-			finished:        false,
-			startTime:       nanoNow(),
-			compactionCount: payload.CompactionCount,
+			label:                "Compacting",
+			subtitle:             "summarizing context",
+			finished:             false,
+			startTime:            nanoNow(),
+			compactionCount:      payload.CompactionCount,
+			compactionModel:      payload.CompactionModel,
+			compactionModelAlias: payload.CompactionModelAlias,
+			fallbackStatus:       payload.FallbackStatus,
+			fallbackReason:       payload.FallbackReason,
 		})
 		return
 	}
 	if payload.Severity == "skipped" {
 		b.upsertCompactionBanner(compactionBannerData{
-			label:           "Compaction skipped",
-			subtitle:        "skipped: no stage applied",
-			finished:        true,
-			skipped:         true,
-			compactionCount: payload.CompactionCount,
-			fallbackNote:    compactionFallbackNote(payload),
+			label:                "Compaction skipped",
+			subtitle:             "skipped: no stage applied",
+			finished:             true,
+			skipped:              true,
+			compactionCount:      payload.CompactionCount,
+			compactionModel:      payload.CompactionModel,
+			compactionModelAlias: payload.CompactionModelAlias,
+			fallbackStatus:       payload.FallbackStatus,
+			fallbackReason:       payload.FallbackReason,
 		})
 		return
 	}
@@ -236,41 +243,39 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 	}
 
 	b.upsertCompactionBanner(compactionBannerData{
-		label:             "Context compacted",
-		subtitle:          summary,
-		finished:          true,
-		summary:           summary,
-		msgCount:          msgCount,
-		compactionCount:   payload.CompactionCount,
-		compactedTurns:    payload.CompactedTurns,
-		compactedMessages: payload.CompactedMessages,
-		retainedTurns:     payload.RetainedTurns,
-		retainedMessages:  payload.RetainedMessages,
-		mode:              payload.Mode,
-		beforeTokens:      payload.BeforePromptTokens,
-		beforePct:         payload.BeforeUsagePercent,
-		afterTokens:       payload.AfterPromptTokens,
-		afterPct:          payload.AfterUsagePercent,
-		summaryTitle:      payload.SummaryTitle,
-		elapsed:           finishElapsed(b, nanoNow()),
-		cacheReadTokens:   payload.CacheReadTokens,
-		inputTokens:       payload.InputTokens,
-		cacheCreateTokens: payload.CacheCreateTokens,
-		fallbackNote:      compactionFallbackNote(payload),
+		label:                "Context compacted",
+		subtitle:             summary,
+		finished:             true,
+		summary:              summary,
+		msgCount:             msgCount,
+		compactionCount:      payload.CompactionCount,
+		compactedTurns:       payload.CompactedTurns,
+		compactedMessages:    payload.CompactedMessages,
+		retainedTurns:        payload.RetainedTurns,
+		retainedMessages:     payload.RetainedMessages,
+		retainedRawTurns:     payload.RetainedRawTurns,
+		mode:                 payload.Mode,
+		beforeTokens:         payload.BeforePromptTokens,
+		beforePct:            payload.BeforeUsagePercent,
+		afterTokens:          payload.AfterPromptTokens,
+		afterPct:             payload.AfterUsagePercent,
+		summaryTitle:         payload.SummaryTitle,
+		summaryBytes:         payload.SummaryBytes,
+		summaryTokenBudget:   payload.SummaryTokenBudget,
+		contextWindow:        payload.ContextWindow,
+		thresholdTokens:      payload.CompactionThresholdTokens,
+		compactionThreshold:  payload.CompactionThreshold,
+		thresholdAchieved:    payload.ThresholdAchieved,
+		truncated:            payload.Truncated,
+		elapsed:              finishElapsed(b, nanoNow()),
+		cacheReadTokens:      payload.CacheReadTokens,
+		inputTokens:          payload.InputTokens,
+		cacheCreateTokens:    payload.CacheCreateTokens,
+		compactionModel:      payload.CompactionModel,
+		compactionModelAlias: payload.CompactionModelAlias,
+		fallbackStatus:       payload.FallbackStatus,
+		fallbackReason:       payload.FallbackReason,
 	})
-}
-
-// compactionFallbackNote returns the banner note for a reported fallback status,
-// or "" when the event carries no fallback status.
-func compactionFallbackNote(payload output.ContextCompactionEvent) string {
-	switch payload.FallbackStatus {
-	case output.CompactionFallbackUsed:
-		return fmt.Sprintf("via %s (%s)", payload.CompactionModel, payload.FallbackReason)
-	case output.CompactionFallbackSkipped:
-		return fmt.Sprintf("fallback skipped: %s", payload.FallbackReason)
-	default:
-		return ""
-	}
 }
 
 // finishElapsed returns a formatted elapsed string using the startTime from the
@@ -324,9 +329,12 @@ func (b *contentBuffer) upsertCompactionBanner(data compactionBannerData) {
 		}
 		// Found an unfinished banner; unconditionally preserve its original startTime
 		// so elapsed time is measured from the first progress event, not the latest.
+		// The user's expansion state survives live updates and the finish event.
 		oldStartTime := seg.compactionData.startTime
+		oldExpanded := seg.compactionData.expanded
 		replacement := data
 		replacement.startTime = oldStartTime
+		replacement.expanded = oldExpanded
 		seg.compactionData = &replacement
 		seg.renderDirty = true
 		b.gen++

@@ -358,7 +358,7 @@ func TestCompactWithFallbackKeepsOnlyMainClear(t *testing.T) {
 				return tt.mainOutcome, tt.mainErr
 			}
 
-			outcome, err := compactWithFallback(context.Background(), req, state, run)
+			outcome, err := compactWithFallback(context.Background(), req, state, 1, run)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("compactWithFallback() error = %v, want %v", err, tt.wantErr)
 			}

@@ -411,7 +411,7 @@ func (p *turnProgressor) handleCompaction(ctx context.Context, state RunState, f
 			p.awaitingPostCompaction = true
 		}
 	} else {
-		emitCompactionSkippedEvent(p.request.Events, turn, fallbackReason)
+		emitCompactionSkippedEvent(p.request.Events, turn, compactionModelName(p.request.ResolvedModel), compactionModelAlias(p.request.ResolvedModel), fallbackReason)
 	}
 	if attempted {
 		// Usage is kept on a not-applied attempt, so the retry re-checks the

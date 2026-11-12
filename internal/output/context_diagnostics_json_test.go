@@ -70,9 +70,10 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 
 func TestContextCompactionFallbackFieldsJSON(t *testing.T) {
 	typed := ContextCompactionEvent{
-		CompactionModel: "claude-haiku-5-5",
-		FallbackStatus:  CompactionFallbackSkipped,
-		FallbackReason:  "no fallback configured",
+		CompactionModel:      "claude-haiku-5-5",
+		CompactionModelAlias: "haiku",
+		FallbackStatus:       CompactionFallbackSkipped,
+		FallbackReason:       "no fallback configured",
 	}
 	data, err := json.Marshal(Event{
 		Type:      EventTypeContextDiagnostics,
@@ -83,7 +84,7 @@ func TestContextCompactionFallbackFieldsJSON(t *testing.T) {
 		t.Fatalf("marshal event: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{`"compaction_model":"claude-haiku-5-5"`, `"fallback_status":"skipped"`, `"fallback_reason":"no fallback configured"`} {
+	for _, want := range []string{`"compaction_model":"claude-haiku-5-5"`, `"compaction_model_alias":"haiku"`, `"fallback_status":"skipped"`, `"fallback_reason":"no fallback configured"`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("event JSON = %s, missing %s", text, want)
 		}
@@ -114,7 +115,7 @@ func TestContextCompactionFallbackFieldsOmittedJSON(t *testing.T) {
 		t.Fatalf("marshal event: %v", err)
 	}
 	text := string(data)
-	for _, key := range []string{"compaction_model", "fallback_status", "fallback_reason"} {
+	for _, key := range []string{"compaction_model", "compaction_model_alias", "fallback_status", "fallback_reason"} {
 		if strings.Contains(text, key) {
 			t.Fatalf("event JSON = %s, must not contain %s when unset", text, key)
 		}

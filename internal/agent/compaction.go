@@ -67,6 +67,11 @@ type CompactionOutcome struct {
 	// main when it is skipped. Empty when no fallback was selected or the
 	// selected fallback applied nothing.
 	CompactionModel string
+	// CompactionModelAlias is the configured alias of the CompactionModel model,
+	// such as the named alias or raw provider/model-id reference it was resolved
+	// from. Empty when that reference was raw, no alias was recorded, or
+	// CompactionModel is empty.
+	CompactionModelAlias string
 	// FallbackStatus is output.CompactionFallbackUsed or
 	// output.CompactionFallbackSkipped. Empty when no fallback was selected or
 	// the selected fallback applied nothing.
@@ -160,7 +165,7 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
-	return compactWithFallback(ctx, req, state, func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	return compactWithFallback(ctx, req, state, turn, func(summaryReq *RunRequest) (CompactionOutcome, error) {
 		return summarizeCompactionStages{
 			stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
 				params.steering = steering
@@ -534,20 +539,21 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	if compactionCount != nil {
 		*compactionCount += outcome.StageCount
 		emitCompactionDiagnostics(req.Events, compactionDiagnosticsParams{
-			turn:               turn,
-			compactionCount:    *compactionCount,
-			beforeFit:          currentFit,
-			afterFit:           outcome.Fit,
-			mode:               outcome.Mode,
-			summaryTokenBudget: outcome.SummaryTokenBudget,
-			retainedMessages:   outcome.RetainedMessages,
-			candidate:          outcome.Candidate,
-			summaryText:        outcome.SummaryText,
-			promptText:         outcome.PromptText,
-			usage:              outcome.Usage,
-			compactionModel:    outcome.CompactionModel,
-			fallbackStatus:     outcome.FallbackStatus,
-			fallbackReason:     outcome.FallbackReason,
+			turn:                 turn,
+			compactionCount:      *compactionCount,
+			beforeFit:            currentFit,
+			afterFit:             outcome.Fit,
+			mode:                 outcome.Mode,
+			summaryTokenBudget:   outcome.SummaryTokenBudget,
+			retainedMessages:     outcome.RetainedMessages,
+			candidate:            outcome.Candidate,
+			summaryText:          outcome.SummaryText,
+			promptText:           outcome.PromptText,
+			usage:                outcome.Usage,
+			compactionModel:      outcome.CompactionModel,
+			compactionModelAlias: outcome.CompactionModelAlias,
+			fallbackStatus:       outcome.FallbackStatus,
+			fallbackReason:       outcome.FallbackReason,
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true
