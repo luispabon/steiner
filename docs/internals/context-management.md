@@ -112,7 +112,9 @@ Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
 - Nothing is read or resolved when `CompactionFallback.After` is not positive or `Resolve` is nil.
 - The clock is `RunRequest.Clock` when set, otherwise `time.Now`. `compactionCacheCold` treats the cache as cold when no main request is recorded (zero `LastMainRequest.At`), or when the idle time is greater than `After`. A warm cache runs on main.
 - For a cold cache, `selectCompactionFallback` resolves the target. A resolve error, or a target with no provider, fails the attempt (see rerun below). A target with the same provider alias and backend model ID as main is not selected, and the operation runs on main.
-- When the fallback applies a summary, the outcome records `CompactionModel` (`ProviderAlias/BackendModelID`), `FallbackStatus` `used`, and `FallbackReason`. A selected fallback that applies nothing returns without those fields or a main rerun. The reason is `no recent request` when no main request is recorded. Otherwise it is `idle <m>m > <n>m` in whole minutes. When rounding makes the two minute values equal, it uses exact durations (`idle <duration> > <duration>`) so the reason still shows idle greater than the threshold.
+- A selected target is announced before the summary calls. `compactWithFallback` emits a compaction diagnostic at `compacting` severity on the compaction turn (`emitCompactionFallbackSelectedEvent`, `internal/agent/events.go`). It carries `CompactionModel` (`ProviderAlias/BackendModelID`), `CompactionModelAlias`, `FallbackStatus` `used`, the selection reason below, and the note `compacting on fallback model`. It emits no session health event, so the compacting state stays with the start and finish events. The finish event repeats the model, alias, status and reason; a skip event repeats them for main.
+- `CompactionModelAlias` is the configured alias of that model (`provider.ResolvedModel.Alias`). It is empty when the configured reference is a raw `provider/model-id` that repeats the canonical name, and when no alias was recorded.
+- When the fallback applies a summary, the outcome records `CompactionModel`, `CompactionModelAlias`, `FallbackStatus` `used`, and `FallbackReason`. A selected fallback that applies nothing returns without those fields or a main rerun. The reason is `no recent request` when no main request is recorded. Otherwise it is `idle <m>m > <n>m` in whole minutes. When rounding makes the two minute values equal, it uses exact durations (`idle <duration> > <duration>`) so the reason still shows idle greater than the threshold.
 
 Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionStage`):
 
@@ -122,7 +124,7 @@ Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionSt
 
 Rerun (`compactionOnMainAfterFallback`):
 
-- A failed attempt (fit failure, provider error, resolve or build error, or empty fallback summary) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.
+- A failed attempt (fit failure, provider error, resolve or build error, or empty fallback summary) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`, with `CompactionModel` and `CompactionModelAlias` naming main. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.
 - No rerun happens when `ctx.Err()` is set (parent cancellation or the turn timeout) or the error is `context.Canceled`. The error is returned as is.
 - An error from the main rerun is returned.
 

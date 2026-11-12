@@ -109,21 +109,44 @@ func emitCompactionSkippedEvent(sink output.EventSink, turn int, fallbackReason 
 	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))
 }
 
+// emitCompactionFallbackSelectedEvent announces the fallback model a compaction
+// operation will run on, before its summary calls. model is canonical
+// ProviderAlias/BackendModelID and alias is the configured reference, empty for
+// a raw one. No session health event is emitted: the compacting state belongs to
+// the start and finish events.
+func emitCompactionFallbackSelectedEvent(sink output.EventSink, turn int, model, alias, reason string) {
+	if sink == nil {
+		return
+	}
+	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:                 "compaction",
+		Scope:                "conversation",
+		Turn:                 turn,
+		Severity:             "compacting",
+		CompactionModel:      model,
+		CompactionModelAlias: alias,
+		FallbackStatus:       output.CompactionFallbackUsed,
+		FallbackReason:       reason,
+		Notes:                []string{"compacting on fallback model"},
+	}))
+}
+
 type compactionDiagnosticsParams struct {
-	turn               int
-	compactionCount    int
-	beforeFit          prompt.RequestTokenBudget
-	afterFit           prompt.RequestTokenBudget
-	mode               prompt.CompactionMode
-	summaryTokenBudget int
-	retainedMessages   []Message
-	candidate          ConversationCandidate
-	summaryText        string
-	promptText         string
-	usage              *provider.UsageStats
-	compactionModel    string
-	fallbackStatus     string
-	fallbackReason     string
+	turn                 int
+	compactionCount      int
+	beforeFit            prompt.RequestTokenBudget
+	afterFit             prompt.RequestTokenBudget
+	mode                 prompt.CompactionMode
+	summaryTokenBudget   int
+	retainedMessages     []Message
+	candidate            ConversationCandidate
+	summaryText          string
+	promptText           string
+	usage                *provider.UsageStats
+	compactionModel      string
+	compactionModelAlias string
+	fallbackStatus       string
+	fallbackReason       string
 }
 
 func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
@@ -189,6 +212,7 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		Status:                    requestTokenBudgetStatus(params.afterFit),
 		Truncated:                 params.afterFit.ContextSize > 0 && params.afterFit.TotalTokens > params.afterFit.ContextSize,
 		CompactionModel:           params.compactionModel,
+		CompactionModelAlias:      params.compactionModelAlias,
 		FallbackStatus:            params.fallbackStatus,
 		FallbackReason:            params.fallbackReason,
 		Notes:                     notes,
