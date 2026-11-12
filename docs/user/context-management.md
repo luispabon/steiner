@@ -44,13 +44,13 @@ Use `/recall` to view the current session's archive. `--exec` runs and sub-agent
 
 ### Compaction fallback
 
-When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive `compaction_fallback_after` on the main model's provider (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). See [Configuration](configuration.md#providers-block).
+When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive cold-cache threshold on the main model's provider. The threshold is `compaction_fallback_after`; when that key is unset it uses the provider's `prompt_cache_ttl` (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). The fallback stays off when the resulting threshold is `0`; negative values are invalid. See [Configuration](configuration.md#providers-block).
 
 If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, history counts, summary size and budget, and cache components. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
 
 ### Cache expiry indicator
 
-When a compaction fallback model is configured and the provider's `compaction_fallback_after` is positive, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold (see [Compaction fallback](#compaction-fallback)). The countdown restarts after each successful request to the main model, except during an in-TUI oneshot run.
+When the main model's provider has a positive effective `prompt_cache_ttl`, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold. A compaction fallback model is not required. `openai`, `anthropic`, `claude_subscription` and `codex` providers have a default TTL; every other provider type defaults to `0`, so set `prompt_cache_ttl` explicitly to show the estimate. Steiner does not guess upstream cache retention. The countdown restarts after each successful request to the main model, except during an in-TUI oneshot run.
 
 | Row text | Colour | Meaning |
 |----------|--------|---------|
@@ -58,9 +58,9 @@ When a compaction fallback model is configured and the provider's `compaction_fa
 | `cache ~1m left` | muted amber | One minute or less remains |
 | `cache expired` | amber | The cache is presumed cold |
 
-Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, and until the next successful main request after a model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume`. Requests made by an in-TUI oneshot run do not restart the countdown, and the estimate is cleared when the run finishes.
+Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when the effective `prompt_cache_ttl` is `0`, and until the next successful main request after a model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume`. Requests made by an in-TUI oneshot run do not restart the countdown, and the estimate is cleared when the run finishes.
 
-The indicator is an estimate from idle time, not confirmation from the provider. A model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume` clears it. A model switch that applies only to the next run leaves the current estimate in place.
+The indicator is an estimate from idle time, not confirmation from the provider, and it depends only on `prompt_cache_ttl`; `compaction_fallback_after` affects the compaction fallback alone. A model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume` clears it. A model switch that applies only to the next run leaves the current estimate in place.
 
 ### `claude_subscription` limit
 
