@@ -50,7 +50,7 @@ If the fallback fails, the compaction reruns once on the main model. The compact
 
 ### Cache expiry indicator
 
-When a compaction fallback model is configured and the provider's `compaction_fallback_after` is positive, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold (see [Compaction fallback](#compaction-fallback)). The countdown restarts after each successful request to the main model.
+When a compaction fallback model is configured and the provider's `compaction_fallback_after` is positive, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold (see [Compaction fallback](#compaction-fallback)). The countdown restarts after each successful request to the main model, except during an in-TUI oneshot run.
 
 | Row text | Colour | Meaning |
 |----------|--------|---------|
@@ -58,7 +58,7 @@ When a compaction fallback model is configured and the provider's `compaction_fa
 | `cache ~1m left` | muted amber | One minute or less remains |
 | `cache expired` | amber | The cache is presumed cold |
 
-Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, and until the next successful main request after a model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume`.
+Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, and until the next successful main request after a model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume`. Requests made by an in-TUI oneshot run do not restart the countdown, and the estimate is cleared when the run finishes.
 
 The indicator is an estimate from idle time, not confirmation from the provider. A model switch that takes effect immediately, a successful profile switch, `/clear`, `/fork` or `/resume` clears it. A model switch that applies only to the next run leaves the current estimate in place.
 
