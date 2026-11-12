@@ -131,6 +131,13 @@ func TestRenderUserTimestampChrome(t *testing.T) {
 	}
 }
 
+// eventAt returns event stamped with ts, as replay does for a persisted
+// message time.
+func eventAt(event output.Event, ts time.Time) output.Event {
+	event.Timestamp = ts
+	return event
+}
+
 func TestTimestampCapture(t *testing.T) {
 	originalTimeNow := timeNow
 	fixedNow := time.Date(2026, 6, 19, 15, 4, 0, 0, time.UTC)
@@ -141,21 +148,48 @@ func TestTimestampCapture(t *testing.T) {
 		timeNow = originalTimeNow
 	})
 
+	historical := time.Date(2026, 6, 10, 18, 11, 4, 0, time.UTC)
 	tests := []struct {
 		name string
 		run  func(*contentBuffer)
+		want time.Time
 	}{
 		{
-			name: "AppendUser",
+			name: "AppendUser stamps now",
 			run: func(b *contentBuffer) {
 				b.AppendUser("hello")
 			},
+			want: fixedNow,
 		},
 		{
-			name: "appendUserInputEvent",
+			name: "appendUserInputEvent keeps event timestamp",
 			run: func(b *contentBuffer) {
-				b.appendUserInputEvent(output.NewUserInputEvent("hello", "exec", nil))
+				b.appendUserInputEvent(eventAt(output.NewUserInputEvent("hello", "exec", nil), historical))
 			},
+			want: historical,
+		},
+		{
+			name: "appendStopReasonEvent keeps event timestamp",
+			run: func(b *contentBuffer) {
+				b.appendStopReasonEvent(eventAt(output.NewStopReasonEvent(1, "complete", nil), historical))
+			},
+			want: historical,
+		},
+		{
+			name: "appendSubAgentsDeliveredEvent keeps event timestamp",
+			run: func(b *contentBuffer) {
+				b.appendSubAgentsDeliveredEvent(eventAt(output.NewSubAgentsDeliveredEvent([]output.DeliveredSubAgent{
+					{AgentID: "child", AgentType: "explore", Status: "complete"},
+				}), historical))
+			},
+			want: historical,
+		},
+		{
+			name: "appendSubAgentResultsUnansweredEvent keeps event timestamp",
+			run: func(b *contentBuffer) {
+				b.appendSubAgentResultsUnansweredEvent(eventAt(output.NewSubAgentResultsUnansweredEvent([]string{"child"}, "boom"), historical))
+			},
+			want: historical,
 		},
 	}
 
@@ -166,8 +200,8 @@ func TestTimestampCapture(t *testing.T) {
 			if len(b.segments) != 1 {
 				t.Fatalf("segments = %d, want 1", len(b.segments))
 			}
-			if got := b.segments[0].timestamp; !got.Equal(fixedNow) {
-				t.Fatalf("segment timestamp = %v, want %v", got, fixedNow)
+			if got := b.segments[0].timestamp; !got.Equal(tt.want) {
+				t.Fatalf("segment timestamp = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -192,25 +226,25 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 	}{
 		{
 			name:          "complete",
-			event:         output.NewStopReasonEvent(1, "complete", nil),
+			event:         eventAt(output.NewStopReasonEvent(1, "complete", nil), fixedNow),
 			wantText:      "status · complete",
 			wantTimestamp: true,
 		},
 		{
 			name:          "end_turn",
-			event:         output.NewStopReasonEvent(1, "end_turn", nil),
+			event:         eventAt(output.NewStopReasonEvent(1, "end_turn", nil), fixedNow),
 			wantText:      "status · end_turn",
 			wantTimestamp: true,
 		},
 		{
 			name:          "cancelled",
-			event:         output.NewStopReasonEvent(1, "cancelled", nil),
+			event:         eventAt(output.NewStopReasonEvent(1, "cancelled", nil), fixedNow),
 			wantText:      "status · cancelled",
 			wantTimestamp: false,
 		},
 		{
 			name:          "error",
-			event:         output.NewStopReasonEvent(1, "error", errors.New("boom")),
+			event:         eventAt(output.NewStopReasonEvent(1, "error", errors.New("boom")), fixedNow),
 			wantText:      "✗ boom",
 			wantTimestamp: false,
 		},
@@ -231,6 +265,81 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 			if tt.wantTimestamp {
 				if strings.Index(plain, tt.wantText) > strings.Index(plain, ts) {
 					t.Fatalf("timestamp %q appeared before stop reason %q in %q", ts, tt.wantText, plain)
+				}
+			}
+		})
+	}
+}
+
+// TestZeroEventTimestampRendersNoTimestampChrome covers replayed sessions whose
+// events carry no message time: the row must render without a timestamp or the
+// blank margin row that precedes one.
+func TestZeroEventTimestampRendersNoTimestampChrome(t *testing.T) {
+	originalTimeNow := timeNow
+	fixedNow := time.Date(2026, 6, 19, 15, 4, 0, 0, time.UTC)
+	timeNow = func() time.Time {
+		return fixedNow
+	}
+	t.Cleanup(func() {
+		timeNow = originalTimeNow
+	})
+
+	tests := []struct {
+		name   string
+		apply  func(*contentBuffer)
+		render func(*contentBuffer, contentSegment, int) string
+	}{
+		{
+			name: "user input",
+			apply: func(b *contentBuffer) {
+				b.appendUserInputEvent(eventAt(output.NewUserInputEvent("hello", "exec", nil), time.Time{}))
+			},
+			render: (*contentBuffer).renderUserSegment,
+		},
+		{
+			name: "stop reason",
+			apply: func(b *contentBuffer) {
+				b.appendStopReasonEvent(eventAt(output.NewStopReasonEvent(1, "complete", nil), time.Time{}))
+			},
+			render: (*contentBuffer).renderStatusSegment,
+		},
+		{
+			name: "sub-agents delivered",
+			apply: func(b *contentBuffer) {
+				b.appendSubAgentsDeliveredEvent(eventAt(output.NewSubAgentsDeliveredEvent([]output.DeliveredSubAgent{
+					{AgentID: "child", AgentType: "explore", Status: "complete"},
+				}), time.Time{}))
+			},
+			render: (*contentBuffer).renderSubAgentsFinishedSegment,
+		},
+		{
+			name: "results unanswered",
+			apply: func(b *contentBuffer) {
+				b.appendSubAgentResultsUnansweredEvent(eventAt(output.NewSubAgentResultsUnansweredEvent([]string{"child"}, "boom"), time.Time{}))
+			},
+			render: (*contentBuffer).renderStrandedResultsSegment,
+		},
+	}
+
+	wantNothing := []string{"15:04:00", "Jan 01"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			tt.apply(b)
+			if len(b.segments) != 1 {
+				t.Fatalf("segments = %d, want 1", len(b.segments))
+			}
+			segment := b.segments[0]
+			if !segment.timestamp.IsZero() {
+				t.Fatalf("segment timestamp = %v, want zero", segment.timestamp)
+			}
+			plain := stripANSI(tt.render(b, segment, 60))
+			if strings.HasPrefix(plain, "\n") {
+				t.Errorf("rendered row starts with a blank timestamp margin: %q", plain)
+			}
+			for _, want := range wantNothing {
+				if strings.Contains(plain, want) {
+					t.Errorf("rendered row %q unexpectedly contains timestamp %q", plain, want)
 				}
 			}
 		})
