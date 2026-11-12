@@ -71,8 +71,8 @@ func validateAdvisorConfig(problems *[]string, cfg AdvisorConfig) {
 	if cfg.MaxTokens != nil && *cfg.MaxTokens < 1 {
 		*problems = append(*problems, "advisor.max_tokens must be greater than zero when set")
 	}
-	if cfg.ContextReductionThresholdTokens != 0 && cfg.ContextReductionThresholdTokens < MinAdvisorContextReductionThresholdTokens {
-		*problems = append(*problems, fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got %d)", MinAdvisorContextReductionThresholdTokens, cfg.ContextReductionThresholdTokens))
+	if cfg.ContextReductionThresholdTokens != 0 && cfg.ContextReductionThresholdTokens < minAdvisorContextReductionThresholdTokens {
+		*problems = append(*problems, fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got %d)", minAdvisorContextReductionThresholdTokens, cfg.ContextReductionThresholdTokens))
 	}
 	if cfg.Timeout != nil && cfg.Timeout.IsZero() {
 		*problems = append(*problems, "advisor.timeout must be greater than zero when set")

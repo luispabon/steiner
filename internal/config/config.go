@@ -369,10 +369,10 @@ const (
 	MinSubAgentMaxTurns = 15
 	// DefaultSubAgentMaxTokens is the fallback token budget for a sub-agent.
 	DefaultSubAgentMaxTokens = 400000
-	// MinAdvisorContextReductionThresholdTokens is the smallest non-zero
+	// minAdvisorContextReductionThresholdTokens is the smallest non-zero
 	// advisor.context_reduction_threshold_tokens value accepted. Lower non-zero
 	// values trigger reduction too eagerly; 0 disables reduction.
-	MinAdvisorContextReductionThresholdTokens = 48000
+	minAdvisorContextReductionThresholdTokens = 48000
 )
 
 // SubAgentConfig controls delegated child-agent execution limits.
@@ -417,7 +417,7 @@ type AdvisorConfig struct {
 	// ContextReductionThresholdTokens is the soft input-token threshold above which the
 	// advisor trims older ordinary tool output from its request. 0 disables
 	// reduction; any other value must be at least
-	// MinAdvisorContextReductionThresholdTokens. The advisor model's context
+	// minAdvisorContextReductionThresholdTokens. The advisor model's context
 	// window can lower the effective trigger below the configured value.
 	ContextReductionThresholdTokens int `yaml:"context_reduction_threshold_tokens"`
 }

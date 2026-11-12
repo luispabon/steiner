@@ -374,12 +374,12 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 		},
 		{
 			name:    "one below the minimum is invalid",
-			value:   MinAdvisorContextReductionThresholdTokens - 1,
-			wantErr: fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got %d)", MinAdvisorContextReductionThresholdTokens, MinAdvisorContextReductionThresholdTokens-1),
+			value:   minAdvisorContextReductionThresholdTokens - 1,
+			wantErr: fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got %d)", minAdvisorContextReductionThresholdTokens, minAdvisorContextReductionThresholdTokens-1),
 		},
 		{
 			name:  "minimum is valid",
-			value: MinAdvisorContextReductionThresholdTokens,
+			value: minAdvisorContextReductionThresholdTokens,
 		},
 		{
 			name:  "default is valid",
@@ -400,6 +400,33 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 				t.Fatalf("validateAdvisorConfig(%d) problems = %v, want [%q]", tt.value, problems, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAdvisorReductionTriggerBelowMinimumRejectedByValidate(t *testing.T) {
+	patch, err := parseConfigPatch("advisor:\n  context_reduction_threshold_tokens: 47999\n")
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	cfg := validBase()
+	applyPatch(&cfg, patch)
+	if got := cfg.Advisor.ContextReductionThresholdTokens; got != 47999 {
+		t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want 47999", got)
+	}
+
+	wantErr := fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got 47999)", minAdvisorContextReductionThresholdTokens)
+	err = validate(cfg, "")
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("validate() error = %v, want %q", err, wantErr)
+	}
+
+	validPatch, err := parseConfigPatch("advisor:\n  context_reduction_threshold_tokens: 48000\n")
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	applyPatch(&cfg, validPatch)
+	if err := validate(cfg, ""); err != nil {
+		t.Fatalf("validate() with minimum threshold = %v, want nil", err)
 	}
 }
 
