@@ -1,36 +1,39 @@
 package oauth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
 	"golang.org/x/oauth2"
 )
 
-// redactTokenEndpointError reports a failed token endpoint request without
-// quoting the endpoint's response. oauth2.RetrieveError formats the response
-// body, and an error response to a token request can carry credential
-// material, so the cause is kept for errors.Is and errors.As only and never
-// formatted into the message. Other failures are returned unchanged, which
-// keeps a cancelled or timed-out request recognizable.
-func redactTokenEndpointError(err error) error {
-	var retrieve *oauth2.RetrieveError
-	if !errors.As(err, &retrieve) {
-		return err
+// redactRefreshError reports a failed token request without quoting or exposing
+// what the endpoint returned. oauth2 formats the response body into its retrieve
+// errors and into the parse errors it reports for a 2xx body, so every
+// non-context failure is reduced to a fixed category plus the HTTP status when
+// one is known. A cancelled or timed-out request keeps its cause for errors.Is
+// only: oauth2 reports a body read aborted by the context without wrapping the
+// cause, so the refresh context is consulted as well.
+func redactRefreshError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return &refreshCancelledError{cause: ctxErr}
 	}
-	redacted := &tokenEndpointError{err: err}
-	if retrieve.Response != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &refreshCancelledError{cause: err}
+	}
+	redacted := &tokenEndpointError{}
+	var retrieve *oauth2.RetrieveError
+	if errors.As(err, &retrieve) && retrieve.Response != nil {
 		redacted.status = retrieve.Response.StatusCode
 	}
 	return redacted
 }
 
-// tokenEndpointError names a rejected token endpoint request by HTTP status,
-// which the endpoint does not control. Its message never quotes the response,
-// while Unwrap keeps the endpoint error reachable through errors.Is and
-// errors.As.
+// tokenEndpointError names a failed token request by category and, when known,
+// the HTTP status, which the endpoint does not control. It keeps no cause, so
+// no response body is reachable through errors.Is or errors.As either.
 type tokenEndpointError struct {
-	err    error
 	status int
 }
 
@@ -41,4 +44,18 @@ func (e *tokenEndpointError) Error() string {
 	return fmt.Sprintf("token endpoint request failed: status %d", e.status)
 }
 
-func (e *tokenEndpointError) Unwrap() error { return e.err }
+// refreshCancelledError reports a cancelled or timed-out token request without
+// formatting the cause. Unwrap keeps the cause for errors.Is only; it is a
+// context or transport error, which carries no response body.
+type refreshCancelledError struct {
+	cause error
+}
+
+func (e *refreshCancelledError) Error() string {
+	if errors.Is(e.cause, context.Canceled) {
+		return "token request cancelled"
+	}
+	return "token request timed out"
+}
+
+func (e *refreshCancelledError) Unwrap() error { return e.cause }

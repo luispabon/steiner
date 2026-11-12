@@ -474,13 +474,13 @@ func tokenFileError(err error) error {
 }
 
 // refreshToken exchanges token's refresh token for a new token and keeps stored
-// metadata the response omits. A rejected token request reports its status
-// only, so no response body reaches the error.
+// metadata the response omits. A failed token request reports a category, and
+// its status when known, so no response body reaches the error.
 func refreshToken(ctx context.Context, conf *oauth2.Config, httpClient *http.Client, token *oauth2.Token) (*oauth2.Token, error) {
 	inner := conf.TokenSource(withHTTPClient(ctx, httpClient), token)
 	refreshed, err := oauth2.ReuseTokenSourceWithExpiry(token, inner, proactiveRefreshWindow).Token()
 	if err != nil {
-		return nil, fmt.Errorf("refresh token: %w", redactTokenEndpointError(err))
+		return nil, fmt.Errorf("refresh token: %w", redactRefreshError(ctx, err))
 	}
 	return preserveTokenMetadata(refreshed, token), nil
 }
