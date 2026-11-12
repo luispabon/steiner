@@ -307,10 +307,9 @@ func TestChatRequestWire_ToolResultImageOrdering(t *testing.T) {
 // the OpenAI-compatible wire instead of being hoisted into a system message.
 func TestChatRequestWire_UserSummaryStaysUser(t *testing.T) {
 	t.Parallel()
-	const summary = "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n<summary>\nold turns\n</summary>"
 	wire, err := chatRequestWire(ChatRequest{Model: "m", Messages: []Message{
 		{Role: MessageRoleSystem, Content: "system prompt"},
-		{Role: MessageRoleUser, Content: summary},
+		{Role: MessageRoleUser, Content: summaryWireText},
 		{Role: MessageRoleUser, Content: "next question"},
 	}}, "m", false)
 	if err != nil {
@@ -322,7 +321,7 @@ func TestChatRequestWire_UserSummaryStaysUser(t *testing.T) {
 	if got, want := wire.Messages[1].Role, "user"; got != want {
 		t.Fatalf("summary role = %q, want %q", got, want)
 	}
-	if got, want := wire.Messages[1].Content, summary; got != want {
+	if got, want := wire.Messages[1].Content, summaryWireText; got != want {
 		t.Fatalf("summary content = %q, want %q", got, want)
 	}
 }

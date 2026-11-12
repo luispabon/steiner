@@ -64,7 +64,7 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first buildCompactionRequestWithMode() error = %v", err)
 	}
-	if strings.Contains(messagesText(firstReq.Messages), summaryText) {
+	if messageContentsContain(firstReq.Messages, summaryText) {
 		t.Fatal("first compaction request contains a summary before one exists")
 	}
 	assertCompactionSourceAccounting(t, firstReq)
@@ -113,14 +113,13 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if !reflect.DeepEqual(prefix, normalReq.Messages) {
 		t.Fatal("recompaction prefix differs from the normal turn prefix")
 	}
-	assertSystemMessagesFirst(t, normalReq.Messages)
 	assertSingleLeadingSystem(t, normalReq.Messages)
 	assertSingleLeadingSystem(t, prefix)
 	assertToolCallBeforeResult(t, normalReq.Messages, "call-1")
 	assertToolCallBeforeResult(t, prefix, "call-1")
 
 	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix
-	if got := countProviderContent(normalReq.Messages, wantSummary); got != 1 {
+	if got := countProviderMessagesWithContent(normalReq.Messages, wantSummary); got != 1 {
 		t.Fatalf("wrapped summary appears %d times in the normal turn, want 1", got)
 	}
 	summaryIndex := -1
@@ -328,20 +327,6 @@ func nonSystemCount(messages []provider.Message) int {
 	return count
 }
 
-func assertSystemMessagesFirst(t *testing.T, messages []provider.Message) {
-	t.Helper()
-	seenNonSystem := false
-	for _, message := range messages {
-		if message.Role == provider.MessageRoleSystem {
-			if seenNonSystem {
-				t.Fatalf("system message follows a non-system message: %v", rolesOf(messages))
-			}
-			continue
-		}
-		seenNonSystem = true
-	}
-}
-
 // assertSingleLeadingSystem requires exactly one system message, at index 0.
 func assertSingleLeadingSystem(t *testing.T, messages []provider.Message) {
 	t.Helper()
@@ -360,16 +345,6 @@ func assertSingleLeadingSystem(t *testing.T, messages []provider.Message) {
 	}
 }
 
-func countProviderContent(messages []provider.Message, content string) int {
-	count := 0
-	for _, message := range messages {
-		if message.Content == content {
-			count++
-		}
-	}
-	return count
-}
-
 func conversationHasRole(messages []Message, role MessageRole) bool {
 	for _, message := range messages {
 		if message.Role == role {
@@ -377,12 +352,4 @@ func conversationHasRole(messages []Message, role MessageRole) bool {
 		}
 	}
 	return false
-}
-
-func messagesText(messages []provider.Message) string {
-	var b strings.Builder
-	for _, message := range messages {
-		b.WriteString(message.Content)
-	}
-	return b.String()
 }
