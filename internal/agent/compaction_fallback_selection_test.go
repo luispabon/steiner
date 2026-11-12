@@ -83,6 +83,10 @@ func TestCompactWithFallbackEmitsSelectionBeforeSummary(t *testing.T) {
 	}
 
 	payloads := compactionEventPayloads(t, rec.snapshot())
+	events := rec.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want exactly the selection event", len(events))
+	}
 	if len(payloads) != 1 {
 		t.Fatalf("compaction events = %d, want 1", len(payloads))
 	}
@@ -113,6 +117,43 @@ func TestCompactWithFallbackEmitsSelectionBeforeSummary(t *testing.T) {
 	}
 	if want := "opencode-go/deepseek-v4.1-flash"; outcome.CompactionModel != want {
 		t.Errorf("outcome.CompactionModel = %q, want %q", outcome.CompactionModel, want)
+	}
+}
+
+// TestCompactWithFallbackSelectedWithoutEventSink proves a selected fallback
+// still runs its summary on the target when the request has no event sink.
+func TestCompactWithFallbackSelectedWithoutEventSink(t *testing.T) {
+	t.Parallel()
+	req := RunRequest{
+		ResolvedModel: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-main"},
+		Clock:         fixedCompactionClock{now: fallbackOperationNow},
+		CompactionFallback: CompactionFallback{
+			After: 5 * time.Minute,
+			Ref:   "ds-flash",
+			Resolve: func(context.Context) (CompactionTarget, error) {
+				return selectionTestTarget(), nil
+			},
+		},
+	}
+
+	ran := false
+	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		if summaryReq == nil {
+			t.Error("run used main, want the fallback target")
+		}
+		ran = true
+		return CompactionOutcome{Applied: true}, nil
+	}
+
+	outcome, err := compactWithFallback(context.Background(), req, RunState{}, 3, run)
+	if err != nil {
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+	}
+	if !ran {
+		t.Error("run did not execute, want the fallback operation")
+	}
+	if got := outcome.CompactionModelAlias; got != "ds-flash" {
+		t.Errorf("outcome.CompactionModelAlias = %q, want %q", got, "ds-flash")
 	}
 }
 
@@ -182,6 +223,11 @@ func TestCompactionModelAlias(t *testing.T) {
 			want:  "ds-flash",
 		},
 		{
+			name:  "alias already carries the provider prefix",
+			model: provider.ResolvedModel{Alias: "openai/gpt-4", ProviderAlias: "proxy", BackendModelID: "gpt-4"},
+			want:  "openai/gpt-4",
+		},
+		{
 			name:  "alias with surrounding space",
 			model: provider.ResolvedModel{Alias: "  ds-flash  ", ProviderAlias: "opencode-go", BackendModelID: "deepseek-v4.1-flash"},
 			want:  "ds-flash",
@@ -189,6 +235,10 @@ func TestCompactionModelAlias(t *testing.T) {
 		{
 			name:  "empty alias",
 			model: provider.ResolvedModel{ProviderAlias: "opencode-go", BackendModelID: "deepseek-v4.1-flash"},
+		},
+		{
+			name:  "empty provider and model fields",
+			model: provider.ResolvedModel{},
 		},
 	}
 	for _, tt := range tests {
