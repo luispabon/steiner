@@ -14,7 +14,7 @@ func TestContextSourceIsSystemZone(t *testing.T) {
 		{name: "phase prompt", src: ContextSourcePhasePrompt, want: true},
 		{name: "global agents", src: ContextSourceGlobalAgentsMD, want: true},
 		{name: "project agents", src: ContextSourceProjectAgentsMD, want: true},
-		{name: "conversation summary", src: ContextSourceConversationSummary, want: true},
+		{name: "conversation summary", src: ContextSourceConversationSummary, want: false},
 		{name: "project context", src: ContextSourceProjectContext, want: false},
 		{name: "skill", src: ContextSourceSkill, want: false},
 		{name: "durable context", src: ContextSourceDurableContext, want: false},

@@ -858,14 +858,15 @@ func TestClaudeSubSyncSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestClaudeSubSyncSummaryTransportPreservesHistoryLocator(t *testing.T) {
+func TestClaudeSubSyncSummaryTransportDeliversAdoptedUserSummary(t *testing.T) {
 	const note = "[steiner:history] archived at /data/history.md"
+	const adopted = "adopted summary\n\n" + note
 	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
 	request := ChatRequest{
 		TransportSession: "summary-transport",
 		Model:            claudeSubTestSpec().Model,
 		Messages: []Message{
-			{Role: MessageRoleSystem, Content: "adopted summary\n\n" + note},
+			{Role: MessageRoleUser, Content: adopted},
 			claudeSubSyncUserMsg("continue"),
 		},
 		CompactionSummary:        true,
@@ -891,8 +892,12 @@ func TestClaudeSubSyncSummaryTransportPreservesHistoryLocator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claudeSubTurn: %v", err)
 	}
-	if !strings.Contains(systemPrompt, "adopted summary\n\n"+note) {
-		t.Fatalf("transport system prompt = %q, want adopted summary and history locator", systemPrompt)
+	if strings.Contains(systemPrompt, "adopted summary") {
+		t.Fatalf("transport system prompt = %q, want no summary text", systemPrompt)
+	}
+	transcript := strings.Join(claudeSubUserLines(spawner.call(t, 0).Conn), "\n")
+	if !strings.Contains(transcript, "adopted summary") || !strings.Contains(transcript, note) {
+		t.Fatalf("summary transport transcript = %q, want adopted summary and history locator delivered in the conversation", transcript)
 	}
 }
 

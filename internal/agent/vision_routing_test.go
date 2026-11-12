@@ -1096,7 +1096,7 @@ func TestHandleImagesForVision_SummaryPrefixNotDuplicated(t *testing.T) {
 	}
 
 	assembled := assemblyOptions(prompt.AssemblyOptions{}, state).Conversation
-	if got := countProviderMessagesWithContent(assembled, summaryText); got != 1 {
+	if got := countProviderMessagesWithContent(assembled, summaryContextPrefix+summaryText+summaryContextSuffix); got != 1 {
 		t.Fatalf("summary appears %d times in assembled prompt, want 1", got)
 	}
 	if !providerMessagesContain(assembled, "screenshot showing a button") {
@@ -1155,7 +1155,7 @@ func TestHandleImagesForVision_DeferredReadImageUnderSummaryPrefix(t *testing.T)
 	if got := countMessagesWithContent(state.Conversation, summaryText); got != 1 {
 		t.Fatalf("summary appears %d times in state.Conversation, want 1", got)
 	}
-	if got := countProviderMessagesWithContent(assemblyOptions(prompt.AssemblyOptions{}, state).Conversation, summaryText); got != 1 {
+	if got := countProviderMessagesWithContent(assemblyOptions(prompt.AssemblyOptions{}, state).Conversation, summaryContextPrefix+summaryText+summaryContextSuffix); got != 1 {
 		t.Fatalf("summary appears %d times in assembled prompt, want 1", got)
 	}
 	if !contains(visionContext, "inspect screenshot.png") {

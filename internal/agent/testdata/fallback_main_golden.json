@@ -58,8 +58,8 @@
         "SHA256": "b83322b7492c08e93db083a57649f0afe7d2dd2ce0c8e74d2572a010369eebea"
       },
       {
-        "Role": "system",
-        "SHA256": "c940d3cab97ecca73cc0a2fb16d695d8c6bfac2609bbc8ebf865bfc076747810"
+        "Role": "user",
+        "SHA256": "6569bc77ee2d54de6da4043bdfe4ce8a44ee96b02b8f9afe0a18a45be99d7cb3"
       },
       {
         "Role": "user",
@@ -107,6 +107,6 @@
     "AdvisorCacheProfile": false,
     "BackendState": "",
     "CompactionSummary": true,
-    "CompactionSourceMessages": 4
+    "CompactionSourceMessages": 5
   }
 ]

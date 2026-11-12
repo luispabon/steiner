@@ -40,7 +40,7 @@ const (
 // message. Update it when a source changes role.
 func (s ContextSource) IsSystemZone() bool {
 	switch s {
-	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD, ContextSourceConversationSummary:
+	case ContextSourcePreamble, ContextSourcePhasePrompt, ContextSourceGlobalAgentsMD, ContextSourceProjectAgentsMD:
 		return true
 	default:
 		return false

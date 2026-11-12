@@ -69,6 +69,8 @@ A generation whose backend state was cleared has nothing to restore, so its next
 
 `statefulUsageReachesSelectedThreshold` in `stateful_compaction_guard.go` compares the last response's `PromptTokens` with `ModelTokenBudget.CompactionThresholdTokens` when it is set. Otherwise `statefulUsageAboveThreshold` compares against `CompactionThreshold`, a fraction that `deriveEffectiveLimits` sets to 0.70. `compactionUsageThreshold` (also 0.70) is the fallback when that is zero. For this provider, `PromptTokens` is the CLI's total input from the terminal assistant message (`claudeSubUsage.toUsageStats` sums input, cache creation, and cache read tokens). The CLI's result usage covers the whole query, including tool round-trips, so it is not used. A request that does not fit also triggers compaction, as it does for every provider.
 
+A stored compaction summary projects to a user-role conversation message with the fixed historical-context wrapper. `CompactionSourceMessages` counts that message when the generation already has a summary, so a follow-up summary's source prefix includes it and the sync record matches the request.
+
 Summary routing is owned by `claudeSubSummaryTurn` (`claudesub_turn_summary.go`), tried in this order:
 
 - Sub-agent (`ParentTransportSession` set): the summary is marked in place on the sub-agent's own process, which is then retired.
