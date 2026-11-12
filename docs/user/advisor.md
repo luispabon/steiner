@@ -54,7 +54,7 @@ Each advisor call shows as a collapsible advisor panel with the model and the us
 
 ## Large conversations
 
-The advisor trims older ordinary tool output when the complete advisor request reaches `advisor.context_reduction_threshold_tokens` (default `32000`; `0` disables). The trigger is soft and measured with the advisor model's token estimator, capped by roughly 60% of the advisor model's context window when that window is known.
+The advisor trims older ordinary tool output when the complete advisor request reaches `advisor.context_reduction_threshold_tokens` (default `64000`; `0` disables). The trigger is soft and measured with the advisor model's token estimator, capped by roughly 60% of the advisor model's context window when that window is known.
 
 Reduction preserves the system prompt, user messages (including asynchronous delegation results), assistant prose and tool-call structure, `sub_agent` and `follow_up` results, prior `advisor` notes, the caller's question, and explicitly requested files. It only changes older ordinary tool results: an exact duplicate full read is replaced by a note referencing the earlier read, long head and tail clips replace older output, and stubs remain for the oldest results. If the earlier read is itself reduced, the note becomes a self-contained omission stub instead of pointing at content that is no longer present. A recent tail of tool output is always kept.
 

@@ -172,7 +172,7 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.MaxTokens != nil {
 		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
 	}
-	if got, want := cfg.Advisor.ContextReductionThresholdTokens, 32000; got != want {
+	if got, want := cfg.Advisor.ContextReductionThresholdTokens, 64000; got != want {
 		t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want %d", got, want)
 	}
 	if cfg.Advisor.Timeout == nil {
@@ -325,7 +325,7 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 		{
 			name: "omitted keeps default",
 			yaml: "advisor:\n  enabled: true\n",
-			want: 32000,
+			want: 64000,
 		},
 		{
 			name: "explicit zero disables",

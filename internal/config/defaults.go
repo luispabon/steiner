@@ -97,7 +97,7 @@ func defaultConfig(env map[string]string) Config {
 			MaxUsesPerRun:                   3,
 			MaxUsesPerSubAgent:              1,
 			Timeout:                         advisorTimeout(),
-			ContextReductionThresholdTokens: 32000,
+			ContextReductionThresholdTokens: 64000,
 		},
 		OneShot: oneshotConfig{
 			AutoPR: false,

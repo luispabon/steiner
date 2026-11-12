@@ -90,7 +90,7 @@ type Config struct {
 	MaxTokens     *int
 	// ContextReductionThresholdTokens is the soft input-token threshold for automatic
 	// advisor context reduction. 0 disables reduction. The config layer
-	// defaults it to 32000; a directly constructed Config keeps the current
+	// defaults it to 64000; a directly constructed Config keeps the current
 	// prompt payload when it is left at zero.
 	ContextReductionThresholdTokens int
 }
