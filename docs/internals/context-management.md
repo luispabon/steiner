@@ -19,7 +19,7 @@ The source order is fixed in `internal/prompt/source_plan.go`. Static sources co
 | 1 | `preamble` | none | Memoized per session |
 | 2 | `global_agents_md`, `project_agents_md` | none | Never truncated |
 | 3 | `project_context` | 8000 bytes (`fallbackProjectContextBudgetBytes`) | Truncated when over |
-| 4 | `skill` | 106622 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
+| 4 | `skill` | 107520 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
 | 5 | `phase_prompt` | none | Oneshot phases |
 | 6 | `session_date` | none | See [Session date assembly](#session-date-assembly) |
 | 7 | `conversation` | none | Pass-through |
@@ -51,7 +51,7 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 - On submit, `skillDeltaBlocks` diffs the enabled set against `EffectiveSkills`. Deactivations come first, then activations for newly enabled skills. Existing messages are never rewritten.
 - `EffectiveSkills` folds envelopes across user messages in order. An activation replaces that skill's block and moves it to the end. A deactivation removes it.
 - `SplitSkillBlocks` (`internal/prompt/skill_blocks.go`) reads an optional leading mode notice and then envelopes. It stops at the first malformed envelope and keeps the rest of the text as is.
-- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 106622-byte cap]`. Loading such a skill emits `skill_truncated` with the original size and the cap.
+- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 107520-byte cap]`. The cap applies to the skill body; the `## Active Skill:` heading, the framing text, and the envelope tags are added outside it. Loading such a skill emits `skill_truncated` with the original size and the cap.
 - On resume, replayed envelopes emit `skill_state` events (`internal/interactive/replay.go`).
 
 ## Request event snapshots
