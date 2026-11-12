@@ -91,7 +91,7 @@ Compact canonical reference for safe configuration edits.
 |`advisor.max_uses_per_run`|int|`3`|Run cap; at least 1 when enabled.|
 |`advisor.max_uses_per_sub_agent`|int|`1`|Child cap; at least 1 when enabled.|
 |`advisor.max_tokens`|int or null|nil|Optional positive output-token ceiling.|
-|`advisor.context_reduction_threshold_tokens`|int|`64000`|Soft input threshold for trimming older tool output; `0` disables.|
+|`advisor.context_reduction_threshold_tokens`|int|`64000`|Soft input threshold for trimming older tool output; `0` disables, otherwise at least `48000`; model context window can lower the effective trigger.|
 |`advisor.timeout`|duration or null|`180s`|Optional positive HTTP timeout.|
 |`oneshot.auto_pr`|bool|`false`|Allow closeout to push and open a PR or MR.|
 |`desktop_notifications.enabled`|bool|`false`|Interactive TUI only. Notifications are for approval required and workflow handoff requested.|
