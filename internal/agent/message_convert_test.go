@@ -20,7 +20,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 		}
 	})
 
-	t.Run("summary role mapped to system", func(t *testing.T) {
+	t.Run("summary role mapped to user with historical-context wrapper", func(t *testing.T) {
 		msgs := []Message{
 			{Role: MessageRoleSummary, Content: "summary content"},
 			{Role: MessageRoleUser, Content: "user content"},
@@ -29,17 +29,24 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 		if len(result) != 2 {
 			t.Fatalf("expected 2 messages, got %d", len(result))
 		}
-		if result[0].Role != provider.MessageRoleSystem {
-			t.Errorf("expected system role for summary, got %s", result[0].Role)
+		if result[0].Role != provider.MessageRoleUser {
+			t.Errorf("expected user role for summary, got %s", result[0].Role)
 		}
 		if result[1].Role != provider.MessageRoleUser {
 			t.Errorf("expected user role, got %s", result[1].Role)
 		}
-		if result[0].Content != "summary content" {
-			t.Errorf("expected content preserved, got %s", result[0].Content)
+		wantSummary := summaryContextPrefix + "summary content" + summaryContextSuffix
+		if result[0].Content != wantSummary {
+			t.Errorf("summary content = %q, want %q", result[0].Content, wantSummary)
 		}
 		if result[1].Content != "user content" {
 			t.Errorf("expected content preserved, got %s", result[1].Content)
+		}
+		if got, want := msgs[0].Role, MessageRoleSummary; got != want {
+			t.Errorf("stored summary role = %q, want %q", got, want)
+		}
+		if got, want := msgs[0].Content, "summary content"; got != want {
+			t.Errorf("stored summary content = %q, want %q", got, want)
 		}
 	})
 
@@ -545,14 +552,15 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("summary role becomes system", func(t *testing.T) {
+	t.Run("summary role becomes user with historical-context wrapper", func(t *testing.T) {
 		msg := Message{Role: MessageRoleSummary, Content: "summary"}
 		result := toProviderMessage(msg)
-		if result.Role != provider.MessageRoleSystem {
-			t.Errorf("expected system, got %s", result.Role)
+		if result.Role != provider.MessageRoleUser {
+			t.Errorf("expected user, got %s", result.Role)
 		}
-		if result.Content != "summary" {
-			t.Errorf("expected summary, got %s", result.Content)
+		want := summaryContextPrefix + "summary" + summaryContextSuffix
+		if result.Content != want {
+			t.Errorf("summary content = %q, want %q", result.Content, want)
 		}
 	})
 

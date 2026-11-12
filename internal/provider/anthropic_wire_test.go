@@ -1132,3 +1132,57 @@ func TestAnthropicRequestWire_UserMessageFollowsSystemMessage(t *testing.T) {
 		t.Fatalf("message[1].content = %q, want %q", got, want)
 	}
 }
+
+func TestAnthropicRequestWire_UserSummaryStaysUser(t *testing.T) {
+	t.Parallel()
+	const summary = "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n<summary>\nold turns\n</summary>"
+	systemMessage := Message{Role: MessageRoleSystem, Content: "system prompt"}
+	baseline := anthropicRequestWire(ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			systemMessage,
+			{Role: MessageRoleUser, Content: "next question"},
+		},
+	}, "default-model", false)
+	wire := anthropicRequestWire(ChatRequest{
+		Model: "claude-3-5-sonnet",
+		Messages: []Message{
+			systemMessage,
+			{Role: MessageRoleUser, Content: summary},
+			{Role: MessageRoleUser, Content: "next question"},
+		},
+	}, "default-model", false)
+	if len(wire.System) != 1 {
+		t.Fatalf("system blocks = %d, want 1", len(wire.System))
+	}
+	if len(wire.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(wire.Messages))
+	}
+	if got, want := wire.Messages[0].Role, "user"; got != want {
+		t.Fatalf("summary role = %q, want %q", got, want)
+	}
+	if len(wire.Messages[0].Content) == 0 || wire.Messages[0].Content[0].Text != summary {
+		t.Fatalf("summary content = %+v, want exact text", wire.Messages[0].Content)
+	}
+	// The summary must not join or replace the static system block. Rolling
+	// breakpoints may mark its user message; the static breakpoint stays on the
+	// unchanged system block.
+	if len(baseline.System) != len(wire.System) {
+		t.Fatalf("system blocks with summary = %d, want %d from the baseline", len(wire.System), len(baseline.System))
+	}
+	for i := range baseline.System {
+		base, got := baseline.System[i], wire.System[i]
+		if got.Text != base.Text {
+			t.Fatalf("system[%d] text = %q, want unchanged %q", i, got.Text, base.Text)
+		}
+		if (got.CacheControl == nil) != (base.CacheControl == nil) {
+			t.Fatalf("system[%d] cache control presence changed with a summary", i)
+		}
+		if base.CacheControl != nil && *got.CacheControl != *base.CacheControl {
+			t.Fatalf("system[%d] cache control = %+v, want unchanged %+v", i, *got.CacheControl, *base.CacheControl)
+		}
+	}
+	if wire.System[0].CacheControl == nil || wire.System[0].CacheControl.Type != "ephemeral" {
+		t.Fatalf("static system cache control = %+v, want ephemeral", wire.System[0].CacheControl)
+	}
+}

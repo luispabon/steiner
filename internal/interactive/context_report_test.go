@@ -207,7 +207,7 @@ func TestBuildContextReportIncludesCategoriesAndTotals(t *testing.T) {
 			{Role: provider.MessageRoleUser, Content: "project readme"},
 			{Role: provider.MessageRoleUser, Content: "skill instructions"},
 			{Role: provider.MessageRoleSystem, Name: "retained context state", Content: `{"kind":"durable_context","content":"focus"}`},
-			{Role: provider.MessageRoleSystem, Content: `{"kind":"conversation_summary","content":"summary"}`},
+			{Role: provider.MessageRoleUser, Content: `{"kind":"conversation_summary","content":"summary"}`},
 			{Role: provider.MessageRoleUser, Content: "current user message"},
 			{Role: provider.MessageRoleAssistant, Content: "assistant reply"},
 			{Role: provider.MessageRoleTool, Name: "read", Content: "tool output"},
@@ -319,19 +319,19 @@ func TestBuildContextReportWithMergedMessages(t *testing.T) {
 	preambleContent := preambleBlock.Content
 
 	// Blocks and messages simulate merged real-assembly output:
-	//   - All system blocks (preamble, agents, conversation summary) are
-	//     merged into one system message.
-	//   - All user blocks (project context, skill, durable context) are
-	//     merged into one user message.
+	//   - All system blocks (preamble, agents) are merged into one system
+	//     message.
+	//   - All user blocks (conversation summary, project context, skill,
+	//     durable context) are merged into one user message.
 	//   - Conversation turns follow, then tool results.
 	// Block order matches assembly order: system blocks first, then user
-	// blocks, then tool blocks (none here). Conversation summary appears
-	// with other system blocks because it belongs to the pre-conv zone.
+	// blocks, then tool blocks (none here). The conversation summary is user
+	// role, so it merges with the other pre-conversation user blocks.
 	snapshot := RequestContextSnapshot{
 		Model: "gpt-4o",
 		Messages: []provider.Message{
-			{Role: provider.MessageRoleSystem, Content: preambleContent + "\n\nglobal agents\n\nproject agents\n\n{\"kind\":\"conversation_summary\",\"content\":\"summary\"}"},
-			{Role: provider.MessageRoleUser, Content: "project readme\nskill instructions\n{\"kind\":\"durable_context\",\"content\":\"focus\"}"},
+			{Role: provider.MessageRoleSystem, Content: preambleContent + "\n\nglobal agents\n\nproject agents"},
+			{Role: provider.MessageRoleUser, Content: `{"kind":"conversation_summary","content":"summary"}` + "\nproject readme\nskill instructions\n{\"kind\":\"durable_context\",\"content\":\"focus\"}"},
 			{Role: provider.MessageRoleUser, Content: "current user message"},
 			{Role: provider.MessageRoleAssistant, Content: "assistant reply"},
 			{Role: provider.MessageRoleTool, Name: "read", Content: "tool output"},
@@ -393,11 +393,11 @@ func TestBuildContextReportWithMergedMessages(t *testing.T) {
 	// Verify conversation messages total equals expected sum of conversation turns
 	// (user turn + assistant turn). Block-sourced tokens must not leak into
 	// conversation messages.
-	userTokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", snapshot.Messages[2])
+	userTokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", snapshot.Messages[3])
 	if err != nil {
 		t.Fatalf("EstimateMessageTokens(user) error = %v", err)
 	}
-	assistantTokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", snapshot.Messages[3])
+	assistantTokens, err := provider.EstimateMessageTokens(context.Background(), "gpt-4o", snapshot.Messages[4])
 	if err != nil {
 		t.Fatalf("EstimateMessageTokens(assistant) error = %v", err)
 	}
@@ -479,10 +479,9 @@ func TestBuildContextReportIncludesSessionDateMergedWithSkills(t *testing.T) {
 func TestReconstructBlockMessageIndexMergesSameRoleBlocks(t *testing.T) {
 	t.Parallel()
 
-	// Preamble and global AGENTS.md are system and merge into message 0. Project
-	// context, skill, and session date are user and merge into message 1. The
-	// conversation summary is system message 2, and the raw conversation is user
-	// message 3.
+	// Preamble and global AGENTS.md are system and merge into message 0. The
+	// conversation summary, project context, skill, session date, and raw
+	// conversation are all user sources and merge into message 1.
 	blocks := []prompt.ContextBlock{
 		{Source: prompt.ContextSourcePreamble},
 		{Source: prompt.ContextSourceGlobalAgentsMD},
@@ -492,7 +491,7 @@ func TestReconstructBlockMessageIndexMergesSameRoleBlocks(t *testing.T) {
 		{Source: prompt.ContextSourceConversationSummary},
 		{Source: prompt.ContextSourceConversation},
 	}
-	want := []int{0, 0, 1, 1, 1, 2, 3}
+	want := []int{0, 0, 1, 1, 1, 1, 1}
 
 	got := reconstructBlockMessageIndex(blocks)
 	if len(got) != len(want) {

@@ -22,6 +22,8 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 
+Compaction summaries are delivered as user-role historical context, not as system instructions. The model is told to treat them as a record of earlier conversation.
+
 Everything else is reduced to the summary, so details can be lost. Each compaction loses a little more. If Steiner warns that a session is likely lossy, start a fresh session and carry over what matters. Keep important state in files or git, not only in the conversation.
 
 ### Manual compaction

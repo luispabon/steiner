@@ -11,11 +11,11 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// fallbackGoldenPath is the fallback-disabled main request fixture. It was
-// generated from origin/main 37ed6c42 by TestDumpFallbackGoldenFromMain in a
-// scratch copy of that tree (.steiner/tmp/golden-main/internal/agent, not
-// committed). That generator uses the same conversation, budgets, system prompt,
-// tools, params and extra params as newFallbackOperationRun.
+// fallbackGoldenPath is the fallback-disabled main request fixture. It records
+// the same conversation, budgets, system prompt, tools, params and extra params
+// as newFallbackOperationRun. The first request compacts the original
+// conversation; the second compacts an existing user-role summary, so its
+// summary message and source count reflect that projection.
 const fallbackGoldenPath = "testdata/fallback_main_golden.json"
 
 // fallbackGoldenRequest is the part of a provider.ChatRequest that the fixture

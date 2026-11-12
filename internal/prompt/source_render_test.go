@@ -19,7 +19,7 @@ func TestBlockMessageRoleBySource(t *testing.T) {
 		{name: "phase prompt", source: ContextSourcePhasePrompt, want: provider.MessageRoleSystem},
 		{name: "global agents", source: ContextSourceGlobalAgentsMD, want: provider.MessageRoleSystem},
 		{name: "project agents", source: ContextSourceProjectAgentsMD, want: provider.MessageRoleSystem},
-		{name: "conversation summary", source: ContextSourceConversationSummary, want: provider.MessageRoleSystem},
+		{name: "conversation summary", source: ContextSourceConversationSummary, want: provider.MessageRoleUser},
 		{name: "project context", source: ContextSourceProjectContext, want: provider.MessageRoleUser},
 		{name: "skill", source: ContextSourceSkill, want: provider.MessageRoleUser},
 		{name: "durable context", source: ContextSourceDurableContext, want: provider.MessageRoleUser},
