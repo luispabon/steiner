@@ -191,12 +191,15 @@ func TestPlanReductionProtectsMutateReceipts(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: "apply the edits"},
 		{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{
 			{ID: "b1", Name: "bash"}, {ID: "m1", Name: "mutate"}, {ID: "m2", Name: "mutate"},
+			{ID: "x1", Name: "bash"}, {ID: "x2", Name: "mutate"},
 			{ID: "b2", Name: "bash"}, {ID: "m3", Name: "mutate"},
 		}},
 		bigBash("b1"),
 		mutate("m1", ""),
 		mutate("m2", "mutate"),
 		mutate("", "mutate"),
+		mutate("x1", "mutate"),
+		mutate("x2", "bash"),
 		bigBash("b2"),
 		mutate("m3", "mutate"),
 	}
@@ -205,7 +208,7 @@ func TestPlanReductionProtectsMutateReceipts(t *testing.T) {
 		tuning: reductionTuning{enabled: true, trigger: 1000, target: 0, tail: 1000},
 		ratio:  0.25, initialTokens: 10000,
 	})
-	for _, index := range []int{3, 4, 5, 7} {
+	for _, index := range []int{3, 4, 5, 6, 7, 9} {
 		if plan.transcript[index].Content != huge || plan.stages[index] != reductionStageNone {
 			t.Fatalf("mutate receipt %d changed: stage=%v content=%q", index, plan.stages[index], plan.transcript[index].Content)
 		}
@@ -238,9 +241,21 @@ func TestReductionDisabledKeepsLegacyPayload(t *testing.T) {
 	req := reductionRequest{snapshot: snapshot, files: files, question: "check it"}
 	state := &handlerState{shared: NewSharedState(), cacheKey: "legacy-disabled"}
 	got := state.reduceAdvisorMessages(context.Background(), deps, req)
-	_, want := legacyReductionPayload(deps, req)
+
+	independentFiles := append([]advisorFile(nil), files...)
+	independentFiles = dedupeAgainstSnapshot(independentFiles, snapshot, workDir)
+	if !independentFiles[0].Deduped {
+		t.Fatal("test setup: legacy dedupe did not mark the loaded file")
+	}
+	want := buildMessages(snapshot, req.question, independentFiles)
+	if !strings.Contains(want[len(want)-1].Content, "already fully present above from an earlier read") {
+		t.Fatal("test setup: legacy payload is missing its dedupe note")
+	}
 	if !messagesEqual(got.messages, want) {
-		t.Fatal("disabled reduction payload differs from the legacy payload")
+		t.Fatal("disabled reduction payload differs from the independently built legacy payload")
+	}
+	if !strings.Contains(got.messages[len(got.messages)-1].Content, "already fully present above from an earlier read") {
+		t.Fatal("disabled reduction payload lost the legacy dedupe note")
 	}
 	if files[0].Deduped {
 		t.Fatal("legacy dedupe mutated the caller's loaded files")

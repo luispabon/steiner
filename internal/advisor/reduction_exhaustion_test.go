@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
@@ -28,7 +29,16 @@ const probeResultBytes = 6000
 
 func probeMutationMessage(t *testing.T, callID string) provider.Message {
 	t.Helper()
-	base, err := json.Marshal(builtin.MutationResult{Path: "main.go", Mutated: true})
+	result := func(pad string) ([]byte, error) {
+		return json.Marshal(builtin.MutateResult{
+			Paths:             []string{"internal/advisor/reduction.go"},
+			Modified:          []string{"internal/advisor/reduction.go"},
+			FileHashes:        map[string]string{"internal/advisor/reduction.go": "0123456789ABCDEF"},
+			OperationsApplied: 1,
+			Output:            pad,
+		})
+	}
+	base, err := result("")
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
@@ -36,9 +46,21 @@ func probeMutationMessage(t *testing.T, callID string) provider.Message {
 	if pad < 0 {
 		t.Fatalf("target %d shorter than mutation base %d", probeResultBytes, len(base))
 	}
-	data, err := json.Marshal(builtin.MutationResult{Path: "main.go", Mutated: true, Output: strings.Repeat("x", pad)})
+	data, err := result(strings.Repeat("x", pad))
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	// Output is omitempty, so the padded payload also gains the field itself.
+	// Adjust once by the exact difference; each added byte is one 'x'.
+	if diff := probeResultBytes - len(data); diff != 0 {
+		pad += diff
+		if pad < 0 {
+			t.Fatalf("target %d shorter than mutation base %d", probeResultBytes, len(base))
+		}
+		data, err = result(strings.Repeat("x", pad))
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
 	}
 	if len(data) != probeResultBytes {
 		t.Fatalf("mutation message length = %d, want %d", len(data), probeResultBytes)
@@ -66,11 +88,32 @@ func probeBashMessage(t *testing.T, callID string) provider.Message {
 	return provider.Message{Role: provider.MessageRoleTool, Name: "bash", ToolCallID: callID, Content: string(data)}
 }
 
-func newProbeHandler(t *testing.T, deps HandlerDeps, cfg Config, shared *SharedState, prov *fakeProvider) func(context.Context, map[string]any) (any, error) {
+func newProbeHandler(t *testing.T, deps HandlerDeps, cfg Config, shared *SharedState, prov *fakeProvider) (func(context.Context, map[string]any) (any, error), *toolSink) {
 	t.Helper()
-	return NewHandler(HandlerDeps{
-		Provider: prov, Model: deps.Model, Config: cfg, SharedState: shared, CacheKey: deps.CacheKey,
+	sink := &toolSink{}
+	handler := NewHandler(HandlerDeps{
+		Provider: prov, Model: deps.Model, Config: cfg, SharedState: shared, CacheKey: deps.CacheKey, Events: sink,
 	})
+	return handler, sink
+}
+
+// probeReductionStrategy returns the strategy and stage count of the most
+// recent advisor complete event, so tests assert the reduction outcome instead
+// of matching text that caller input could also contain.
+func probeReductionStrategy(t *testing.T, sink *toolSink) (string, int) {
+	t.Helper()
+	for i := len(sink.events) - 1; i >= 0; i-- {
+		complete, ok := sink.events[i].Payload.(output.AdvisorCompleteEvent)
+		if !ok {
+			continue
+		}
+		if complete.Reduction == nil {
+			return "", 0
+		}
+		return complete.Reduction.Strategy, len(complete.Reduction.Stages)
+	}
+	t.Fatal("no advisor complete event")
+	return "", 0
 }
 
 func runProbe(t *testing.T, handler func(context.Context, map[string]any) (any, error), snapshot []provider.Message) {
@@ -100,11 +143,11 @@ func TestHandlerExhaustionDoesNotSurviveInteriorReplacement(t *testing.T) {
 	cfg := Config{MaxUsesPerRun: 2, ContextReductionThresholdTokens: probeTokens(t, deps, first)}
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-	handler := newProbeHandler(t, deps, cfg, shared, prov)
+	handler, sink := newProbeHandler(t, deps, cfg, shared, prov)
 
 	runProbe(t, handler, first)
-	if messagesContain(prov.requests[0].Messages) {
-		t.Fatal("protected-only request was reduced")
+	if strategy, _ := probeReductionStrategy(t, sink); strategy != "exhausted" {
+		t.Fatalf("first request strategy = %q, want exhausted", strategy)
 	}
 	if !probeLedger(t, deps, cfg, shared).exhausted {
 		t.Fatal("first request did not record exhaustion")
@@ -121,8 +164,8 @@ func TestHandlerExhaustionDoesNotSurviveInteriorReplacement(t *testing.T) {
 		}
 	}
 	runProbe(t, handler, replaced)
-	if !messagesContain(prov.requests[1].Messages) {
-		t.Fatal("interior replacement stayed exhausted instead of replanning")
+	if strategy, stages := probeReductionStrategy(t, sink); strategy != "reduced" || stages == 0 {
+		t.Fatalf("interior replacement strategy = %q with %d stages, want reduced", strategy, stages)
 	}
 }
 
@@ -137,15 +180,21 @@ func TestHandlerExhaustionDoesNotSurviveShrinkOrRegrow(t *testing.T) {
 	cfg := Config{MaxUsesPerRun: 3, ContextReductionThresholdTokens: probeTokens(t, deps, shrink)}
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-	handler := newProbeHandler(t, deps, cfg, shared, prov)
+	handler, sink := newProbeHandler(t, deps, cfg, shared, prov)
 
 	runProbe(t, handler, first)
+	if strategy, _ := probeReductionStrategy(t, sink); strategy != "exhausted" {
+		t.Fatalf("first request strategy = %q, want exhausted", strategy)
+	}
 	state := probeLedger(t, deps, cfg, shared)
 	if !state.exhausted || state.exhaustedLen != len(first) {
 		t.Fatalf("first request ledger = %#v, want exhaustion at length %d", state, len(first))
 	}
 
 	runProbe(t, handler, shrink)
+	if strategy, _ := probeReductionStrategy(t, sink); strategy != "exhausted" {
+		t.Fatalf("shrink strategy = %q, want exhausted", strategy)
+	}
 	state = probeLedger(t, deps, cfg, shared)
 	wantTokens := probeTokens(t, deps, shrink)
 	if !state.exhausted || state.exhaustedLen != len(shrink) || state.exhaustedTokens != wantTokens {
@@ -158,8 +207,8 @@ func TestHandlerExhaustionDoesNotSurviveShrinkOrRegrow(t *testing.T) {
 		probeBashMessage(t, "b2"),
 	}
 	runProbe(t, handler, regrown)
-	if !messagesContain(prov.requests[2].Messages) {
-		t.Fatal("regrown request did not reduce after the shrink replanned")
+	if strategy, stages := probeReductionStrategy(t, sink); strategy != "reduced" || stages == 0 {
+		t.Fatalf("regrown strategy = %q with %d stages, want reduced", strategy, stages)
 	}
 }
 
@@ -175,7 +224,7 @@ func TestHandlerExhaustionSuppressesTrueAppendAndIgnoresInFlight(t *testing.T) {
 	cfg := Config{MaxUsesPerRun: 3, ContextReductionThresholdTokens: probeTokens(t, deps, first)}
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-	handler := newProbeHandler(t, deps, cfg, shared, prov)
+	handler, sink := newProbeHandler(t, deps, cfg, shared, prov)
 
 	runProbe(t, handler, first)
 	before := probeLedger(t, deps, cfg, shared)
@@ -185,8 +234,8 @@ func TestHandlerExhaustionSuppressesTrueAppendAndIgnoresInFlight(t *testing.T) {
 
 	appended := append(append([]provider.Message(nil), first...), provider.Message{Role: provider.MessageRoleUser, Content: "ok"})
 	runProbe(t, handler, appended)
-	if messagesContain(prov.requests[1].Messages) {
-		t.Fatal("small append was reduced despite exhaustion suppression")
+	if strategy, _ := probeReductionStrategy(t, sink); strategy != "exhausted" {
+		t.Fatalf("small append strategy = %q, want exhausted", strategy)
 	}
 	after := probeLedger(t, deps, cfg, shared)
 	if !after.exhausted || after.exhaustedLen != before.exhaustedLen || after.exhaustedTokens != before.exhaustedTokens {
@@ -199,8 +248,8 @@ func TestHandlerExhaustionSuppressesTrueAppendAndIgnoresInFlight(t *testing.T) {
 		ToolCalls: []provider.ToolCall{{ID: "advisor-1", Name: ToolName}},
 	})
 	runProbe(t, handler, withInFlight)
-	if messagesContain(prov.requests[2].Messages) {
-		t.Fatal("in-flight assistant changed the exhausted request")
+	if strategy, _ := probeReductionStrategy(t, sink); strategy != "exhausted" {
+		t.Fatalf("in-flight strategy = %q, want exhausted", strategy)
 	}
 	afterInflight := probeLedger(t, deps, cfg, shared)
 	if !afterInflight.exhausted || afterInflight.exhaustedLen != before.exhaustedLen || afterInflight.exhaustedTokens != before.exhaustedTokens {

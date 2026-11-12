@@ -97,8 +97,8 @@ func attachmentCandidates(files []advisorFile) (map[string][]int, int, int) {
 }
 
 // untouchedFullRead decodes one transcript message as an untouched full read.
-// Output is embedded verbatim in the JSON result, so a message shorter than
-// the shortest pending attachment cannot match any of them.
+// JSON encoding never shortens Output, so a message shorter than the shortest
+// pending attachment cannot match any of them.
 func untouchedFullRead(transcript []provider.Message, stages []reductionStage, index, shortest int) (fullReadKey, bool) {
 	if index < len(stages) && stages[index] != reductionStageNone {
 		return fullReadKey{}, false
