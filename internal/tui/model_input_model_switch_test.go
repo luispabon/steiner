@@ -213,6 +213,9 @@ func TestRequestModelSwitchConfirmGate(t *testing.T) {
 				if got := m.modelSwitchConfirm.spec.Body; got != tc.wantBody {
 					t.Fatalf("body = %q, want %q", got, tc.wantBody)
 				}
+				if got := m.modelSwitchConfirm.spec.RightLabel; got != "Switch" {
+					t.Fatalf("right label = %q, want %q", got, "Switch")
+				}
 				if n := len(ctrl.switchModelActions()); n != 0 {
 					t.Fatalf("SwitchModel actions = %d before confirm, want 0", n)
 				}

@@ -87,7 +87,7 @@ func (m *Model) requestModelSwitch(name string, reasoning *provider.ReasoningOve
 		Heading:       fmt.Sprintf("Switch model to %s?", name),
 		Body:          body,
 		LeftLabel:     "Cancel",
-		RightLabel:    fmt.Sprintf("Switch to %s", name),
+		RightLabel:    "Switch",
 		DefaultAction: confirmModalLeft,
 	})
 }
