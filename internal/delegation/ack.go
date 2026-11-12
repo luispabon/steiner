@@ -9,7 +9,7 @@ const (
 	ackStatusRunning = "running"
 	ackStatusQueued  = "queued"
 
-	ackOutput = "Results arrive automatically in a separate message. Do not poll or use sleep to wait for this agent, duplicate its work, or report results before receiving them. Continue any independent work; otherwise end your turn. The harness resumes you when results are delivered."
+	ackOutput = "Results arrive automatically in a separate message, and the harness then resumes you. End your turn now unless you have an action outside pending scope that needs no pending result, or a user question to answer. Do not poll, sleep, duplicate pending work, search its scope, or act on or report results before receiving them."
 )
 
 // AckResult is the immediate tool result of an async sub-agent spawn.

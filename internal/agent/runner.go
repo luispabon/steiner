@@ -82,6 +82,9 @@ func (r *Runner) run(ctx context.Context, req RunRequest) (RunState, error) {
 			drain := req.DrainInbox()
 			wake = drain.Wake
 			if drain.Message != nil {
+				// A delivery is an answer the orchestrator was waiting for, so
+				// the next lookup starts a fresh streak.
+				p.resetLookupStreak()
 				state.Conversation = append(state.Conversation, *drain.Message)
 				state.Lineage = state.Lineage.WithAppendedMessages([]Message{*drain.Message})
 			}

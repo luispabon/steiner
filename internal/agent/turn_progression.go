@@ -273,6 +273,7 @@ type turnProgressor struct {
 	lastFailure       toolFailureSignature
 	identicalFailures int
 	tripped           *toolFailureSignature
+	lookupStreak      lookupStreakTracker
 
 	// queuedDelegations holds the delegation calls announced via
 	// tool_call_queued for the tool-execution phase currently running. Entries
