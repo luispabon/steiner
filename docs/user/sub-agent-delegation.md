@@ -105,7 +105,7 @@ When a child's model call ends mid-message, the text it streamed is kept as its 
 
 ## Background sub-agents
 
-In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return immediately with status `running` (or `queued`) and the `agent_id`. The result arrives later as a separate message, and the harness resumes the orchestrator then; it ends its turn while waiting unless it has work no running agent covers, and you can keep talking to it. `--exec` runs wait for each child.
+In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return immediately with status `running` (or `queued`) and the `agent_id`. The result arrives later as a separate message, and the harness resumes the orchestrator then; it ends its turn while waiting unless it has work outside the pending agents' scope or a question from you to answer, and you can keep talking to it. `--exec` runs wait for each child.
 
 - At most `sub_agent.max_parallel` children run at once (default `3`); further ones queue in order. More than twice that many running plus queued is an error.
 - Calls in one response that share a `group` name are delivered together once all have finished. A group name cannot be reused later in the same conversation.

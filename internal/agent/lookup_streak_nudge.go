@@ -12,7 +12,7 @@ const lookupStreakThreshold = 3
 // lookupStreakNote is appended to a lookup tool result while sub-agents are
 // still running or queued. It steers the orchestrator to end its turn instead
 // of filling the wait with serial lookups.
-const lookupStreakNote = "Sub-agents are still running. If this lookup is in their area, end your turn; they will report it."
+const lookupStreakNote = "Sub-agent results are still pending. Stop lookups in their scope, including spot-checks and review preparation. If no independent action is ready, end your turn now."
 
 // lookupNoteField is the JSON field name carrying lookupStreakNote inside an
 // otherwise unchanged tool result object.
