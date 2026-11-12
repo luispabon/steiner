@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -334,8 +335,8 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 		},
 		{
 			name: "explicit value overrides default",
-			yaml: "advisor:\n  context_reduction_threshold_tokens: 4096\n",
-			want: 4096,
+			yaml: "advisor:\n  context_reduction_threshold_tokens: 48000\n",
+			want: 48000,
 		},
 	}
 	for _, tt := range tests {
@@ -352,15 +353,80 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 		})
 	}
 
-	var problems []string
-	validateAdvisorConfig(&problems, AdvisorConfig{ContextReductionThresholdTokens: -1})
-	if len(problems) != 1 || !strings.Contains(problems[0], "context_reduction_threshold_tokens") {
-		t.Fatalf("validateAdvisorConfig(negative) problems = %v, want one context_reduction_threshold_tokens problem", problems)
+	validationTests := []struct {
+		name    string
+		value   int
+		wantErr string
+	}{
+		{
+			name:    "negative is invalid",
+			value:   -1,
+			wantErr: "advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least 48000 (got -1)",
+		},
+		{
+			name:  "zero disables",
+			value: 0,
+		},
+		{
+			name:    "one is below the minimum",
+			value:   1,
+			wantErr: "advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least 48000 (got 1)",
+		},
+		{
+			name:    "one below the minimum is invalid",
+			value:   minAdvisorContextReductionThresholdTokens - 1,
+			wantErr: fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got %d)", minAdvisorContextReductionThresholdTokens, minAdvisorContextReductionThresholdTokens-1),
+		},
+		{
+			name:  "minimum is valid",
+			value: minAdvisorContextReductionThresholdTokens,
+		},
+		{
+			name:  "default is valid",
+			value: 64000,
+		},
 	}
-	problems = nil
-	validateAdvisorConfig(&problems, AdvisorConfig{ContextReductionThresholdTokens: 0})
-	if len(problems) != 0 {
-		t.Fatalf("validateAdvisorConfig(0) problems = %v, want none", problems)
+	for _, tt := range validationTests {
+		t.Run(tt.name, func(t *testing.T) {
+			var problems []string
+			validateAdvisorConfig(&problems, AdvisorConfig{ContextReductionThresholdTokens: tt.value})
+			if tt.wantErr == "" {
+				if len(problems) != 0 {
+					t.Fatalf("validateAdvisorConfig(%d) problems = %v, want none", tt.value, problems)
+				}
+				return
+			}
+			if len(problems) != 1 || problems[0] != tt.wantErr {
+				t.Fatalf("validateAdvisorConfig(%d) problems = %v, want [%q]", tt.value, problems, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAdvisorReductionTriggerBelowMinimumRejectedByValidate(t *testing.T) {
+	patch, err := parseConfigPatch("advisor:\n  context_reduction_threshold_tokens: 47999\n")
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	cfg := validBase()
+	applyPatch(&cfg, patch)
+	if got := cfg.Advisor.ContextReductionThresholdTokens; got != 47999 {
+		t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want 47999", got)
+	}
+
+	wantErr := fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got 47999)", minAdvisorContextReductionThresholdTokens)
+	err = validate(cfg, "")
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("validate() error = %v, want %q", err, wantErr)
+	}
+
+	validPatch, err := parseConfigPatch("advisor:\n  context_reduction_threshold_tokens: 48000\n")
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	applyPatch(&cfg, validPatch)
+	if err := validate(cfg, ""); err != nil {
+		t.Fatalf("validate() with minimum threshold = %v, want nil", err)
 	}
 }
 
