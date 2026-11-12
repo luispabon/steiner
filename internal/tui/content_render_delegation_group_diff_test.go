@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -25,6 +26,17 @@ func setMixedEntryCollapsed(m *Model, agentID string, collapsed bool) {
 	}
 }
 
+// pinSegmentTimestamps gives every transcript segment one fixed time so the
+// cached render and the fresh replay agree: segment timestamps come from the
+// event construction time, which a test cannot freeze.
+func pinSegmentTimestamps(m *Model) *Model {
+	pinned := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	for i := range m.content.segments {
+		m.content.segments[i].timestamp = pinned
+	}
+	return m
+}
+
 // groupDiffScript covers tick, progress, transcript, completion, failure,
 // expand and collapse, width, theme, jump flash and a late group
 // label. Each step is replayed from scratch to build the reference render.
@@ -36,7 +48,7 @@ func groupDiffScript() []groupDiffStep {
 		})})
 	}
 	return []groupDiffStep{
-		{"transcript", func(m *Model) *Model { return populateLongTranscript(m, 6) }},
+		{"transcript", func(m *Model) *Model { return pinSegmentTimestamps(populateLongTranscript(m, 6)) }},
 		{"group start", func(m *Model) *Model {
 			for j := 0; j < 3; j++ {
 				m = appendMixedChild(m, j, false)

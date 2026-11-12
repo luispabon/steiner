@@ -391,6 +391,7 @@ func (d *ConversationDriver) LastMainRequest() LastMainRequest {
 // appendLocked adds msg to the conversation and to the latest lineage
 // generation so the two never drift.
 func (d *ConversationDriver) appendLocked(msg Message) {
+	msg = stampMessageTimestamp(msg)
 	d.conv = append(d.conv, msg)
 	d.lineage = d.lineage.WithAppendedMessages([]Message{msg})
 }

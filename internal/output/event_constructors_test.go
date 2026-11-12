@@ -860,3 +860,29 @@ func TestNewStopReasonEventUsageLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestTranscriptConstructorsStampTimestamp(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		construct func() Event
+	}{
+		{name: "user input", construct: func() Event { return NewUserInputEvent("hello", "interactive", nil) }},
+		{name: "sub-agents delivered", construct: func() Event {
+			return NewSubAgentsDeliveredEvent([]DeliveredSubAgent{{AgentID: "a", Status: "complete"}})
+		}},
+		{name: "sub-agent results unanswered", construct: func() Event { return NewSubAgentResultsUnansweredEvent([]string{"a"}, "boom") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			event := tt.construct()
+			if event.Timestamp.IsZero() {
+				t.Fatal("Timestamp is zero")
+			}
+			if event.Timestamp.Location() != time.UTC {
+				t.Fatalf("Location = %v, want UTC", event.Timestamp.Location())
+			}
+		})
+	}
+}

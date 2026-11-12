@@ -254,6 +254,7 @@ func (p *turnProgressor) appendToolOutcome(ctx context.Context, state RunState, 
 	} else {
 		toolMessage = p.buildToolMessageWithEvent(turn, call, result, err, false, state.Lineage.latestMessages())
 	}
+	toolMessage = stampMessageTimestamp(toolMessage)
 	state.Conversation = append(state.Conversation, toolMessage)
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{toolMessage})
 	if p.lastBudget != nil && p.lastBudget.ContextSize > 0 {

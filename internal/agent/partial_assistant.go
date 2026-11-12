@@ -25,6 +25,7 @@ func commitInterruptedAssistant(req RunRequest, state RunState) RunState {
 		Turn:       pending.Turn,
 		Incomplete: true,
 	}
+	partial = stampMessageTimestamp(partial)
 	state.Conversation = append(state.Conversation, partial)
 	if !state.Lineage.Empty() {
 		state.Lineage = state.Lineage.WithAppendedMessages([]Message{partial})

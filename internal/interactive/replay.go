@@ -3,6 +3,7 @@ package interactive
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -104,6 +105,23 @@ func convertImageBlocks(blocks []agent.ImageBlock) []output.ImageBlock {
 	return converted
 }
 
+// eventWithTimestamp returns ev stamped with ts. Replay passes the timestamp of
+// the message that produced the event so a resumed transcript shows the
+// original time. A zero ts stays zero: a session saved before messages carried
+// timestamps must not pick up the replay clock.
+func eventWithTimestamp(ev output.Event, ts time.Time) output.Event {
+	ev.Timestamp = ts
+	return ev
+}
+
+// withoutTimestamp returns ev with its timestamp cleared. Replay uses it for
+// events synthesised from ledger or ack state that has no carrying message, so
+// they show no time instead of the replay clock.
+func withoutTimestamp(ev output.Event) output.Event {
+	ev.Timestamp = time.Time{}
+	return ev
+}
+
 // replayLoadedTranscript replays a loaded transcript between the replay_started
 // and replay_finished boundary events. replay_finished is deferred so it is
 // emitted however replay exits, including by panic.
@@ -165,7 +183,7 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 	if msg.ReasoningContent != "" {
 		s.events.Emit(output.NewThinkingChunkEventWithSource(0, msg.ReasoningContent, output.ChunkSourceAssistant))
 	}
-	s.events.Emit(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content))
+	s.events.Emit(eventWithTimestamp(output.NewAssistantMessageEvent(0, string(msg.Role), msg.Content), msg.Timestamp))
 	for callIndex, call := range msg.ToolCalls {
 		key := replayOccurrenceKey{messageIndex: ledger.messageIndex, callIndex: callIndex}
 		occurrence := ledger.occurrences[key]
@@ -177,7 +195,7 @@ func (s *Session) replayAssistantMessage(msg agent.Message, state replayState, l
 				s.replayDelegationBundle(call, key, occurrence, state, ledger)
 				continue
 			}
-			s.events.Emit(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments))
+			s.events.Emit(eventWithTimestamp(output.NewToolCallStartedEvent(0, call.Name, call.ID, call.Arguments), msg.Timestamp))
 			state.startedToolCalls[key] = true
 			continue
 		}
@@ -205,7 +223,7 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks, message
 		if !ok {
 			continue
 		}
-		occ := s.replaySubAgentResult(parsed, acks, messageIndex)
+		occ := s.replaySubAgentResult(parsed, acks, messageIndex, msg.Timestamp)
 		_, usage := splitResultEnvelopeInner(parsed.Inner)
 		delivered = append(delivered, output.DeliveredSubAgent{
 			AgentID:      occ.AgentID,
@@ -217,14 +235,14 @@ func (s *Session) replayUserMessage(msg agent.Message, acks *replayAcks, message
 		})
 	}
 	if len(delivered) > 0 {
-		s.events.Emit(output.NewSubAgentsDeliveredEvent(delivered))
+		s.events.Emit(eventWithTimestamp(output.NewSubAgentsDeliveredEvent(delivered), msg.Timestamp))
 	}
 	// Rest already excludes the mode notice prefix, every block, the
 	// pending line and every result envelope, so it replaces
 	// StripModeNotice here. Emit the input event only when user text or
 	// images remain.
 	if strings.TrimSpace(parts.Rest) != "" || len(images) > 0 {
-		s.events.Emit(output.NewUserInputEvent(parts.Rest, "resume", images))
+		s.events.Emit(eventWithTimestamp(output.NewUserInputEvent(parts.Rest, "resume", images), msg.Timestamp))
 	}
 }
 
@@ -241,5 +259,5 @@ func (s *Session) replayToolFinished(msg agent.Message) {
 	if err == nil && isDelegateToolCall(msg.Name) {
 		err = delegationResultError(msg.Content)
 	}
-	s.events.Emit(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, err, output.ToolPreview{}, admission))
+	s.events.Emit(eventWithTimestamp(output.NewToolCallFinishedEventWithAdmission(0, msg.Name, msg.ToolCallID, msg.Content, err, output.ToolPreview{}, admission), msg.Timestamp))
 }

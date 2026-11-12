@@ -22,7 +22,7 @@ func (b *contentBuffer) appendSubAgentsDeliveredEvent(event output.Event) {
 	rows := buildDeliveredRows(payload.Items, b.deliveredLookup)
 	b.segments = append(b.segments, contentSegment{
 		kind:          segmentSubAgentsFinished,
-		timestamp:     timeNow(),
+		timestamp:     event.Timestamp,
 		deliveredData: &rows,
 		renderDirty:   true,
 	})

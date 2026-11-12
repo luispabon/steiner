@@ -1,6 +1,10 @@
 package agent
 
-import "github.com/luispabon/steiner/internal/tool"
+import (
+	"time"
+
+	"github.com/luispabon/steiner/internal/tool"
+)
 
 // MessageRole identifies the semantic role of a conversation message.
 type MessageRole string
@@ -95,6 +99,9 @@ type Message struct {
 	Source           string       `json:"source,omitempty"`
 	ByteSize         int          `json:"byte_size,omitempty"`
 	Turn             int          `json:"turn,omitempty"`
+	// Timestamp records when the message entered the conversation. It is display
+	// metadata for resumed transcripts and never reaches the model.
+	Timestamp time.Time `json:"timestamp,omitzero"`
 	// Incomplete marks an assistant message whose model call failed before the
 	// message finished. Its content is what streamed before the failure.
 	Incomplete          bool                      `json:"incomplete,omitempty"`

@@ -1,6 +1,8 @@
 package interactive
 
 import (
+	"time"
+
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -19,20 +21,29 @@ func unansweredBoundary(conv []agent.Message) int {
 	return 0
 }
 
+// unansweredResultEnvelope is one stranded sub-agent result envelope and the
+// user message that carried it.
+type unansweredResultEnvelope struct {
+	result agent.ParsedSubAgentResult
+	// timestamp is the carrying message's time; zero when the session predates
+	// per-message timestamps.
+	timestamp time.Time
+}
+
 // unansweredResultEnvelopes returns the sub-agent result envelopes carried by
 // user messages after the last complete assistant message: results delivered to
 // the model that it never answered (a failed or interrupted run, or a session
 // saved mid-turn).
-func unansweredResultEnvelopes(conv []agent.Message) []agent.ParsedSubAgentResult {
+func unansweredResultEnvelopes(conv []agent.Message) []unansweredResultEnvelope {
 	start := unansweredBoundary(conv)
-	var out []agent.ParsedSubAgentResult
+	var out []unansweredResultEnvelope
 	for _, msg := range conv[start:] {
 		if msg.Role != agent.MessageRoleUser {
 			continue
 		}
 		for _, raw := range prompt.SplitMessageBlocks(msg.Content).ResultEnvelopes {
 			if parsed, ok := agent.ParseSubAgentResultEnvelope(raw); ok {
-				out = append(out, parsed)
+				out = append(out, unansweredResultEnvelope{result: parsed, timestamp: msg.Timestamp})
 			}
 		}
 	}
@@ -54,7 +65,9 @@ func unansweredResultsReason(conv []agent.Message, reason string) string {
 }
 
 // emitUnansweredResults emits the stranded-result event for the envelopes
-// unanswered in conv, if any.
+// unanswered in conv, if any. The event carries the time of the newest message
+// that carried an envelope, or a zero time when the session predates
+// per-message timestamps: replay must not substitute the replay clock.
 func (s *Session) emitUnansweredResults(conv []agent.Message, reason string) {
 	envelopes := unansweredResultEnvelopes(conv)
 	if len(envelopes) == 0 {
@@ -63,7 +76,8 @@ func (s *Session) emitUnansweredResults(conv []agent.Message, reason string) {
 	reason = unansweredResultsReason(conv, reason)
 	ids := make([]string, len(envelopes))
 	for i, e := range envelopes {
-		ids[i] = e.AgentID
+		ids[i] = e.result.AgentID
 	}
-	s.events.Emit(output.NewSubAgentResultsUnansweredEvent(ids, reason))
+	timestamp := envelopes[len(envelopes)-1].timestamp
+	s.events.Emit(eventWithTimestamp(output.NewSubAgentResultsUnansweredEvent(ids, reason), timestamp))
 }

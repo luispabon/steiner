@@ -117,6 +117,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	}
 	assistant := fromProviderMessage(response.Message)
 	assistant.Turn = turn
+	assistant = stampMessageTimestamp(assistant)
 	if !isStrictlyEmptyAssistant(assistant) {
 		state.Conversation = append(state.Conversation, assistant)
 		state.Lineage = state.Lineage.WithAppendedMessages([]Message{assistant})

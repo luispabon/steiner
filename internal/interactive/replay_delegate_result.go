@@ -58,15 +58,16 @@ func isFailedResultStatus(status string) bool {
 // replaySubAgentResult emits the completion or failure event for one result
 // envelope (already parsed), correlating it to its ack by call_id, and returns
 // the occurrence it stamped. An envelope with no ack gets a synthesised batch
-// from messageIndex, the index of the user message carrying it.
-func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *replayAcks, messageIndex int) output.DelegationOccurrence {
+// from messageIndex, the index of the user message carrying it. timestamp is
+// that carrying message's time, so replay shows the original time.
+func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *replayAcks, messageIndex int, timestamp time.Time) output.DelegationOccurrence {
 	ack, found := acks.take(parsed.CallID)
 	occ := ack.occ
 	if !found {
 		occ = replayOccurrenceFor(parsed.CallID, messageIndex, nil, agent.SubAgentLedgerEntry{}, parsed.AgentID)
 		// A result envelope proves the child was admitted, and live always
 		// emits Accepted first; an ack already emitted it for the found case.
-		s.events.Emit(output.NewDelegationAcceptedEvent(occ, ""))
+		s.events.Emit(eventWithTimestamp(output.NewDelegationAcceptedEvent(occ, ""), timestamp))
 	}
 	state := replayedDelegationState{agentID: parsed.AgentID, status: "complete"}
 	body, usage := splitResultEnvelopeInner(parsed.Inner)
@@ -91,19 +92,19 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 		if msg == "" {
 			msg = state.output
 		}
-		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+		s.events.Emit(eventWithTimestamp(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 			DelegationOccurrence: occ,
 			AgentType:            parsed.AgentType,
 			DurationMs:           usage.duration.Milliseconds(),
 			TaskPreview:          ack.task,
 			Error:                msg,
-		}))
+		}), timestamp))
 		return occ
 	}
 	if parsed.Status != "" {
 		state.status = parsed.Status
 	}
-	s.events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+	s.events.Emit(eventWithTimestamp(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 		DelegationOccurrence: occ,
 		AgentType:            parsed.AgentType,
 		DurationMs:           usage.duration.Milliseconds(),
@@ -112,7 +113,7 @@ func (s *Session) replaySubAgentResult(parsed agent.ParsedSubAgentResult, acks *
 		TokenCount:           state.tokenCount,
 		ToolCallCount:        state.toolCallCount,
 		Output:               state.output,
-	}))
+	}), timestamp))
 	return occ
 }
 
@@ -123,11 +124,11 @@ func (s *Session) replayUnresolvedAcks(acks *replayAcks) {
 		if ack.outstanding {
 			continue
 		}
-		s.events.Emit(output.NewDelegationFailedEvent(output.DelegationFailedParams{
+		s.events.Emit(withoutTimestamp(output.NewDelegationFailedEvent(output.DelegationFailedParams{
 			DelegationOccurrence: ack.occ,
 			TaskPreview:          ack.task,
 			Error:                replayNoResultMessage,
-		}))
+		})))
 	}
 	acks.order = nil
 }

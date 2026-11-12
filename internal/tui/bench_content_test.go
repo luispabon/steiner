@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -53,6 +54,17 @@ func newContentBenchModel() *Model {
 	return updateModelDirect(m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
 }
 
+// benchEventTime pins every fixture event so transcript timestamps render the
+// same in every build. The output constructors stamp the wall clock, which
+// would let twin fixtures straddle a second boundary and render different
+// second-resolution timestamps.
+var benchEventTime = time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+
+func benchEvent(event output.Event) output.Event {
+	event.Timestamp = benchEventTime
+	return event
+}
+
 // populateLongTranscript appends n "messages" of mixed content: user prompts,
 // markdown replies with highlighted code, read/bash tool calls with output,
 // and a completed delegation every 10th message. Roughly 3 segments/message.
@@ -60,23 +72,23 @@ func populateLongTranscript(m *Model, n int) *Model {
 	toolOut := strings.Repeat("package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n", 8)
 	for i := 0; i < n; i++ {
 		if i%6 == 0 {
-			m = updateModelDirect(m, runtimeEventMsg{Event: output.NewUserInputEvent(fmt.Sprintf("please look at module %d and tell me what it does", i), "interactive", nil)})
+			m = updateModelDirect(m, runtimeEventMsg{Event: benchEvent(output.NewUserInputEvent(fmt.Sprintf("please look at module %d and tell me what it does", i), "interactive", nil))})
 		}
-		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewAssistantMessageEvent(1, "assistant", benchMarkdownReply)})
+		m = updateModelDirect(m, runtimeEventMsg{Event: benchEvent(output.NewAssistantMessageEvent(1, "assistant", benchMarkdownReply))})
 		id := fmt.Sprintf("call_%d", i)
 		name := "read"
 		if i%3 == 1 {
 			name = "bash"
 		}
-		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, name, id, map[string]any{"file_path": fmt.Sprintf("/src/mod%d/main.go", i)})})
-		m = updateModelDirect(m, runtimeEventMsg{Event: output.NewToolCallFinishedEvent(1, name, id, toolOut, nil)})
+		m = updateModelDirect(m, runtimeEventMsg{Event: benchEvent(output.NewToolCallStartedEvent(1, name, id, map[string]any{"file_path": fmt.Sprintf("/src/mod%d/main.go", i)}))})
+		m = updateModelDirect(m, runtimeEventMsg{Event: benchEvent(output.NewToolCallFinishedEvent(1, name, id, toolOut, nil))})
 		if i%10 == 5 {
 			a := fmt.Sprintf("done_%d", i)
-			m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(agentOcc(a), "investigate "+a, "", "")})
-			m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+			m = updateModelDirect(m, runtimeEventMsg{Event: benchEvent(output.NewDelegationStartedEvent(agentOcc(a), "investigate "+a, "", ""))})
+			m = updateModelDirect(m, runtimeEventMsg{Event: benchEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
 				DelegationOccurrence: agentOcc(a), Status: "complete", TurnCount: 3, TokenCount: 900, ToolCallCount: 4,
 				Output: strings.Repeat("finding about the module. ", 20),
-			})})
+			}))})
 		}
 	}
 	m.syncViewport()

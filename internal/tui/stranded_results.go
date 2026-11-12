@@ -46,7 +46,7 @@ func (b *contentBuffer) appendSubAgentResultsUnansweredEvent(event output.Event)
 	b.finishStreaming()
 	b.segments = append(b.segments, contentSegment{
 		kind:         segmentStrandedResults,
-		timestamp:    timeNow(),
+		timestamp:    event.Timestamp,
 		strandedData: &strandedResultsData{count: len(payload.AgentIDs), reason: payload.Reason},
 		renderDirty:  true,
 	})

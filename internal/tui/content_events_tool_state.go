@@ -167,7 +167,7 @@ func (b *contentBuffer) appendStopReasonEvent(event output.Event) {
 			b.segments = append(b.segments, contentSegment{
 				kind:        segmentStatus,
 				text:        reason,
-				timestamp:   timeNow(),
+				timestamp:   event.Timestamp,
 				renderDirty: true,
 			})
 		}
@@ -190,7 +190,7 @@ func (b *contentBuffer) appendUserInputEvent(event output.Event) {
 		if b.collapseState == nil {
 			b.collapseState = make(map[int]bool)
 		}
-		b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: payload.Content, timestamp: timeNow(), renderDirty: true})
+		b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: payload.Content, timestamp: event.Timestamp, renderDirty: true})
 		b.collapseState[idx] = false
 	}
 	if len(payload.Images) > 0 {
