@@ -1,6 +1,8 @@
 package advisor
 
 import (
+	"strings"
+
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -57,6 +59,13 @@ type reductionLedgerState struct {
 	epoch           uint64
 	exhausted       bool
 	exhaustedTokens int
+	// exhaustedLen is the transcript length the exhaustion was recorded
+	// against and exhaustedDigest identifies that source prefix. Exhaustion
+	// suppression only holds while the current transcript still extends the
+	// exact same prefix, so a shrunk or edited conversation is replanned
+	// instead of staying suppressed.
+	exhaustedLen    int
+	exhaustedDigest string
 }
 
 func (s reductionLedgerState) clone() reductionLedgerState {
@@ -125,17 +134,35 @@ func (s *SharedState) touchReductionScopeLocked(scope string) {
 
 // reductionReplay is the result of applying a ledger to the current transcript.
 type reductionReplay struct {
+	// source is the caller's transcript. It is never mutated.
+	source []provider.Message
+	// transcript applies frozen replacements. It aliases source until the
+	// first replacement is applied, then becomes a copy.
 	transcript []provider.Message
 	stages     []reductionStage
-	// hashes are the source hashes of every current transcript message.
-	hashes []string
 	// references mirrors stages: the earlier read index a dedupe note points
-	// to, or -1.
+	// to, or -1. It is allocated only when a replayed dedupe note needs it.
 	references []int
+	// hashes holds the source hashes computed so far, in transcript order.
+	// Hashing is lazy: only the prefix validated against the ledger is hashed.
+	hashes []string
 	// valid is the number of ledger entries that still match the transcript.
 	valid int
-	// changed reports whether at least one frozen replacement was applied.
-	changed bool
+}
+
+// ensureHashes computes source hashes up to n transcript messages.
+func (r *reductionReplay) ensureHashes(n int) {
+	n = min(n, len(r.source))
+	for len(r.hashes) < n {
+		r.hashes = append(r.hashes, messageHash(canonicalMessage(r.source[len(r.hashes)])))
+	}
+}
+
+// sourceHashes returns a hash for every source message, filling any that the
+// lazy replay left unhashed.
+func (r *reductionReplay) sourceHashes() []string {
+	r.ensureHashes(len(r.source))
+	return r.hashes
 }
 
 // replayReductionLedger matches entries against transcript by source hash and
@@ -143,33 +170,58 @@ type reductionReplay struct {
 // input messages.
 func replayReductionLedger(transcript []provider.Message, entries []reductionLedgerEntry) reductionReplay {
 	replay := reductionReplay{
-		transcript: append([]provider.Message(nil), transcript...),
+		source:     transcript,
+		transcript: transcript,
 		stages:     make([]reductionStage, len(transcript)),
-		hashes:     make([]string, len(transcript)),
-		references: make([]int, len(transcript)),
-	}
-	for i := range replay.references {
-		replay.references[i] = -1
-	}
-	for i, message := range transcript {
-		replay.hashes[i] = messageHash(canonicalMessage(message))
 	}
 	limit := min(len(entries), len(transcript))
 	replay.valid = limit
 	for i := 0; i < limit; i++ {
+		replay.ensureHashes(i + 1)
 		if entries[i].sourceHash != replay.hashes[i] {
 			replay.valid = i
 			break
 		}
 	}
+	cloned := false
 	for i := 0; i < replay.valid; i++ {
 		if !entries[i].replaced() || transcript[i].Role != provider.MessageRoleTool {
 			continue
 		}
+		if !cloned {
+			replay.transcript = append([]provider.Message(nil), transcript...)
+			cloned = true
+		}
 		replay.transcript[i].Content = entries[i].replacement
 		replay.stages[i] = entries[i].stage
+		if replay.references == nil {
+			replay.references = make([]int, len(transcript))
+			for j := range replay.references {
+				replay.references[j] = -1
+			}
+		}
 		replay.references[i] = entries[i].referenceIndex
-		replay.changed = true
 	}
 	return replay
+}
+
+// exhaustionDigest identifies the source-hash prefix of replay that an
+// exhaustion was recorded against. Hashes are fixed width, so joining them
+// keeps distinct prefixes from colliding.
+func exhaustionDigest(replay *reductionReplay, n int) string {
+	replay.ensureHashes(n)
+	return messageHash(strings.Join(replay.hashes[:min(n, len(replay.hashes))], ""))
+}
+
+// coversTranscript reports whether the current transcript still extends the
+// exact source prefix that was exhausted. A shrinking conversation or an
+// edited interior message no longer covers it, so it is replanned.
+func (s reductionLedgerState) coversTranscript(replay *reductionReplay) bool {
+	if len(replay.source) < s.exhaustedLen {
+		return false
+	}
+	if s.exhaustedLen == 0 {
+		return len(replay.source) == 0
+	}
+	return exhaustionDigest(replay, s.exhaustedLen) == s.exhaustedDigest
 }

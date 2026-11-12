@@ -79,14 +79,6 @@ func reductionScopeKey(deps HandlerDeps, cacheKey string, tuning reductionTuning
 	}, "\x00")
 }
 
-func splitTranscript(snapshot []provider.Message) ([]provider.Message, *provider.Message) {
-	if n := len(snapshot); n > 0 && snapshot[n-1].Role == provider.MessageRoleAssistant {
-		inFlight := snapshot[n-1]
-		return snapshot[:n-1], &inFlight
-	}
-	return snapshot, nil
-}
-
 func rebuildSnapshot(transcript []provider.Message, inFlight *provider.Message) []provider.Message {
 	out := make([]provider.Message, 0, len(transcript)+1)
 	out = append(out, transcript...)
@@ -163,9 +155,16 @@ type advisorReductionDiagnostics struct {
 	Stages       []string
 }
 
+// reductionRequest carries the immutable inputs of one advisor reduction pass.
+type reductionRequest struct {
+	snapshot []provider.Message
+	files    []advisorFile
+	question string
+}
+
 type reductionOutcome struct {
+	// messages is the final request payload, reduced or not.
 	messages    []provider.Message
-	applied     bool
 	diagnostics advisorReductionDiagnostics
 }
 
@@ -185,15 +184,16 @@ func reductionParams(diagnostics advisorReductionDiagnostics) *output.AdvisorRed
 // reduceAdvisorMessages replays any frozen replacements for this conversation
 // scope, decides whether the request crosses the soft trigger, and plans a new
 // append-only batch when it does. It never rejects the call.
-func (s *handlerState) reduceAdvisorMessages(ctx context.Context, deps HandlerDeps, snapshot []provider.Message, fullFiles, legacyFiles []advisorFile, question string, legacyMessages []provider.Message) reductionOutcome {
+func (s *handlerState) reduceAdvisorMessages(ctx context.Context, deps HandlerDeps, req reductionRequest) reductionOutcome {
 	tuning := resolveReductionTuning(deps.Config, deps.Model)
 	if !tuning.enabled {
-		return reductionOutcome{messages: legacyMessages}
+		_, messages := legacyReductionPayload(deps, req)
+		return reductionOutcome{messages: messages}
 	}
-	transcript, inFlight := splitTranscript(snapshot)
+	transcript, inFlight := splitTrailingAssistant(req.snapshot)
 	scope := reductionScopeKey(deps, s.cacheKey, tuning)
 	state, replay := s.replayReductionState(scope, transcript)
-	currentFiles, currentMessages := currentReductionPayload(deps, fullFiles, legacyFiles, legacyMessages, question, inFlight, replay, len(state.entries) > 0)
+	currentFiles, currentMessages := currentReductionPayload(deps, req, replay, inFlight, len(state.entries) > 0)
 
 	estimate := estimateAdvisorMessages(ctx, deps, currentMessages)
 	diagnostics := advisorReductionDiagnostics{
@@ -206,11 +206,11 @@ func (s *handlerState) reduceAdvisorMessages(ctx context.Context, deps HandlerDe
 		diagnostics.Strategy = "replay"
 	}
 	if estimate.tokens < tuning.trigger {
-		return reductionOutcome{messages: currentMessages, applied: len(state.entries) > 0, diagnostics: diagnostics}
+		return reductionOutcome{messages: currentMessages, diagnostics: diagnostics}
 	}
-	if state.exhausted && estimate.tokens < state.exhaustedTokens+minReductionSavings(tuning.trigger) {
+	if state.exhausted && estimate.tokens < state.exhaustedTokens+minReductionSavings(tuning.trigger) && state.coversTranscript(&replay) {
 		diagnostics.Strategy = "exhausted"
-		return reductionOutcome{messages: currentMessages, applied: len(state.entries) > 0, diagnostics: diagnostics}
+		return reductionOutcome{messages: currentMessages, diagnostics: diagnostics}
 	}
 
 	ratio := reductionRatio(estimate.tokens, currentMessages)
@@ -220,27 +220,32 @@ func (s *handlerState) reduceAdvisorMessages(ctx context.Context, deps HandlerDe
 		references:    replay.references,
 		tuning:        tuning,
 		ratio:         ratio,
-		initialTokens: planningBaselineTokens(estimate.tokens, ratio, fullFiles, currentFiles),
+		initialTokens: planningBaselineTokens(estimate.tokens, ratio, req.files, currentFiles),
 	})
 	if plan.savedTokens < minReductionSavings(tuning.trigger) || len(plan.appliedStages) == 0 {
-		next := reductionLedgerState{entries: state.entries, exhausted: true, exhaustedTokens: estimate.tokens}
-		s.shared.storeReductionLedger(scope, state.epoch, next)
+		s.shared.storeReductionLedger(scope, state.epoch, reductionLedgerState{
+			entries:         state.entries,
+			exhausted:       true,
+			exhaustedTokens: estimate.tokens,
+			exhaustedLen:    len(transcript),
+			exhaustedDigest: exhaustionDigest(&replay, len(transcript)),
+		})
 		diagnostics.Strategy = "exhausted"
-		return reductionOutcome{messages: currentMessages, applied: len(state.entries) > 0, diagnostics: diagnostics}
+		return reductionOutcome{messages: currentMessages, diagnostics: diagnostics}
 	}
 
-	entries := reductionLedgerEntries(replay.hashes, plan)
+	entries := reductionLedgerEntries(replay.sourceHashes(), plan)
 	if !s.shared.storeReductionLedger(scope, state.epoch, reductionLedgerState{entries: entries}) {
 		diagnostics.Strategy = "concurrent"
-		return reductionOutcome{messages: currentMessages, applied: len(state.entries) > 0, diagnostics: diagnostics}
+		return reductionOutcome{messages: currentMessages, diagnostics: diagnostics}
 	}
 
-	finalMessages := finalReductionMessages(deps, question, inFlight, fullFiles, plan)
+	_, finalMessages := reductionPayload(deps, plan.transcript, plan.stages, req.files, req.question, inFlight)
 	finalEstimate := estimateAdvisorMessages(ctx, deps, finalMessages)
 	diagnostics.Strategy = "reduced"
 	diagnostics.AfterTokens = finalEstimate.tokens
 	diagnostics.Stages = plan.appliedStages
-	return reductionOutcome{messages: finalMessages, applied: true, diagnostics: diagnostics}
+	return reductionOutcome{messages: finalMessages, diagnostics: diagnostics}
 }
 
 // replayReductionState reads the scope ledger and replays it against the
@@ -253,23 +258,34 @@ func (s *handlerState) replayReductionState(scope string, transcript []provider.
 	}
 	next := reductionLedgerState{entries: state.entries[:replay.valid]}
 	if s.shared.storeReductionLedger(scope, state.epoch, next) {
-		state.epoch++
-		state.entries = next.clone().entries
-		state.exhausted = false
-		state.exhaustedTokens = 0
-		return state, replay
+		return reductionLedgerState{entries: next.entries, epoch: state.epoch + 1}, replay
 	}
 	state = s.shared.reductionLedger(scope)
 	return state, replayReductionLedger(transcript, state.entries)
 }
 
-func currentReductionPayload(deps HandlerDeps, fullFiles, legacyFiles []advisorFile, legacyMessages []provider.Message, question string, inFlight *provider.Message, replay reductionReplay, hasLedger bool) ([]advisorFile, []provider.Message) {
+// currentReductionPayload builds the payload for the current transcript. With
+// no frozen ledger it keeps the legacy dedupe and message builder untouched.
+func currentReductionPayload(deps HandlerDeps, req reductionRequest, replay reductionReplay, inFlight *provider.Message, hasLedger bool) ([]advisorFile, []provider.Message) {
 	if !hasLedger {
-		return legacyFiles, legacyMessages
+		return legacyReductionPayload(deps, req)
 	}
-	snapshot := rebuildSnapshot(replay.transcript, inFlight)
-	files := dedupeAttachments(fullFiles, replay.transcript, replay.stages, deps.WorkDir)
-	return files, buildMessages(snapshot, question, files)
+	return reductionPayload(deps, replay.transcript, replay.stages, req.files, req.question, inFlight)
+}
+
+// reductionPayload assembles the reduced payload shared by the current and
+// final request paths.
+func reductionPayload(deps HandlerDeps, transcript []provider.Message, stages []reductionStage, files []advisorFile, question string, inFlight *provider.Message) ([]advisorFile, []provider.Message) {
+	files = dedupeAttachments(files, transcript, stages, deps.WorkDir)
+	return files, buildMessages(rebuildSnapshot(transcript, inFlight), question, files)
+}
+
+// legacyReductionPayload reproduces the pre-reduction payload exactly,
+// including its weaker file-hash dedupe. It clones the loaded files before
+// that dedupe so the caller's copy stays unchanged.
+func legacyReductionPayload(deps HandlerDeps, req reductionRequest) ([]advisorFile, []provider.Message) {
+	files := dedupeAgainstSnapshot(append([]advisorFile(nil), req.files...), req.snapshot, deps.WorkDir)
+	return files, buildMessages(req.snapshot, req.question, files)
 }
 
 func reductionRatio(tokens int, messages []provider.Message) float64 {
@@ -283,7 +299,7 @@ func reductionRatio(tokens int, messages []provider.Message) float64 {
 // at full size, so reducing a read does not depend on whether its attachment
 // happens to be deduped in the current payload.
 func planningBaselineTokens(tokens int, ratio float64, fullFiles, currentFiles []advisorFile) int {
-	if fileDelta := len(renderAdvisorFiles(fullFiles)) - len(renderAdvisorFiles(currentFiles)); fileDelta > 0 {
+	if fileDelta := advisorFilesRenderedLen(fullFiles) - advisorFilesRenderedLen(currentFiles); fileDelta > 0 {
 		return tokens + tokensForBytes(fileDelta, ratio)
 	}
 	return tokens
@@ -302,10 +318,4 @@ func reductionLedgerEntries(hashes []string, plan reductionPlan) []reductionLedg
 		}
 	}
 	return entries
-}
-
-func finalReductionMessages(deps HandlerDeps, question string, inFlight *provider.Message, fullFiles []advisorFile, plan reductionPlan) []provider.Message {
-	snapshot := rebuildSnapshot(plan.transcript, inFlight)
-	files := dedupeAttachments(fullFiles, plan.transcript, plan.stages, deps.WorkDir)
-	return buildMessages(snapshot, question, files)
 }

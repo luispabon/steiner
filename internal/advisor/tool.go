@@ -150,10 +150,6 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	if err != nil {
 		return nil, err
 	}
-	// Keep the caller's files at their full bounded size for reduction
-	// planning, then apply the existing dedupe for the base payload.
-	fullFiles := append([]advisorFile(nil), files...)
-	files = dedupeAgainstSnapshot(files, snapshot, deps.WorkDir)
 
 	s.shared.mu.Lock()
 	nextUse := s.shared.uses + 1
@@ -173,11 +169,8 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	// state on purpose, even though Anthropic guidance often suggests removing
 	// spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
-	messages := buildMessages(snapshot, in.Question, files)
-	reduction := s.reduceAdvisorMessages(ctx, deps, snapshot, fullFiles, files, in.Question, messages)
-	if reduction.applied {
-		messages = reduction.messages
-	}
+	reduction := s.reduceAdvisorMessages(ctx, deps, reductionRequest{snapshot: snapshot, files: files, question: in.Question})
+	messages := reduction.messages
 	diagnostic := &advisorDiagnosticContext{state: s, writer: deps.Diagnostics}
 	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey, diagnostic, deps.TransportSession, deps.ParentTransportSession)
 	if err != nil {
