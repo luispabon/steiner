@@ -3,7 +3,9 @@ package prompt
 import "fmt"
 
 const (
-	defaultSkillBudgetBytes = 106496
+	// defaultSkillBudgetBytes must hold the framing block plus every bundled
+	// skill body.
+	defaultSkillBudgetBytes = 106622
 )
 
 // DefaultAssemblyPolicy returns the default prompt assembly policy.

@@ -213,11 +213,19 @@ type reductionPlan struct {
 	appliedStages []string
 }
 
-// planReduction applies the three reduction stages oldest-first and stops as
-// soon as the planned request reaches the target. It converts byte savings to
-// tokens with the ratio measured from the initial request, so no candidate is
-// tokenized.
-func planReduction(in reductionPlanInput) reductionPlan {
+// reductionPlanner carries the mutable planning state shared by the stage
+// helpers. Only one planner is active per call.
+type reductionPlanner struct {
+	in             reductionPlanInput
+	plan           reductionPlan
+	classification toolClassification
+	protected      map[int]bool
+	ratio          float64
+	appliedTokens  int
+	contentSavings int
+}
+
+func newReductionPlanner(in reductionPlanInput) *reductionPlanner {
 	plan := reductionPlan{
 		transcript: append([]provider.Message(nil), in.transcript...),
 		stages:     append([]reductionStage(nil), in.stages...),
@@ -229,145 +237,171 @@ func planReduction(in reductionPlanInput) reductionPlan {
 			plan.references[i] = in.references[i]
 		}
 	}
-	if len(in.transcript) == 0 || in.tuning.trigger <= 0 {
-		return plan
-	}
 	ratio := in.ratio
 	if ratio <= 0 {
 		ratio = 1
 	}
 	classification := classifyToolResults(in.transcript)
 	tailBytes := int(math.Ceil(float64(in.tuning.tail) / ratio))
-	protected := protectedTail(in.transcript, classification.ordinary, tailBytes)
-	appliedTokens := 0
-	contentSavings := 0
+	return &reductionPlanner{
+		in:             in,
+		plan:           plan,
+		classification: classification,
+		protected:      protectedTail(in.transcript, classification.ordinary, tailBytes),
+		ratio:          ratio,
+	}
+}
 
-	reachedTarget := func() bool {
-		return in.initialTokens-appliedTokens <= in.tuning.target
+// planReduction applies the three reduction stages oldest-first and stops as
+// soon as the planned request reaches the target. It converts byte savings to
+// tokens with the ratio measured from the initial request, so no candidate is
+// tokenized.
+func planReduction(in reductionPlanInput) reductionPlan {
+	planner := newReductionPlanner(in)
+	if len(in.transcript) == 0 || in.tuning.trigger <= 0 {
+		return planner.plan
 	}
-	recordStage := func(stage reductionStage) {
-		name := stage.String()
-		if len(plan.appliedStages) == 0 || plan.appliedStages[len(plan.appliedStages)-1] != name {
-			plan.appliedStages = append(plan.appliedStages, name)
-		}
+	planner.applyReadDedupe()
+	if !planner.reachedTarget() {
+		planner.applyClips()
 	}
-	tryApply := func(index int, stage reductionStage, replacement string) bool {
-		if replacement == "" || replacement == plan.transcript[index].Content {
-			return false
-		}
-		oldContent := plan.transcript[index].Content
-		oldStage := plan.stages[index]
-		oldReference := plan.references[index]
-		plan.transcript[index].Content = replacement
-		plan.stages[index] = stage
-		plan.references[index] = -1
-		netBytes := contentSavings + len(oldContent) - len(replacement)
-		netTokens := tokensForBytes(netBytes, ratio)
-		if netTokens <= appliedTokens {
-			plan.transcript[index].Content = oldContent
-			plan.stages[index] = oldStage
-			plan.references[index] = oldReference
-			return false
-		}
-		contentSavings += len(oldContent) - len(replacement)
-		appliedTokens = netTokens
-		plan.savedBytes = netBytes
-		plan.savedTokens = netTokens
-		recordStage(stage)
-		return true
+	if !planner.reachedTarget() {
+		planner.applyStubs()
 	}
-	finish := func() reductionPlan {
-		// A duplicate note may point at a source that this batch also reduces.
-		// Replace such references with a self-contained omission stub so the
-		// advisor never points at evidence it no longer has.
-		for i := range plan.transcript {
-			if plan.stages[i] != reductionStageReadDedupe {
-				continue
-			}
-			reference := plan.references[i]
-			if reference < 0 || reference >= len(plan.stages) || plan.stages[reference] == reductionStageNone {
-				continue
-			}
-			stub, ok := outputReplacement(classification.names[i], plan.transcript[i].Content, unavailableDuplicateStub)
-			if !ok || stub == plan.transcript[i].Content {
-				continue
-			}
-			oldContent := plan.transcript[i].Content
-			plan.transcript[i].Content = stub
-			plan.stages[i] = reductionStageStub
-			plan.references[i] = -1
-			contentSavings += len(oldContent) - len(stub)
-			appliedTokens = tokensForBytes(contentSavings, ratio)
-			plan.savedBytes = contentSavings
-			plan.savedTokens = appliedTokens
-			recordStage(reductionStageStub)
-		}
-		return plan
-	}
+	planner.reconcileReferences()
+	return planner.plan
+}
 
-	// Stage 1: exact duplicate full reads. Replace later eligible copies with
-	// a note; finish turns that note into a self-contained stub when the
-	// earlier copy is reduced too. Output bytes must match exactly.
+func (p *reductionPlanner) reachedTarget() bool {
+	return p.in.initialTokens-p.appliedTokens <= p.in.tuning.target
+}
+
+func (p *reductionPlanner) recordStage(stage reductionStage) {
+	name := stage.String()
+	if len(p.plan.appliedStages) == 0 || p.plan.appliedStages[len(p.plan.appliedStages)-1] != name {
+		p.plan.appliedStages = append(p.plan.appliedStages, name)
+	}
+}
+
+func (p *reductionPlanner) tryApply(index int, stage reductionStage, replacement string) bool {
+	if replacement == "" || replacement == p.plan.transcript[index].Content {
+		return false
+	}
+	oldContent := p.plan.transcript[index].Content
+	oldStage := p.plan.stages[index]
+	oldReference := p.plan.references[index]
+	p.plan.transcript[index].Content = replacement
+	p.plan.stages[index] = stage
+	p.plan.references[index] = -1
+	netBytes := p.contentSavings + len(oldContent) - len(replacement)
+	netTokens := tokensForBytes(netBytes, p.ratio)
+	if netTokens <= p.appliedTokens {
+		p.plan.transcript[index].Content = oldContent
+		p.plan.stages[index] = oldStage
+		p.plan.references[index] = oldReference
+		return false
+	}
+	p.contentSavings += len(oldContent) - len(replacement)
+	p.appliedTokens = netTokens
+	p.plan.savedBytes = netBytes
+	p.plan.savedTokens = netTokens
+	p.recordStage(stage)
+	return true
+}
+
+// applyReadDedupe replaces later eligible copies of an exact full read with a
+// note. The earlier copy is recorded so reconciliation can stub the note if
+// that source is reduced in the same or a later batch.
+func (p *reductionPlanner) applyReadDedupe() {
 	type seenRead struct {
 		id    string
 		index int
 	}
 	seen := make(map[fullReadKey]seenRead)
-	for i := range in.transcript {
-		if plan.stages[i] != reductionStageNone || !classification.ordinary[i] {
+	for i := range p.in.transcript {
+		if p.reachedTarget() {
+			return
+		}
+		if p.plan.stages[i] != reductionStageNone || !p.classification.ordinary[i] {
 			continue
 		}
-		key, ok := fullReadIdentity(in.transcript[i], classification.names[i])
+		key, ok := fullReadIdentity(p.in.transcript[i], p.classification.names[i])
 		if !ok {
 			continue
 		}
-		if earlier, exists := seen[key]; exists {
-			if protected[i] {
-				continue
-			}
-			note, ok := outputReplacement(classification.names[i], plan.transcript[i].Content, readDedupeNote(earlier.id))
-			if ok && tryApply(i, reductionStageReadDedupe, note) {
-				plan.references[i] = earlier.index
-				if reachedTarget() {
-					return finish()
-				}
-			}
+		earlier, exists := seen[key]
+		if !exists {
+			seen[key] = seenRead{id: p.in.transcript[i].ToolCallID, index: i}
 			continue
 		}
-		seen[key] = seenRead{id: in.transcript[i].ToolCallID, index: i}
+		if p.protected[i] {
+			continue
+		}
+		note, ok := outputReplacement(p.classification.names[i], p.plan.transcript[i].Content, readDedupeNote(earlier.id))
+		if ok && p.tryApply(i, reductionStageReadDedupe, note) {
+			p.plan.references[i] = earlier.index
+		}
 	}
+}
 
-	// Stage 2: head and tail clips for older ordinary results.
-	for i := range in.transcript {
-		if reachedTarget() {
-			break
+func (p *reductionPlanner) applyClips() {
+	for i := range p.in.transcript {
+		if p.reachedTarget() {
+			return
 		}
-		if plan.stages[i] != reductionStageNone || !classification.ordinary[i] || protected[i] {
+		if p.plan.stages[i] != reductionStageNone || !p.classification.ordinary[i] || p.protected[i] {
 			continue
 		}
-		replacement, ok := clipOrdinaryToolContent(classification.names[i], plan.transcript[i].Content)
-		if ok && tryApply(i, reductionStageClip, replacement) && reachedTarget() {
-			return finish()
+		replacement, ok := clipOrdinaryToolContent(p.classification.names[i], p.plan.transcript[i].Content)
+		if ok {
+			p.tryApply(i, reductionStageClip, replacement)
 		}
 	}
+}
 
-	// Stage 3: stubs for older results, including already clipped ones.
-	for i := range in.transcript {
-		if reachedTarget() {
-			break
+func (p *reductionPlanner) applyStubs() {
+	for i := range p.in.transcript {
+		if p.reachedTarget() {
+			return
 		}
-		if !classification.ordinary[i] || protected[i] {
+		if !p.classification.ordinary[i] || p.protected[i] {
 			continue
 		}
-		if plan.stages[i] != reductionStageNone && plan.stages[i] != reductionStageClip {
+		if p.plan.stages[i] != reductionStageNone && p.plan.stages[i] != reductionStageClip {
 			continue
 		}
-		stub, ok := outputReplacement(classification.names[i], plan.transcript[i].Content, reductionStub(classification.names[i], in.transcript[i].ToolCallID))
-		if ok && tryApply(i, reductionStageStub, stub) && reachedTarget() {
-			return finish()
+		stub, ok := outputReplacement(p.classification.names[i], p.plan.transcript[i].Content, reductionStub(p.classification.names[i], p.in.transcript[i].ToolCallID))
+		if ok {
+			p.tryApply(i, reductionStageStub, stub)
 		}
 	}
-	return finish()
+}
+
+// reconcileReferences turns a duplicate note into a self-contained omission
+// stub when the earlier source it points at is also reduced.
+func (p *reductionPlanner) reconcileReferences() {
+	for i := range p.plan.transcript {
+		if p.plan.stages[i] != reductionStageReadDedupe {
+			continue
+		}
+		reference := p.plan.references[i]
+		if reference < 0 || reference >= len(p.plan.stages) || p.plan.stages[reference] == reductionStageNone {
+			continue
+		}
+		stub, ok := outputReplacement(p.classification.names[i], p.plan.transcript[i].Content, unavailableDuplicateStub)
+		if !ok || stub == p.plan.transcript[i].Content {
+			continue
+		}
+		oldContent := p.plan.transcript[i].Content
+		p.plan.transcript[i].Content = stub
+		p.plan.stages[i] = reductionStageStub
+		p.plan.references[i] = -1
+		p.contentSavings += len(oldContent) - len(stub)
+		p.appliedTokens = tokensForBytes(p.contentSavings, p.ratio)
+		p.plan.savedBytes = p.contentSavings
+		p.plan.savedTokens = p.appliedTokens
+		p.recordStage(reductionStageStub)
+	}
 }
 
 // unavailableDuplicateStub replaces a duplicate note whose earlier source was

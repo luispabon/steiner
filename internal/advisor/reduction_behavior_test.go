@@ -87,13 +87,13 @@ func reductionTestPlan(transcript []provider.Message, trigger int) reductionPlan
 	})
 }
 
-func readResultMessage(t *testing.T, callID, path, output string, start, end, total int) provider.Message {
+func readResultMessage(t *testing.T, callID, output string, start int) provider.Message {
 	t.Helper()
 	data, err := json.Marshal(builtin.ReadResult{
-		Path:       path,
+		Path:       "main.go",
 		StartLine:  start,
-		EndLine:    end,
-		TotalLines: total,
+		EndLine:    400,
+		TotalLines: 400,
 		FileHash:   builtin.FileContentHash([]byte(output)),
 		Output:     output,
 	})
@@ -122,31 +122,31 @@ func TestPlanReductionReadDedupe(t *testing.T) {
 		{
 			name: "byte identical full reads dedupe later copy",
 			messages: []provider.Message{
-				assistantCall("r1", "read"), readResultMessage(t, "r1", "main.go", large, 1, 400, 400),
-				assistantCall("r2", "read"), readResultMessage(t, "r2", "main.go", large, 1, 400, 400),
+				assistantCall("r1", "read"), readResultMessage(t, "r1", large, 1),
+				assistantCall("r2", "read"), readResultMessage(t, "r2", large, 1),
 			},
 			wantDedupe: true,
 		},
 		{
 			name: "same normalized file hash but different bytes does not dedupe",
 			messages: []provider.Message{
-				assistantCall("r1", "read"), readResultMessage(t, "r1", "main.go", large, 1, 400, 400),
-				assistantCall("r2", "read"), readResultMessage(t, "r2", "main.go", sameHashDifferentWhitespace, 1, 400, 400),
+				assistantCall("r1", "read"), readResultMessage(t, "r1", large, 1),
+				assistantCall("r2", "read"), readResultMessage(t, "r2", sameHashDifferentWhitespace, 1),
 			},
 			wantDedupe: false,
 		},
 		{
 			name: "partial read does not dedupe",
 			messages: []provider.Message{
-				assistantCall("r1", "read"), readResultMessage(t, "r1", "main.go", large, 1, 400, 400),
-				assistantCall("r2", "read"), readResultMessage(t, "r2", "main.go", large, 2, 400, 400),
+				assistantCall("r1", "read"), readResultMessage(t, "r1", large, 1),
+				assistantCall("r2", "read"), readResultMessage(t, "r2", large, 2),
 			},
 			wantDedupe: false,
 		},
 		{
 			name: "paginated read does not dedupe",
 			messages: []provider.Message{
-				assistantCall("r1", "read"), readResultMessage(t, "r1", "main.go", large, 1, 400, 400),
+				assistantCall("r1", "read"), readResultMessage(t, "r1", large, 1),
 				assistantCall("r2", "read"), {
 					Role: provider.MessageRoleTool, Name: "read", ToolCallID: "r2",
 					Content: `{"path":"main.go","start_line":1,"end_line":400,"total_lines":400,"file_hash":"x","next_offset":10,"output":"` + strings.ReplaceAll(large, "\n", "\\n") + `"}`,
@@ -341,7 +341,7 @@ func TestSharedStateReductionScopeIsolationAndLRU(t *testing.T) {
 	}
 }
 
-func TestSharedStateReductionLedgerConcurrentAccess(t *testing.T) {
+func TestSharedStateReductionLedgerConcurrentAccess(_ *testing.T) {
 	state := NewSharedState()
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
@@ -361,8 +361,8 @@ func TestSharedStateReductionLedgerConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func bigBashMessage(callID string, bytes int) provider.Message {
-	data, _ := json.Marshal(builtin.BashResult{ArtifactStatus: "none", Output: strings.Repeat("z", bytes)})
+func bigBashMessage(callID string) provider.Message {
+	data, _ := json.Marshal(builtin.BashResult{ArtifactStatus: "none", Output: strings.Repeat("z", 8000)})
 	return provider.Message{Role: provider.MessageRoleTool, Name: "bash", ToolCallID: callID, Content: string(data)}
 }
 
@@ -370,9 +370,9 @@ func reductionSnapshot() []provider.Message {
 	return []provider.Message{
 		{Role: provider.MessageRoleUser, Content: "run the checks"},
 		assistantCall("b1", "bash"),
-		bigBashMessage("b1", 8000),
+		bigBashMessage("b1"),
 		assistantCall("b2", "bash"),
-		bigBashMessage("b2", 8000),
+		bigBashMessage("b2"),
 	}
 }
 
@@ -410,7 +410,7 @@ func TestHandlerReductionBelowAndAtTrigger(t *testing.T) {
 		if messagesEqual(prov.requests[0].Messages, baseline) {
 			t.Fatal("at-trigger request equal to legacy payload, want reduction")
 		}
-		if !messagesContain(prov.requests[0].Messages, "omitted") {
+		if !messagesContain(prov.requests[0].Messages) {
 			t.Fatal("at-trigger request missing reduction marker")
 		}
 	})
@@ -422,9 +422,9 @@ func messagesEqual(a, b []provider.Message) bool {
 	return string(left) == string(right)
 }
 
-func messagesContain(messages []provider.Message, needle string) bool {
+func messagesContain(messages []provider.Message) bool {
 	for _, message := range messages {
-		if strings.Contains(message.Content, needle) {
+		if strings.Contains(message.Content, "omitted") {
 			return true
 		}
 	}
@@ -456,7 +456,7 @@ func TestHandlerReductionReplaysAcrossAppend(t *testing.T) {
 	if !messagesEqual(first[:len(first)-1], second[:len(first)-1]) {
 		t.Fatal("appended conversation did not replay the frozen prefix exactly")
 	}
-	if !messagesContain(second, "omitted") {
+	if !messagesContain(second) {
 		t.Fatal("second request lost the frozen reduction marker")
 	}
 }
@@ -494,7 +494,7 @@ func TestHandlerEstimatorFallbackStillCallsProvider(t *testing.T) {
 	if len(prov.requests) != 1 {
 		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
 	}
-	if !messagesContain(prov.requests[0].Messages, "omitted") {
+	if !messagesContain(prov.requests[0].Messages) {
 		t.Fatal("fallback estimate did not trigger reduction")
 	}
 	var reduction *output.AdvisorReductionInfo
@@ -512,7 +512,7 @@ func TestHandlerExhaustionAndGrowthReactivation(t *testing.T) {
 	first := []provider.Message{
 		{Role: provider.MessageRoleUser, Content: "run it"},
 		assistantCall("b1", "bash"),
-		bigBashMessage("b1", 8000),
+		bigBashMessage("b1"),
 	}
 	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: "advisor-model"}}
 	initial := estimateAdvisorMessages(context.Background(), deps, buildMessages(first, "", nil))
@@ -525,7 +525,7 @@ func TestHandlerExhaustionAndGrowthReactivation(t *testing.T) {
 		t.Fatalf("first handler() error = %v", err)
 	}
 	firstMessages := prov.requests[0].Messages
-	if messagesContain(firstMessages, "omitted") {
+	if messagesContain(firstMessages) {
 		t.Fatal("protected-only request was reduced, want exhaustion without changes")
 	}
 
@@ -537,12 +537,12 @@ func TestHandlerExhaustionAndGrowthReactivation(t *testing.T) {
 		t.Fatal("exhausted request churned under the growth threshold")
 	}
 
-	grown := append(append([]provider.Message(nil), first...), assistantCall("b2", "bash"), bigBashMessage("b2", 8000))
+	grown := append(append([]provider.Message(nil), first...), assistantCall("b2", "bash"), bigBashMessage("b2"))
 	ctx = agent.WithConversationSnapshot(context.Background(), grown)
 	if _, err := handler(ctx, nil); err != nil {
 		t.Fatalf("third handler() error = %v", err)
 	}
-	if !messagesContain(prov.requests[2].Messages, "omitted") {
+	if !messagesContain(prov.requests[2].Messages) {
 		t.Fatal("grown request did not reactivate reduction")
 	}
 }

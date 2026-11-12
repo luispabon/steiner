@@ -38,7 +38,7 @@ func TestHandlerRequestedFileReappearsWhenReadReduced(t *testing.T) {
 		assistantCall("r1", "read"),
 		{Role: provider.MessageRoleTool, Name: "read", ToolCallID: "r1", Content: string(readJSON)},
 		assistantCall("b1", "bash"),
-		bigBashMessage("b1", 8000),
+		bigBashMessage("b1"),
 	}
 	deps := HandlerDeps{WorkDir: workDir, PathPolicy: policy, Model: provider.ResolvedModel{BackendModelID: "advisor-model"}}
 	legacyFiles := dedupeAgainstSnapshot([]advisorFile{{DisplayPath: "main.go", Content: fileContent, TotalBytes: len(fileContent)}}, snapshot, workDir)
