@@ -341,8 +341,10 @@ func TestSharedStateReductionScopeIsolationAndLRU(t *testing.T) {
 	}
 }
 
-func TestSharedStateReductionLedgerConcurrentAccess(_ *testing.T) {
+func TestSharedStateReductionLedgerConcurrentAccess(t *testing.T) {
 	state := NewSharedState()
+	transcript := []provider.Message{{Role: provider.MessageRoleUser, Content: "concurrent"}}
+	hashes := replayReductionLedger(transcript, nil).hashes
 	var wg sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		wg.Add(1)
@@ -354,11 +356,21 @@ func TestSharedStateReductionLedgerConcurrentAccess(_ *testing.T) {
 			}
 			for j := 0; j < 100; j++ {
 				view := state.reductionLedger(scope)
-				state.storeReductionLedger(scope, view.epoch, reductionLedgerState{entries: []reductionLedgerEntry{{sourceHash: scope}}})
+				state.storeReductionLedger(scope, view.epoch, reductionLedgerState{entries: []reductionLedgerEntry{{sourceHash: hashes[0]}}})
 			}
 		}(i)
 	}
 	wg.Wait()
+	for _, scope := range []string{"scope", "other"} {
+		view := state.reductionLedger(scope)
+		if view.epoch == 0 || len(view.entries) != 1 || view.entries[0].sourceHash != hashes[0] {
+			t.Fatalf("scope %q ledger = %#v, want one matching entry after concurrent stores", scope, view)
+		}
+		replay := replayReductionLedger(transcript, view.entries)
+		if replay.valid != len(transcript) || replay.changed {
+			t.Fatalf("scope %q replay = %#v, want a valid unchanged transcript", scope, replay)
+		}
+	}
 }
 
 func bigBashMessage(callID string) provider.Message {
