@@ -69,6 +69,12 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	}
 	assertCompactionSourceAccounting(t, firstReq)
 
+	beforeProgressor := newTurnProgressor(req, prepareBasePrompt(req), nil)
+	_, beforeNormal, _, err := beforeProgressor.prepareTurn(context.Background(), state)
+	if err != nil {
+		t.Fatalf("pre-compaction prepareTurn() error = %v", err)
+	}
+
 	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate)
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)
@@ -104,6 +110,8 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 		t.Fatal("recompaction prefix differs from the normal turn prefix")
 	}
 	assertSystemMessagesFirst(t, normalReq.Messages)
+	assertSingleLeadingSystem(t, normalReq.Messages)
+	assertSingleLeadingSystem(t, prefix)
 
 	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix
 	if got := countProviderContent(normalReq.Messages, wantSummary); got != 1 {
@@ -121,6 +129,29 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	}
 	if summaryIndex < 0 {
 		t.Fatal("normal turn lacks the wrapped summary")
+	}
+	if got, want := summaryIndex, 2; got != want {
+		t.Fatalf("summary index = %d, want %d (static system plus fixed session date)", got, want)
+	}
+	if got, want := normalReq.Messages[1].Content, "Current date: 2026-11-12"; !strings.Contains(got, want) {
+		t.Fatalf("session date message = %q, want it to contain %q", got, want)
+	}
+	beforePrefix := normalReq.Messages[:summaryIndex]
+	if len(beforeNormal.Messages) < summaryIndex {
+		t.Fatalf("pre-compaction request has %d messages, want at least %d", len(beforeNormal.Messages), summaryIndex)
+	}
+	if !reflect.DeepEqual(beforePrefix, beforeNormal.Messages[:summaryIndex]) {
+		t.Fatal("prefix before the inserted summary differs from the pre-compaction request prefix")
+	}
+
+	repeatedProgressor := newTurnProgressor(req, prepareBasePrompt(req), nil)
+	_, repeatedReq, _, err := repeatedProgressor.prepareTurn(context.Background(), outcome.State)
+	if err != nil {
+		t.Fatalf("repeated prepareTurn() error = %v", err)
+	}
+	assertSingleLeadingSystem(t, repeatedReq.Messages)
+	if !reflect.DeepEqual(repeatedReq.Messages[:summaryIndex+1], normalReq.Messages[:summaryIndex+1]) {
+		t.Fatal("repeated normal request prefix through the summary differs")
 	}
 
 	assertCompactionSourceAccounting(t, secondReq)
@@ -182,6 +213,24 @@ func assertSystemMessagesFirst(t *testing.T, messages []provider.Message) {
 			continue
 		}
 		seenNonSystem = true
+	}
+}
+
+// assertSingleLeadingSystem requires exactly one system message, at index 0.
+func assertSingleLeadingSystem(t *testing.T, messages []provider.Message) {
+	t.Helper()
+	systemCount := 0
+	for i, message := range messages {
+		if message.Role != provider.MessageRoleSystem {
+			continue
+		}
+		systemCount++
+		if i != 0 {
+			t.Fatalf("system message at index %d, want index 0: %v", i, rolesOf(messages))
+		}
+	}
+	if systemCount != 1 {
+		t.Fatalf("system messages = %d, want exactly 1: %v", systemCount, rolesOf(messages))
 	}
 }
 
