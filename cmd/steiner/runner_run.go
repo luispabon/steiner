@@ -182,6 +182,17 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 	if err != nil {
 		return nil, false, false, err
 	}
+	req := r.compactionRunRequest(setup, tools, lastMainRequest)
+	if r.runtime.usageRecorder != nil {
+		req.UsageRecorder = r.runtime.usageRecorder
+	}
+	return agent.NewRunner().CompactWithLineage(ctx, req, lineage, conversation, steering)
+}
+
+// compactionRunRequest builds the summary request CompactWithLineage issues. It
+// shares the session's cache identity and carries the provider's prompt cache
+// TTL, independent of the compaction fallback.
+func (r cliRunner) compactionRunRequest(setup runnerSetup, tools []provider.ToolSpec, lastMainRequest agent.LastMainRequest) agent.RunRequest {
 	cfg := r.liveConfig()
 	req := agent.RunRequest{
 		Provider:          setup.provider,
@@ -205,10 +216,7 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 		PromptCacheTTL:      cfg.PromptCacheTTL(setup.resolvedModel.ProviderAlias),
 	}
 	req.CompactionFallback = r.compactionFallback(setup, req.TransportSession, req.PromptCacheKey)
-	if r.runtime.usageRecorder != nil {
-		req.UsageRecorder = r.runtime.usageRecorder
-	}
-	return agent.NewRunner().CompactWithLineage(ctx, req, lineage, conversation, steering)
+	return req
 }
 
 func (r cliRunner) promptAssembly(conversation []agent.Message, skillNames []string, modelBudget prompt.ModelTokenBudget, prompts config.ModelPrompts) prompt.AssemblyOptions {

@@ -374,10 +374,9 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		CacheScope:      childCacheKey,
 	})
 	// The prompt cache expiry estimate is a provider property, independent of
-	// whether this child has a compaction fallback.
-	if p.Config != nil {
-		req.PromptCacheTTL = p.Config.PromptCacheTTL(p.ResolvedModel.ProviderAlias)
-	}
+	// whether this child has a compaction fallback. PromptCacheTTL handles a
+	// nil config.
+	req.PromptCacheTTL = p.Config.PromptCacheTTL(p.ResolvedModel.ProviderAlias)
 	if p.UsageRecorder != nil {
 		req.UsageRecorder = p.UsageRecorder
 	}

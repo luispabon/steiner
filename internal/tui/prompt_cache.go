@@ -6,8 +6,8 @@ import "time"
 type promptCachePhase int
 
 const (
-	// promptCacheOff means no estimate is tracked (fallback disabled or no
-	// successful main request yet).
+	// promptCacheOff means no estimate is tracked (zero TTL or no successful
+	// main request yet).
 	promptCacheOff promptCachePhase = iota
 	// promptCacheWarm means more than a minute is left before the estimate.
 	promptCacheWarm

@@ -38,9 +38,9 @@ type ModelCallFinishedEvent struct {
 	// and failed calls leave it false, so consumers can distinguish a cleared
 	// estimate from an absent one.
 	Success bool `json:"success,omitempty"`
-	// CacheColdAt is when the compaction fallback estimate presumes the main
-	// prompt cache goes cold: the request start plus the configured fallback
-	// threshold. Zero means the estimate is untracked (fallback disabled).
+	// CacheColdAt is the request start plus the provider's prompt cache TTL
+	// (RunRequest.PromptCacheTTL). It is independent of any compaction
+	// fallback. Zero means the estimate is untracked.
 	CacheColdAt time.Time `json:"cache_cold_at,omitzero"`
 }
 

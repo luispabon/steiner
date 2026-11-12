@@ -33,7 +33,7 @@ Compact canonical reference for safe configuration edits.
 |`providers.<name>.api_key_env`|string|unset|Environment variable containing the credential.|
 |`providers.<name>.headers.<key>`|string|unset|One extra header value.|
 |`providers.<name>.timeout`|duration|unset|Overall request timeout; unset has no overall limit. The default transport has a separate 30s response-header timeout.|
-|`providers.<name>.prompt_cache_ttl`|duration|`5m` anthropic, `60m` claude_subscription, `30m` openai and codex, `0` otherwise|Cache expiry estimate; `0` disables.|
+|`providers.<name>.prompt_cache_ttl`|duration|type default|Cache expiry estimate; `0` disables.|
 |`providers.<name>.compaction_fallback_after`|duration|unset, uses `prompt_cache_ttl`|Cold-cache compaction delay; `0` disables.|
 |`providers.<name>.codex.min_request_interval`|duration|`0s`|Positive values pace Codex requests.|
 |`providers.<name>.codex.transport`|string|`http`|`http` or experimental `websocket`; no HTTP fallback.|

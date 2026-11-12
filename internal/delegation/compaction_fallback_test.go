@@ -162,10 +162,12 @@ func TestNewCompactionFallbackFields(t *testing.T) {
 		name      string
 		ref       string
 		after     config.Duration
+		ttl       config.Duration
 		wantRef   string
 		wantAfter time.Duration
 	}{
-		{name: "unset delay uses provider default", ref: "fallback", wantRef: "fallback", wantAfter: 5 * time.Minute},
+		{name: "unset delay inherits prompt cache ttl default", ref: "fallback", wantRef: "fallback", wantAfter: 5 * time.Minute},
+		{name: "unset delay inherits explicit prompt cache ttl", ref: "fallback", ttl: config.MustDuration("7m"), wantRef: "fallback", wantAfter: 7 * time.Minute},
 		{name: "explicit delay", ref: "fallback", after: config.MustDuration("2m"), wantRef: "fallback", wantAfter: 2 * time.Minute},
 		{name: "ref is trimmed", ref: " fallback ", wantRef: "fallback", wantAfter: 5 * time.Minute},
 	}
@@ -173,7 +175,7 @@ func TestNewCompactionFallbackFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var resolves, builds atomic.Int32
 			p := compactionFallbackTestParams(tt.ref, compactionFallbackTestResolver(tt.wantRef, model, &resolves), compactionFallbackTestFactory(&builds))
-			p.Config.Providers["main"] = config.ProviderConfig{Type: config.ProviderTypeAnthropic, CompactionFallbackAfter: tt.after}
+			p.Config.Providers["main"] = config.ProviderConfig{Type: config.ProviderTypeAnthropic, CompactionFallbackAfter: tt.after, PromptCacheTTL: tt.ttl}
 
 			got := NewCompactionFallback(p)
 			if got.Resolve == nil {
