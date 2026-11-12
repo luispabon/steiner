@@ -257,6 +257,8 @@ func (m *Model) handleSegmentClick(seg *contentSegment, rowInSegment int) {
 		m.handleDelegationGroupClick(seg, rowInSegment)
 	case segmentThinkingBlock:
 		m.handleThinkingBlockClick(seg)
+	case segmentCompactionBanner:
+		m.handleCompactionBannerClick(seg)
 	}
 }
 
@@ -331,4 +333,15 @@ func (m *Model) handleThinkingBlockClick(seg *contentSegment) {
 		m.content.gen++
 		m.syncViewport()
 	}
+}
+
+// handleCompactionBannerClick toggles the compaction banner's detail rows.
+func (m *Model) handleCompactionBannerClick(seg *contentSegment) {
+	if seg.compactionData == nil {
+		return
+	}
+	seg.compactionData.expanded = !seg.compactionData.expanded
+	seg.renderDirty = true
+	m.content.gen++
+	m.syncViewport()
 }
