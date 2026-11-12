@@ -169,7 +169,7 @@ func TestAckOutputTellsModelToYieldInsteadOfSleeping(t *testing.T) {
 	t.Parallel()
 	for _, queued := range []bool{false, true} {
 		out := AckResult{AgentID: "child-1", Queued: queued}.ProjectToolResult().Output
-		for _, want := range []string{"sleep", "otherwise end your turn", "resumes you"} {
+		for _, want := range []string{"sleep", "End your turn now", "resumes you"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("queued=%v: ack output %q missing %q", queued, out, want)
 			}
