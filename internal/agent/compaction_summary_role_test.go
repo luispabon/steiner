@@ -64,7 +64,7 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first buildCompactionRequestWithMode() error = %v", err)
 	}
-	if messageContentsContain(firstReq.Messages, summaryText) {
+	if strings.Contains(messagesText(firstReq.Messages), summaryText) {
 		t.Fatal("first compaction request contains a summary before one exists")
 	}
 	assertCompactionSourceAccounting(t, firstReq)
@@ -352,4 +352,12 @@ func conversationHasRole(messages []Message, role MessageRole) bool {
 		}
 	}
 	return false
+}
+
+func messagesText(messages []provider.Message) string {
+	var b strings.Builder
+	for _, message := range messages {
+		b.WriteString(message.Content)
+	}
+	return b.String()
 }
