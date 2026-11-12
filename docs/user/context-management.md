@@ -50,7 +50,7 @@ If the fallback fails, the compaction reruns once on the main model. The compact
 
 ### Cache expiry indicator
 
-When [compaction fallback](#compaction-fallback) is configured, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold. It follows the provider's `compaction_fallback_after` threshold and restarts after each successful request to the main model.
+When a compaction fallback model is configured and the provider's `compaction_fallback_after` is positive, the sidebar's `context` card shows a `cache` row counting down to the moment Steiner presumes the main prompt cache is cold (see [Compaction fallback](#compaction-fallback)). The countdown restarts after each successful request to the main model.
 
 | Row text | Colour | Meaning |
 |----------|--------|---------|
@@ -58,9 +58,9 @@ When [compaction fallback](#compaction-fallback) is configured, the sidebar's `c
 | `cache ~1m left` | muted amber | One minute or less remains |
 | `cache expired` | amber | The cache is presumed cold |
 
-Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, or when no main request has succeeded yet.
+Once the cache is presumed cold, the status bar also shows `cache expired` in amber after the context segment. The row is hidden when no fallback model is configured, when the threshold is zero, and until the next successful main request after a successful model or profile switch, `/fork` or `/resume`.
 
-The indicator is an estimate from idle time, not confirmation from the provider. A successful model or profile switch, `/clear`, `/fork` or `/resume` clears it.
+The indicator is an estimate from idle time, not confirmation from the provider. A successful model or profile switch, `/fork` or `/resume` clears it.
 
 ### `claude_subscription` limit
 
