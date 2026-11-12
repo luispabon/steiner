@@ -54,9 +54,9 @@ Each advisor call shows as a collapsible advisor panel with the model and the us
 
 ## Large conversations
 
-The advisor trims older ordinary tool output when the complete advisor request reaches `advisor.context_reduction_threshold_tokens`. The default is `64000`; `0` disables reduction; any other value must be at least `48000`. The trigger is soft and measured with the advisor model's token estimator. When 60% of the advisor model's input budget (context window minus the room reserved for its reply and estimator padding) is smaller than the configured value, that smaller figure becomes the effective trigger.
+The advisor trims older ordinary tool output when the complete advisor request reaches `advisor.context_reduction_threshold_tokens`. The default is `64000`; `0` disables reduction; any other value must be at least `48000`. The trigger is a soft threshold that starts a reduction attempt, measured with the advisor model's token estimator. When 60% of the advisor model's input budget (context window minus the room reserved for its reply and estimator padding) is smaller than the configured value, that smaller figure becomes the effective trigger.
 
-The trigger is a target for request size, not a ceiling: a conversation whose protected context is already large stays large.
+The trigger is not a ceiling: a reduction attempt plans toward three quarters of the trigger, and a conversation whose protected context is already large stays large.
 
 Reduction preserves the system prompt, user messages (including asynchronous delegation results), assistant prose and tool-call structure, `sub_agent`, `follow_up`, and `mutate` results, prior `advisor` notes, the caller's question, and explicitly requested files. `mutate` receipts stay intact because they are the record of what changed on disk, and a tool result whose tool name cannot be resolved is left alone. It only changes older ordinary tool results: an exact duplicate full read is replaced by a note referencing the earlier read, long head and tail clips replace older output, and stubs remain for the oldest results. If the earlier read is itself reduced, the note becomes a self-contained omission stub instead of pointing at content that is no longer present. A recent tail of tool output is always kept.
 
