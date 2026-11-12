@@ -27,13 +27,13 @@ func TestResolveReductionTuning(t *testing.T) {
 	}{
 		{
 			name:        "zero disables",
-			cfg:         Config{ReductionTriggerTokens: 0},
+			cfg:         Config{ContextReductionThresholdTokens: 0},
 			model:       provider.ResolvedModel{EffectiveLimits: provider.EffectiveLimits{ContextWindow: 100000}},
 			wantEnabled: false,
 		},
 		{
 			name:        "configured trigger without known window",
-			cfg:         Config{ReductionTriggerTokens: 10000},
+			cfg:         Config{ContextReductionThresholdTokens: 10000},
 			wantEnabled: true,
 			wantTrigger: 10000,
 			wantTarget:  7500,
@@ -41,7 +41,7 @@ func TestResolveReductionTuning(t *testing.T) {
 		},
 		{
 			name:        "window cap wins over larger configured trigger",
-			cfg:         Config{ReductionTriggerTokens: 32000},
+			cfg:         Config{ContextReductionThresholdTokens: 32000},
 			model:       provider.ResolvedModel{EffectiveLimits: provider.EffectiveLimits{ContextWindow: 32000, MaxOutputTokens: 4096, EstimatorPadTokens: 320}},
 			wantEnabled: true,
 			wantTrigger: 16550,
@@ -50,7 +50,7 @@ func TestResolveReductionTuning(t *testing.T) {
 		},
 		{
 			name:        "configured output reserve lowers cap",
-			cfg:         Config{ReductionTriggerTokens: 32000, MaxTokens: intPtr(8192)},
+			cfg:         Config{ContextReductionThresholdTokens: 32000, MaxTokens: intPtr(8192)},
 			model:       provider.ResolvedModel{EffectiveLimits: provider.EffectiveLimits{ContextWindow: 32000, MaxOutputTokens: 4096, EstimatorPadTokens: 320}},
 			wantEnabled: true,
 			wantTrigger: 14092,
@@ -59,7 +59,7 @@ func TestResolveReductionTuning(t *testing.T) {
 		},
 		{
 			name:        "configured trigger below cap is unchanged",
-			cfg:         Config{ReductionTriggerTokens: 1000},
+			cfg:         Config{ContextReductionThresholdTokens: 1000},
 			model:       provider.ResolvedModel{EffectiveLimits: provider.EffectiveLimits{ContextWindow: 100000, MaxOutputTokens: 8192, EstimatorPadTokens: 1000}},
 			wantEnabled: true,
 			wantTrigger: 1000,
@@ -377,7 +377,7 @@ func TestHandlerReductionBelowAndAtTrigger(t *testing.T) {
 
 	t.Run("below trigger is legacy", func(t *testing.T) {
 		prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-		handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 1, ReductionTriggerTokens: initial.tokens + 1}})
+		handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: initial.tokens + 1}})
 		ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
 		if _, err := handler(ctx, nil); err != nil {
 			t.Fatalf("handler() error = %v", err)
@@ -389,7 +389,7 @@ func TestHandlerReductionBelowAndAtTrigger(t *testing.T) {
 
 	t.Run("at trigger reduces", func(t *testing.T) {
 		prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-		handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 1, ReductionTriggerTokens: initial.tokens}})
+		handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: initial.tokens}})
 		ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
 		if _, err := handler(ctx, nil); err != nil {
 			t.Fatalf("handler() error = %v", err)
@@ -427,7 +427,7 @@ func TestHandlerReductionReplaysAcrossAppend(t *testing.T) {
 	initial := estimateAdvisorMessages(context.Background(), deps, buildMessages(snapshot, "", nil))
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-	handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 3, ReductionTriggerTokens: initial.tokens}, SharedState: shared})
+	handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 3, ContextReductionThresholdTokens: initial.tokens}, SharedState: shared})
 	ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
 	if _, err := handler(ctx, nil); err != nil {
 		t.Fatalf("first handler() error = %v", err)
@@ -474,7 +474,7 @@ func TestHandlerEstimatorFallbackStillCallsProvider(t *testing.T) {
 		Provider: prov,
 		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
 		Events:   sink,
-		Config:   Config{MaxUsesPerRun: 1, ReductionTriggerTokens: 50},
+		Config:   Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: 50},
 	})
 	snapshot := reductionSnapshot()
 	ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
@@ -508,7 +508,7 @@ func TestHandlerExhaustionAndGrowthReactivation(t *testing.T) {
 	initial := estimateAdvisorMessages(context.Background(), deps, buildMessages(first, "", nil))
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
-	handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 5, ReductionTriggerTokens: initial.tokens}, SharedState: shared})
+	handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 5, ContextReductionThresholdTokens: initial.tokens}, SharedState: shared})
 
 	ctx := agent.WithConversationSnapshot(context.Background(), first)
 	if _, err := handler(ctx, nil); err != nil {

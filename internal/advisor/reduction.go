@@ -24,7 +24,7 @@ type reductionTuning struct {
 // model's context window when one is known. The cap leaves room for the
 // configured output reserve and the provider estimator pad.
 func resolveReductionTuning(cfg Config, model provider.ResolvedModel) reductionTuning {
-	configured := cfg.ReductionTriggerTokens
+	configured := cfg.ContextReductionThresholdTokens
 	if configured <= 0 {
 		return reductionTuning{}
 	}

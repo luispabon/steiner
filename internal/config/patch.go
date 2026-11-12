@@ -149,12 +149,12 @@ type subAgentPatch struct {
 }
 
 type advisorPatch struct {
-	Enabled                *bool     `yaml:"enabled"`
-	MaxUsesPerRun          *int      `yaml:"max_uses_per_run"`
-	MaxUsesPerSubAgent     *int      `yaml:"max_uses_per_sub_agent"`
-	MaxTokens              *int      `yaml:"max_tokens"`
-	Timeout                *Duration `yaml:"timeout"`
-	ReductionTriggerTokens *int      `yaml:"reduction_trigger_tokens"`
+	Enabled                         *bool     `yaml:"enabled"`
+	MaxUsesPerRun                   *int      `yaml:"max_uses_per_run"`
+	MaxUsesPerSubAgent              *int      `yaml:"max_uses_per_sub_agent"`
+	MaxTokens                       *int      `yaml:"max_tokens"`
+	Timeout                         *Duration `yaml:"timeout"`
+	ContextReductionThresholdTokens *int      `yaml:"context_reduction_threshold_tokens"`
 }
 
 type oneshotPatch struct {

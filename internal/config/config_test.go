@@ -172,8 +172,8 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.MaxTokens != nil {
 		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
 	}
-	if got, want := cfg.Advisor.ReductionTriggerTokens, 32000; got != want {
-		t.Fatalf("advisor.reduction_trigger_tokens = %d, want %d", got, want)
+	if got, want := cfg.Advisor.ContextReductionThresholdTokens, 32000; got != want {
+		t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want %d", got, want)
 	}
 	if cfg.Advisor.Timeout == nil {
 		t.Fatal("advisor.timeout = nil, want 180s default")
@@ -329,12 +329,12 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 		},
 		{
 			name: "explicit zero disables",
-			yaml: "advisor:\n  reduction_trigger_tokens: 0\n",
+			yaml: "advisor:\n  context_reduction_threshold_tokens: 0\n",
 			want: 0,
 		},
 		{
 			name: "explicit value overrides default",
-			yaml: "advisor:\n  reduction_trigger_tokens: 4096\n",
+			yaml: "advisor:\n  context_reduction_threshold_tokens: 4096\n",
 			want: 4096,
 		},
 	}
@@ -346,19 +346,19 @@ func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
 			}
 			cfg := defaultConfig(nil)
 			applyPatch(&cfg, patch)
-			if got := cfg.Advisor.ReductionTriggerTokens; got != tt.want {
-				t.Fatalf("advisor.reduction_trigger_tokens = %d, want %d", got, tt.want)
+			if got := cfg.Advisor.ContextReductionThresholdTokens; got != tt.want {
+				t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want %d", got, tt.want)
 			}
 		})
 	}
 
 	var problems []string
-	validateAdvisorConfig(&problems, AdvisorConfig{ReductionTriggerTokens: -1})
-	if len(problems) != 1 || !strings.Contains(problems[0], "reduction_trigger_tokens") {
-		t.Fatalf("validateAdvisorConfig(negative) problems = %v, want one reduction_trigger_tokens problem", problems)
+	validateAdvisorConfig(&problems, AdvisorConfig{ContextReductionThresholdTokens: -1})
+	if len(problems) != 1 || !strings.Contains(problems[0], "context_reduction_threshold_tokens") {
+		t.Fatalf("validateAdvisorConfig(negative) problems = %v, want one context_reduction_threshold_tokens problem", problems)
 	}
 	problems = nil
-	validateAdvisorConfig(&problems, AdvisorConfig{ReductionTriggerTokens: 0})
+	validateAdvisorConfig(&problems, AdvisorConfig{ContextReductionThresholdTokens: 0})
 	if len(problems) != 0 {
 		t.Fatalf("validateAdvisorConfig(0) problems = %v, want none", problems)
 	}

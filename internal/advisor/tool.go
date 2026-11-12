@@ -88,11 +88,11 @@ type HandlerDeps struct {
 type Config struct {
 	MaxUsesPerRun int
 	MaxTokens     *int
-	// ReductionTriggerTokens is the soft input-token threshold for automatic
+	// ContextReductionThresholdTokens is the soft input-token threshold for automatic
 	// advisor context reduction. 0 disables reduction. The config layer
 	// defaults it to 32000; a directly constructed Config keeps the current
 	// prompt payload when it is left at zero.
-	ReductionTriggerTokens int
+	ContextReductionThresholdTokens int
 }
 
 // SharedState tracks the advisor use counter across every handler built from

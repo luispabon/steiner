@@ -50,7 +50,7 @@ func TestHandlerRequestedFileReappearsWhenReadReduced(t *testing.T) {
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
 	handler := NewHandler(HandlerDeps{
 		Provider: prov, Model: deps.Model, WorkDir: workDir, PathPolicy: policy,
-		Config: Config{MaxUsesPerRun: 1, ReductionTriggerTokens: initial.tokens},
+		Config: Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: initial.tokens},
 	})
 	ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
 	if _, err := handler(ctx, map[string]any{"files": []any{"main.go"}}); err != nil {

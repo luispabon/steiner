@@ -20,7 +20,7 @@ func TestBuildAdvisorToolsPassesReductionTrigger(t *testing.T) {
 	cfg := advisorTestConfig()
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry:    tool.NewRegistry(),
-		AdvisorCfg:      config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, ReductionTriggerTokens: 50},
+		AdvisorCfg:      config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, ContextReductionThresholdTokens: 50},
 		Provider:        prov,
 		ProviderFactory: func(provider.ResolvedModel, string) (provider.Provider, error) { return prov, nil },
 		Events:          output.NoopSink{}, WorkDir: "/tmp/work",

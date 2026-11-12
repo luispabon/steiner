@@ -99,7 +99,7 @@ func TestHandlerBelowTriggerMatchesLegacyPayload(t *testing.T) {
 	handler := NewHandler(HandlerDeps{
 		Provider:   prov,
 		Model:      provider.ResolvedModel{BackendModelID: "advisor-model"},
-		Config:     Config{MaxUsesPerRun: 1, ReductionTriggerTokens: 1_000_000},
+		Config:     Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: 1_000_000},
 		WorkDir:    workDir,
 		PathPolicy: policy,
 	})

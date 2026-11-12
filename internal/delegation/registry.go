@@ -203,7 +203,7 @@ func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 		pathPolicy:             advisorPolicy,
 		cacheKey:               resolveAdvisorCacheKey(deps.CacheKeyStore),
 		maxTokens:              deps.AdvisorCfg.MaxTokens,
-		reductionTriggerTokens: deps.AdvisorCfg.ReductionTriggerTokens,
+		reductionTriggerTokens: deps.AdvisorCfg.ContextReductionThresholdTokens,
 	}, nil
 }
 
@@ -214,9 +214,9 @@ func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.To
 		Model:    r.model,
 		Events:   r.events,
 		Config: advisor.Config{
-			MaxUsesPerRun:          maxUses,
-			MaxTokens:              r.maxTokens,
-			ReductionTriggerTokens: r.reductionTriggerTokens,
+			MaxUsesPerRun:                   maxUses,
+			MaxTokens:                       r.maxTokens,
+			ContextReductionThresholdTokens: r.reductionTriggerTokens,
 		},
 		UsageRecorder:          r.recorder,
 		Diagnostics:            r.diagnostics,
