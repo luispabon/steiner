@@ -291,6 +291,9 @@ func formatCompactionFallback(payload ContextDiagnosticsEvent) []string {
 	if model := strings.TrimSpace(payload.CompactionModel); model != "" {
 		parts = append(parts, fmt.Sprintf("compaction_model=%s", model))
 	}
+	if alias := strings.TrimSpace(payload.CompactionModelAlias); alias != "" {
+		parts = append(parts, fmt.Sprintf("compaction_model_alias=%s", alias))
+	}
 	if status := strings.TrimSpace(payload.FallbackStatus); status != "" {
 		parts = append(parts, fmt.Sprintf("fallback_status=%s", status))
 	}

@@ -84,16 +84,17 @@ func TestAsContextCompactionEventFallbackFields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			legacy := ContextDiagnosticsEvent{
-				Kind:            "compaction",
-				CompactionModel: "claude-haiku-5-5",
-				FallbackStatus:  tt.status,
-				FallbackReason:  "primary over budget",
+				Kind:                 "compaction",
+				CompactionModel:      "claude-haiku-5-5",
+				CompactionModelAlias: "haiku",
+				FallbackStatus:       tt.status,
+				FallbackReason:       "primary over budget",
 			}
 			event, ok := AsContextCompactionEvent(legacy)
 			if !ok {
 				t.Fatal("AsContextCompactionEvent() ok = false, want true")
 			}
-			if event.CompactionModel != legacy.CompactionModel || event.FallbackStatus != legacy.FallbackStatus || event.FallbackReason != legacy.FallbackReason {
+			if event.CompactionModel != legacy.CompactionModel || event.CompactionModelAlias != legacy.CompactionModelAlias || event.FallbackStatus != legacy.FallbackStatus || event.FallbackReason != legacy.FallbackReason {
 				t.Fatalf("AsContextCompactionEvent() = %+v, want fallback fields from %+v", event, legacy)
 			}
 			if got := event.toLegacyContextDiagnostics(); !reflect.DeepEqual(got, legacy) {
@@ -159,7 +160,7 @@ func TestContextDiagnosticTypedLegacyRoundTripsPreserveFields(t *testing.T) {
 				Mode: "mode", BeforePromptTokens: 19, BeforeRawPromptTokens: 20,
 				BeforeUsagePercent: 21.5, AfterPromptTokens: 22, AfterRawPromptTokens: 23,
 				AfterUsagePercent: 24.5, RetainedRawTurns: 25, SummaryTokenBudget: 26,
-				CompactionModel: "model", FallbackStatus: CompactionFallbackUsed, FallbackReason: "reason",
+				CompactionModel: "model", CompactionModelAlias: "alias", FallbackStatus: CompactionFallbackUsed, FallbackReason: "reason",
 				ThresholdAchieved: true, Notes: []string{"note"},
 			},
 		},
