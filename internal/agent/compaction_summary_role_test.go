@@ -113,14 +113,13 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if !reflect.DeepEqual(prefix, normalReq.Messages) {
 		t.Fatal("recompaction prefix differs from the normal turn prefix")
 	}
-	assertSystemMessagesFirst(t, normalReq.Messages)
 	assertSingleLeadingSystem(t, normalReq.Messages)
 	assertSingleLeadingSystem(t, prefix)
 	assertToolCallBeforeResult(t, normalReq.Messages, "call-1")
 	assertToolCallBeforeResult(t, prefix, "call-1")
 
 	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix
-	if got := countProviderContent(normalReq.Messages, wantSummary); got != 1 {
+	if got := countProviderMessagesWithContent(normalReq.Messages, wantSummary); got != 1 {
 		t.Fatalf("wrapped summary appears %d times in the normal turn, want 1", got)
 	}
 	summaryIndex := -1
@@ -328,20 +327,6 @@ func nonSystemCount(messages []provider.Message) int {
 	return count
 }
 
-func assertSystemMessagesFirst(t *testing.T, messages []provider.Message) {
-	t.Helper()
-	seenNonSystem := false
-	for _, message := range messages {
-		if message.Role == provider.MessageRoleSystem {
-			if seenNonSystem {
-				t.Fatalf("system message follows a non-system message: %v", rolesOf(messages))
-			}
-			continue
-		}
-		seenNonSystem = true
-	}
-}
-
 // assertSingleLeadingSystem requires exactly one system message, at index 0.
 func assertSingleLeadingSystem(t *testing.T, messages []provider.Message) {
 	t.Helper()
@@ -358,16 +343,6 @@ func assertSingleLeadingSystem(t *testing.T, messages []provider.Message) {
 	if systemCount != 1 {
 		t.Fatalf("system messages = %d, want exactly 1: %v", systemCount, rolesOf(messages))
 	}
-}
-
-func countProviderContent(messages []provider.Message, content string) int {
-	count := 0
-	for _, message := range messages {
-		if message.Content == content {
-			count++
-		}
-	}
-	return count
 }
 
 func conversationHasRole(messages []Message, role MessageRole) bool {
