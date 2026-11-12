@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -323,6 +324,50 @@ func TestCodexWSDialStaticTokenWithoutResolver(t *testing.T) {
 		if got := server.dialHeaders(i).Get("Authorization"); got != "Bearer test-key" {
 			t.Errorf("dial %d Authorization = %q, want the static bearer", i+1, got)
 		}
+	}
+}
+
+// TestCodexWSDialResolverFailureRedactsCause proves a resolver error quoting an
+// OAuth response body never reaches the reported message, while the cause stays
+// reachable through errors.Is.
+func TestCodexWSDialResolverFailureRedactsCause(t *testing.T) {
+	server := newWSDialRecorder(t)
+	cause := errors.New(`oauth2: cannot fetch token: {"access_token":"secret-token-value"}`)
+	var mu sync.Mutex
+	calls := 0
+	p := newDialAuthWSProvider(t, server.wsURL(), map[string]string{"ChatGPT-Account-ID": "acct-123"}, CodexSignInIdentity{AccountID: "acct-123"}, func(context.Context) (CodexAuth, error) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		return CodexAuth{}, fmt.Errorf("refresh codex token: %w", cause)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := p.ChatCompletion(ctx, wsAuthRequest())
+	if err == nil {
+		t.Fatal("ChatCompletion succeeded, want the resolver failure")
+	}
+	for _, secret := range []string{"secret-token-value", "cannot fetch token"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error %q quotes the resolver cause", err)
+		}
+	}
+	if !errors.Is(err, cause) {
+		t.Errorf("error = %v, want errors.Is to reach the resolver cause", err)
+	}
+	var authErr *wsAuthError
+	if !errors.As(err, &authErr) {
+		t.Errorf("error = %v, want a *wsAuthError so no dial retry follows", err)
+	}
+	if got := server.dialCount(); got != 0 {
+		t.Errorf("dial count = %d, want 0", got)
+	}
+	mu.Lock()
+	resolved := calls
+	mu.Unlock()
+	if resolved != 1 {
+		t.Errorf("resolver calls = %d, want 1 (no dial retry)", resolved)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -78,7 +79,7 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 		cfg.BaseURL = codexChatGPTBackendURL
 		cfg.APIKey = auth.AccessToken
 		cfg.Headers = cloneStringMap(cfg.Headers)
-		cfg.Headers["ChatGPT-Account-ID"] = auth.AccountID
+		setHeaderReplacingCaseVariants(cfg.Headers, "ChatGPT-Account-ID", auth.AccountID)
 	}
 	if !isCodexWSDispatch(rm) {
 		return newCodexResponses(cfg)
@@ -145,4 +146,18 @@ func cloneStringMap(src map[string]string) map[string]string {
 		dst[key] = value
 	}
 	return dst
+}
+
+// setHeaderReplacingCaseVariants sets name to value after deleting every key
+// that matches it without regard to case. A plain assignment would leave a
+// user-configured "chatgpt-account-id" next to the injected
+// "ChatGPT-Account-ID"; both canonicalise to one wire header, so map iteration
+// order would decide which account ID is sent alongside the bearer.
+func setHeaderReplacingCaseVariants(headers map[string]string, name, value string) {
+	for key := range headers {
+		if strings.EqualFold(key, name) {
+			delete(headers, key)
+		}
+	}
+	headers[name] = value
 }

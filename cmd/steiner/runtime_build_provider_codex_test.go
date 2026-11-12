@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -157,5 +158,126 @@ func TestCodexWebSocketProviderCapturesAPIModeSignIn(t *testing.T) {
 	}
 	if resolved.APIKey != "sk-codex" {
 		t.Fatalf("resolved API key = %q, want sk-codex", resolved.APIKey)
+	}
+}
+
+// TestCodexProviderBindsAccountHeaderCaseInsensitively pins that a ChatGPT
+// sign-in replaces every case variant of the account header, so a configured
+// "chatgpt-account-id" cannot be sent next to the injected header under map
+// iteration order, and that an API-key sign-in leaves configured headers alone.
+func TestCodexProviderBindsAccountHeaderCaseInsensitively(t *testing.T) {
+	const (
+		chatGPTToken = `{"access_token":"codex-token","refresh_token":"refresh-token","token_type":"Bearer","account_id":"acct-123"}`
+		apiKeyToken  = `{"access_token":"codex-token","refresh_token":"refresh-token","token_type":"Bearer","openai_api_key":"sk-codex","account_id":"acct-123"}`
+	)
+
+	tests := []struct {
+		name       string
+		token      string
+		headers    map[string]string
+		apiKeyMode bool
+		wantHeader string
+		wantCount  int
+	}{
+		{
+			name:       "ChatGPT sign-in replaces mixed-case variants",
+			token:      chatGPTToken,
+			headers:    map[string]string{"chatgpt-account-id": "acct-user-one", "CHATGPT-ACCOUNT-ID": "acct-user-two", "X-Other": "kept"},
+			wantHeader: "acct-123",
+			wantCount:  1,
+		},
+		{
+			name:       "ChatGPT sign-in replaces a lower-case header",
+			token:      chatGPTToken,
+			headers:    map[string]string{"chatgpt-account-id": "acct-user-one"},
+			wantHeader: "acct-123",
+			wantCount:  1,
+		},
+		{
+			name:       "API-key sign-in keeps the configured header",
+			token:      apiKeyToken,
+			headers:    map[string]string{"chatgpt-account-id": "acct-user-one"},
+			apiKeyMode: true,
+			wantHeader: "acct-user-one",
+			wantCount:  1,
+		},
+		{
+			name:       "API-key sign-in sends no account header",
+			token:      apiKeyToken,
+			apiKeyMode: true,
+		},
+	}
+
+	for _, transport := range []config.CodexTransport{config.CodexTransportWebSocket, config.CodexTransportHTTP} {
+		for _, tt := range tests {
+			t.Run(tt.name+"/"+string(transport), func(t *testing.T) {
+				configHome := t.TempDir()
+				t.Setenv("XDG_CONFIG_HOME", configHome)
+				tokenPath := filepath.Join(configHome, "steiner", "codex_auth.json")
+				if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+					t.Fatalf("mkdir token dir: %v", err)
+				}
+				if err := os.WriteFile(tokenPath, []byte(tt.token), 0o600); err != nil {
+					t.Fatalf("write token: %v", err)
+				}
+
+				oldWS, oldHTTP := newCodexResponsesWS, newCodexResponses
+				t.Cleanup(func() {
+					newCodexResponsesWS = oldWS
+					newCodexResponses = oldHTTP
+				})
+				var wsCfg, httpCfg provider.ClientConfig
+				newCodexResponsesWS = func(cfg provider.ClientConfig) (provider.Provider, error) {
+					wsCfg = cfg
+					return &fakeProvider{}, nil
+				}
+				newCodexResponses = func(cfg provider.ClientConfig) (provider.Provider, error) {
+					httpCfg = cfg
+					return &fakeProvider{}, nil
+				}
+
+				factory := buildRuntimeProviderFactory(&http.Client{}, nil, nil, nil)
+				rm := provider.ResolvedModel{
+					Alias: "codex",
+					ProviderConfig: config.ProviderConfig{
+						Type:    config.ProviderTypeCodex,
+						BaseURL: "https://api.openai.com/v1",
+						Headers: tt.headers,
+						Codex:   config.CodexConfig{Transport: transport},
+					},
+					BackendModelID:        "codex-default",
+					EffectiveProviderType: config.ProviderTypeCodex,
+				}
+				if _, err := factory(rm, "test-session"); err != nil {
+					t.Fatalf("factory() error = %v", err)
+				}
+
+				got := httpCfg
+				if transport == config.CodexTransportWebSocket {
+					got = wsCfg
+				}
+				count, value := 0, ""
+				for key, headerValue := range got.Headers {
+					if strings.EqualFold(key, "ChatGPT-Account-ID") {
+						count++
+						value = headerValue
+					}
+				}
+				if count != tt.wantCount {
+					t.Errorf("account header variants = %d (%v), want %d", count, got.Headers, tt.wantCount)
+				}
+				if value != tt.wantHeader {
+					t.Errorf("account header = %q, want %q", value, tt.wantHeader)
+				}
+				if _, ok := tt.headers["X-Other"]; ok && got.Headers["X-Other"] != "kept" {
+					t.Errorf("X-Other = %q, want the configured header preserved", got.Headers["X-Other"])
+				}
+				if transport == config.CodexTransportWebSocket {
+					if got.CodexSignIn == nil || got.CodexSignIn.APIKeyMode != tt.apiKeyMode {
+						t.Errorf("CodexSignIn = %+v, want API-key mode %v", got.CodexSignIn, tt.apiKeyMode)
+					}
+				}
+			})
+		}
 	}
 }

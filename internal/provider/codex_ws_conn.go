@@ -59,15 +59,29 @@ var (
 	errCodexSignInNoToken = errors.New("stored Codex sign-in has no access token")
 )
 
-// wsAuthError marks a dial that failed while resolving credentials. The request
-// path reports it without retrying, because a second dial would resolve the
-// same credentials again, and it keeps the cause reachable through errors.Is so
-// a cancellation stays recognizable.
-type wsAuthError struct{ err error }
+// wsAuthErrorPrefix names the failing step without quoting the cause: an OAuth
+// retrieve error can embed the token endpoint's response body, which may carry
+// credential material.
+const wsAuthErrorPrefix = "codex websocket credentials: "
 
-func (e *wsAuthError) Error() string { return "codex websocket credentials: " + e.err.Error() }
+// wsAuthError marks a dial that failed while resolving credentials. Its message
+// is a fixed category rather than the resolver's text, so no credential can
+// reach an error string or the diagnostics record. Unwrap keeps the cause
+// reachable through errors.Is, notably context cancellation.
+type wsAuthError struct {
+	err     error
+	message string
+}
+
+func (e *wsAuthError) Error() string { return e.message }
 
 func (e *wsAuthError) Unwrap() error { return e.err }
+
+// newWSAuthError wraps err with a message naming category. err is kept for
+// errors.Is and errors.As only; it is never formatted into the message.
+func newWSAuthError(err error, category string) *wsAuthError {
+	return &wsAuthError{err: err, message: wsAuthErrorPrefix + category}
+}
 
 // wsDialAuth resolves the bearer credential for each Codex WebSocket dial. It
 // captures the sign-in identity the provider was built from, because the base
@@ -87,20 +101,21 @@ func newWSDialAuth(cfg ClientConfig) *wsDialAuth {
 }
 
 // bearer resolves the credential for one dial and returns the bearer to send.
-// The error never contains credential material.
+// A resolver failure keeps its cause for errors.Is but reports only a fixed
+// category, so a response body quoted in the resolver error cannot leak.
 func (a *wsDialAuth) bearer(ctx context.Context) (string, error) {
 	auth, err := a.resolver(ctx)
 	if err != nil {
-		return "", &wsAuthError{err: err}
+		return "", newWSAuthError(err, "resolving the stored Codex sign-in failed")
 	}
 	if auth.SignInIdentity() != a.signIn {
-		return "", &wsAuthError{err: errCodexSignInChanged}
+		return "", newWSAuthError(errCodexSignInChanged, errCodexSignInChanged.Error())
 	}
 	if a.signIn.APIKeyMode {
 		return auth.APIKey, nil
 	}
 	if auth.AccessToken == "" {
-		return "", &wsAuthError{err: errCodexSignInNoToken}
+		return "", newWSAuthError(errCodexSignInNoToken, errCodexSignInNoToken.Error())
 	}
 	return auth.AccessToken, nil
 }
