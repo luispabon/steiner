@@ -48,35 +48,48 @@ func (b *contentBuffer) compactionBoxRows(cd *compactionBannerData, width int) [
 	return append(append(rows, ""), details...)
 }
 
+// Priorities for compacting the header meta cluster. Lower values fit first,
+// so a narrow header keeps the progress glyph before the rate and timing text.
+const (
+	compactionMetaGlyphPriority = iota
+	compactionMetaModelPriority
+	compactionMetaCachePriority
+	compactionMetaElapsedPriority
+	compactionMetaCountPriority
+)
+
+// compactionHeaderPart is one candidate cell group of the header meta cluster.
+// Parts are listed in display order; priority decides which survive a narrow
+// header, and only the model label may be truncated to make room.
+type compactionHeaderPart struct {
+	plain    string // unstyled text used for width arithmetic
+	styled   string
+	priority int
+	model    bool
+}
+
 // renderCompactionHeader renders the single header line of the compaction box.
-// The row never wraps: when the model label and subtitle do not fit, the model
-// label is dropped from the meta cluster and the subtitle is truncated.
+// The content is fitted to exactly width cells: the tag truncates, then meta
+// parts are admitted by priority, then the subtitle takes what remains. One
+// cell is always reserved for padding, so the row never wraps.
 func (b *contentBuffer) renderCompactionHeader(cd *compactionBannerData, width int) string {
-	disclosure := "▸"
-	if cd.expanded {
-		disclosure = "▾"
+	budget := width - 1
+	if budget < 1 {
+		budget = 1
 	}
-	tag := b.styles.FgMute.Render(disclosure+" ") + b.styles.Warn.Bold(true).Render("compaction")
-	tagW := lipgloss.Width(tag)
+
+	left := b.compactionHeaderLeft(cd, budget)
+	leftW := lipgloss.Width(left)
+	meta := b.compactionHeaderMeta(cd, leftW, budget)
 
 	subtitle := ""
-	if cd.subtitle != "" {
-		subtitle = " " + b.styles.FgDim.Render(cd.subtitle)
-	}
-
-	meta := b.renderCompactionHeaderMeta(cd, true)
-	if tagW+lipgloss.Width(subtitle)+lipgloss.Width(meta)+1 > width {
-		meta = b.renderCompactionHeaderMeta(cd, false)
-		avail := width - tagW - lipgloss.Width(meta) - 1
-		subtitle = ""
-		if avail > 1 {
-			if truncated := truncateOverlayText(cd.subtitle, avail-1); truncated != "" {
-				subtitle = " " + b.styles.FgDim.Render(truncated)
-			}
+	if remaining := width - 1 - leftW - lipgloss.Width(meta); remaining >= 2 && cd.subtitle != "" {
+		if truncated := truncateOverlayText(cd.subtitle, remaining-1); truncated != "" {
+			subtitle = " " + b.styles.FgDim.Render(truncated)
 		}
 	}
 
-	left := tag + subtitle
+	left += subtitle
 	padding := width - lipgloss.Width(left) - lipgloss.Width(meta)
 	if padding < 1 {
 		padding = 1
@@ -85,42 +98,124 @@ func (b *contentBuffer) renderCompactionHeader(cd *compactionBannerData, width i
 	return left + strings.Repeat(" ", padding) + meta
 }
 
-// renderCompactionHeaderMeta returns the right-aligned meta string for the
-// header. The model label leads the cluster and is omitted when includeModel is
-// false, which keeps the header on one row at narrow widths.
-func (b *contentBuffer) renderCompactionHeaderMeta(cd *compactionBannerData, includeModel bool) string {
-	var parts []string
+// compactionHeaderLeft assembles the disclosure triangle and tag within budget.
+// The tag truncates first; the triangle survives unless the budget cannot hold
+// it with at least one tag cell.
+func (b *contentBuffer) compactionHeaderLeft(cd *compactionBannerData, budget int) string {
+	const tagText = "compaction"
 
-	if includeModel {
-		if label := compactionModelLabel(cd); label != "" {
-			parts = append(parts, b.styles.FgMute.Render(label))
+	disclosure := "▸ "
+	if cd.expanded {
+		disclosure = "▾ "
+	}
+	triangle := b.styles.FgMute.Render(disclosure)
+
+	left := triangle + b.styles.Warn.Bold(true).Render(tagText)
+	if lipgloss.Width(left) <= budget {
+		return left
+	}
+
+	tagRoom := budget
+	left = ""
+	if budget-lipgloss.Width(triangle) >= 1 {
+		left = triangle
+		tagRoom = budget - lipgloss.Width(triangle)
+	}
+	return left + b.styles.Warn.Bold(true).Render(truncateOverlayText(tagText, tagRoom))
+}
+
+// compactionHeaderMeta selects meta parts by priority and returns them joined in
+// display order. Only the model label may be truncated to make room.
+func (b *contentBuffer) compactionHeaderMeta(cd *compactionBannerData, leftWidth, budget int) string {
+	parts := b.compactionHeaderMetaParts(cd)
+	chosen := make([]string, len(parts))
+	used := 0
+	for priority := compactionMetaGlyphPriority; priority <= compactionMetaCountPriority; priority++ {
+		for i := range parts {
+			part := parts[i]
+			if part.priority != priority || chosen[i] != "" {
+				continue
+			}
+			need := lipgloss.Width(part.plain)
+			if used > 0 {
+				need++
+			}
+			if leftWidth+used+need <= budget {
+				chosen[i] = part.styled
+				used += need
+				continue
+			}
+			room := budget - leftWidth - used
+			if used > 0 {
+				room--
+			}
+			// A shorter label is only worth showing when it still reads as one.
+			if !part.model || room < 4 {
+				continue
+			}
+			truncated := truncateOverlayText(part.plain, room)
+			if truncated == "" {
+				continue
+			}
+			if used > 0 {
+				used++
+			}
+			chosen[i] = b.styles.FgMute.Render(truncated)
+			used += lipgloss.Width(truncated)
 		}
+	}
+
+	var metaParts []string
+	for _, part := range chosen {
+		if part != "" {
+			metaParts = append(metaParts, part)
+		}
+	}
+	return strings.Join(metaParts, " ")
+}
+
+// compactionHeaderMetaParts returns the header meta candidates in display
+// order: model, cache, elapsed, count, then the spinner or success glyph.
+func (b *contentBuffer) compactionHeaderMetaParts(cd *compactionBannerData) []compactionHeaderPart {
+	var parts []compactionHeaderPart
+
+	if label := compactionModelLabel(cd); label != "" {
+		parts = append(parts, compactionHeaderPart{
+			plain:    label,
+			styled:   b.styles.FgMute.Render(label),
+			priority: compactionMetaModelPriority,
+			model:    true,
+		})
 	}
 
 	if cd.finished {
 		if rate, ok := usagestats.HitRate(cd.cacheReadTokens, cd.inputTokens, cd.cacheCreateTokens); ok {
-			parts = append(parts, b.styles.FgDim.Render("cache "+formatCacheHitRate(rate, ok)))
+			plain := "cache " + formatCacheHitRate(rate, ok)
+			parts = append(parts, compactionHeaderPart{plain: plain, styled: b.styles.FgDim.Render(plain), priority: compactionMetaCachePriority})
 		}
 	}
 
-	if cd.elapsed != "" {
-		parts = append(parts, b.styles.FgDim.Render(cd.elapsed))
-	} else if cd.startTime > 0 {
-		parts = append(parts, b.styles.FgDim.Render(formatElapsed(cd.startTime, nanoNow())))
+	elapsed := cd.elapsed
+	if elapsed == "" && cd.startTime > 0 {
+		elapsed = formatElapsed(cd.startTime, nanoNow())
+	}
+	if elapsed != "" {
+		parts = append(parts, compactionHeaderPart{plain: elapsed, styled: b.styles.FgDim.Render(elapsed), priority: compactionMetaElapsedPriority})
 	}
 
 	if cd.compactionCount > 0 {
-		parts = append(parts, b.styles.FgDim.Render(fmt.Sprintf("#%d", cd.compactionCount)))
+		plain := fmt.Sprintf("#%d", cd.compactionCount)
+		parts = append(parts, compactionHeaderPart{plain: plain, styled: b.styles.FgDim.Render(plain), priority: compactionMetaCountPriority})
 	}
 
 	if !cd.finished {
 		frame := spinnerFrames[cd.spinnerFrame%len(spinnerFrames)]
-		parts = append(parts, b.styles.FgMute.Render(frame))
+		parts = append(parts, compactionHeaderPart{plain: frame, styled: b.styles.FgMute.Render(frame), priority: compactionMetaGlyphPriority})
 	} else if !cd.skipped {
-		parts = append(parts, b.styles.SuccessStyle.Render("✓"))
+		parts = append(parts, compactionHeaderPart{plain: "✓", styled: b.styles.SuccessStyle.Render("✓"), priority: compactionMetaGlyphPriority})
 	}
 
-	return strings.Join(parts, " ")
+	return parts
 }
 
 // compactionModelLabel returns the model label shown in the header meta: the
