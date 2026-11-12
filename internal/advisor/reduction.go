@@ -250,6 +250,7 @@ func (s *handlerState) reduceAdvisorMessages(ctx context.Context, deps HandlerDe
 	plan := planReduction(reductionPlanInput{
 		transcript:    replay.transcript,
 		stages:        replay.stages,
+		references:    replay.references,
 		tuning:        tuning,
 		ratio:         ratio,
 		initialTokens: planningBaseline,
@@ -264,7 +265,11 @@ func (s *handlerState) reduceAdvisorMessages(ctx context.Context, deps HandlerDe
 
 	entries := make([]reductionLedgerEntry, len(replay.hashes))
 	for i := range replay.hashes {
-		entries[i] = reductionLedgerEntry{sourceHash: replay.hashes[i], stage: plan.stages[i]}
+		entries[i] = reductionLedgerEntry{
+			sourceHash:     replay.hashes[i],
+			stage:          plan.stages[i],
+			referenceIndex: plan.references[i],
+		}
 		if plan.stages[i] != reductionStageNone {
 			entries[i].replacement = plan.transcript[i].Content
 		}

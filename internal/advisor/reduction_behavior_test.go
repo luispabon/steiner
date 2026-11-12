@@ -236,20 +236,29 @@ func TestPlanReductionProtectsDelegationUserSystemAndAssistant(t *testing.T) {
 		{Role: provider.MessageRoleUser, Content: huge},
 		{Role: provider.MessageRoleAssistant, Content: "prose", ToolCalls: []provider.ToolCall{
 			{ID: "d1", Name: "sub_agent"}, {ID: "d2", Name: "follow_up"}, {ID: "d3", Name: "sub_agent"},
+			{ID: "a1", Name: "advisor"}, {ID: "a2", Name: "advisor"},
 		}},
 		{Role: provider.MessageRoleTool, Name: "sub_agent", ToolCallID: "d1", Content: huge},
 		{Role: provider.MessageRoleTool, Name: "", ToolCallID: "d2", Content: huge},
 		{Role: provider.MessageRoleTool, Name: "read", ToolCallID: "d3", Content: huge},
 		{Role: provider.MessageRoleTool, Name: "", ToolCallID: "", Content: huge},
-		{Role: provider.MessageRoleTool, Name: "bash", ToolCallID: "b1", Content: big},
+		{Role: provider.MessageRoleTool, Name: "advisor", ToolCallID: "a1", Content: huge},
+		{Role: provider.MessageRoleTool, Name: "read", ToolCallID: "a2", Content: huge},
+		{Role: provider.MessageRoleTool, Name: "bash", ToolCallID: "b1", Content: func() string {
+			data, err := json.Marshal(builtin.BashResult{ArtifactStatus: "none", Output: big})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			return string(data)
+		}()},
 	}
 	plan := reductionTestPlan(transcript, 1000)
-	for i := 0; i <= 6; i++ {
+	for i := 0; i <= 8; i++ {
 		if plan.transcript[i].Content != transcript[i].Content {
 			t.Fatalf("protected message %d changed: %q", i, plan.transcript[i].Content)
 		}
 	}
-	if plan.stages[7] == reductionStageNone {
+	if plan.stages[9] == reductionStageNone {
 		t.Fatal("ordinary bash result was not reduced")
 	}
 }
@@ -259,6 +268,7 @@ func TestPlanReductionProtectedOnlyHasNoSavings(t *testing.T) {
 	transcript := []provider.Message{
 		{Role: provider.MessageRoleTool, Name: "sub_agent", ToolCallID: "d1", Content: huge},
 		{Role: provider.MessageRoleTool, Name: "follow_up", ToolCallID: "d2", Content: huge},
+		{Role: provider.MessageRoleTool, Name: "advisor", ToolCallID: "a1", Content: huge},
 	}
 	plan := reductionTestPlan(transcript, 1000)
 	if plan.savedTokens != 0 || len(plan.appliedStages) != 0 {

@@ -25,10 +25,15 @@ const (
 // delegation.FollowUpToolName. internal/delegation imports this package, so a
 // direct import would cycle; the names are part of the provider-facing tool
 // contract and are already restated in docs. Results from these tools carry
-// child work that the advisor must see in full.
+// child work that the advisor must see in full. Prior advisor notes are
+// protected the same way because they are distilled guidance.
 var delegationToolNames = map[string]bool{
 	"sub_agent": true,
 	"follow_up": true,
+}
+
+func isProtectedToolName(name string) bool {
+	return name == ToolName || isDelegationToolName(name)
 }
 
 type toolClassification struct {
@@ -40,8 +45,8 @@ type toolClassification struct {
 
 // classifyToolResults resolves tool result names before flattening. A tool
 // call ID maps to its assistant tool name; the message Name is the fallback.
-// Either source naming a delegation tool protects the result, and an unknown
-// result with neither source is protected as well.
+// Either source naming a delegation tool or the advisor protects the result,
+// and an unknown result with neither source is protected as well.
 func classifyToolResults(transcript []provider.Message) toolClassification {
 	byID := make(map[string]string)
 	for _, message := range transcript {
@@ -72,7 +77,7 @@ func classifyToolResults(transcript []provider.Message) toolClassification {
 			resolved = byMessageName
 		}
 		classification.names[i] = resolved
-		if resolved == "" || isDelegationToolName(byIDName) || isDelegationToolName(byMessageName) {
+		if resolved == "" || isProtectedToolName(byIDName) || isProtectedToolName(byMessageName) {
 			continue
 		}
 		classification.ordinary[i] = true
@@ -135,26 +140,65 @@ func tokensForBytes(bytes int, ratio float64) int {
 }
 
 // dedupeAttachments drops requested file content only when an untouched full
-// read of that file remains in the reduced transcript. A replaced read cannot
-// seed dedupe even though its file_hash is still present.
+// read of that file remains in the reduced transcript and its Output matches
+// the file bytes exactly. It deliberately avoids file_hash, which normalizes
+// trailing whitespace. Any uncertainty leaves the attachment in place.
 func dedupeAttachments(files []advisorFile, transcript []provider.Message, stages []reductionStage, workDir string) []advisorFile {
 	if len(files) == 0 {
 		return nil
 	}
 	cloned := append([]advisorFile(nil), files...)
-	untouched := make([]provider.Message, 0, len(transcript))
-	for i, message := range transcript {
+	for i := range cloned {
+		file := &cloned[i]
+		if file.TotalBytes > maxAdvisorFileBytes || len(file.Content) != file.TotalBytes {
+			continue
+		}
+		if !hasUntouchedFullReadBytes(transcript, stages, file.DisplayPath, file.Content, workDir) {
+			continue
+		}
+		file.Content = ""
+		file.Deduped = true
+	}
+	return cloned
+}
+
+func hasUntouchedFullReadBytes(transcript []provider.Message, stages []reductionStage, path, content, workDir string) bool {
+	for i := len(transcript) - 1; i >= 0; i-- {
 		if i < len(stages) && stages[i] != reductionStageNone {
 			continue
 		}
-		untouched = append(untouched, message)
+		message := transcript[i]
+		if message.Role != provider.MessageRoleTool || message.Name != "read" {
+			continue
+		}
+		var result builtin.ReadResult
+		if err := json.Unmarshal([]byte(message.Content), &result); err != nil {
+			continue
+		}
+		if result.Image != nil || result.NextOffset != 0 || result.TotalLines == 0 {
+			continue
+		}
+		if result.StartLine != 1 || result.EndLine != result.TotalLines {
+			continue
+		}
+		if strings.Contains(result.Output, builtin.LineTruncationMarker) {
+			continue
+		}
+		if relDisplayPath(workDir, result.Path) != path {
+			continue
+		}
+		if result.Output != content {
+			continue
+		}
+		return true
 	}
-	return dedupeAgainstSnapshot(cloned, untouched, workDir)
+	return false
 }
 
 type reductionPlanInput struct {
 	transcript    []provider.Message
 	stages        []reductionStage
+	references    []int
 	tuning        reductionTuning
 	ratio         float64
 	initialTokens int
@@ -163,6 +207,7 @@ type reductionPlanInput struct {
 type reductionPlan struct {
 	transcript    []provider.Message
 	stages        []reductionStage
+	references    []int
 	savedBytes    int
 	savedTokens   int
 	appliedStages []string
@@ -176,6 +221,13 @@ func planReduction(in reductionPlanInput) reductionPlan {
 	plan := reductionPlan{
 		transcript: append([]provider.Message(nil), in.transcript...),
 		stages:     append([]reductionStage(nil), in.stages...),
+		references: make([]int, len(in.transcript)),
+	}
+	for i := range plan.references {
+		plan.references[i] = -1
+		if i < len(in.references) {
+			plan.references[i] = in.references[i]
+		}
 	}
 	if len(in.transcript) == 0 || in.tuning.trigger <= 0 {
 		return plan
@@ -205,13 +257,16 @@ func planReduction(in reductionPlanInput) reductionPlan {
 		}
 		oldContent := plan.transcript[index].Content
 		oldStage := plan.stages[index]
+		oldReference := plan.references[index]
 		plan.transcript[index].Content = replacement
 		plan.stages[index] = stage
+		plan.references[index] = -1
 		netBytes := contentSavings + len(oldContent) - len(replacement)
 		netTokens := tokensForBytes(netBytes, ratio)
 		if netTokens <= appliedTokens {
 			plan.transcript[index].Content = oldContent
 			plan.stages[index] = oldStage
+			plan.references[index] = oldReference
 			return false
 		}
 		contentSavings += len(oldContent) - len(replacement)
@@ -221,10 +276,43 @@ func planReduction(in reductionPlanInput) reductionPlan {
 		recordStage(stage)
 		return true
 	}
+	finish := func() reductionPlan {
+		// A duplicate note may point at a source that this batch also reduces.
+		// Replace such references with a self-contained omission stub so the
+		// advisor never points at evidence it no longer has.
+		for i := range plan.transcript {
+			if plan.stages[i] != reductionStageReadDedupe {
+				continue
+			}
+			reference := plan.references[i]
+			if reference < 0 || reference >= len(plan.stages) || plan.stages[reference] == reductionStageNone {
+				continue
+			}
+			stub, ok := outputReplacement(classification.names[i], plan.transcript[i].Content, unavailableDuplicateStub)
+			if !ok || stub == plan.transcript[i].Content {
+				continue
+			}
+			oldContent := plan.transcript[i].Content
+			plan.transcript[i].Content = stub
+			plan.stages[i] = reductionStageStub
+			plan.references[i] = -1
+			contentSavings += len(oldContent) - len(stub)
+			appliedTokens = tokensForBytes(contentSavings, ratio)
+			plan.savedBytes = contentSavings
+			plan.savedTokens = appliedTokens
+			recordStage(reductionStageStub)
+		}
+		return plan
+	}
 
-	// Stage 1: exact duplicate full reads. Keep the earlier copy and replace
-	// later eligible copies with a note. Output bytes must match exactly.
-	seen := make(map[fullReadKey]string)
+	// Stage 1: exact duplicate full reads. Replace later eligible copies with
+	// a note; finish turns that note into a self-contained stub when the
+	// earlier copy is reduced too. Output bytes must match exactly.
+	type seenRead struct {
+		id    string
+		index int
+	}
+	seen := make(map[fullReadKey]seenRead)
 	for i := range in.transcript {
 		if plan.stages[i] != reductionStageNone || !classification.ordinary[i] {
 			continue
@@ -233,16 +321,20 @@ func planReduction(in reductionPlanInput) reductionPlan {
 		if !ok {
 			continue
 		}
-		if earlierID, exists := seen[key]; exists {
+		if earlier, exists := seen[key]; exists {
 			if protected[i] {
 				continue
 			}
-			if tryApply(i, reductionStageReadDedupe, readDedupeNote(earlierID)) && reachedTarget() {
-				return plan
+			note, ok := outputReplacement(classification.names[i], plan.transcript[i].Content, readDedupeNote(earlier.id))
+			if ok && tryApply(i, reductionStageReadDedupe, note) {
+				plan.references[i] = earlier.index
+				if reachedTarget() {
+					return finish()
+				}
 			}
 			continue
 		}
-		seen[key] = in.transcript[i].ToolCallID
+		seen[key] = seenRead{id: in.transcript[i].ToolCallID, index: i}
 	}
 
 	// Stage 2: head and tail clips for older ordinary results.
@@ -255,7 +347,7 @@ func planReduction(in reductionPlanInput) reductionPlan {
 		}
 		replacement, ok := clipOrdinaryToolContent(classification.names[i], plan.transcript[i].Content)
 		if ok && tryApply(i, reductionStageClip, replacement) && reachedTarget() {
-			return plan
+			return finish()
 		}
 	}
 
@@ -270,11 +362,48 @@ func planReduction(in reductionPlanInput) reductionPlan {
 		if plan.stages[i] != reductionStageNone && plan.stages[i] != reductionStageClip {
 			continue
 		}
-		if tryApply(i, reductionStageStub, reductionStub(classification.names[i], in.transcript[i].ToolCallID)) && reachedTarget() {
-			return plan
+		stub, ok := outputReplacement(classification.names[i], plan.transcript[i].Content, reductionStub(classification.names[i], in.transcript[i].ToolCallID))
+		if ok && tryApply(i, reductionStageStub, stub) && reachedTarget() {
+			return finish()
 		}
 	}
-	return plan
+	return finish()
+}
+
+// unavailableDuplicateStub replaces a duplicate note whose earlier source was
+// also reduced. It is self-contained and points at no unavailable evidence.
+const unavailableDuplicateStub = "[duplicate read output omitted by advisor context reduction; the earlier copy was also reduced. Re-read the file if you need the content.]"
+
+// outputReplacement changes only Output for structured read and bash results,
+// keeping every other field intact. Unknown tools use the replacement as raw
+// content.
+func outputReplacement(name, content, output string) (string, bool) {
+	switch name {
+	case "read":
+		var result builtin.ReadResult
+		if err := json.Unmarshal([]byte(content), &result); err != nil {
+			return "", false
+		}
+		result.Output = output
+		data, err := json.Marshal(result)
+		if err != nil {
+			return "", false
+		}
+		return string(data), true
+	case "bash":
+		var result builtin.BashResult
+		if err := json.Unmarshal([]byte(content), &result); err != nil {
+			return "", false
+		}
+		result.Output = output
+		data, err := json.Marshal(result)
+		if err != nil {
+			return "", false
+		}
+		return string(data), true
+	default:
+		return output, true
+	}
 }
 
 // clipOrdinaryToolContent reduces a tool result. Structured read and bash
@@ -284,32 +413,24 @@ func clipOrdinaryToolContent(name, content string) (string, bool) {
 	switch name {
 	case "read":
 		var result builtin.ReadResult
-		if err := json.Unmarshal([]byte(content), &result); err == nil {
-			clipped, changed := clipHeadTail(result.Output, reductionClipBytes)
-			if !changed {
-				return "", false
-			}
-			result.Output = clipped
-			data, err := json.Marshal(result)
-			if err != nil {
-				return "", false
-			}
-			return string(data), true
+		if err := json.Unmarshal([]byte(content), &result); err != nil {
+			return "", false
 		}
+		clipped, changed := clipHeadTail(result.Output, reductionClipBytes)
+		if !changed {
+			return "", false
+		}
+		return outputReplacement(name, content, clipped)
 	case "bash":
 		var result builtin.BashResult
-		if err := json.Unmarshal([]byte(content), &result); err == nil {
-			clipped, changed := clipHeadTail(result.Output, reductionClipBytes)
-			if !changed {
-				return "", false
-			}
-			result.Output = clipped
-			data, err := json.Marshal(result)
-			if err != nil {
-				return "", false
-			}
-			return string(data), true
+		if err := json.Unmarshal([]byte(content), &result); err != nil {
+			return "", false
 		}
+		clipped, changed := clipHeadTail(result.Output, reductionClipBytes)
+		if !changed {
+			return "", false
+		}
+		return outputReplacement(name, content, clipped)
 	}
 	return clipHeadTail(content, reductionClipBytes)
 }

@@ -37,11 +37,13 @@ func (s reductionStage) String() string {
 // reductionLedgerEntry freezes one transcript source message. SourceHash
 // identifies the original message so appended conversations replay the exact
 // replacement instead of reclipping. Replacement is set only when the message
-// was changed.
+// was changed. ReferenceIndex points at the earlier read a duplicate note
+// refers to, or -1 when the replacement carries no reference.
 type reductionLedgerEntry struct {
-	sourceHash  string
-	replacement string
-	stage       reductionStage
+	sourceHash     string
+	replacement    string
+	stage          reductionStage
+	referenceIndex int
 }
 
 func (e reductionLedgerEntry) replaced() bool {
@@ -71,8 +73,8 @@ func (s reductionLedgerState) clone() reductionLedgerState {
 func (s *SharedState) reductionLedger(scope string) reductionLedgerState {
 	s.reductionMu.Lock()
 	defer s.reductionMu.Unlock()
-	s.touchReductionScopeLocked(scope)
 	if ledger, ok := s.reductions[scope]; ok {
+		s.touchReductionScopeLocked(scope)
 		return ledger.clone()
 	}
 	return reductionLedgerState{}
@@ -127,6 +129,9 @@ type reductionReplay struct {
 	stages     []reductionStage
 	// hashes are the source hashes of every current transcript message.
 	hashes []string
+	// references mirrors stages: the earlier read index a dedupe note points
+	// to, or -1.
+	references []int
 	// valid is the number of ledger entries that still match the transcript.
 	valid int
 	// changed reports whether at least one frozen replacement was applied.
@@ -141,6 +146,10 @@ func replayReductionLedger(transcript []provider.Message, entries []reductionLed
 		transcript: append([]provider.Message(nil), transcript...),
 		stages:     make([]reductionStage, len(transcript)),
 		hashes:     make([]string, len(transcript)),
+		references: make([]int, len(transcript)),
+	}
+	for i := range replay.references {
+		replay.references[i] = -1
 	}
 	for i, message := range transcript {
 		replay.hashes[i] = messageHash(canonicalMessage(message))
@@ -159,6 +168,7 @@ func replayReductionLedger(transcript []provider.Message, entries []reductionLed
 		}
 		replay.transcript[i].Content = entries[i].replacement
 		replay.stages[i] = entries[i].stage
+		replay.references[i] = entries[i].referenceIndex
 		replay.changed = true
 	}
 	return replay

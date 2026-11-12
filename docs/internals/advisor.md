@@ -15,7 +15,7 @@ Tool calls and tool results in the snapshot are flattened to text. A tool call b
 - Reasoning content is cleared from every message.
 - Tool-call argument strings over 1000 bytes (`maxToolArgStringLen`) are cut to a 1000-byte prefix followed by `…[elided, N bytes total]`.
 - Caller files are capped at 8 files, 32 KB each, and 96 KB in total. The question is capped at 4000 bytes. A ninth file is rejected before the call counts against the budget.
-- `dedupeAgainstSnapshot` (`internal/advisor/files.go`) drops a file's content when the snapshot already holds a full `read` of it with a matching `file_hash`. Files over `maxAdvisorFileBytes` are never deduped.
+- `dedupeAgainstSnapshot` (`internal/advisor/files.go`) builds the base payload: it drops a file's content when the snapshot already holds a full `read` of it with a matching `file_hash`. Files over `maxAdvisorFileBytes` are never deduped. This base path, including its file-hash normalization, is what a below-threshold request or a request with no frozen reduction state sends unchanged.
 - Files and question go in one trailing user message after the snapshot, so the system prompt and snapshot prefix do not change between calls.
 - `buildMessages` (`internal/advisor/prompt.go`) takes a trailing assistant message out of the transcript and renders its text at the head of that final user message under `inFlightLabel`. After replay sanitising, a trailing assistant message can only be the message that issued this advisor call and is still waiting for its tool result. It carries no result while its own call runs but gains a `[tool_call: advisor ...]` line once that result exists, so it is kept out of the transcript to make the cached prefix end on a message whose rendering never changes between calls. A trailing assistant message with empty text is dropped without a label, and a trailing non-assistant message stays in the transcript.
 
@@ -29,15 +29,17 @@ Frozen replacements live in a per-conversation ledger on `SharedState`, keyed by
 
 The in-flight trailing assistant message is excluded from ledger identity because `buildMessages` moves it to the uncached suffix. The caller's question and files are also excluded because they are unique to each call.
 
-Planning classifies tool results before flattening by resolving assistant tool-call IDs to names, falling back to the message Name. A result is protected when either source names `sub_agent` or `follow_up`, or when both sources are empty. User, system, assistant, and protected tool messages are never changed. Stages run oldest first and stop at the target:
+Planning classifies tool results before flattening by resolving assistant tool-call IDs to names, falling back to the message Name. A result is protected when either source names `sub_agent`, `follow_up`, or `advisor`, or when both sources are empty. Prior advisor notes are distilled guidance and stay intact like delegated results. User, system, assistant, and protected tool messages are never changed. Stages run oldest first and stop at the target:
 
-1. Exact duplicate full reads: same path and byte-identical output, full range, no pagination, image, or line truncation. The earlier copy stays and the later eligible copy becomes a note. File hashes are not used because they normalize whitespace.
+1. Exact duplicate full reads: same path and byte-identical output, full range, no pagination, image, or line truncation. The later eligible copy becomes a note referencing the earlier call. If that earlier copy is also reduced in the same batch or a later batch, the note is replaced by a self-contained omission stub so it never points at unavailable evidence. File hashes are not used because they normalize whitespace.
 2. Head and tail clips of about 2 KB with a valid UTF-8 boundary and an omitted-byte marker. Structured `read` and `bash` results change only `Output` and are re-marshaled with every other field intact; other tool output is clipped as raw text.
-3. Stubs for the oldest remaining results, naming the tool and call and telling the caller to re-read or re-run if the details matter.
+3. Stubs for the oldest remaining results, naming the tool and call and telling the caller to re-read or re-run if the details matter. Structured `read` and `bash` stubs follow the same Output-only rule.
+
+Every structured stage, including dedupe notes and stubs, changes only `Output` and re-marshals all other fields. A structured result that cannot be decoded is left unchanged.
 
 A new batch is committed only when its proposed savings reach `ceil(0.1 * trigger)`. Otherwise the proposed changes are discarded and the ledger records exhaustion at the current estimated size; planning retries only after the request grows by another `ceil(0.1 * trigger)`. Ledger reads copy state, planning runs without a lock, and commit is a short compare-and-swap on the ledger epoch. Deterministic inputs produce identical plans.
 
-Requested files are counted at their full bounded size while planning. After a plan is frozen, `dedupeAttachments` re-dedupes them only against untouched full reads in the reduced transcript, so a file reappears when the read that seeded its dedupe was reduced. The `advisor_complete` event carries optional `reduction` diagnostics: strategy, estimator, before and after token estimates, and the stages applied.
+Requested files are counted at their full bounded size while planning. After a plan is frozen, `dedupeAttachments` re-dedupes them only against untouched full reads in the reduced transcript, and it requires the read's `Output` to match the file bytes exactly. It does not use `file_hash`, because that normalization can equate different bytes; a line-numbered, partial, truncated, or replaced read leaves the attachment present. A file therefore reappears when the read that seeded its dedupe was reduced. The `advisor_complete` event carries optional `reduction` diagnostics: strategy, estimator, before and after token estimates, and the stages applied.
 
 ## Budget
 
