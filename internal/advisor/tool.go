@@ -88,6 +88,11 @@ type HandlerDeps struct {
 type Config struct {
 	MaxUsesPerRun int
 	MaxTokens     *int
+	// ContextReductionThresholdTokens is the soft input-token threshold for automatic
+	// advisor context reduction. 0 disables reduction. The config layer
+	// defaults it to 64000; a directly constructed Config keeps the current
+	// prompt payload when it is left at zero.
+	ContextReductionThresholdTokens int
 }
 
 // SharedState tracks the advisor use counter across every handler built from
@@ -99,6 +104,9 @@ type SharedState struct {
 	uses           int
 	cacheMu        sync.Mutex
 	previousPrefix []string
+	reductionMu    sync.Mutex
+	reductions     map[string]*reductionLedgerState
+	reductionOrder []string
 }
 
 // NewSharedState returns a fresh, empty SharedState.
@@ -142,7 +150,6 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	if err != nil {
 		return nil, err
 	}
-	files = dedupeAgainstSnapshot(files, snapshot, deps.WorkDir)
 
 	s.shared.mu.Lock()
 	nextUse := s.shared.uses + 1
@@ -162,7 +169,8 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	// state on purpose, even though Anthropic guidance often suggests removing
 	// spent tools.
 	emitEvent(deps.Events, output.NewAdvisorStartedEvent(deps.Model.BackendModelID, nextUse, maxUses, in.Question, advisorDisplayPaths(files)))
-	messages := buildMessages(snapshot, in.Question, files)
+	reduction := s.reduceAdvisorMessages(ctx, deps, reductionRequest{snapshot: snapshot, files: files, question: in.Question})
+	messages := reduction.messages
 	diagnostic := &advisorDiagnosticContext{state: s, writer: deps.Diagnostics}
 	response, err := adviseWithMessages(ctx, deps.Provider, deps.Model, messages, deps.Config.MaxTokens, deps.Events, s.cacheKey, diagnostic, deps.TransportSession, deps.ParentTransportSession)
 	if err != nil {
@@ -171,6 +179,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 			UseNumber: nextUse,
 			MaxUses:   maxUses,
 			Err:       err,
+			Reduction: reductionParams(reduction.diagnostics),
 		}))
 		return nil, err
 	}
@@ -207,6 +216,7 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 		CacheCreateTokens: cacheCreateTokens,
 		InputTokens:       inputTokens,
 		TokenCount:        provider.UsageCompletionTokenCount(response.Usage),
+		Reduction:         reductionParams(reduction.diagnostics),
 	}))
 	return note, nil
 }

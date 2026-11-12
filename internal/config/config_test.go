@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -172,6 +173,9 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.MaxTokens != nil {
 		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
 	}
+	if got, want := cfg.Advisor.ContextReductionThresholdTokens, 64000; got != want {
+		t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want %d", got, want)
+	}
 	if cfg.Advisor.Timeout == nil {
 		t.Fatal("advisor.timeout = nil, want 180s default")
 	} else if got, want := cfg.Advisor.Timeout.Duration(), int64(180*1_000_000_000); got != want {
@@ -310,6 +314,119 @@ func TestApplyAdvisorPatch(t *testing.T) {
 				t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, tt.want)
 			}
 		})
+	}
+}
+
+func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want int
+	}{
+		{
+			name: "omitted keeps default",
+			yaml: "advisor:\n  enabled: true\n",
+			want: 64000,
+		},
+		{
+			name: "explicit zero disables",
+			yaml: "advisor:\n  context_reduction_threshold_tokens: 0\n",
+			want: 0,
+		},
+		{
+			name: "explicit value overrides default",
+			yaml: "advisor:\n  context_reduction_threshold_tokens: 48000\n",
+			want: 48000,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			cfg := defaultConfig(nil)
+			applyPatch(&cfg, patch)
+			if got := cfg.Advisor.ContextReductionThresholdTokens; got != tt.want {
+				t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want %d", got, tt.want)
+			}
+		})
+	}
+
+	validationTests := []struct {
+		name    string
+		value   int
+		wantErr string
+	}{
+		{
+			name:    "negative is invalid",
+			value:   -1,
+			wantErr: "advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least 48000 (got -1)",
+		},
+		{
+			name:  "zero disables",
+			value: 0,
+		},
+		{
+			name:    "one is below the minimum",
+			value:   1,
+			wantErr: "advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least 48000 (got 1)",
+		},
+		{
+			name:    "one below the minimum is invalid",
+			value:   minAdvisorContextReductionThresholdTokens - 1,
+			wantErr: fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got %d)", minAdvisorContextReductionThresholdTokens, minAdvisorContextReductionThresholdTokens-1),
+		},
+		{
+			name:  "minimum is valid",
+			value: minAdvisorContextReductionThresholdTokens,
+		},
+		{
+			name:  "default is valid",
+			value: 64000,
+		},
+	}
+	for _, tt := range validationTests {
+		t.Run(tt.name, func(t *testing.T) {
+			var problems []string
+			validateAdvisorConfig(&problems, AdvisorConfig{ContextReductionThresholdTokens: tt.value})
+			if tt.wantErr == "" {
+				if len(problems) != 0 {
+					t.Fatalf("validateAdvisorConfig(%d) problems = %v, want none", tt.value, problems)
+				}
+				return
+			}
+			if len(problems) != 1 || problems[0] != tt.wantErr {
+				t.Fatalf("validateAdvisorConfig(%d) problems = %v, want [%q]", tt.value, problems, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAdvisorReductionTriggerBelowMinimumRejectedByValidate(t *testing.T) {
+	patch, err := parseConfigPatch("advisor:\n  context_reduction_threshold_tokens: 47999\n")
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	cfg := validBase()
+	applyPatch(&cfg, patch)
+	if got := cfg.Advisor.ContextReductionThresholdTokens; got != 47999 {
+		t.Fatalf("advisor.context_reduction_threshold_tokens = %d, want 47999", got)
+	}
+
+	wantErr := fmt.Sprintf("advisor.context_reduction_threshold_tokens must be 0 (disabled) or at least %d (got 47999)", minAdvisorContextReductionThresholdTokens)
+	err = validate(cfg, "")
+	if err == nil || !strings.Contains(err.Error(), wantErr) {
+		t.Fatalf("validate() error = %v, want %q", err, wantErr)
+	}
+
+	validPatch, err := parseConfigPatch("advisor:\n  context_reduction_threshold_tokens: 48000\n")
+	if err != nil {
+		t.Fatalf("parseConfigPatch() error = %v", err)
+	}
+	applyPatch(&cfg, validPatch)
+	if err := validate(cfg, ""); err != nil {
+		t.Fatalf("validate() with minimum threshold = %v, want nil", err)
 	}
 }
 

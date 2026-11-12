@@ -19,13 +19,14 @@ The source order is fixed in `internal/prompt/source_plan.go`. Static sources co
 | 1 | `preamble` | none | Memoized per session |
 | 2 | `global_agents_md`, `project_agents_md` | none | Never truncated |
 | 3 | `project_context` | 8000 bytes (`fallbackProjectContextBudgetBytes`) | Truncated when over |
-| 4 | `skill` | 106496 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
+| 4 | `skill` | 107520 bytes (`defaultSkillBudgetBytes`) | Exec and oneshot only |
 | 5 | `phase_prompt` | none | Oneshot phases |
 | 6 | `session_date` | none | See [Session date assembly](#session-date-assembly) |
 | 7 | `conversation` | none | Pass-through |
 
 - `applyBudget` (`internal/prompt/source_render.go`) marks over-budget project context and skill blocks as `Truncated`. `AssemblyPolicy.Budgets` overrides the defaults; negative values are rejected (`internal/prompt/budget.go`).
-- `IsSystemZone` covers the preamble, phase prompt, and both AGENTS.md sources. Every other source, including `conversation_summary`, is user role (`blockMessage`). `renderBlocks` merges consecutive blocks of the same role.
+- `IsSystemZone` covers the preamble, phase prompt, and both AGENTS.md sources. Every other source renders as a user message (`blockMessage`). `renderBlocks` merges consecutive blocks of the same role.
+- `conversation_summary` is not produced as a context block by the current source plan. Compaction stores a `summary`-role conversation message; `toProviderMessage` (`internal/agent/message_convert.go`) projects it to a user message wrapped in `summaryContextPrefix` and `summaryContextSuffix`. The summary therefore reaches the model as user-role historical context without passing through `blockMessage`.
 - Interactive sessions pass no skill names to static assembly. The enabled set is held by `interactive.Skills` (seeded from `Dependencies.SkillNames`) and reaches the model through the envelopes below.
 - An assistant message marked `Message.Incomplete` is projected to the provider with a trailing interruption note (`toProviderMessage` in `internal/agent/message_convert.go`), so the model learns its previous streamed response was cut off. The stored message and the emitted event keep the exact streamed text.
 
@@ -50,7 +51,7 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 - On submit, `skillDeltaBlocks` diffs the enabled set against `EffectiveSkills`. Deactivations come first, then activations for newly enabled skills. Existing messages are never rewritten.
 - `EffectiveSkills` folds envelopes across user messages in order. An activation replaces that skill's block and moves it to the end. A deactivation removes it.
 - `SplitSkillBlocks` (`internal/prompt/skill_blocks.go`) reads an optional leading mode notice and then envelopes. It stops at the first malformed envelope and keeps the rest of the text as is.
-- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 106496-byte cap]`. Loading such a skill emits `skill_truncated` with the original size and the cap.
+- A body over `prompt.SkillContentCapBytes` is cut on a UTF-8 rune boundary and ends with `[truncated: skill exceeded the 107520-byte cap]`. The cap applies to the skill body; the `## Active Skill:` heading, the framing text, and the envelope tags are added outside it. Loading such a skill emits `skill_truncated` with the original size and the cap.
 - On resume, replayed envelopes emit `skill_state` events (`internal/interactive/replay.go`).
 
 ## Request event snapshots

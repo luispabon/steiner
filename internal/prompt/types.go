@@ -26,6 +26,9 @@ const (
 	// ContextSourceDurableContext identifies retained durable-context blocks.
 	ContextSourceDurableContext ContextSource = "durable_context"
 	// ContextSourceConversationSummary identifies summarized conversation blocks.
+	// The current source plan emits no such block: compaction summaries enter the
+	// request as conversation messages that `internal/agent` projects to user
+	// messages.
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
 	// ContextSourceConversation identifies raw conversation message blocks.
 	ContextSourceConversation ContextSource = "conversation"

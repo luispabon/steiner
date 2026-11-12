@@ -247,6 +247,7 @@ Optional advisor tool: a stronger model reviews the conversation and returns gui
 | `advisor.max_uses_per_run` | int | `3` | Advisor calls allowed per session; at least 1 when enabled. |
 | `advisor.max_uses_per_sub_agent` | int | `1` | Advisor calls allowed per child agent; at least 1 when enabled. |
 | `advisor.max_tokens` | int | unset | Output-token ceiling for advisor calls; greater than zero when set. |
+| `advisor.context_reduction_threshold_tokens` | int | `64000` | Soft input-token threshold above which the advisor trims older ordinary tool output. `0` disables; any other value must be at least `48000`. The advisor model's context window can lower the effective trigger below the configured value. |
 | `advisor.timeout` | duration | `180s` | Timeout for each advisor request attempt. Overrides `providers.<name>.timeout` for advisor calls only; greater than zero when set. |
 
 ## `oneshot` block

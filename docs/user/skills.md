@@ -67,4 +67,4 @@ Instructions for the agent...
 
 Without a `description`, Steiner uses the first line of prose in the file. The skill name always comes from the directory name, not the frontmatter `name`.
 
-A skill larger than 106496 bytes is truncated with a marker, and Steiner warns with the original size and the cap.
+A skill body larger than 107520 bytes is truncated with a marker, and Steiner warns with the original size and the cap.

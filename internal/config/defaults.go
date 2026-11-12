@@ -93,10 +93,11 @@ func defaultConfig(env map[string]string) Config {
 			OrchestrationLevel: OrchestrationLevelStandard,
 		},
 		Advisor: AdvisorConfig{
-			Enabled:            false,
-			MaxUsesPerRun:      3,
-			MaxUsesPerSubAgent: 1,
-			Timeout:            advisorTimeout(),
+			Enabled:                         false,
+			MaxUsesPerRun:                   3,
+			MaxUsesPerSubAgent:              1,
+			Timeout:                         advisorTimeout(),
+			ContextReductionThresholdTokens: 64000,
 		},
 		OneShot: oneshotConfig{
 			AutoPR: false,
