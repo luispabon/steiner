@@ -66,39 +66,39 @@ func TestSidebarCacheRow(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			line := tt.state.cacheLine()
+			line := tt.state.cacheValueLine(32)
 			if tt.want == "" {
 				if line != "" {
-					t.Errorf("cacheLine() = %q, want empty when untracked", line)
+					t.Errorf("cacheValueLine() = %q, want empty when untracked", line)
 				}
 				return
 			}
 			if got := stripANSI(line); !strings.Contains(got, tt.want) {
-				t.Errorf("cacheLine() = %q, want %q", got, tt.want)
+				t.Errorf("cacheValueLine() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestContextSectionIncludesCacheRow(t *testing.T) {
+func TestPerformanceSectionIncludesCacheValue(t *testing.T) {
 	t.Parallel()
 	styles := testStyles(theme.AccentAmber)
 
-	tracked := sidebarState{styles: styles, cachePhase: promptCacheNear, cacheMinutes: 1, promptUsed: 100, contextBudget: 1000}
-	lines := tracked.contextSection(32)
+	tracked := sidebarState{styles: styles, cachePhase: promptCacheNear, cacheMinutes: 1}
+	lines := tracked.performanceSection(32)
 	joined := stripANSI(strings.Join(lines, "\n"))
 	if !strings.Contains(joined, "~1m left") {
-		t.Fatalf("contextSection() = %q, want the cache row", joined)
+		t.Fatalf("performanceSection() = %q, want the cache value", joined)
 	}
 	for _, line := range lines {
 		if w := lipgloss.Width(stripANSI(line)); w > 32 {
-			t.Errorf("contextSection() line %q width = %d, want <= 32", stripANSI(line), w)
+			t.Errorf("performanceSection() line %q width = %d, want <= 32", stripANSI(line), w)
 		}
 	}
 
-	untracked := sidebarState{styles: styles, promptUsed: 100, contextBudget: 1000}
-	if got := stripANSI(strings.Join(untracked.contextSection(32), "\n")); strings.Contains(got, "cache") {
-		t.Errorf("contextSection() = %q, must omit the cache row when untracked", got)
+	untracked := sidebarState{styles: styles}
+	if got := stripANSI(strings.Join(untracked.performanceSection(32), "\n")); strings.Contains(got, "left") {
+		t.Errorf("performanceSection() = %q, must omit the cache value when untracked", got)
 	}
 }
 

@@ -85,17 +85,19 @@ func (s sidebarState) contextGaugeLine(width int) string {
 	return prefix + emptyWithBg.Render(strings.Repeat(" ", pad)) + counts
 }
 
-// cacheLine renders the CONTEXT card's prompt cache estimate row: minutes left
-// while the estimate holds, "expired" once it has passed, and nothing when no
-// estimate is tracked.
-func (s sidebarState) cacheLine() string {
+// cacheValueLine renders the prompt cache estimate in the PERFORMANCE card,
+// aligned under the cache hit values. It has no label so it reads as a
+// continuation of the cache hit readings.
+func (s sidebarState) cacheValueLine(width int) string {
+	const keyW = 10
+	valueWidth := width - keyW
 	switch s.cachePhase {
 	case promptCacheWarm:
-		return cardFieldN("cache", 7, s.styles.FgDim, fmt.Sprintf("~%dm left", s.cacheMinutes), s.styles)
+		return cardFieldN("", keyW, s.styles.FgDim, fitText(fmt.Sprintf("~%dm left", s.cacheMinutes), valueWidth), s.styles)
 	case promptCacheNear:
-		return cardFieldN("cache", 7, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WarnLine)), fmt.Sprintf("~%dm left", s.cacheMinutes), s.styles)
+		return cardFieldN("", keyW, lipgloss.NewStyle().Foreground(lipgloss.Color(theme.WarnLine)), fitText(fmt.Sprintf("~%dm left", s.cacheMinutes), valueWidth), s.styles)
 	case promptCacheExpired:
-		return cardFieldN("cache", 7, s.styles.Warn, "expired", s.styles)
+		return cardFieldN("", keyW, s.styles.Warn, fitText("expired", valueWidth), s.styles)
 	default:
 		return ""
 	}

@@ -245,9 +245,6 @@ func (s sidebarState) contextSection(width int) []string {
 		cardLabel("context", s.styles),
 		s.contextGaugeLine(width),
 	}
-	if cache := s.cacheLine(); cache != "" {
-		lines = append(lines, cache)
-	}
 	if dot := s.compactDotLine(); dot != "" {
 		lines = append(lines, dot)
 	}
@@ -271,7 +268,7 @@ func (s sidebarState) repositorySection(width int) []string {
 func (s sidebarState) performanceSection(width int) []string {
 	w := width - 7
 	const keyW = 10
-	return []string{
+	lines := []string{
 		"",
 		cardLabel("performance", s.styles),
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
@@ -279,9 +276,11 @@ func (s sidebarState) performanceSection(width int) []string {
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
 		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "latest req", "req", w-keyW+7), w-keyW+7), s.styles),
 		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session", "sess", w-keyW+7), w-keyW+7), s.styles),
-		s.startedRow(w),
-		s.runtimeRow(w),
 	}
+	if cache := s.cacheValueLine(w); cache != "" {
+		lines = append(lines, cache)
+	}
+	return append(lines, s.startedRow(w), s.runtimeRow(w))
 }
 
 // formatRuntimeElapsed formats the accumulated active runtime as HH:MM:SS,
