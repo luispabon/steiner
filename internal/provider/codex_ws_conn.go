@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,6 +49,83 @@ const (
 	wsWriteTimeout = 30 * time.Second
 )
 
+var (
+	// errCodexSignInChanged reports a stored sign-in whose auth mode or account
+	// differs from the one the provider was built with, so the provider's base
+	// URL, account header and quota key no longer describe it.
+	errCodexSignInChanged = errors.New("stored Codex sign-in changed account or auth mode")
+	// errCodexSignInNoToken reports a stored sign-in that yields no bearer
+	// credential at all.
+	errCodexSignInNoToken = errors.New("stored Codex sign-in has no access token")
+)
+
+// wsAuthError marks a dial that failed while resolving credentials. The request
+// path reports it without retrying, because a second dial would resolve the
+// same credentials again, and it keeps the cause reachable through errors.Is so
+// a cancellation stays recognizable.
+type wsAuthError struct{ err error }
+
+func (e *wsAuthError) Error() string { return "codex websocket credentials: " + e.err.Error() }
+
+func (e *wsAuthError) Unwrap() error { return e.err }
+
+// wsDialAuth resolves the bearer credential for each Codex WebSocket dial. It
+// captures the sign-in identity the provider was built from, because the base
+// URL, ChatGPT-Account-ID header and quota key all belong to that identity: a
+// resolver that reports another account or auth mode fails the dial instead of
+// pairing the new credentials with stale identity headers.
+type wsDialAuth struct {
+	resolver   func(context.Context) (CodexAuth, error)
+	apiMode    bool
+	accountKey string
+}
+
+// newWSDialAuth captures the identity of the sign-in cfg was built from. The
+// CLI sets a ChatGPT-Account-ID header only for a ChatGPT sign-in, so its
+// absence marks API-key mode.
+func newWSDialAuth(cfg ClientConfig) *wsDialAuth {
+	accountKey := codexQuotaAccountKeyFromHeaders(cfg.Headers)
+	return &wsDialAuth{
+		resolver:   cfg.DialBearerResolver,
+		apiMode:    accountKey == "",
+		accountKey: accountKey,
+	}
+}
+
+// bearer resolves the credential for one dial and returns the bearer to send.
+// The error never contains credential material.
+func (a *wsDialAuth) bearer(ctx context.Context) (string, error) {
+	auth, err := a.resolver(ctx)
+	if err != nil {
+		return "", &wsAuthError{err: err}
+	}
+	apiMode := auth.APIKey != ""
+	if apiMode != a.apiMode {
+		return "", &wsAuthError{err: errCodexSignInChanged}
+	}
+	// An API-key request sends no account header, so only a ChatGPT sign-in has
+	// an account identity to keep.
+	if apiMode {
+		return auth.APIKey, nil
+	}
+	if wsAccountKey(auth.AccountID) != a.accountKey {
+		return "", &wsAuthError{err: errCodexSignInChanged}
+	}
+	if auth.AccessToken == "" {
+		return "", &wsAuthError{err: errCodexSignInNoToken}
+	}
+	return auth.AccessToken, nil
+}
+
+// wsAccountKey returns the quota account key of a ChatGPT account ID, in the
+// form codexQuotaAccountKeyFromHeaders derives from headers.
+func wsAccountKey(accountID string) string {
+	if accountID == "" {
+		return ""
+	}
+	return CodexQuotaAccountKey(accountID)
+}
+
 func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequest) error {
 	if p.conn != nil {
 		return nil
@@ -57,7 +135,16 @@ func (p *codexWSProvider) ensureConnection(ctx context.Context, request ChatRequ
 		p.dialCacheKey = request.PromptCacheKey
 	}
 
-	headers := buildWSHeaders(p.apiKey, p.headers, p.dialCacheKey)
+	apiKey := p.apiKey
+	if p.dialAuth != nil {
+		resolved, err := p.dialAuth.bearer(ctx)
+		if err != nil {
+			return err
+		}
+		apiKey = resolved
+	}
+
+	headers := buildWSHeaders(apiKey, p.headers, p.dialCacheKey)
 	conn, resp, err := websocket.Dial(ctx, p.wsURL, &websocket.DialOptions{
 		HTTPHeader: headers,
 	})

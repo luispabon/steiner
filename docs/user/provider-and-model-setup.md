@@ -218,7 +218,7 @@ providers:
 
 Optional settings:
 
-- `codex.transport` defaults to `http`. `websocket` is experimental and does not fall back to HTTP on failure.
+- `codex.transport` defaults to `http`. `websocket` is experimental and does not fall back to HTTP on failure. Each WebSocket dial reads the stored sign-in again, so a redial after a release does not reuse an expired token; after signing in to a different account or auth mode the redial fails instead of sending the new credentials with the old account. The `http` transport keeps the credential resolved when its provider was built.
 - `codex.min_request_interval` sets the minimum gap between requests and defaults to `0s` (disabled).
 - `compaction_fallback_after` defaults to `30m`.
 

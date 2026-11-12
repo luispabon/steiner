@@ -37,6 +37,11 @@ type codexWSProvider struct {
 	keepaliveDone chan struct{}
 	dialCacheKey  string
 
+	// dialAuth, when non-nil, resolves the bearer credential for every dial, so
+	// a redial uses the current stored sign-in instead of the build-time token.
+	// It is nil for a static APIKey.
+	dialAuth *wsDialAuth
+
 	// gateMu orders ConnectionReleaser releases against request execution. A
 	// request enters before it takes mu and leaves after it drops mu, on the
 	// goroutine that performs the socket I/O. A release that lands while a
@@ -81,6 +86,9 @@ func NewCodexResponsesWS(cfg ClientConfig) (Provider, error) {
 	if cfg.QuotaObserver != nil {
 		provider.quotaObserver = cfg.QuotaObserver
 		provider.quotaAccountKey = codexQuotaAccountKeyFromHeaders(cfg.Headers)
+	}
+	if cfg.DialBearerResolver != nil {
+		provider.dialAuth = newWSDialAuth(cfg)
 	}
 
 	return provider, nil
@@ -237,6 +245,12 @@ func (p *codexWSProvider) executeRequest(ctx context.Context, request ChatReques
 		if err := p.ensureConnection(ctx, request); err != nil {
 			if reconnectAttempt {
 				return ChatResponse{}, sendAttempts, fmt.Errorf("reconnect failed: %w", err)
+			}
+			// Credentials that cannot be resolved fail the same way twice, and a
+			// retry would resolve them again, so report the failure as it is.
+			var authErr *wsAuthError
+			if errors.As(err, &authErr) {
+				return ChatResponse{}, sendAttempts, err
 			}
 			if ctx.Err() != nil {
 				return ChatResponse{}, sendAttempts, err

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -55,6 +56,11 @@ type ClientConfig struct {
 	ProviderType       string
 	StreamErrorLog     *StreamErrorLogger
 	MinRequestInterval time.Duration
+	// DialBearerResolver, when set, supplies the bearer credential for a new
+	// transport connection, so a redial uses the currently stored sign-in
+	// instead of the one captured when the provider was built. Only the Codex
+	// WebSocket provider reads it; nil keeps APIKey as the static bearer.
+	DialBearerResolver func(ctx context.Context) (CodexAuth, error)
 	// QuotaObserver receives Codex quota snapshots passively observed on
 	// successful responses. It takes effect only with a ChatGPT-Account-ID
 	// header; nil disables capture.

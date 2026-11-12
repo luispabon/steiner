@@ -83,6 +83,12 @@ func newCodexProvider(rm provider.ResolvedModel, providerType config.ProviderTyp
 	if !isCodexWSDispatch(rm) {
 		return newCodexResponses(cfg)
 	}
+	// A WebSocket provider outlives this build: releases and evictions make it
+	// redial long after the token read above, so it resolves the stored sign-in
+	// again on every dial instead of replaying an expired bearer.
+	cfg.DialBearerResolver = func(ctx context.Context) (provider.CodexAuth, error) {
+		return provider.ResolveCodexAuth(ctx, httpClient)
+	}
 	return newCodexResponsesWS(cfg)
 }
 
