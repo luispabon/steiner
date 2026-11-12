@@ -28,7 +28,7 @@ const (
 	// ContextSourceConversationSummary identifies summarized conversation blocks.
 	// The current source plan emits no such block: compaction summaries enter the
 	// request as conversation messages that `internal/agent` projects to user
-	// messages, and this source labels them in context reports and tests.
+	// messages.
 	ContextSourceConversationSummary ContextSource = "conversation_summary"
 	// ContextSourceConversation identifies raw conversation message blocks.
 	ContextSourceConversation ContextSource = "conversation"
