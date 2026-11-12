@@ -167,6 +167,7 @@ type advisorRuntime struct {
 	pathPolicy             tool.PathPolicy
 	cacheKey               string
 	maxTokens              *int
+	reductionTriggerTokens int
 	transportSession       string
 	parentTransportSession string
 }
@@ -193,15 +194,16 @@ func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	advisorPolicy := tool.NewPathPolicy(deps.WorkDir, deps.Config.Paths)
 
 	return advisorRuntime{
-		provider:    advisorProvider,
-		model:       advisorResolved,
-		events:      deps.Events,
-		recorder:    deps.UsageRecorder,
-		diagnostics: deps.Diagnostics,
-		workDir:     deps.WorkDir,
-		pathPolicy:  advisorPolicy,
-		cacheKey:    resolveAdvisorCacheKey(deps.CacheKeyStore),
-		maxTokens:   deps.AdvisorCfg.MaxTokens,
+		provider:               advisorProvider,
+		model:                  advisorResolved,
+		events:                 deps.Events,
+		recorder:               deps.UsageRecorder,
+		diagnostics:            deps.Diagnostics,
+		workDir:                deps.WorkDir,
+		pathPolicy:             advisorPolicy,
+		cacheKey:               resolveAdvisorCacheKey(deps.CacheKeyStore),
+		maxTokens:              deps.AdvisorCfg.MaxTokens,
+		reductionTriggerTokens: deps.AdvisorCfg.ReductionTriggerTokens,
 	}, nil
 }
 
@@ -212,8 +214,9 @@ func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.To
 		Model:    r.model,
 		Events:   r.events,
 		Config: advisor.Config{
-			MaxUsesPerRun: maxUses,
-			MaxTokens:     r.maxTokens,
+			MaxUsesPerRun:          maxUses,
+			MaxTokens:              r.maxTokens,
+			ReductionTriggerTokens: r.reductionTriggerTokens,
 		},
 		UsageRecorder:          r.recorder,
 		Diagnostics:            r.diagnostics,

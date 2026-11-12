@@ -11,18 +11,28 @@ type AdvisorStartedEvent struct {
 	Files     []string `json:"files,omitempty"`
 }
 
+// AdvisorReductionInfo records optional advisor context-reduction diagnostics.
+type AdvisorReductionInfo struct {
+	Strategy     string   `json:"strategy,omitempty"`
+	Estimator    string   `json:"estimator,omitempty"`
+	BeforeTokens int      `json:"before_tokens,omitempty"`
+	AfterTokens  int      `json:"after_tokens,omitempty"`
+	Stages       []string `json:"stages,omitempty"`
+}
+
 // AdvisorCompleteEvent records a completed advisor call.
 type AdvisorCompleteEvent struct {
-	Model             string `json:"model,omitempty"`
-	UseNumber         int    `json:"use_number"`
-	MaxUses           int    `json:"max_uses"`
-	Note              string `json:"note,omitempty"`
-	Error             string `json:"error,omitempty"`
-	Truncated         bool   `json:"truncated,omitempty"`
-	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
-	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
-	InputTokens       int    `json:"input_tokens,omitempty"`
-	TokenCount        int    `json:"token_count,omitempty"`
+	Model             string                `json:"model,omitempty"`
+	UseNumber         int                   `json:"use_number"`
+	MaxUses           int                   `json:"max_uses"`
+	Note              string                `json:"note,omitempty"`
+	Error             string                `json:"error,omitempty"`
+	Truncated         bool                  `json:"truncated,omitempty"`
+	CacheReadTokens   int                   `json:"cache_read_tokens,omitempty"`
+	CacheCreateTokens int                   `json:"cache_create_tokens,omitempty"`
+	InputTokens       int                   `json:"input_tokens,omitempty"`
+	TokenCount        int                   `json:"token_count,omitempty"`
+	Reduction         *AdvisorReductionInfo `json:"reduction,omitempty"`
 }
 
 // AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run
@@ -59,6 +69,7 @@ type AdvisorCompleteParams struct {
 	CacheCreateTokens int
 	InputTokens       int
 	TokenCount        int
+	Reduction         *AdvisorReductionInfo
 }
 
 // NewAdvisorCompleteEvent creates an advisor_complete event.
@@ -73,11 +84,21 @@ func NewAdvisorCompleteEvent(p AdvisorCompleteParams) Event {
 		CacheCreateTokens: p.CacheCreateTokens,
 		InputTokens:       p.InputTokens,
 		TokenCount:        p.TokenCount,
+		Reduction:         cloneAdvisorReductionInfo(p.Reduction),
 	}
 	if p.Err != nil {
 		payload.Error = p.Err.Error()
 	}
 	return newEvent(EventTypeAdvisorComplete, payload)
+}
+
+func cloneAdvisorReductionInfo(info *AdvisorReductionInfo) *AdvisorReductionInfo {
+	if info == nil {
+		return nil
+	}
+	cloned := *info
+	cloned.Stages = append([]string(nil), info.Stages...)
+	return &cloned
 }
 
 // NewAdvisorBudgetExhaustedEvent creates an advisor_budget_exhausted event.

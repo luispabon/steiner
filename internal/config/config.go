@@ -410,6 +410,10 @@ type AdvisorConfig struct {
 	MaxUsesPerSubAgent int       `yaml:"max_uses_per_sub_agent"`
 	MaxTokens          *int      `yaml:"max_tokens"`
 	Timeout            *Duration `yaml:"timeout"`
+	// ReductionTriggerTokens is the soft input-token threshold above which the
+	// advisor trims older ordinary tool output from its request. 0 disables
+	// reduction; negative is invalid.
+	ReductionTriggerTokens int `yaml:"reduction_trigger_tokens"`
 }
 
 type oneshotConfig struct {

@@ -19,6 +19,26 @@ Tool calls and tool results in the snapshot are flattened to text. A tool call b
 - Files and question go in one trailing user message after the snapshot, so the system prompt and snapshot prefix do not change between calls.
 - `buildMessages` (`internal/advisor/prompt.go`) takes a trailing assistant message out of the transcript and renders its text at the head of that final user message under `inFlightLabel`. After replay sanitising, a trailing assistant message can only be the message that issued this advisor call and is still waiting for its tool result. It carries no result while its own call runs but gains a `[tool_call: advisor ...]` line once that result exists, so it is kept out of the transcript to make the cached prefix end on a message whose rendering never changes between calls. A trailing assistant message with empty text is dropped without a label, and a trailing non-assistant message stays in the transcript.
 
+## Context reduction
+
+`reduceAdvisorMessages` (`internal/advisor/reduction.go`) runs before the provider call. Its trigger is `Config.ReductionTriggerTokens`, defaulted to `32000` by `internal/config` and disabled by `0`. The effective trigger is lowered to `floor(0.6 * (contextWindow - outputReserve - estimatorPad))` when the advisor model reports a context window and that budget is positive. The output reserve is the configured `advisor.max_tokens`, then the model's `MaxOutputTokens`, then `provider.DefaultMaxOutputTokens`. The target is `floor(0.75 * trigger)` and the protected recent tool tail is `ceil(0.25 * trigger)`.
+
+The initial estimate is one `provider.EstimateChatRequestTokenEstimate` call over the complete flattened request, using the advisor model. Estimator failure falls back to `ceil(request bytes / 3)`, including image payload bytes, and never blocks the call. The same estimate supplies a token per content byte ratio used to convert planned byte savings and to size the protected tail, so candidates are not tokenized. A final estimate after a committed plan feeds diagnostics only.
+
+Frozen replacements live in a per-conversation ledger on `SharedState`, keyed by cache key, transport and parent session, model identity, trigger, and output reserve, with an eight-scope LRU. Each entry stores the source message hash and, only for changed messages, the replacement text and stage. Replay matches the source transcript by hash and applies replacements up to the first mismatch. Appends therefore replay the exact earlier replacements. A mismatch truncates the ledger from that index, and index zero clears it, which resets the ledger after compaction. The same call can replay a frozen ledger below the trigger; it just does not plan a new batch.
+
+The in-flight trailing assistant message is excluded from ledger identity because `buildMessages` moves it to the uncached suffix. The caller's question and files are also excluded because they are unique to each call.
+
+Planning classifies tool results before flattening by resolving assistant tool-call IDs to names, falling back to the message Name. A result is protected when either source names `sub_agent` or `follow_up`, or when both sources are empty. User, system, assistant, and protected tool messages are never changed. Stages run oldest first and stop at the target:
+
+1. Exact duplicate full reads: same path and byte-identical output, full range, no pagination, image, or line truncation. The earlier copy stays and the later eligible copy becomes a note. File hashes are not used because they normalize whitespace.
+2. Head and tail clips of about 2 KB with a valid UTF-8 boundary and an omitted-byte marker. Structured `read` and `bash` results change only `Output` and are re-marshaled with every other field intact; other tool output is clipped as raw text.
+3. Stubs for the oldest remaining results, naming the tool and call and telling the caller to re-read or re-run if the details matter.
+
+A new batch is committed only when its proposed savings reach `ceil(0.1 * trigger)`. Otherwise the proposed changes are discarded and the ledger records exhaustion at the current estimated size; planning retries only after the request grows by another `ceil(0.1 * trigger)`. Ledger reads copy state, planning runs without a lock, and commit is a short compare-and-swap on the ledger epoch. Deterministic inputs produce identical plans.
+
+Requested files are counted at their full bounded size while planning. After a plan is frozen, `dedupeAttachments` re-dedupes them only against untouched full reads in the reduced transcript, so a file reappears when the read that seeded its dedupe was reduced. The `advisor_complete` event carries optional `reduction` diagnostics: strategy, estimator, before and after token estimates, and the stages applied.
+
 ## Budget
 
 The use counter is an `advisor.SharedState` allocated once per runtime (`cliRuntime.advisorState` in `cmd/steiner/runtime_build.go`). `BuildDelegateRegistry` builds a new handler each turn, so the shared counter makes `Config.MaxUsesPerRun` a runtime-lifetime cap across turns and conversations in the process. Calls past the cap return the budget-exhausted result, and the tool stays registered. Child agents get their own counts from `AdvisorBudgetStore`, keyed by agent ID.

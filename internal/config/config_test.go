@@ -172,6 +172,9 @@ func TestDefaultConfigAdvisorDisabledByDefault(t *testing.T) {
 	if cfg.Advisor.MaxTokens != nil {
 		t.Fatalf("advisor.max_tokens = %#v, want nil", cfg.Advisor.MaxTokens)
 	}
+	if got, want := cfg.Advisor.ReductionTriggerTokens, 32000; got != want {
+		t.Fatalf("advisor.reduction_trigger_tokens = %d, want %d", got, want)
+	}
 	if cfg.Advisor.Timeout == nil {
 		t.Fatal("advisor.timeout = nil, want 180s default")
 	} else if got, want := cfg.Advisor.Timeout.Duration(), int64(180*1_000_000_000); got != want {
@@ -310,6 +313,54 @@ func TestApplyAdvisorPatch(t *testing.T) {
 				t.Fatalf("applyAdvisorPatch() = %#v, want %#v", dst, tt.want)
 			}
 		})
+	}
+}
+
+func TestAdvisorReductionTriggerMergeAndValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want int
+	}{
+		{
+			name: "omitted keeps default",
+			yaml: "advisor:\n  enabled: true\n",
+			want: 32000,
+		},
+		{
+			name: "explicit zero disables",
+			yaml: "advisor:\n  reduction_trigger_tokens: 0\n",
+			want: 0,
+		},
+		{
+			name: "explicit value overrides default",
+			yaml: "advisor:\n  reduction_trigger_tokens: 4096\n",
+			want: 4096,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch, err := parseConfigPatch(tt.yaml)
+			if err != nil {
+				t.Fatalf("parseConfigPatch() error = %v", err)
+			}
+			cfg := defaultConfig(nil)
+			applyPatch(&cfg, patch)
+			if got := cfg.Advisor.ReductionTriggerTokens; got != tt.want {
+				t.Fatalf("advisor.reduction_trigger_tokens = %d, want %d", got, tt.want)
+			}
+		})
+	}
+
+	var problems []string
+	validateAdvisorConfig(&problems, AdvisorConfig{ReductionTriggerTokens: -1})
+	if len(problems) != 1 || !strings.Contains(problems[0], "reduction_trigger_tokens") {
+		t.Fatalf("validateAdvisorConfig(negative) problems = %v, want one reduction_trigger_tokens problem", problems)
+	}
+	problems = nil
+	validateAdvisorConfig(&problems, AdvisorConfig{ReductionTriggerTokens: 0})
+	if len(problems) != 0 {
+		t.Fatalf("validateAdvisorConfig(0) problems = %v, want none", problems)
 	}
 }
 

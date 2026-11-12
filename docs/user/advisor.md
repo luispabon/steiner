@@ -52,8 +52,16 @@ The tool stays listed after the cap, so the available tools do not change mid-se
 
 Each advisor call shows as a collapsible advisor panel with the model and the use count.
 
+## Large conversations
+
+The advisor trims older ordinary tool output when the complete advisor request reaches `advisor.reduction_trigger_tokens` (default `32000`; `0` disables). The trigger is soft and measured with the advisor model's token estimator, capped by roughly 60% of the advisor model's context window when that window is known.
+
+Reduction preserves the system prompt, user messages (including asynchronous delegation results), assistant prose and tool-call structure, `sub_agent` and `follow_up` results, the caller's question, and explicitly requested files. It only changes older tool results: an exact duplicate full read is replaced by a note pointing at the earlier read, long head and tail clips replace older output, and stubs remain for the oldest results. A recent tail of tool output is always kept.
+
+Frozen replacements replay unchanged on later calls, so the prefix does not slowly re-clip. A new batch is planned only when the request is at or above the trigger, and it must save a meaningful share of the trigger before it is applied. If the trigger is not reached, the payload is unchanged. Each new batch does change the advisor's cacheable prefix once.
+
 ## Cost and safety
 
-- Each call sends the caller's conversation to the advisor model, so calls late in a long session can be large and slow. The caps bound cost and latency; `advisor.timeout` applies to each attempt.
+- Each call sends the caller's conversation to the advisor model, so calls late in a long session can be large and slow. The caps bound cost and latency; `advisor.timeout` applies to each attempt. Context reduction limits request growth but does not replace the caps.
 - The advisor has no tools and cannot change local state.
 - It uses the credentials of the provider configured for the advisor model.
