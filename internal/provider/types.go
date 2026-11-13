@@ -169,6 +169,12 @@ type ChatResponse struct {
 	// Diagnostics carries per-call measurement metadata. Nil when the provider
 	// measured nothing.
 	Diagnostics *CallDiagnostics `json:"-"`
+	// Warnings holds non-fatal diagnostic messages a non-streaming call could not
+	// deliver as stream chunks. A caller reports them after a successful call; a
+	// failed call returns no response, because the provider keeps its replacement
+	// notice pending for the next request. A streaming caller reads warnings from
+	// ChatChunk.Diagnostic instead.
+	Warnings []string `json:"-"`
 }
 
 // CallDiagnostics carries per-call measurement metadata about how a model call

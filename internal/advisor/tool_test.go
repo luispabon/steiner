@@ -720,3 +720,20 @@ func TestNewHandlerReturnsExplicitMessageOnEmptyContent(t *testing.T) {
 		t.Fatalf("completed.Note = %q, want explicit empty-content message", completed.Note)
 	}
 }
+
+// TestEmitAdvisorWarningsReportsProviderDiagnostics proves a non-streaming
+// advisor call surfaces the provider warnings it folded instead of dropping them.
+func TestEmitAdvisorWarningsReportsProviderDiagnostics(t *testing.T) {
+	sink := &toolSink{}
+	emitAdvisorWarnings(sink, provider.ChatResponse{Warnings: []string{"provider replaced its process"}})
+	if len(sink.events) != 1 {
+		t.Fatalf("event count = %d, want one provider diagnostic", len(sink.events))
+	}
+	payload, ok := sink.events[0].Payload.(output.ProviderDiagnosticEvent)
+	if !ok {
+		t.Fatalf("event payload type = %T, want ProviderDiagnosticEvent", sink.events[0].Payload)
+	}
+	if payload.Severity != "warning" || payload.Message != "provider replaced its process" {
+		t.Errorf("diagnostic = %+v, want the folded warning", payload)
+	}
+}

@@ -1,19 +1,18 @@
 package provider
 
-// Characterization tests for claude_subscription turn recovery and
-// cancellation. Every assertion in this file describes the provider's CURRENT
-// behaviour, verified against the code as it stands. Several of them record
-// defects: a live failure after delivery forces a full transcript reseed, a
-// cancellation leaves the aborted turn's late events unfenced, and a restart
-// after an interrupted turn cannot resume. Treat these as a regression baseline
-// for the recovery design, not as desired behaviour. Each affected test says so
-// in its own doc comment.
+// Characterization tests for claude_subscription turn recovery. Every assertion
+// in this file describes the provider's CURRENT behaviour, verified against the
+// code as it stands. Two of them record defects: a live failure after delivery
+// forces a full transcript reseed, and a restart after an interrupted turn
+// cannot resume. Treat these as a regression baseline for the recovery design,
+// not as desired behaviour. Each affected test says so in its own doc comment.
+// Cancellation recovery is covered by the regression tests in
+// claudesub_cancel_test.go.
 
 import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 )
 
 // claudeSubRecoveryNoteText is the interruption notice the agent appends to the
@@ -326,90 +325,6 @@ func TestClaudeSubRecoveryPreDeliveryFailureReusesProcess(t *testing.T) {
 	}
 	if live := claudeSubRecoveryRecordLen(t, pool, "parent"); live != stored.SyncEntries+3 {
 		t.Errorf("live record entries = %d, want %d (both retried user messages and the reply)", live, stored.SyncEntries+3)
-	}
-}
-
-// TestClaudeSubRecoveryCancellationLeavesLateEventsUnfencedCharacterization
-// proves a cancelled turn neither interrupts the CLI nor fences the events the
-// CLI produces afterwards: the next request on the same process consumes the
-// abandoned turn's late events as its own response. No queue drain is exercised
-// here, because the events are delivered only after the cancelled turn returned.
-//
-// CHARACTERIZATION OF A CURRENT BUG: after cancellation the CLI keeps
-// generating, so the next request adopts the abandoned turn's assistant text and
-// result instead of its own.
-func TestClaudeSubRecoveryCancellationLeavesLateEventsUnfencedCharacterization(t *testing.T) {
-	model := claudeSubTestSpec().Model
-	script := &claudeSubScript{batches: [][]claudeSubEvent{nil, nil}}
-	// Spawning seed: the script is installed by the pool's spawner, so the
-	// process answers control requests and pushes an empty batch per user line.
-	pool, spawner := claudeSubPoolWithScripts(t, script)
-	seed, err := pool.acquire(context.Background(), "parent", claudeSubTestSpec())
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	conn := spawner.call(t, 0).Conn
-	pool.release(seed)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- claudeSubTurn(ctx, pool, ChatRequest{
-			TransportSession: "parent",
-			Model:            model,
-			Messages:         []Message{claudeSubUserText("first")},
-		}, claudeSubRecoveryNoop)
-	}()
-	// The turn writes the usage-gate control and then its user line before it
-	// waits for CLI events, so two sent lines prove the user content is already
-	// committed when the test cancels.
-	lines := conn.waitSent(t, 2)
-	if !strings.Contains(lines[1], `"type":"user"`) {
-		t.Fatalf("second sent line = %s, want the user line", lines[1])
-	}
-	cancel()
-	select {
-	case err = <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("cancelled turn did not return")
-	}
-	// Cancellation makes the queue pop return !ok, so consume reports its generic
-	// connection-closed error. That message says nothing about the process state;
-	// the checks below do.
-	if err == nil || err.Error() != "claude CLI connection closed" {
-		t.Fatalf("cancelled turn error = %v, want \"claude CLI connection closed\"", err)
-	}
-	if conn.isClosed() {
-		t.Error("cancellation closed the CLI process")
-	}
-
-	// The CLI keeps generating after steiner stops consuming, so deliver the
-	// late events of the abandoned turn as they would arrive on the connection.
-	for _, ev := range claudeSubDecodeEvents(t, "turn_text.jsonl") {
-		conn.push(ev)
-	}
-	final := claudeSubRecoveryRunStream(t, pool, ChatRequest{
-		TransportSession: "parent",
-		Model:            model,
-		Messages:         []Message{claudeSubUserText("first"), claudeSubUserText("second")},
-	})
-	if final.Error != "" {
-		t.Fatalf("second turn error = %s", final.Error)
-	}
-	if got := spawner.callCount(); got != 1 {
-		t.Fatalf("spawn count = %d, want 1 (cancelled process reused)", got)
-	}
-	if got := final.Delta.Content; got != "Hello world" {
-		t.Fatalf("second turn text = %q, want the abandoned turn's late text %q", got, "Hello world")
-	}
-	if got := claudeSubRecoveryReseedReason(final); got != "" {
-		t.Errorf("reseed reason = %q, want none (same process reused)", got)
-	}
-	for _, line := range conn.sentLines() {
-		if strings.Contains(line, `"subtype":"interrupt"`) {
-			t.Errorf("cancellation path sent a control interrupt: %s", line)
-		}
 	}
 }
 

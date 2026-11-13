@@ -42,7 +42,9 @@ func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req Cha
 }
 
 // claudeSubFoldStream drains a provider stream and folds it. A cancelled
-// context owns the failure when the stream ended without a terminal chunk.
+// context owns the failure when the stream ended without a terminal chunk. A
+// failed call returns no response, so its warning never reaches this caller; the
+// provider keeps the replacement notice pending and the next request reports it.
 func claudeSubFoldStream(ctx context.Context, stream <-chan ChatChunk) (ChatResponse, error) {
 	var chunks []ChatChunk
 	for chunk := range stream {
@@ -80,6 +82,11 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 		}
 		if chunk.Done {
 			terminal = true
+		}
+		if chunk.Diagnostic != "" {
+			// A folded call has no stream for the warning to travel on, so the
+			// response carries it for the caller to surface.
+			response.Warnings = append(response.Warnings, chunk.Diagnostic)
 		}
 		if chunk.Delta.Role == MessageRoleAssistant {
 			response.Message.Role = MessageRoleAssistant
