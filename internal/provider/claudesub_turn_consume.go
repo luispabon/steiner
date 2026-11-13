@@ -54,6 +54,9 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			return err
 		}
 		if limit := claudeSubEventUsageLimit(ev); limit != nil {
+			// The limit stops this delivery, but the CLI may still emit the rest of
+			// the turn, so the process cannot serve a later call.
+			s.abandon()
 			return limit
 		}
 		if ev.SessionID != "" {

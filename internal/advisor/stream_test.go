@@ -324,3 +324,37 @@ func TestStreamWithEventsEmitsAdvisorThinkingChunksWithAdvisorSource(t *testing.
 		t.Fatalf("thinking chunk source = %q, want %q", payload.Source, output.ChunkSourceAdvisor)
 	}
 }
+
+// TestStreamWithEventsReportsProviderDiagnostics proves an advisor stream does
+// not fold a provider warning into its answer: it reaches the event sink, so the
+// replacement notice behind it is visible.
+func TestStreamWithEventsReportsProviderDiagnostics(t *testing.T) {
+	chunks := []provider.ChatChunk{
+		{Diagnostic: "provider replaced its process", Severity: "warning"},
+		{Done: true, Delta: provider.Message{Content: "advisor answer"}, FinishReason: "stop"},
+	}
+	ch := make(chan provider.ChatChunk, len(chunks))
+	for _, c := range chunks {
+		ch <- c
+	}
+	close(ch)
+
+	sink := &toolSink{}
+	resp, err := streamWithEvents(ch, sink)
+	if err != nil {
+		t.Fatalf("streamWithEvents() error = %v, want nil", err)
+	}
+	if resp.Message.Content != "advisor answer" {
+		t.Fatalf("response content = %q, want %q", resp.Message.Content, "advisor answer")
+	}
+	if len(sink.events) != 1 {
+		t.Fatalf("event count = %d, want one provider diagnostic", len(sink.events))
+	}
+	payload, ok := sink.events[0].Payload.(output.ProviderDiagnosticEvent)
+	if !ok {
+		t.Fatalf("event payload type = %T, want ProviderDiagnosticEvent", sink.events[0].Payload)
+	}
+	if payload.Severity != "warning" || payload.Message != "provider replaced its process" {
+		t.Errorf("diagnostic = %+v, want the streamed warning", payload)
+	}
+}

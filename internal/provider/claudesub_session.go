@@ -19,6 +19,12 @@ import (
 // is gone.
 var errClaudeSubTeardownIncomplete = errors.New("claude_subscription session teardown did not complete within deadline")
 
+// errClaudeSubSessionUnsafe reports that a request tried to deliver on a process
+// a cancelled turn left behind. The CLI may still be producing that turn's
+// events, so the process is retired instead of written to and the request fails
+// rather than risk consuming another call's output.
+var errClaudeSubSessionUnsafe = errors.New("claude_subscription session was abandoned by a cancelled turn")
+
 // claudeSubStartSpec is the settled startup specification for a new session:
 // everything the process needs to launch, computed by the caller. Full request
 // planning (delta, gates, streaming) happens in later steps; start only
@@ -117,6 +123,14 @@ type claudeSubSession struct {
 	queue      *claudeSubQueue
 	stop       chan struct{}
 	routerDone chan struct{}
+
+	// unsafe is set when a delivery reached the CLI and then ended without its
+	// terminal result because the caller was cancelled. The CLI keeps producing
+	// that turn's events, and they cannot be attributed to any later call, so the
+	// process never serves one: claudeSubDeliver refuses it, and every reuse path
+	// retires it first. It is atomic because the reuse check may run on another
+	// goroutine than the delivery that set it.
+	unsafe atomic.Bool
 
 	// overage is terminal for this session's lifetime. It is independent of the
 	// whole-call lock so the router can fail a parked call immediately.
@@ -290,6 +304,45 @@ func (s *claudeSubSession) exited() bool {
 	default:
 		return false
 	}
+}
+
+// markUnsafe records that a cancelled delivery left events this process cannot
+// attribute to a later call, so it can never serve one.
+func (s *claudeSubSession) markUnsafe() {
+	s.unsafe.Store(true)
+}
+
+// abandon marks the session unusable after a delivery was interrupted or stopped
+// mid-turn, and records a pending replacement notice for its key. The notice
+// survives this session, so the call that recovers the conversation reports the
+// replacement even when the process is evicted, idle-reaped or its replacement
+// startup fails first. A summary helper is exempt: it is ephemeral and holds no
+// conversation.
+func (s *claudeSubSession) abandon() {
+	s.markUnsafe()
+	if strings.HasSuffix(s.key, claudeSubSummarySuffix) {
+		return
+	}
+	s.pool.noteReplacement(s.key)
+}
+
+// unsafeForReuse reports whether an earlier cancelled delivery left the process
+// unable to prove which call its events belong to.
+func (s *claudeSubSession) unsafeForReuse() bool {
+	return s.unsafe.Load()
+}
+
+// retireIfUnsafe retires and releases the session, reporting whether it did,
+// when a cancelled delivery left it unsafe for reuse. The caller holds the
+// session's whole-call lease; once this returns true the lease is released and
+// the session must not be used again. The next acquire under the same key starts
+// a fresh process.
+func (s *claudeSubSession) retireIfUnsafe() bool {
+	if !s.unsafeForReuse() {
+		return false
+	}
+	s.pool.retireAndRelease(s.key, s)
+	return true
 }
 
 // isGone reports whether teardown has begun, which marks the session terminal.

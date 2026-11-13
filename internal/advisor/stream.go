@@ -8,6 +8,16 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// emitAdvisorChunkDiagnostic reports one provider diagnostic chunk as an event.
+// The chunk carries no assistant content, so it never contributes to the answer.
+func emitAdvisorChunkDiagnostic(sink output.EventSink, chunk provider.ChatChunk) {
+	severity := chunk.Severity
+	if severity == "" {
+		severity = "warning"
+	}
+	emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Severity: severity, Message: chunk.Diagnostic}))
+}
+
 // streamWithEvents reads all chunks from a streaming response, assembles them
 // into a single ChatResponse, and emits thinking chunks to the event sink.
 // It emits event output for thinking content when sink is non-nil.
@@ -28,6 +38,11 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (
 				return provider.ChatResponse{}, chunk.OriginalError
 			}
 			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
+		}
+		if chunk.Diagnostic != "" {
+			// A provider diagnostic carries no assistant content; surface it as an
+			// event instead of folding it into the advisor's answer.
+			emitAdvisorChunkDiagnostic(sink, chunk)
 		}
 		if role := chunk.Delta.Role; role != "" {
 			message.Role = role

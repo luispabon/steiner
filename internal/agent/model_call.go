@@ -154,13 +154,24 @@ func executeChatRequestWithOptions(ctx context.Context, prov provider.Provider, 
 	if chatErr != nil {
 		return provider.ChatResponse{}, time.Time{}, chatErr
 	}
+	emitResponseWarnings(events, turn, response)
 	return response, time.Time{}, nil
+}
+
+// emitResponseWarnings reports the diagnostic warnings a non-streaming call
+// could not deliver as chunks. A streaming caller reads them from
+// ChatChunk.Diagnostic instead.
+func emitResponseWarnings(events output.EventSink, turn int, response provider.ChatResponse) {
+	for _, warning := range response.Warnings {
+		emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Turn: turn, Severity: "warning", Message: warning}))
+	}
 }
 
 func tryNonStreamFirst(ctx context.Context, prov provider.Provider, turn int, req provider.ChatRequest, requestID string, events output.EventSink, skipNonStream *bool) (provider.ChatResponse, bool, error) {
 	response, chatErr := prov.ChatCompletion(ctx, req)
 	if chatErr == nil {
 		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, nil), turn, requestID))
+		emitResponseWarnings(events, turn, response)
 		return response, true, nil
 	}
 	if _, ok := provider.AsUsageLimit(chatErr); ok {

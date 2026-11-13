@@ -316,6 +316,15 @@ func adviseWithMessages(ctx context.Context, prov provider.Provider, rm provider
 		}
 		return provider.ChatResponse{}, fmt.Errorf("advisor: %w", err)
 	}
+	emitAdvisorWarnings(events, response)
 	emitWireCacheDiagnostic(ctx, prov, req, false, diagnostic)
 	return response, nil
+}
+
+// emitAdvisorWarnings reports the diagnostic warnings a non-streaming advisor
+// call returns instead of streaming them.
+func emitAdvisorWarnings(sink output.EventSink, response provider.ChatResponse) {
+	for _, warning := range response.Warnings {
+		emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Severity: "warning", Message: warning}))
+	}
 }
