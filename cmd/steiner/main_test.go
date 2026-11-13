@@ -1754,3 +1754,61 @@ func cliHelperMain() {
 	}
 	fmt.Fprint(os.Stdout, "{\"ok\":true,\"result\":null}")
 }
+
+// TestExecModeReportsProviderWarningOnce proves the logging provider does not
+// duplicate a non-streaming provider warning: the agent reports it once, and the
+// wrapper only logs the API response.
+func TestExecModeReportsProviderWarningOnce(t *testing.T) {
+	oldBuildRuntime := buildRuntime
+	t.Cleanup(func() {
+		buildRuntime = oldBuildRuntime
+	})
+
+	const warning = "claude_subscription discarded the CLI process behind an earlier turn that did not finish"
+	logPath := filepath.Join(t.TempDir(), "session.log")
+	buildRuntime = func(_ context.Context, cmd *cobra.Command, flags *cliFlags) (cliRuntime, error) {
+		fileSink, err := output.NewFileLogSink(flags.logFile, output.FileLogOptions{ThinkingChunk: true})
+		if err != nil {
+			return cliRuntime{}, err
+		}
+		events := output.NewMultiSink(output.NewStream(cmd.ErrOrStderr()), fileSink)
+		return cliRuntime{
+			cfg: testRuntimeConfig("test-model"),
+			provider: loggingProvider{
+				inner: &fakeProvider{
+					responses: []provider.ChatResponse{{
+						Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "logged answer"},
+						FinishReason: "stop",
+						Warnings:     []string{warning},
+					}},
+				},
+				sink: events,
+			},
+			registry:    tool.NewRegistry(),
+			workDir:     t.TempDir(),
+			homeDir:     t.TempDir(),
+			human:       output.NewStream(cmd.OutOrStdout()),
+			status:      output.NewStream(cmd.ErrOrStderr()),
+			events:      events,
+			sharedInput: bufio.NewReader(strings.NewReader("")),
+			closeFn:     fileSink.Close,
+		}, nil
+	}
+
+	cmd := newRootCommand()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--exec", "--log-file", logPath, "fix the bug"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", logPath, err)
+	}
+	if got := strings.Count(string(data), warning); got != 1 {
+		t.Errorf("warning appears %d times in the log, want exactly once", got)
+	}
+}

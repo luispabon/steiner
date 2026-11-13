@@ -1220,3 +1220,21 @@ func TestExecuteChatRequestCapturesPromptEstimate(t *testing.T) {
 		t.Fatalf("estimated prompt tokens = %d, want not post-response calibrated estimate %d", event.EstimatedPromptTokens, afterResponse)
 	}
 }
+
+// TestEmitResponseWarningsReportsProviderDiagnostics proves a non-streaming call
+// surfaces the provider warnings it folded instead of dropping them.
+func TestEmitResponseWarningsReportsProviderDiagnostics(t *testing.T) {
+	var events []output.Event
+	sink := output.SinkFunc(func(event output.Event) { events = append(events, event) })
+	emitResponseWarnings(sink, 3, provider.ChatResponse{Warnings: []string{"provider replaced its process"}})
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want one provider diagnostic", len(events))
+	}
+	payload, ok := events[0].Payload.(output.ProviderDiagnosticEvent)
+	if !ok {
+		t.Fatalf("event payload type = %T, want ProviderDiagnosticEvent", events[0].Payload)
+	}
+	if payload.Severity != "warning" || payload.Message != "provider replaced its process" || payload.Turn != 3 {
+		t.Errorf("diagnostic = %+v, want the folded warning on turn 3", payload)
+	}
+}

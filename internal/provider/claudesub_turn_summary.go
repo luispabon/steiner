@@ -48,6 +48,13 @@ func claudeSubTryParentFork(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	if err != nil || live == nil {
 		return false, err
 	}
+	if live.retireIfUnsafe() {
+		// A cancelled turn may still be producing events on the live parent, so
+		// its record cannot be forked. The parent is replaced on demand; the
+		// replacement notice stays pending for the call that recovers the
+		// conversation, which reports it there.
+		return false, nil
+	}
 	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
 	if err != nil {
 		pool.release(live)
@@ -69,6 +76,12 @@ func claudeSubParentInPlace(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	live, err := pool.acquireLive(ctx, key)
 	if err != nil {
 		return err
+	}
+	if live != nil && live.retireIfUnsafe() {
+		// The process a cancelled turn left behind may still produce that turn's
+		// events, so the summary cannot be appended to it. The request reseeds on
+		// an ephemeral helper, as it does with no live parent.
+		live = nil
 	}
 	if live == nil {
 		return claudeSubReseedSummary(ctx, pool, req, key, spec, emit)
@@ -197,6 +210,14 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 	s, err := pool.acquire(ctx, key, spec)
 	if err != nil {
 		return err
+	}
+	if s.retireIfUnsafe() {
+		// The process a cancelled turn left behind cannot take the summary. Its
+		// replacement holds no record, so the marked request reseeds on it through
+		// the no-place branch below.
+		if s, err = pool.acquire(ctx, key, spec); err != nil {
+			return err
+		}
 	}
 	err = claudeSubInPlaceSummary(ctx, s, req, emit)
 	// The summary tainted this process, so it is retired at once rather than

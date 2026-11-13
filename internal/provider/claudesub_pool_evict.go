@@ -100,6 +100,32 @@ func (p *ClaudeSubscriptionPool) evictDead(key string) bool {
 	return true
 }
 
+// noteReplacement records that a cancelled delivery abandoned the process for
+// key, so a later call reports the replacement. The notice outlives the session
+// it describes: an eviction, an idle reap, or a failed replacement startup must
+// not lose it, because the recovery would then be silent.
+func (p *ClaudeSubscriptionPool) noteReplacement(key string) {
+	p.mu.Lock()
+	p.replacements[key] = struct{}{}
+	p.mu.Unlock()
+}
+
+// replacementPending reports whether key still has an unreported replacement
+// notice.
+func (p *ClaudeSubscriptionPool) replacementPending(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.replacements[key]
+	return ok
+}
+
+// clearReplacement drops key's notice once a call has reported it to the user.
+func (p *ClaudeSubscriptionPool) clearReplacement(key string) {
+	p.mu.Lock()
+	delete(p.replacements, key)
+	p.mu.Unlock()
+}
+
 // settleRetiredLocked records a failed teardown of a session the pool already
 // removed from its map (a reaped or evicted advisor). A failure that leaves the
 // CLI process not provably terminated is a safety failure: the session is
