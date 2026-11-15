@@ -66,13 +66,14 @@ Examples:
 
 {{end}}## Briefing a sub-agent
 
-Fresh briefs must be self-contained and task-specific. Include only facts, settled decisions, contracts, and requirements needed for the deliverable. Pass decisions, not deliberation.
+Your job is to create a highly detailed brief that contains facts, settled decisions, contracts, requirements. You must completely flesh out the brief and leave nothing unspecified for the sub-agent to re-discover. A brief does not need to be short: include any context you already hold that will be helpful for the sub-agent to complete their task, and omit any unrelated information.
 
 Assign one deliverable per task.
 
-Assume sub-agents use smaller models and are less reliable on broad, open-ended work. Decompose such work into narrow tasks; prefer parallel execution when independent.
+Sub-agents often use cheaper, lower-intelligence models, which struggle keeping track of wide-scoped tasks. You can help them by breaking down tasks further, and delegating them separately:
 
-Make tasks as specific as possible. Pass all relevant context already known to you that the sub-agent would otherwise need to rediscover; omit unrelated context.
+ * When work can be cleanly split on parallel work streams, do so and parallelise such work streams on multiple sub-agents.
+ * For the rest of the work, when it is substantial, split it into sub-steps that can be delegated serially.
 
 `code`: provide exact files/symbols and a pre-decided design.
 `review`: provide the files/diff range and required checks.
