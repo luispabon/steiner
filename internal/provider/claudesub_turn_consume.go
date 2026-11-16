@@ -140,7 +140,7 @@ func claudeSubAPIRetryChunk(retry claudeSubAPIRetry) ChatChunk {
 		RetryAttempt:     retry.Attempt,
 		RetryMaxAttempts: retry.MaxRetries,
 		RetryDelay:       retry.RetryDelay,
-		cliRetryNotice:   true,
+		cliRetry:         &retry,
 	}
 }
 
@@ -148,7 +148,21 @@ func claudeSubAPIRetryChunk(retry claudeSubAPIRetry) ChatChunk {
 // retry. It produced no output, so it must not close the pre-output retry
 // window and it must not trigger the pending replacement warning.
 func claudeSubAPIRetryNotice(chunk ChatChunk) bool {
-	return chunk.cliRetryNotice
+	return chunk.cliRetry != nil
+}
+
+// claudeSubAPIRetrySummary reports the CLI's own API retries of one folded call
+// as a single warning. A non-streaming call has no activity row to show them on.
+func claudeSubAPIRetrySummary(count int, last *claudeSubAPIRetry) string {
+	category := last.Error
+	if category == "" {
+		category = "unknown"
+	}
+	summary := fmt.Sprintf("claude CLI retried the API request %d time(s) (last: %s", count, category)
+	if last.ErrorStatus != 0 {
+		summary += fmt.Sprintf(", status %d", last.ErrorStatus)
+	}
+	return summary + ")"
 }
 
 // claudeSubAPIRetryMessage describes one CLI API retry. It never claims content

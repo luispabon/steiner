@@ -177,3 +177,31 @@ func TestConsumeModelStreamReportsNonResetRetry(t *testing.T) {
 		t.Fatalf("retry diagnostic message = %q, want %q", got, want)
 	}
 }
+
+// TestTryNonStreamFirstReportsOneAPIRetrySummary proves a non-streaming call
+// surfaces the CLI's own API retries as the single folded summary warning, not
+// as one warning per notice.
+func TestTryNonStreamFirstReportsOneAPIRetrySummary(t *testing.T) {
+	summary := "claude CLI retried the API request 3 time(s) (last: rate_limit, status 529)"
+	prov := &fakeProvider{responses: []provider.ChatResponse{{
+		Message:  provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
+		Warnings: []string{summary},
+	}}}
+	var events []output.Event
+	sink := output.SinkFunc(func(event output.Event) { events = append(events, event) })
+	if _, done, err := tryNonStreamFirst(context.Background(), prov, 1, provider.ChatRequest{Model: "test-model"}, "request-1", sink, nil); err != nil || !done {
+		t.Fatalf("tryNonStreamFirst() = done %v, err %v, want the non-streaming answer", done, err)
+	}
+	var diagnostics []output.ProviderDiagnosticEvent
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ProviderDiagnosticEvent); ok {
+			diagnostics = append(diagnostics, payload)
+		}
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %+v, want exactly one summary warning", diagnostics)
+	}
+	if diagnostics[0].Severity != "warning" || diagnostics[0].Message != summary {
+		t.Errorf("diagnostic = %+v, want the summary warning", diagnostics[0])
+	}
+}

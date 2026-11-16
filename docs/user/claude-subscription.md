@@ -59,7 +59,9 @@ You can switch model and reasoning effort during a session.
 
 ## API retries
 
-The CLI retries its own retryable API failures, using the limit Claude Code sets, before it produces any output. While it does, the activity row shows `retrying N/M` with the attempt and the permitted retry count. A retry discards nothing Steiner already received and does not end the response. The dev log records the failure category, the HTTP status when the CLI had a response, and the delay before the next attempt.
+The CLI retries its own retryable API failures, using the limit Claude Code sets, before it produces any output. While a streaming response does so, the activity row shows `retrying N/M` with the attempt and the permitted retry count. A non-streaming response has no live indicator, so it reports one summary warning afterwards naming how many retries happened and the last failure. A retry discards nothing Steiner already received and does not end the response. The dev log records the failure category, the HTTP status when the CLI had a response, and the delay before the next attempt.
+
+When the CLI has already retried an API error in a turn, Steiner does not start a fresh process to retry it again.
 
 ## Privacy
 
