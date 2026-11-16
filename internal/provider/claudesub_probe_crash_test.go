@@ -366,11 +366,11 @@ func claudeSubProbeCrashExitFinding(exit *claudeSubProbeExit) (string, error) {
 
 // claudeSubProbeSeam is how a continuation joins the text it continues, judged on
 // the joined text: the item numbers the partial and the continuation each wrote,
-// what the join duplicates, what the merged numbering skips, whether the
-// continuation finished a number the partial cut, and whether any item sits on a
-// line with another. An item is complete when its number sits on a line the
-// partial finished. Errored records that the continuation's own turn ended with an
-// error result, which the calling trial sets.
+// what the join duplicates across the seam, what the merged numbering skips,
+// whether the continuation finished a number the partial cut, and whether the join
+// lost the line break at the seam. An item is complete when its number sits on a
+// line the partial finished. Errored records that the continuation's own turn ended
+// with an error result, which the calling trial sets.
 type claudeSubProbeSeam struct {
 	PartialLastComplete int
 	PartialMax          int
@@ -395,11 +395,14 @@ var claudeSubProbeItemPattern = regexp.MustCompile(`item-([0-9]+)`)
 // after them, after the line break or inside a numbered prefix. A token that ends
 // inside the partial is the partial's item, a token that starts past the partial is
 // the continuation's, and a token bridging the two is a number the continuation
-// finished. Two item tokens on one line mean an item is not on its own line, which
-// is what a lost line break looks like in the join.
+// finished. Judgements that belong to the seam rather than to the whole reply stay
+// scoped to it: a duplicate is a continuation number the partial already wrote, and
+// the lost line break is judged on the last partial item and the continuation's
+// first, not on any two items that share a line. The missing scan stops at
+// claudeSubProbeListEnd, so a runaway number cannot make it long.
 func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam {
 	seam := claudeSubProbeSeam{}
-	seam.CutDigits, _ = claudeSubProbeCutItemDigits(partial)
+	seam.CutDigits = claudeSubProbeCutItemDigits(partial)
 	if complete := claudeSubProbeItemNumbers(claudeSubProbeCompleteLines(partial)); len(complete) > 0 {
 		seam.PartialLastComplete = complete[len(complete)-1]
 	}
@@ -407,34 +410,44 @@ func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam 
 	boundary := len(partial)
 	matches := claudeSubProbeItemMatches(joined)
 	counts := make(map[int]int, len(matches))
-	scanned, line, previousLine := 0, 0, -1
+	partialNumbers := make(map[int]struct{}, len(matches))
+	duplicated := make(map[int]struct{}, len(matches))
+	partialLine, scanned, line := -1, 0, 0
 	for _, match := range matches {
 		line += strings.Count(joined[scanned:match.Start], "\n")
 		scanned = match.End
-		if line == previousLine {
-			seam.MissingLineBreak = true
-		}
-		previousLine = line
 		counts[match.Number]++
-		if counts[match.Number] == 2 {
-			seam.Duplicate = append(seam.Duplicate, match.Number)
-		}
 		if match.Number > seam.MaxItem {
 			seam.MaxItem = match.Number
 		}
 		if match.End <= boundary {
+			partialNumbers[match.Number] = struct{}{}
 			seam.PartialMax = match.Number
+			partialLine = line
 			continue
 		}
 		if match.Start < boundary {
 			seam.FragmentCompletes = true
 		}
 		seam.ContinuationItems++
-		if seam.ContinuationFirst == 0 {
+		if seam.ContinuationItems == 1 {
 			seam.ContinuationFirst = match.Number
+			// The continuation picked up on the partial's unfinished line, so the
+			// join dropped the break between the two items.
+			seam.MissingLineBreak = partialLine == line
+		}
+		if _, ok := partialNumbers[match.Number]; ok {
+			if _, seen := duplicated[match.Number]; !seen {
+				duplicated[match.Number] = struct{}{}
+				seam.Duplicate = append(seam.Duplicate, match.Number)
+			}
 		}
 	}
-	for number := 1; number <= seam.MaxItem; number++ {
+	limit := seam.MaxItem
+	if limit > claudeSubProbeListEnd {
+		limit = claudeSubProbeListEnd
+	}
+	for number := 1; number <= limit; number++ {
 		if counts[number] == 0 {
 			seam.Missing = append(seam.Missing, number)
 		}
@@ -491,25 +504,25 @@ func claudeSubProbeCompleteLines(text string) string {
 	return text[:index+1]
 }
 
-// claudeSubProbeCutItemDigits reports whether the partial's final, unterminated
-// line was cut inside an item number, and the digits it had written. The digits
-// are empty when the cut fell inside "item-" itself.
-func claudeSubProbeCutItemDigits(partial string) (string, bool) {
+// claudeSubProbeCutItemDigits returns the digits the partial's final, unterminated
+// line wrote after its item prefix, and nothing when that line is not a cut item
+// token. The digits are empty when the cut fell inside "item-" itself.
+func claudeSubProbeCutItemDigits(partial string) string {
 	if partial == "" || strings.HasSuffix(partial, "\n") {
-		return "", false
+		return ""
 	}
 	line := partial[strings.LastIndex(partial, "\n")+1:]
 	index := strings.LastIndex(line, "item-")
 	if index < 0 {
-		return "", false
+		return ""
 	}
 	digits := line[index+len("item-"):]
 	for _, r := range digits {
 		if r < '0' || r > '9' {
-			return "", false
+			return ""
 		}
 	}
-	return digits, true
+	return digits
 }
 
 // claudeSubProbeMentionsInterruption reports whether text talks about the

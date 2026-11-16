@@ -139,6 +139,80 @@ func TestClaudeSubProbeSeamAnalysis(t *testing.T) {
 			wantVerdict: "duplicate",
 		},
 		{
+			name:         "repeated item inside the partial",
+			partial:      claudeSubProbeItemText(1, 40) + "item-5\n",
+			continuation: claudeSubProbeItemText(41, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 5, PartialMax: 5, ContinuationFirst: 41, ContinuationItems: 160,
+				MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "repeated item inside the continuation",
+			partial:      claudeSubProbeItemText(1, 40),
+			continuation: claudeSubProbeItemText(41, 50) + "item-45\n" + claudeSubProbeItemText(51, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 41, ContinuationItems: 161,
+				MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "cut immediately after the item prefix",
+			partial:      claudeSubProbeItemText(1, 40) + "item-",
+			continuation: "41\n" + claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 41, ContinuationItems: 160,
+				FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "gap after a finished line",
+			partial:      claudeSubProbeItemText(1, 40),
+			continuation: claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 42, ContinuationItems: 159,
+				Missing: []int{41}, MaxItem: 200},
+			wantVerdict: "gap",
+		},
+		{
+			name:         "gap before a lost line break",
+			partial:      claudeSubProbeItemText(1, 40) + "item-41",
+			continuation: "item-43\n" + claudeSubProbeItemText(44, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 41, ContinuationFirst: 43, ContinuationItems: 158,
+				Missing: []int{42}, MissingLineBreak: true, CutDigits: "41", MaxItem: 200},
+			wantVerdict: "gap",
+		},
+		{
+			name:         "duplicate before a lost line break",
+			partial:      claudeSubProbeItemText(1, 40) + "item-41",
+			continuation: "item-41 forty-one\n" + claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 41, ContinuationFirst: 41, ContinuationItems: 160,
+				Duplicate: []int{41}, MissingLineBreak: true, CutDigits: "41", MaxItem: 200},
+			wantVerdict: "duplicate",
+		},
+		{
+			// The glued digits fold item-41 into item-4142, so the join shows a missing
+			// item instead of two items sharing one line.
+			name:         "numbered list joined without a line break",
+			partial:      strings.TrimSuffix(claudeSubProbeNumberedItemText(1, 41), "\n"),
+			continuation: "42. item-42\n" + claudeSubProbeNumberedItemText(43, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 4142, ContinuationItems: 160,
+				Missing: []int{41}, CutDigits: "41", FragmentCompletes: true, MaxItem: 4142},
+			wantVerdict: "gap",
+		},
+		{
+			name:         "runaway item number",
+			partial:      "item-1",
+			continuation: "234567890123",
+			want: claudeSubProbeSeam{ContinuationFirst: 1234567890123, ContinuationItems: 1,
+				Missing: claudeSubProbeItemRange(1, 200), CutDigits: "1", FragmentCompletes: true, MaxItem: 1234567890123},
+			wantVerdict: "gap",
+		},
+		{
+			name:         "items listed inside a commentary line",
+			partial:      claudeSubProbeItemText(1, 40),
+			continuation: "Continuing with item-41 and item-42\n" + claudeSubProbeItemText(43, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 41, ContinuationItems: 160,
+				MaxItem: 200},
+			wantVerdict: "commentary",
+		},
+		{
 			name:         "line break after a whole final item number",
 			partial:      claudeSubProbeItemText(1, 40) + "item-41",
 			continuation: "\n" + claudeSubProbeItemText(42, 200),
@@ -252,26 +326,25 @@ func TestClaudeSubProbeVerdictSummary(t *testing.T) {
 	}
 }
 
-// TestClaudeSubProbeCutItemDigits checks the cut detection behind the fragment
-// flag: only an unterminated final line ending in item-<digits> counts.
+// TestClaudeSubProbeCutItemDigits checks the digits the finding line reports for the
+// partial's cut line: only an unterminated final line ending in item-<digits> yields
+// any, so every other shape reports none.
 func TestClaudeSubProbeCutItemDigits(t *testing.T) {
 	cases := []struct {
 		name    string
 		partial string
 		want    string
-		wantCut bool
 	}{
-		{name: "cut inside the number", partial: "item-1 one\nitem-4", want: "4", wantCut: true},
-		{name: "cut inside item-", partial: "item-1 one\nitem-", wantCut: true},
+		{name: "cut inside the number", partial: "item-1 one\nitem-4", want: "4"},
+		{name: "cut inside item-", partial: "item-1 one\nitem-"},
 		{name: "completed line", partial: "item-1 one\nitem-4 four\n"},
 		{name: "cut inside the item text", partial: "item-1 one\nitem-4 fo"},
 		{name: "empty partial"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			digits, cut := claudeSubProbeCutItemDigits(tc.partial)
-			if cut != tc.wantCut || digits != tc.want {
-				t.Fatalf("cut digits = %q (cut=%v), want %q (cut=%v)", digits, cut, tc.want, tc.wantCut)
+			if got := claudeSubProbeCutItemDigits(tc.partial); got != tc.want {
+				t.Fatalf("cut digits = %q, want %q", got, tc.want)
 			}
 		})
 	}
