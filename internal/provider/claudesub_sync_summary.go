@@ -11,16 +11,13 @@ import (
 
 // markDrained records that an interrupted turn was driven to its aborted
 // terminal result, so the CLI holds a transcript steiner can prove and the next
-// request may append to it. Only a delivery whose last record entry is the user
-// entry that turn wrote can accept the agent's kept partial, so any other shape
-// leaves the record undrained and the next request reseeds. A drained record
-// plans no summary: it ends on a user message the CLI never answered.
-func (s *claudeSubSync) markDrained() {
-	s.drained = false
-	if n := len(s.entries); n == 0 || s.entries[n-1].Role != MessageRoleUser {
-		return
-	}
-	s.drained = true
+// request may append to it. start is the ledger length the delivery began from:
+// only a record whose trailing entries are exactly the user and tool entries that
+// delivery wrote can accept the agent's kept partial, so any other shape leaves
+// the record undrained and the next request reseeds. A drained record plans no
+// summary, because its tail is not a completed turn.
+func (s *claudeSubSync) markDrained(start int) {
+	s.drained = claudeSubDeliveryTail(s.entries, start)
 }
 
 // markInterrupted records that the CLI was interrupted (Esc or tool

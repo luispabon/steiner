@@ -27,8 +27,13 @@ var (
 )
 
 // claudeSubDelivery records what one delivery's event stream produced, so a
-// cancelled delivery can tell whether its process is provably clean.
+// cancelled delivery can tell whether its process is provably clean. The
+// delivery that owns it resets it before it writes anything.
 type claudeSubDelivery struct {
+	// entries is the ledger length the delivery started from, taken once its
+	// planned record was adopted. Everything the delivery appends after that is
+	// a user or tool entry it wrote itself.
+	entries int
 	// terminal is set once the turn's terminal result was decoded.
 	terminal bool
 	// assistant is set once an assistant message of this delivery was recorded.
@@ -45,7 +50,7 @@ type claudeSubDelivery struct {
 func claudeSubRecoverInterrupted(ctx context.Context, s *claudeSubSession) {
 	if claudeSubInterruptedDrainable(s) && claudeSubDrainInterrupted(ctx, s) == nil {
 		claudeSubDiscardPending(s)
-		s.sync.markDrained()
+		s.sync.markDrained(s.delivery.entries)
 		return
 	}
 	s.abandon()
@@ -54,10 +59,14 @@ func claudeSubRecoverInterrupted(ctx context.Context, s *claudeSubSession) {
 // claudeSubInterruptedDrainable reports whether a cancelled delivery may be
 // drained instead of abandoning its process. A drain proves the CLI is clean
 // only when the turn's terminal result has not been read, the delivery recorded
-// no assistant message, and the session can still accept an interrupt.
+// no assistant message, the record holds nothing but the user and tool entries
+// this delivery appended, and the session can still accept an interrupt.
 func claudeSubInterruptedDrainable(s *claudeSubSession) bool {
-	return !s.unsafeForReuse() && !s.isGone() && s.overage() == nil &&
-		!s.delivery.terminal && !s.delivery.assistant
+	if s.unsafeForReuse() || s.isGone() || s.overage() != nil ||
+		s.delivery.terminal || s.delivery.assistant {
+		return false
+	}
+	return claudeSubDeliveryTail(s.sync.entries, s.delivery.entries)
 }
 
 // claudeSubDiscardPending retires the MCP calls the interrupted turn registered

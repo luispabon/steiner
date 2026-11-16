@@ -612,6 +612,10 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	if !req.AdvisorCacheProfile {
 		s.sync.adopt(delta)
 	}
+	// Everything this delivery appends from here on is its own user or tool
+	// entry; a drain needs that boundary to prove nothing else touched the
+	// record while the turn streamed.
+	s.delivery = claudeSubDelivery{entries: len(s.sync.entries)}
 	for _, result := range delta.ToolResults {
 		call := claudeSubPendingByID(s, result.ToolCallID)
 		if call == nil {

@@ -112,8 +112,9 @@ func claudeSubWantDrainedReuse(t *testing.T, spawner *claudeSubTestSpawner, got 
 }
 
 // claudeSubWantOnlyFollowUpUserLine asserts the follow-up's user line carries
-// the new message and never the text the cancelled turn streamed.
-func claudeSubWantOnlyFollowUpUserLine(t *testing.T, conn *claudeSubFakeConn, streamed string) {
+// the new message and never the text the cancelled turn streamed or the content
+// this delivery already sent through another channel.
+func claudeSubWantOnlyFollowUpUserLine(t *testing.T, conn *claudeSubFakeConn, absent ...string) {
 	t.Helper()
 	lines := claudeSubUserLines(conn)
 	if len(lines) != 2 {
@@ -123,11 +124,13 @@ func claudeSubWantOnlyFollowUpUserLine(t *testing.T, conn *claudeSubFakeConn, st
 	if !strings.Contains(last, "keep going") {
 		t.Errorf("follow-up user line = %s, want the new message", last)
 	}
-	if streamed != "" && strings.Contains(last, streamed) {
-		t.Errorf("follow-up user line = %s, want it to carry neither the streamed text nor the interruption note", last)
-	}
-	if strings.Contains(last, claudeSubRecoveryNoteText) {
-		t.Errorf("follow-up user line = %s, want no interruption note", last)
+	for _, text := range append(absent, claudeSubRecoveryNoteText) {
+		if text == "" {
+			continue
+		}
+		if strings.Contains(last, text) {
+			t.Errorf("follow-up user line = %s, want it to carry %q again", last, text)
+		}
 	}
 	if strings.Contains(last, "Conversation so far") {
 		t.Errorf("follow-up user line = %s, want a delta, not a reseeded transcript", last)
@@ -548,13 +551,135 @@ func TestClaudeSubDrainStopsOnPoolClose(t *testing.T) {
 	}
 }
 
+// claudeSubToolLoopSetup runs the first sub-agent turn, which streams one
+// tool_use and ends, and returns the request history up to its tool result. more
+// supplies the scripts of any later process.
+func claudeSubToolLoopSetup(t *testing.T, sc *claudeSubScript, more ...*claudeSubScript) (*ClaudeSubscriptionPool, *claudeSubTestSpawner, string, string, []ToolSpec, []Message) {
+	t.Helper()
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	pool, spawner := claudeSubPoolWithScripts(t, append([]*claudeSubScript{sc}, more...)...)
+	req := claudeSubDrainRequest("child-1", model, claudeSubUserText("read notes"))
+	req.Tools = tools
+	done := claudeSubRunTurn(t, pool, req)
+	if len(done.Delta.ToolCalls) != 1 {
+		t.Fatalf("first turn tool calls = %+v, want one", done.Delta.ToolCalls)
+	}
+	result := Message{Role: MessageRoleTool, ToolCallID: done.Delta.ToolCalls[0].ID, Content: "notes body"}
+	history := []Message{claudeSubUserText("read notes"), done.Delta, result}
+	return pool, spawner, "child-1", model, tools, history
+}
+
+// TestClaudeSubDrainReusesProcessAfterToolLoopStop proves a stop while the model
+// streams after a tool result keeps the process: the CLI continues the same turn
+// after the result, so the record's trailing entry is that tool result.
+func TestClaudeSubDrainReusesProcessAfterToolLoopStop(t *testing.T) {
+	tests := []struct {
+		name string
+		// partial is the text the agent kept from the stopped stream; empty means
+		// only a tool_use block streamed after the result.
+		partial string
+	}{
+		{name: "kept partial", partial: "half a report"},
+		{name: "no partial"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := &claudeSubScript{
+				batches: [][]claudeSubEvent{
+					claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+					claudeSubDecodeEvents(t, "turn_text.jsonl"),
+				},
+				interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+			}
+			pool, spawner, key, model, tools, history := claudeSubToolLoopSetup(t, sc)
+			conn := spawner.call(t, 0).Conn
+
+			// The tool result reaches the CLI through the MCP host, so the events it
+			// streams next are queued directly, as the fake CLI cannot see the call.
+			for _, ev := range claudeSubDecodeEvents(t, "turn_text.jsonl")[:8] {
+				conn.push(ev)
+			}
+			req := claudeSubDrainRequest(key, model, history...)
+			req.Tools = tools
+			if err := claudeSubCancelOnText(t, pool, req); err == nil {
+				t.Fatal("cancelled tool-loop turn returned no error")
+			}
+			if conn.isClosed() {
+				t.Fatal("the drained process was retired")
+			}
+
+			next := append([]Message(nil), history...)
+			if tt.partial != "" {
+				next = append(next, claudeSubRecoveryPartial(tt.partial))
+			}
+			next = append(next, claudeSubUserText("keep going"))
+			followUp := claudeSubDrainRequest(key, model, next...)
+			followUp.Tools = tools
+			got := claudeSubRunCollected(t, pool, followUp)
+			claudeSubWantDrainedReuse(t, spawner, got)
+			claudeSubWantOnlyFollowUpUserLine(t, conn, "notes body", "Hello world", tt.partial)
+		})
+	}
+}
+
+// TestClaudeSubDrainFallsBackOnUnexpectedEntry proves the drain refuses a record
+// that gained an entry the delivery did not write itself.
+func TestClaudeSubDrainFallsBackOnUnexpectedEntry(t *testing.T) {
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+	}
+	pool, spawner, key, model, tools, history := claudeSubToolLoopSetup(t, sc, claudeSubTextTurns(t, 1))
+	conn := spawner.call(t, 0).Conn
+	for _, ev := range claudeSubDecodeEvents(t, "turn_text.jsonl")[:8] {
+		conn.push(ev)
+	}
+
+	// The delivery records an assistant entry the drain cannot account for. It is
+	// written from the emit callback, which runs on the delivery's own goroutine
+	// while it holds the session lease, so the write cannot race.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := claudeSubDrainRequest(key, model, history...)
+	req.Tools = tools
+	err := claudeSubTurn(ctx, pool, req, func(chunk ChatChunk) error {
+		if chunk.Delta.Content != "" {
+			claudeSubLiveSession(pool, key).sync.commitAssistant(Message{Role: MessageRoleAssistant, Content: "recorded by someone else"}, "")
+			cancel()
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("cancelled tool-loop turn returned no error")
+	}
+
+	next := append(append([]Message(nil), history...), claudeSubRecoveryPartial("half a report"), claudeSubUserText("keep going"))
+	followUp := claudeSubDrainRequest(key, model, next...)
+	followUp.Tools = tools
+	got := claudeSubRunCollected(t, pool, followUp)
+	if got.err != nil {
+		t.Fatalf("follow-up error = %v", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the unproven process replaced)", n)
+	}
+	if !conn.isClosed() {
+		t.Error("a record changed by another writer was reused")
+	}
+	claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+}
+
 // TestClaudeSubSyncDrainedPartialAcceptance proves the drained ledger state
 // accepts exactly one relaxed text-only assistant message.
 func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 	base := func(t *testing.T) *claudeSubSync {
 		t.Helper()
 		s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
-		s.markDrained()
+		s.markDrained(0)
 		return s
 	}
 	partial := func(fields Message) Message {
@@ -591,6 +716,29 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 		}
 	})
 
+	t.Run("tool-result tail is accepted", func(t *testing.T) {
+		s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+		s.commitAssistant(claudeSubSyncAssistantMsg("a1", "c1"), "")
+		start := len(s.entries)
+		s.commitToolResult(claudeSubSyncToolMsg("c1", "body"))
+		s.markDrained(start)
+		if !s.drained {
+			t.Fatal("a delivery that only appended a tool result left the record undrained")
+		}
+		delta, err := s.plan(ChatRequest{Messages: []Message{
+			claudeSubSyncUserMsg("hi"),
+			claudeSubSyncAssistantMsg("a1", "c1"),
+			claudeSubSyncToolMsg("c1", "body"),
+			{Role: MessageRoleAssistant, Content: "partial", Turn: 2},
+		}})
+		if err != nil {
+			t.Fatalf("plan: %v", err)
+		}
+		if len(delta.User) != 0 || len(delta.ToolResults) != 0 {
+			t.Fatalf("delta = %+v, want nothing sent", delta)
+		}
+	})
+
 	tests := []struct {
 		name string
 		msgs []Message
@@ -620,7 +768,7 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
 			if tc.name != "no drained state" {
-				s.markDrained()
+				s.markDrained(0)
 			}
 			if _, err := s.plan(ChatRequest{Messages: tc.msgs}); !errors.Is(err, errClaudeSubHistoryChanged) {
 				t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
@@ -634,7 +782,7 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 // sent again.
 func TestClaudeSubSyncDrainedClearedByCommitSent(t *testing.T) {
 	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
-	s.markDrained()
+	s.markDrained(0)
 	msgs := []Message{
 		claudeSubSyncUserMsg("hi"),
 		{Role: MessageRoleAssistant, Content: "partial", Turn: 1},

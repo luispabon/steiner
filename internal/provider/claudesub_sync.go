@@ -264,6 +264,23 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 	return delta, nil
 }
 
+// claudeSubDeliveryTail reports whether entries[start:] are exactly the user and
+// tool entries one delivery writes itself, and whether start bounds the record.
+// A cancelled delivery may claim its process is clean only when nothing else
+// touched the record after it, because the record is what the next request is
+// matched against.
+func claudeSubDeliveryTail(entries []claudeSubEntry, start int) bool {
+	if start < 0 || start > len(entries) {
+		return false
+	}
+	for _, e := range entries[start:] {
+		if e.Role != MessageRoleUser && e.Role != MessageRoleTool {
+			return false
+		}
+	}
+	return true
+}
+
 // adopt replaces the record with the state plan computed for a normal-mode
 // request. Call it only after every check that can fail before delivery has
 // passed.

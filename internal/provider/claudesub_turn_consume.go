@@ -8,7 +8,8 @@ import (
 )
 
 func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatChunk) error) error {
-	s.delivery = claudeSubDelivery{}
+	// The per-delivery facts were reset by claudeSubDeliver before it wrote the
+	// delta, so they describe this delivery only.
 	decoder := newClaudeSubDecoder(claudeSubDecodeHooks{
 		ToolName: func(name string) string {
 			if s.host == nil {
