@@ -189,7 +189,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			name:    "E5-resume-at-uuid",
 			summary: "interrupt a persisted turn, then resume at an earlier assistant uuid and fork it",
 			argv:    parent,
-			timeout: 330 * time.Second,
+			timeout: 340 * time.Second,
 			steps: steps(
 				3,
 				[]time.Duration{

@@ -27,8 +27,11 @@ const (
 
 	// claudeSubProbeTeardownBudget is the per-process budget the step plan charges
 	// for retiring a process and closing its pool through the production paths,
-	// which no wait covers.
-	claudeSubProbeTeardownBudget = 5 * time.Second
+	// which no wait covers. The coordinator spends at most two claudeSubCloseGrace
+	// waits (the child's own exit after stdin EOF, then the readers' drain after
+	// tree termination) around its terminate and wait steps, so the budget is that
+	// sum plus claudeSubProbeTeardownMargin.
+	claudeSubProbeTeardownMargin = 2 * time.Second
 
 	// claudeSubProbeInitWorstCase is the worst case of the init gate: no init
 	// before the first input, a gating turn that spends its whole result budget,
@@ -40,6 +43,11 @@ const (
 	claudeSubProbeInitPathWarmup      = "init after the separate warmup turn"
 	claudeSubProbeInitPathFirstPrompt = "init after the experiment's first prompt"
 )
+
+// claudeSubProbeTeardownBudget is the per-process teardown term claudeSubProbeSteps
+// plan charges: the production coordinator's two close-grace waits plus a margin for
+// its terminate, reap and cleanup steps.
+var claudeSubProbeTeardownBudget = 2*claudeSubCloseGrace + claudeSubProbeTeardownMargin
 
 // claudeSubProbeCallHost is the MCP host subset the gating rejection uses. The
 // production host satisfies it; the self-check supplies a fake.

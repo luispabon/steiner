@@ -151,8 +151,8 @@ func TestClaudeSubProbeExperimentBounds(t *testing.T) {
 	if claudeSubProbeCrashTrials != 1 {
 		t.Fatalf("the full run plans %d E7 trials; only one fits the ceiling", claudeSubProbeCrashTrials)
 	}
-	wantE7 := claudeSubProbeInitWorstCase + claudeSubProbeCrashTrials*(claudeSubProbeInitWorstCase+
-		claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation+
+	wantE7 := claudeSubProbeCrashTrials * (2*claudeSubProbeInitWorstCase +
+		claudeSubProbeCrashReply + claudeSubProbeCrashStream + claudeSubProbeCrashExit + claudeSubProbeCrashContinuation +
 		2*claudeSubProbeTeardownBudget)
 	if got := byName["E7-crash-resume-continue"].steps.plan(); got != wantE7 {
 		t.Fatalf("E7 step plan = %s, want %s for %d trials", got, wantE7, claudeSubProbeCrashTrials)

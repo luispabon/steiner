@@ -305,8 +305,8 @@ func TestClaudeSubProbeE7TrialBounds(t *testing.T) {
 				t.Fatalf("trials = %d, want %d", count, tc.wantTrials)
 			}
 			plan := claudeSubProbeE7Steps(count)
-			want := claudeSubProbeInitWorstCase + time.Duration(count)*(claudeSubProbeInitWorstCase+
-				claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation+
+			want := time.Duration(count) * (2*claudeSubProbeInitWorstCase +
+				claudeSubProbeCrashReply + claudeSubProbeCrashStream + claudeSubProbeCrashExit + claudeSubProbeCrashContinuation +
 				2*claudeSubProbeTeardownBudget)
 			if got := plan.plan(); got != want {
 				t.Fatalf("plan(%d) = %s, want %s", count, got, want)

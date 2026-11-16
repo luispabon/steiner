@@ -81,6 +81,14 @@ func TestClaudeSubProbeSeamAnalysis(t *testing.T) {
 			wantVerdict:  "restart",
 		},
 		{
+			name:         "continuation completes a cut item prefix",
+			partial:      "item-1\nitem-2\nitem-",
+			continuation: "3\n" + claudeSubProbeItemText(4, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 3, ContinuationItems: 198,
+				FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
 			name:         "continuation completes a cut item number",
 			partial:      "item-1 one\nitem-2 two\nitem-3 three\nitem-4",
 			continuation: "1 forty-one\n" + claudeSubProbeItemText(42, 200),
@@ -292,12 +300,15 @@ func TestClaudeSubProbeE7PlanShape(t *testing.T) {
 		if plan.processes != 2*trials {
 			t.Fatalf("plan processes = %d, want %d", plan.processes, 2*trials)
 		}
-		if len(plan.extra) != trials {
-			t.Fatalf("plan extras = %d, want one resumed-process gate per trial (%d)", len(plan.extra), trials)
+		if plan.gate != 0 {
+			t.Fatalf("plan gate = %s, want 0: every trial charges its own parent and resumed gates", plan.gate)
+		}
+		if len(plan.extra) != 2*trials {
+			t.Fatalf("plan extras = %d, want two init gates per trial (%d)", len(plan.extra), 2*trials)
 		}
 		for _, extra := range plan.extra {
 			if extra != claudeSubProbeInitWorstCase {
-				t.Fatalf("plan extra = %s, want the resumed-process gate %s", extra, claudeSubProbeInitWorstCase)
+				t.Fatalf("plan extra = %s, want an init gate %s", extra, claudeSubProbeInitWorstCase)
 			}
 		}
 		for trial := 0; trial < trials; trial++ {

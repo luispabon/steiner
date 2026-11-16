@@ -81,16 +81,18 @@ func claudeSubProbeContinuationBlocks(prompt, partial string) []map[string]any {
 	})
 }
 
-// claudeSubProbeE7Steps is E7's step plan: every trial's four waits and its
-// resumed process's init gate, repeated once per trial. The experiment's bound is
-// this plan, so the two cannot drift, and the plan carries the trial count the body
-// runs.
+// claudeSubProbeE7Steps is E7's step plan: every trial starts a parent process and
+// its resumed fork, so each trial is charged both init gates, its four waits and
+// two teardowns. The experiment's own gate field stays zero because no process
+// gates only once for the whole experiment; the per-trial gates are extras. The
+// experiment's bound is this plan, so the two cannot drift, and the plan carries the
+// trial count the body runs.
 func claudeSubProbeE7Steps(trials int) *claudeSubProbeSteps {
-	steps := &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, trials: trials, processes: 2 * trials}
+	steps := &claudeSubProbeSteps{trials: trials, processes: 2 * trials}
 	for trial := 0; trial < trials; trial++ {
 		steps.waits = append(steps.waits,
 			claudeSubProbeCrashReply, claudeSubProbeCrashStream, claudeSubProbeCrashExit, claudeSubProbeCrashContinuation)
-		steps.extra = append(steps.extra, claudeSubProbeInitWorstCase)
+		steps.extra = append(steps.extra, claudeSubProbeInitWorstCase, claudeSubProbeInitWorstCase)
 	}
 	return steps
 }
@@ -169,11 +171,22 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 	if err := parent.killChild(); err != nil {
 		return "", err
 	}
+	killedAt := parent.at()
 	if err := parent.awaitExit(ctx, steps.next()); err != nil {
 		return "", err
 	}
+	exitedAt := parent.at()
 	claudeSubProbeFinish(parent)
 	continuationBudget := steps.next()
+	// The kill races the turn's own result: if one arrived while the signal was in
+	// flight the turn was never crashed mid-reply, so the partial is the whole
+	// answer and the trial would measure nothing.
+	if result := parent.turnResult(turn); result != nil {
+		return "", fmt.Errorf("the turn finished before kill: its result arrived before the process exited (subtype %q terminal_reason %q)", result.Subtype, result.TerminalReason)
+	}
+	if exitedAt < killedAt {
+		return "", fmt.Errorf("the killed CLI's exit was observed at %dms, before the kill at %dms", exitedAt, killedAt)
+	}
 	// Read the partial only after the process exited and its events were drained, so
 	// the quoted text is everything the CLI streamed before the kill.
 	partial, partialTruncated := parent.turnText(turn)
@@ -181,8 +194,8 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 		return "", fmt.Errorf("the killed turn passed the %d rune answer cap, so the note cannot quote it exactly", claudeSubProbeAnswerMaxRunes)
 	}
 	exitFinding, exitErr := claudeSubProbeCrashExitFinding(parent.rep.Exit)
-	exp.Findings = append(exp.Findings, fmt.Sprintf("%s killed with SIGKILL after %d streamed newlines (%d runes): %s",
-		label, strings.Count(partial, "\n"), utf8.RuneCountInString(partial), exitFinding))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("%s killed with SIGKILL at %dms, exit observed at %dms, after %d streamed newlines (%d runes): %s",
+		label, killedAt, exitedAt, strings.Count(partial, "\n"), utf8.RuneCountInString(partial), exitFinding))
 	if exitErr != nil {
 		return "", exitErr
 	}
@@ -259,6 +272,12 @@ func (p *claudeSubProbeProcess) turnResult(turn *claudeSubProbeTurn) *claudeSubP
 	p.rec.mu.Lock()
 	defer p.rec.mu.Unlock()
 	return turn.Result
+}
+
+// at reports milliseconds since this process's recorder started, which is the
+// clock the probe's findings use for the kill and the observed exit.
+func (p *claudeSubProbeProcess) at() int64 {
+	return p.rec.at()
 }
 
 // claudeSubProbeLinesAtLeast matches once the turn's recorded text carries want
@@ -375,9 +394,11 @@ func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam 
 	}
 
 	partialAll := claudeSubProbeItemNumbers(partial)
-	if cut && len(partialAll) > 0 {
+	if cut && cutDigits != "" && len(partialAll) > 0 {
 		// The number the cut fell inside is not an item the partial produced, so it
 		// counts neither as the partial's last item nor as evidence for the numbering.
+		// A cut inside "item-" produced no number at all, so the last complete item
+		// stays as it is.
 		partialAll = partialAll[:len(partialAll)-1]
 	}
 	if complete := claudeSubProbeItemNumbers(claudeSubProbeCompleteLines(partial)); len(complete) > 0 {
