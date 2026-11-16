@@ -110,6 +110,26 @@ A `rate_limit_event` whose `rate_limit_info.status` is `rejected` for a plain, n
 
 When a stream-error logger is configured, each model call writes one provider-stream record (`claudeSubStream`) with transport `cli` and `attempts` 1. `call_kind` is `advisor`, `summary`, `sub_agent`, or `normal` (`claudeSubCallKind`), in that precedence. The record carries outcome, duration, chunk count, time to first token, and a bounded error. CLI result text, the stderr tail, and control-response text are not recorded. `partial_stream` is set when chunks reached the caller before the failure. Records have no request URL, headers, or bodies, because the CLI has no HTTP exchange. A CLI decode failure (`errClaudeSubDecodeStream`) is classified `decode_error`.
 
+## Live interrupt probe
+
+`TestClaudeSubProbe` (`claudesub_probe_test.go`) is an opt-in harness that measures the CLI's interrupt and resume behaviour against a real signed-in CLI. It records, per experiment, the ordering of an `interrupt` control response and the turn's terminal result, the result's subtype, `terminal_reason`, `is_error` and `stop_reason`, events that arrive after the result, what happens to a `tools/call` that is in flight when the interrupt lands, whether an interrupt that races a finished turn yields a stray result, whether `--resume-session-at` truncates the on-disk transcript or only hides later entries, and each turn's cache counters.
+
+The `claudesub_probe` build tag keeps the file out of the package, so `go test ./...`, vet and lint without the tag never compile it. `STEINER_CLAUDESUB_PROBE` selects the mode, and an unset value skips the test.
+
+```bash
+STEINER_CLAUDESUB_PROBE=plan go test -tags claudesub_probe -run TestClaudeSubProbe -v ./internal/provider
+STEINER_CLAUDESUB_PROBE=run STEINER_CLAUDESUB_PROBE_ACK=i-accept-live-requests \
+  go test -tags claudesub_probe -run TestClaudeSubProbe -v ./internal/provider
+```
+
+`plan` resolves the CLI on `PATH` without executing it and prints the argv `claudeSubArgs` builds for each experiment, the child environment keys from `claudeSubChildEnv` with values redacted except `CLAUDE_CODE_RESUME_INTERRUPTED_TURN`, `CLAUDE_CODE_RESUME_SHOWS_CUT_OFF_CALLS`, `CLAUDE_CODE_RESUME_PROMPT`, `CLAUDE_CONFIG_DIR` and `HOME`, the working directory and report paths it would create, the expected CLI session-store directory, the model and the experiment list. It starts no process and creates nothing. `run` additionally requires the acknowledgement variable above, because it spends real subscription requests and writes CLI session files under the CLI configuration directory.
+
+`STEINER_CLAUDESUB_PROBE_MODEL` sets the model (default `haiku`), `STEINER_CLAUDESUB_PROBE_OUT` sets the report path (default `report.json` in a private temporary root with mode `0700` and mode `0600` on the file), and `STEINER_CLAUDESUB_PROBE_CLEANUP=1` removes the transcript files of the session ids the probe itself recorded, and nothing else.
+
+Processes start through the production pool (`acquire` and `startClaudeSubSession`), so argv, child environment and the loopback MCP host match a normal session. Each experiment uses a fresh process and an empty private working directory, publishes one synthetic MCP tool (`probe_wait`), and sends only prompts carrying `PROBE-` markers. A wrapper on the pool's spawn seam records every line in both directions, including control responses the router consumes before they reach the event queue. The init event is validated: the process must report exactly the synthetic tool and the requested model, or the experiment fails.
+
+Every experiment is bounded to 90 seconds, fails soft with its error recorded, and always tears its process down through `retireAndRelease`, recording the teardown result and the connection error as exit evidence. The report is JSON: CLI version, redacted environment shape, argv per process, per-experiment timelines, MCP call samples, transcript snapshots (line counts and entry types and uuids, never content) and derived findings. When `STEINER_CLAUDESUB_RECORD` is unset the run sets it to a probe-owned directory, so the existing raw stdout capture also holds the exchange. Results are evidence for the CLI version and account they ran on, not a protocol guarantee.
+
 ## Model discovery
 
 Discovery runs a short-lived CLI under a 20 second outer budget (`claudeSubDiscoveryTimeout`): 12 seconds for work and 8 seconds reserved for cleanup. It reads the `initialize` response, skips the `default` alias, and keeps the first entry for each resolved model ID. Failure or an empty usable result returns the static fallback catalog.
