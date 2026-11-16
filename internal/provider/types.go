@@ -256,6 +256,11 @@ type ChatChunk struct {
 	RetryAttempt     int           `json:"retry_attempt,omitempty"`
 	RetryMaxAttempts int           `json:"retry_max_attempts,omitempty"`
 	RetryDelay       time.Duration `json:"retry_delay,omitempty"`
+	// cliRetryNotice marks a chunk that only reports the claude CLI retrying an
+	// API request itself. It carries no output and does not reset the stream, so
+	// the claude_subscription turn keeps it out of the pre-output retry window and
+	// out of the replacement-warning trigger.
+	cliRetryNotice bool
 	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
 	UpstreamEndpoint string `json:"-"`
 	// BackendState, when non-nil, is the opaque state the final chunk hands to

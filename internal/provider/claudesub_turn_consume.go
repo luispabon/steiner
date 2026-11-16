@@ -83,7 +83,10 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			case claudeSubDecodeAPIRetry:
 				// The CLI retried its own API request before producing output, so
 				// nothing was discarded and the chunk carries no content.
-				if err := emit(claudeSubAPIRetryChunk(item.Retry)); err != nil {
+				if item.Retry == nil {
+					continue
+				}
+				if err := emit(claudeSubAPIRetryChunk(*item.Retry)); err != nil {
 					return err
 				}
 			case claudeSubDecodeToolUse:
@@ -130,29 +133,27 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 // claudeSubAPIRetryChunk reports the CLI's own API retry as a warning the user
 // sees. It carries no assistant content and is not a stream reset: the CLI
 // retries before it produces output, so nothing already delivered is discarded.
-func claudeSubAPIRetryChunk(retry *claudeSubAPIRetry) ChatChunk {
-	if retry == nil {
-		return ChatChunk{}
-	}
+func claudeSubAPIRetryChunk(retry claudeSubAPIRetry) ChatChunk {
 	return ChatChunk{
 		Diagnostic:       claudeSubAPIRetryMessage(retry),
 		Severity:         "warning",
 		RetryAttempt:     retry.Attempt,
 		RetryMaxAttempts: retry.MaxRetries,
 		RetryDelay:       retry.RetryDelay,
+		cliRetryNotice:   true,
 	}
 }
 
 // claudeSubAPIRetryNotice reports a chunk that only reports the CLI's own API
 // retry. It produced no output, so it must not close the pre-output retry
-// window.
+// window and it must not trigger the pending replacement warning.
 func claudeSubAPIRetryNotice(chunk ChatChunk) bool {
-	return chunk.RetryAttempt > 0 && !chunk.RetryReset
+	return chunk.cliRetryNotice
 }
 
 // claudeSubAPIRetryMessage describes one CLI API retry. It never claims content
 // was discarded, because the CLI retries before it produces any.
-func claudeSubAPIRetryMessage(retry *claudeSubAPIRetry) string {
+func claudeSubAPIRetryMessage(retry claudeSubAPIRetry) string {
 	category := retry.Error
 	if category == "" {
 		category = "unknown"
@@ -161,7 +162,13 @@ func claudeSubAPIRetryMessage(retry *claudeSubAPIRetry) string {
 	if retry.ErrorStatus != 0 {
 		message += fmt.Sprintf(" (status %d)", retry.ErrorStatus)
 	}
-	return fmt.Sprintf("%s, attempt %d/%d, next try in %s", message, retry.Attempt, retry.MaxRetries, retry.RetryDelay)
+	// The CLI does not always report a limit, so an unknown one is left out
+	// rather than shown as zero.
+	attempt := fmt.Sprintf("attempt %d", retry.Attempt)
+	if retry.MaxRetries > 0 {
+		attempt = fmt.Sprintf("attempt %d/%d", retry.Attempt, retry.MaxRetries)
+	}
+	return fmt.Sprintf("%s, %s, next try in %s", message, attempt, retry.RetryDelay)
 }
 
 // claudeSubFailureTextMax bounds the result text quoted in a turn failure.

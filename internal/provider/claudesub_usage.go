@@ -241,6 +241,16 @@ func claudeSubEventIsOverage(ev claudeSubEvent) bool {
 	if ev.Type != "system" {
 		return false
 	}
+	// The CLI's api_retry notice can carry non-string text fields, so it is
+	// resolved from its subtype alone before the notification probe below: a
+	// retry is never an overage signal, and failing closed on it would close a
+	// healthy pool. Every other system envelope keeps the fail-closed policy.
+	var header struct {
+		Subtype string `json:"subtype"`
+	}
+	if json.Unmarshal(ev.Raw, &header) == nil && header.Subtype == "api_retry" {
+		return false
+	}
 	var envelope struct {
 		Subtype string `json:"subtype"`
 		Message string `json:"message"`

@@ -271,21 +271,28 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		// attempt reports the flattened replay the same way.
 		report = &claudeSubReplacementReport{pool: pool, key: key, emit: emit, flattened: attached.reseed}
 		emitted := false
+		// cliRetried records that the CLI retried its own API request in this
+		// attempt. Its retry budget is then spent, so replacing the process would
+		// only repeat the wait.
+		cliRetried := false
 		err = claudeSubDeliverNormal(ctx, s, req, attached.reseed, func(chunk ChatChunk) error {
+			if claudeSubAPIRetryNotice(chunk) {
+				// A retry notice carries no output: it neither closes the pre-output
+				// retry window nor lets the pending replacement warning stand in
+				// for output this attempt never produced.
+				cliRetried = true
+				return emit(chunk)
+			}
 			if err := report.before(); err != nil {
 				return err
 			}
-			// A CLI API-retry notice carries no output, so it must not close the
-			// pre-output retry window.
-			if !claudeSubAPIRetryNotice(chunk) {
-				emitted = true
-			}
+			emitted = true
 			return emit(chunk)
 		})
 		// A decode error means the process may hold stale events from the failed
 		// turn, so it is retired even after output and is never retried inline.
 		decodeFailure := errors.Is(err, errClaudeSubDecodeStream)
-		retry := !decodeFailure && claudeSubShouldRetryTurn(err, emitted, ctx.Err(), s.resume.SessionID)
+		retry := !decodeFailure && !cliRetried && claudeSubShouldRetryTurn(err, emitted, ctx.Err(), s.resume.SessionID)
 		if decodeFailure || retry {
 			pool.retire(key, s)
 		}

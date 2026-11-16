@@ -168,7 +168,7 @@ func TestConsumeModelStreamReportsNonResetRetry(t *testing.T) {
 		retries = append(retries, payload)
 	}
 	if len(retries) != 1 {
-		t.Fatalf("diagostics = %+v, want exactly one retry event", retries)
+		t.Fatalf("diagnostics = %+v, want exactly one retry event", retries)
 	}
 	if got := retries[0]; got.Kind != output.DiagnosticKindRetry || got.Attempt != 1 || got.MaxAttempts != 10 || got.Delay != "2s" {
 		t.Fatalf("retry diagnostic = %+v, want kind retry, attempt 1, max attempts 10, delay 2s", got)

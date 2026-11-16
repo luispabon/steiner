@@ -73,6 +73,16 @@ func TestDecodeClaudeSubAPIRetry(t *testing.T) {
 			line: claudeSubRetryRateLimit,
 			want: &claudeSubAPIRetry{Attempt: 2, MaxRetries: 10, RetryDelay: 250 * time.Millisecond, Error: "rate_limit"},
 		},
+		{
+			name: "negative delay is clamped",
+			line: `{"type":"system","subtype":"api_retry","attempt":1,"retry_delay_ms":-5,"error":"unknown"}`,
+			want: &claudeSubAPIRetry{Attempt: 1, Error: "unknown"},
+		},
+		{
+			name: "overflowing delay is clamped",
+			line: `{"type":"system","subtype":"api_retry","attempt":1,"retry_delay_ms":9223372036854775807,"error":"unknown"}`,
+			want: &claudeSubAPIRetry{Attempt: 1, RetryDelay: time.Duration(claudeSubMaxRetryDelayMS) * time.Millisecond, Error: "unknown"},
+		},
 		{name: "malformed attempt is ignored", line: claudeSubRetryMalformed},
 		{name: "missing attempt is ignored", line: `{"type":"system","subtype":"api_retry","max_retries":10,"error":"unknown"}`},
 		{name: "other system envelope is ignored", line: `{"type":"system","subtype":"notification","message":"hello"}`},
@@ -198,10 +208,11 @@ func TestClaudeSubAPIRetryReportedForSubAgent(t *testing.T) {
 	}
 }
 
-// TestClaudeSubAPIRetryKeepsPreOutputRetry proves a CLI API retry notice does
-// not close the pre-output retry window: a resumed process that only reported
-// its own retries before failing is still replaced and the request reseeded.
-func TestClaudeSubAPIRetryKeepsPreOutputRetry(t *testing.T) {
+// TestClaudeSubAPIRetryDisablesSteinerRetry proves the CLI's own retries spend
+// the retry budget: a resumed process that already retried an API request and
+// then failed before output is not replaced, because a second process would only
+// repeat the wait.
+func TestClaudeSubAPIRetryDisablesSteinerRetry(t *testing.T) {
 	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubPoolWithScripts(t,
 		&claudeSubScript{batches: [][]claudeSubEvent{claudeSubRetryThenFailBatch(t, claudeSubRetryOverloaded, claudeSubRetryRateLimit)}},
@@ -213,17 +224,11 @@ func TestClaudeSubAPIRetryKeepsPreOutputRetry(t *testing.T) {
 		BackendState:     claudeSubEncodeState(t, st),
 		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
 	})
-	if got.err != nil {
-		t.Fatalf("turn error = %v", got.err)
+	if got.err == nil {
+		t.Fatal("turn error = nil, want the resumed failure")
 	}
-	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (the resumed process failed before output, so the request reseeded)", n)
-	}
-	if _, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); ok {
-		t.Error("the retry resumed; a pre-output failure must reseed")
-	}
-	if text := got.final(t).Delta.Content; text != "Hello world" {
-		t.Errorf("final content = %q, want %q", text, "Hello world")
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (the CLI retried already, so steiner must not replace the process)", n)
 	}
 	var retries int
 	for _, chunk := range got.chunks {
@@ -233,5 +238,153 @@ func TestClaudeSubAPIRetryKeepsPreOutputRetry(t *testing.T) {
 	}
 	if retries != 2 {
 		t.Errorf("retry chunks = %d, want the two notices the failed attempt reported", retries)
+	}
+}
+
+// TestClaudeSubAPIRetryWarningWaitsForOutput proves a retry notice does not let a
+// pending replacement warning stand in for output an attempt never produced: the
+// attempt that only retried reports nothing, and the next request that succeeds
+// reports the warning once.
+func TestClaudeSubAPIRetryWarningWaitsForOutput(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t,
+		&claudeSubScript{batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl"), nil}},
+		&claudeSubScript{batches: [][]claudeSubEvent{claudeSubRetryThenFailBatch(t, claudeSubRetryOverloaded), claudeSubDecodeEvents(t, "turn_text.jsonl")}},
+		claudeSubTextTurns(t, 1),
+	)
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+	stored := claudeSubDecodeState(t, first.BackendState)
+	history := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+	if err := claudeSubCancelMidTurn(t, pool, spawner.call(t, 0).Conn, 4, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		BackendState:     claudeSubEncodeState(t, stored),
+		Messages:         history,
+	}); err == nil {
+		t.Fatal("cancelled turn returned no error")
+	}
+
+	// The replacement attempt retries an API request itself and then fails before
+	// producing output, so it must report no replacement warning: nothing reached
+	// the user, and the notice stays pending for the next request.
+	replacementWarnings := func(got claudeSubCollected) []string {
+		want := claudeSubWarningChunk(claudeSubReplacedProcessWarning).Diagnostic
+		var out []string
+		for _, chunk := range got.chunks {
+			if chunk.Diagnostic == want {
+				out = append(out, chunk.Diagnostic)
+			}
+		}
+		return out
+	}
+	retried := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		BackendState:     claudeSubEncodeState(t, stored),
+		Messages:         append(append([]Message(nil), history...), claudeSubUserText("again")),
+	})
+	if retried.err == nil {
+		t.Fatal("retried turn error = nil, want the resumed failure")
+	}
+	if warnings := replacementWarnings(retried); len(warnings) != 0 {
+		t.Fatalf("retried attempt replacement warnings = %q, want none", warnings)
+	}
+
+	next := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages:         append(append([]Message(nil), history...), claudeSubUserText("again"), claudeSubUserText("please retry")),
+	})
+	if next.err != nil {
+		t.Fatalf("next turn error = %v", next.err)
+	}
+	warnings := append(replacementWarnings(retried), replacementWarnings(next)...)
+	if len(warnings) != 1 {
+		t.Fatalf("replacement warnings = %q, want exactly one across both requests", warnings)
+	}
+	if want := claudeSubWarningChunk(claudeSubReplacedProcessWarning).Diagnostic; warnings[0] != want {
+		t.Errorf("warning = %q, want %q", warnings[0], want)
+	}
+	if pool.replacementPending("parent") {
+		t.Error("the replacement notice survived being reported")
+	}
+}
+
+// TestDecodeClaudeSubSystemPhases proves only the streaming phase surfaces the
+// CLI's API retry, and that every other system subtype is ignored in every phase.
+func TestDecodeClaudeSubSystemPhases(t *testing.T) {
+	subtypes := []struct {
+		name string
+		line string
+	}{
+		{name: "api_retry", line: claudeSubRetryOverloaded},
+		{name: "init", line: `{"type":"system","subtype":"init","session_id":"sess-1"}`},
+		{name: "status", line: `{"type":"system","subtype":"status","message":"busy"}`},
+		{name: "notification", line: `{"type":"system","subtype":"notification","message":"hello"}`},
+		{name: "thinking_tokens", line: `{"type":"system","subtype":"thinking_tokens","tokens":12}`},
+	}
+	phases := []struct {
+		name  string
+		phase claudeSubDecodePhase
+	}{
+		{name: "streaming", phase: claudeSubPhaseStreaming},
+		{name: "stopped", phase: claudeSubPhaseStopped},
+		{name: "terminal", phase: claudeSubPhaseTerminal},
+	}
+	for _, phase := range phases {
+		for _, subtype := range subtypes {
+			t.Run(phase.name+"/"+subtype.name, func(t *testing.T) {
+				want := 0
+				if phase.phase == claudeSubPhaseStreaming && subtype.name == "api_retry" {
+					want = 1
+				}
+				d := newClaudeSubDecoder(claudeSubDecodeHooks{})
+				d.phase = phase.phase
+				got, err := d.decode(claudeSubAPIRetryEvents(t, subtype.line)[0])
+				if err != nil {
+					t.Fatalf("decode system envelope: %v", err)
+				}
+				if len(got) != want {
+					t.Fatalf("decoded %d items, want %d: %+v", len(got), want, got)
+				}
+				if want == 1 && got[0].Kind != claudeSubDecodeAPIRetry {
+					t.Errorf("decoded kind = %v, want api retry", got[0].Kind)
+				}
+			})
+		}
+	}
+}
+
+// TestClaudeSubAPIRetryMessage proves the wording states only what is known: the
+// failure category, the status when there was a response, the attempt against the
+// limit when the CLI reported one, and the delay.
+func TestClaudeSubAPIRetryMessage(t *testing.T) {
+	tests := []struct {
+		name  string
+		retry claudeSubAPIRetry
+		want  string
+	}{
+		{
+			name:  "category, status and limit",
+			retry: claudeSubAPIRetry{Attempt: 1, MaxRetries: 10, RetryDelay: 1500 * time.Millisecond, ErrorStatus: 529, Error: "overloaded"},
+			want:  "claude CLI retrying API request after overloaded (status 529), attempt 1/10, next try in 1.5s",
+		},
+		{
+			name:  "no status and no limit",
+			retry: claudeSubAPIRetry{Attempt: 2, RetryDelay: 250 * time.Millisecond, Error: "rate_limit"},
+			want:  "claude CLI retrying API request after rate_limit, attempt 2, next try in 250ms",
+		},
+		{
+			name:  "unknown category",
+			retry: claudeSubAPIRetry{Attempt: 1, MaxRetries: 3},
+			want:  "claude CLI retrying API request after unknown, attempt 1/3, next try in 0s",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := claudeSubAPIRetryMessage(tt.retry); got != tt.want {
+				t.Errorf("message = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

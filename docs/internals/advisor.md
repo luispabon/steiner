@@ -8,6 +8,8 @@ The `advisor` handler (`internal/advisor/tool.go`) loads the optional `question`
 
 Without reasoning, the call is a non-streaming chat completion. When the request sets reasoning, it streams. A non-streaming call that fails with a stream-required error is retried as a stream ([stream-required retry](architecture.md#stream-required-retry)).
 
+`streamWithEvents` emits provider retries as `output.DiagnosticKindRetry` events with the attempt, the limit and the delay: both a `RetryReset` chunk, which discards the partial stream, and a chunk reporting a retry that kept the stream, such as the claude CLI retrying its own API request. The TUI shows them on the activity row ([Claude subscription internals](claude-subscription.md)).
+
 Tool calls and tool results in the snapshot are flattened to text. A tool call becomes `[tool_call: <name> <args-json>]`, and a tool result becomes a user message prefixed `[tool_result: <name>]`. Results from the advisor tool use a separate note prefix that marks the opinion as revisable.
 
 ## Payload shaping

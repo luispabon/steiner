@@ -237,16 +237,19 @@ type claudeSubDecodePhase int
 
 const (
 	// claudeSubPhaseStreaming accepts streamed content, deltas and tool uses
-	// for the message the stream is currently delivering. It is the zero value
-	// so a decoder accepts the envelopes a caller forwards from mid-stream.
+	// for the message the stream is currently delivering, plus the CLI's own
+	// `system/api_retry` notices. It is the zero value so a decoder accepts the
+	// envelopes a caller forwards from mid-stream. A retry notice in any later
+	// phase is dropped.
 	claudeSubPhaseStreaming claudeSubDecodePhase = iota
 	// claudeSubPhaseStopped follows message_stop: the streamed message is
 	// closed and only the assistant echo may still add a fallback tool use
-	// before the terminal result. Every other known stream event is rejected.
+	// before the terminal result. Every other known stream event is rejected,
+	// and an api_retry notice is dropped.
 	claudeSubPhaseStopped
 	// claudeSubPhaseTerminal follows the terminal result: nothing may mutate
 	// state or invoke a hook after it, so every known stream event and every
-	// assistant echo is rejected.
+	// assistant echo is rejected, and an api_retry notice is dropped.
 	claudeSubPhaseTerminal
 )
 
@@ -286,7 +289,7 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 		}
 		return d.decodeResult(ev.Raw)
 	case "system":
-		return decodeClaudeSubSystem(ev), nil
+		return d.decodeSystem(ev), nil
 	default:
 		// Unrelated top-level, control and system envelopes carry nothing the
 		// decoder needs and are ignored in every phase.

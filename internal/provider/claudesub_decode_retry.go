@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"log/slog"
+	"math"
 	"time"
 )
 
@@ -37,14 +38,20 @@ type claudeSubAPIRetryPayload struct {
 	Error        string `json:"error"`
 }
 
-// decodeClaudeSubSystem converts one `system` envelope into decoded events.
-// Only the CLI's API retry is surfaced; every other system envelope is ignored.
-func decodeClaudeSubSystem(ev claudeSubEvent) []claudeSubDecoded {
-	if ev.Subtype != "api_retry" {
+// decodeSystem converts one `system` envelope into decoded events. Only the CLI's
+// API retry is surfaced, and only while the phase is streaming: the CLI retries
+// before it produces output, so a notice after message_stop or the terminal
+// result cannot be attributed to a live request.
+func (d *claudeSubDecoder) decodeSystem(ev claudeSubEvent) []claudeSubDecoded {
+	if ev.Subtype != "api_retry" || d.phase != claudeSubPhaseStreaming {
 		return nil
 	}
 	return decodeClaudeSubAPIRetry(ev.Raw)
 }
+
+// claudeSubMaxRetryDelayMS bounds the delay converted from the CLI's
+// milliseconds, so a malformed value cannot overflow time.Duration.
+const claudeSubMaxRetryDelayMS = int64(math.MaxInt64 / int64(time.Millisecond))
 
 // decodeClaudeSubAPIRetry converts one api_retry envelope into a decode item. A
 // malformed notice is dropped with a debug record instead of failing the turn: it
@@ -62,7 +69,7 @@ func decodeClaudeSubAPIRetry(raw json.RawMessage) []claudeSubDecoded {
 	retry := &claudeSubAPIRetry{
 		Attempt:    payload.Attempt,
 		MaxRetries: payload.MaxRetries,
-		RetryDelay: time.Duration(payload.RetryDelayMS) * time.Millisecond,
+		RetryDelay: time.Duration(min(max(payload.RetryDelayMS, 0), claudeSubMaxRetryDelayMS)) * time.Millisecond,
 		Error:      payload.Error,
 	}
 	if payload.ErrorStatus != nil {
