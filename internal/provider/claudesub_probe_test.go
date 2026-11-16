@@ -9,12 +9,12 @@ package provider
 //
 // Plan mode prints what a run would do and starts no process:
 //
-//	STEINER_CLAUDESUB_PROBE=plan go test -tags claudesub_probe -run TestClaudeSubProbe -v ./internal/provider
+//	STEINER_CLAUDESUB_PROBE=plan go test -tags claudesub_probe -count=1 -timeout 30m -run TestClaudeSubProbe -v ./internal/provider
 //
 // Run mode makes real subscription requests, so it needs an explicit ack:
 //
 //	STEINER_CLAUDESUB_PROBE=run STEINER_CLAUDESUB_PROBE_ACK=i-accept-live-requests \
-//	  go test -tags claudesub_probe -run TestClaudeSubProbe -v ./internal/provider
+//	  go test -tags claudesub_probe -count=1 -timeout 30m -run TestClaudeSubProbe -v ./internal/provider
 
 import (
 	"context"
@@ -44,8 +44,9 @@ const (
 	claudeSubProbeDefaultModel       = "haiku"
 	claudeSubProbeToolName           = "probe_wait"
 	claudeSubProbeToolOutputMaxBytes = 65536 // internal/config default, so the child env matches production
-	claudeSubProbeExperimentTimeout  = 90 * time.Second
+	claudeSubProbeExperimentTimeout  = 150 * time.Second
 	claudeSubProbeRunTimeout         = 25 * time.Minute
+	claudeSubProbeRequiredTimeout    = "30m"
 	claudeSubProbeLocateTimeout      = 30 * time.Second
 	claudeSubProbeStatusCompleted    = "completed"
 	claudeSubProbeStatusFailed       = "failed"
@@ -72,12 +73,60 @@ type claudeSubProbeCLI struct {
 	Version string `json:"version,omitempty"`
 }
 
+// claudeSubProbeEnv is the reportable shape of the child environment: every key,
+// the values of the probe-relevant non-secret keys, and nothing else.
+type claudeSubProbeEnv struct {
+	Keys   []string          `json:"keys"`
+	Values map[string]string `json:"non_secret_values"`
+}
+
+// claudeSubProbeResume is the resume target a process started with.
+type claudeSubProbeResume struct {
+	SessionID string `json:"session_id,omitempty"`
+	AtUUID    string `json:"at_uuid,omitempty"`
+	Fork      bool   `json:"fork,omitempty"`
+}
+
+// claudeSubProbeExit is the exit evidence for one process.
+type claudeSubProbeExit struct {
+	AtMS         int64  `json:"at_ms"`
+	ProcErr      string `json:"proc_err,omitempty"`
+	ConnErr      string `json:"conn_err,omitempty"`
+	PoolCloseErr string `json:"pool_close_err,omitempty"`
+	Unobserved   int    `json:"unobserved_events,omitempty"`
+}
+
+// claudeSubProbeProcessReport is one CLI process: the argv and environment shape
+// it ran with, its whole recorded exchange, and its exit evidence.
+type claudeSubProbeProcessReport struct {
+	Name              string                     `json:"name"`
+	Key               string                     `json:"key"`
+	Persist           bool                       `json:"persist"`
+	Resume            claudeSubProbeResume       `json:"resume,omitempty"`
+	Dir               string                     `json:"dir,omitempty"`
+	Argv              []string                   `json:"argv,omitempty"`
+	Flags             []string                   `json:"argv_switches,omitempty"`
+	Env               *claudeSubProbeEnv         `json:"env,omitempty"`
+	StartError        string                     `json:"start_error,omitempty"`
+	Init              *claudeSubProbeInit        `json:"init,omitempty"`
+	SessionID         string                     `json:"session_id,omitempty"`
+	Turns             []*claudeSubProbeTurn      `json:"turns,omitempty"`
+	Timeline          []claudeSubProbeEntry      `json:"timeline,omitempty"`
+	TimelineTruncated bool                       `json:"timeline_truncated,omitempty"`
+	Dropped           int                        `json:"dropped_events,omitempty"`
+	MCPCalls          []claudeSubProbeCallSample `json:"mcp_calls,omitempty"`
+	Exit              *claudeSubProbeExit        `json:"exit,omitempty"`
+	TeardownErr       string                     `json:"teardown_err,omitempty"`
+	Findings          []string                   `json:"findings,omitempty"`
+}
+
 // claudeSubProbeCleanupReport states what the probe deleted. Only transcript
 // files of sessions the probe itself recorded are ever candidates.
 type claudeSubProbeCleanupReport struct {
 	Enabled bool     `json:"enabled"`
 	Removed []string `json:"removed,omitempty"`
 	Absent  []string `json:"absent,omitempty"`
+	Skipped []string `json:"skipped,omitempty"`
 	Errors  []string `json:"errors,omitempty"`
 	Note    string   `json:"note"`
 }
@@ -106,6 +155,7 @@ type claudeSubProbeReport struct {
 	SessionStore string                            `json:"session_store"`
 	RecorderDir  string                            `json:"recorder_dir,omitempty"`
 	ReportPath   string                            `json:"report_path"`
+	Note         string                            `json:"note"`
 	Env          *claudeSubProbeEnv                `json:"env"`
 	Experiments  []*claudeSubProbeExperimentReport `json:"experiments"`
 	Cleanup      claudeSubProbeCleanupReport       `json:"cleanup"`
@@ -116,6 +166,7 @@ type claudeSubProbeExperiment struct {
 	name    string
 	summary string
 	argv    []string
+	timeout time.Duration
 	run     func(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error
 }
 
@@ -150,7 +201,7 @@ func claudeSubProbePlanConfig() claudeSubProbeConfig {
 		WorkDir:     filepath.Join(root, "work"),
 		ReportDir:   root,
 		ReportPath:  filepath.Join(root, "report.json"),
-		RecorderDir: strings.TrimSpace(os.Getenv("STEINER_CLAUDESUB_RECORD")),
+		RecorderDir: filepath.Join(root, "recordings"),
 		Cleanup:     strings.TrimSpace(os.Getenv(claudeSubProbeCleanupEnv)) == "1",
 	}
 	if cfg.Model == "" {
@@ -166,9 +217,10 @@ func claudeSubProbePlanConfig() claudeSubProbeConfig {
 	return cfg
 }
 
-// claudeSubProbePrepareRun materialises the run's private directories. The
-// report and raw stdout capture default into the same private root, and the
-// working directory given to the CLI holds no project content.
+// claudeSubProbePrepareRun materialises the run's private directories. Raw stdout
+// capture is always inside that root, so an inherited STEINER_CLAUDESUB_RECORD
+// cannot point the probe's recording somewhere else. The root is kept after the
+// run so the report and the recordings stay readable.
 func claudeSubProbePrepareRun() (claudeSubProbeConfig, error) {
 	cfg := claudeSubProbePlanConfig()
 	root, err := os.MkdirTemp("", "steiner-claudesub-probe-*")
@@ -189,11 +241,9 @@ func claudeSubProbePrepareRun() (claudeSubProbeConfig, error) {
 	} else {
 		cfg.ReportDir = filepath.Dir(cfg.ReportPath)
 	}
-	if cfg.RecorderDir == "" {
-		cfg.RecorderDir = filepath.Join(root, "recordings")
-		if err := os.Setenv("STEINER_CLAUDESUB_RECORD", cfg.RecorderDir); err != nil {
-			return cfg, fmt.Errorf("enable probe stdout capture: %w", err)
-		}
+	cfg.RecorderDir = filepath.Join(root, "recordings")
+	if err := os.Setenv("STEINER_CLAUDESUB_RECORD", cfg.RecorderDir); err != nil {
+		return cfg, fmt.Errorf("enable probe stdout capture: %w", err)
 	}
 	return cfg, nil
 }
@@ -204,6 +254,11 @@ func claudeSubProbeRun(t *testing.T) {
 	cfg, err := claudeSubProbePrepareRun()
 	if err != nil {
 		t.Fatalf("prepare claude subscription probe: %v", err)
+	}
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < claudeSubProbeRunTimeout+time.Minute {
+			t.Logf("probe: the test deadline is %s away, below the probe ceiling %s; run with -timeout %s", remaining.Round(time.Second), claudeSubProbeRunTimeout, claudeSubProbeRequiredTimeout)
+		}
 	}
 
 	locateCtx, cancelLocate := context.WithTimeout(context.Background(), claudeSubProbeLocateTimeout)
@@ -227,7 +282,8 @@ func claudeSubProbeRun(t *testing.T) {
 		SessionStore: claudeSubProbeConfigDir(),
 		RecorderDir:  cfg.RecorderDir,
 		ReportPath:   cfg.ReportPath,
-		Env:          claudeSubProbeEnvSummary(claudeSubChildEnv(os.Environ(), claudeSubProbeToolOutputMaxBytes)),
+		Note:         "the private temporary root is kept after the run; it holds the report and the raw stdout recordings",
+		Env:          claudeSubProbeEnvSummary(claudeSubSessionEnv(os.Environ(), claudeSubProbeToolOutputMaxBytes)),
 	}
 	started := time.Now()
 
@@ -236,13 +292,18 @@ func claudeSubProbeRun(t *testing.T) {
 	for _, experiment := range claudeSubProbeExperiments(cfg) {
 		exp := &claudeSubProbeExperimentReport{Name: experiment.name, Summary: experiment.summary, PlannedArgv: experiment.argv}
 		report.Experiments = append(report.Experiments, exp)
-		expCtx, cancelExp := context.WithTimeout(overall, claudeSubProbeExperimentTimeout)
+		timeout := experiment.timeout
+		if timeout <= 0 {
+			timeout = claudeSubProbeExperimentTimeout
+		}
+		expCtx, cancelExp := context.WithTimeout(overall, timeout)
 		err := experiment.run(expCtx, cfg, exp)
 		cancelExp()
-		// Findings are folded after the experiment returned, so every process it
-		// started has already been torn down and recorded its exit evidence.
+		// Findings and failure checks run after the experiment returned, so every
+		// process it started has already recorded its exit evidence.
 		for _, process := range exp.Processes {
 			exp.Findings = append(exp.Findings, claudeSubProbeFindings(process)...)
+			err = errors.Join(err, claudeSubProbeProcessFailure(process))
 		}
 		if err != nil {
 			exp.Status = claudeSubProbeStatusFailed
@@ -254,12 +315,33 @@ func claudeSubProbeRun(t *testing.T) {
 		t.Logf("probe %s completed", exp.Name)
 	}
 	report.DurationMS = time.Since(started).Milliseconds()
-	report.Cleanup = claudeSubProbeCleanupSessions(cfg, report)
+	report.Cleanup = claudeSubProbeCleanupSessions(cfg, claudeSubProbeConfigDir(), report)
 
 	if err := claudeSubProbeWriteReport(cfg.ReportPath, report); err != nil {
 		t.Fatalf("write claude subscription probe report: %v", err)
 	}
 	t.Logf("probe report written: %s", cfg.ReportPath)
+}
+
+// claudeSubProbeProcessFailure reports the per-process conditions that fail an
+// experiment even when its body returned no error: an incomplete timeline and an
+// unexpected teardown result.
+func claudeSubProbeProcessFailure(rep *claudeSubProbeProcessReport) error {
+	var errs []error
+	if rep.TimelineTruncated {
+		errs = append(errs, fmt.Errorf("probe process %s timeline hit the %d entry cap, so its exchange is incomplete", rep.Name, claudeSubProbeTimelineMax))
+	}
+	if rep.TeardownErr != "" && !claudeSubProbeExpectedTeardownError(rep.TeardownErr) {
+		errs = append(errs, fmt.Errorf("probe process %s teardown reported %s", rep.Name, rep.TeardownErr))
+	}
+	return errors.Join(errs...)
+}
+
+// claudeSubProbeExpectedTeardownError reports the teardown results the probe
+// treats as expected: a bounded teardown that ran out of deadline while its
+// cleanup kept going. Anything else is a failure.
+func claudeSubProbeExpectedTeardownError(message string) bool {
+	return strings.Contains(message, "teardown did not complete") || strings.Contains(message, "cleanup did not complete")
 }
 
 // claudeSubProbeWriteReport writes the report as one JSON file with mode 0o600.
@@ -280,46 +362,6 @@ func claudeSubProbeWriteReport(path string, report *claudeSubProbeReport) error 
 	return nil
 }
 
-// claudeSubProbeCleanupSessions removes transcript files of sessions the probe
-// itself recorded, when cleanup is enabled. It never touches another session,
-// another file, or the CLI's configuration.
-func claudeSubProbeCleanupSessions(cfg claudeSubProbeConfig, report *claudeSubProbeReport) claudeSubProbeCleanupReport {
-	out := claudeSubProbeCleanupReport{
-		Enabled: cfg.Cleanup,
-		Note:    "only transcript files of sessions this probe recorded are candidates; nothing else in the CLI configuration is read or removed",
-	}
-	if !cfg.Cleanup {
-		return out
-	}
-	configDir := claudeSubProbeConfigDir()
-	seen := map[string]struct{}{}
-	for _, exp := range report.Experiments {
-		for _, process := range exp.Processes {
-			id := process.SessionID
-			if id == "" {
-				continue
-			}
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			path := claudeSubProbeTranscriptPath(configDir, cfg.WorkDir, id)
-			if path == "" {
-				continue
-			}
-			switch err := os.Remove(path); {
-			case err == nil:
-				out.Removed = append(out.Removed, path)
-			case errors.Is(err, os.ErrNotExist):
-				out.Absent = append(out.Absent, path)
-			default:
-				out.Errors = append(out.Errors, claudeSubProbeErrorString(err))
-			}
-		}
-	}
-	return out
-}
-
 // claudeSubProbeStart starts one process for exp and registers its report.
 func claudeSubProbeStart(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec) (*claudeSubProbeProcess, error) {
 	rep := &claudeSubProbeProcessReport{Name: name, Key: key, Persist: spec.Persist, Resume: claudeSubProbeResumeOf(spec.Resume)}
@@ -332,9 +374,11 @@ func claudeSubProbeStart(ctx context.Context, cfg claudeSubProbeConfig, exp *cla
 	return process, nil
 }
 
-// claudeSubProbeFinish tears a process down and records its exit evidence.
+// claudeSubProbeFinish tears a process down. The result is recorded in the
+// process report, and the run loop fails the experiment when it is unexpected, so
+// the experiment body does not need to act on it here.
 func claudeSubProbeFinish(process *claudeSubProbeProcess) {
-	_ = process.teardown()
+	_ = process.teardown() // teardown records the result in the process report
 }
 
 // claudeSubProbeResumeOf maps the production resume target to its report form.

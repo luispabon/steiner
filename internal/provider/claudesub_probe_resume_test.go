@@ -28,8 +28,8 @@ func claudeSubProbeE5(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 		return err
 	}
 	resumeUUID := ""
-	if turn2 := process.turn(1); turn2 != nil && len(turn2.AssistantUUIDs) > 0 {
-		resumeUUID = turn2.AssistantUUIDs[len(turn2.AssistantUUIDs)-1]
+	if turn2 := process.turn(1); turn2 != nil {
+		resumeUUID = turn2.LastAssistantUUID
 	}
 	sessionID := process.sessionID()
 	if resumeUUID == "" || sessionID == "" {
@@ -37,18 +37,18 @@ func claudeSubProbeE5(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	}
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E5 CLI session %s, resume target %s", sessionID, resumeUUID))
 
-	turn3, err := process.beginTurn(ctx, "PROBE-T3E5 Write a numbered list from 1 to 200, one item per line, in the form item-<n>. Use at least 200 lines and no tools.")
+	turn3, err := process.beginTurn("PROBE-T3E5 Write a numbered list from 1 to 200, one item per line, in the form item-<n>. Use at least 200 lines and no tools.")
 	if err != nil {
 		return err
 	}
-	if _, err := process.pumpUntil(ctx, claudeSubProbeReadyTimeout, claudeSubProbeIsTextDelta); err != nil {
+	if _, err := process.pumpUntil(ctx, claudeSubProbeReadyTimeout, "first text delta", claudeSubProbeIsTextDelta); err != nil {
 		return err
 	}
 	turn3.Interrupted = true
 	if err := process.interrupt(ctx); err != nil {
 		return err
 	}
-	if err := process.awaitResult(ctx); err != nil {
+	if err := process.awaitInterruptedResult(ctx); err != nil {
 		return err
 	}
 	process.tail(ctx, claudeSubProbeTailWindow)
