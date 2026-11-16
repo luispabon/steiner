@@ -4,6 +4,7 @@ package provider
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,6 +20,19 @@ const (
 	claudeSubProbeE7MinTrials = 1
 	claudeSubProbeE7MaxTrials = 5
 )
+
+// claudeSubProbeKillSupported reports whether this platform can SIGKILL the child
+// E7 spawns. It is a variable so the self-check can drive the rejection path.
+var claudeSubProbeKillSupported = claudeSubProbeKillAvailable
+
+// claudeSubProbeE7Unsupported reports why E7 cannot run here, so a selection that
+// includes it fails before any process is started.
+func claudeSubProbeE7Unsupported() error {
+	if claudeSubProbeKillSupported {
+		return nil
+	}
+	return fmt.Errorf("probe E7 needs a unix SIGKILL of the spawned CLI and cannot run on %s", runtime.GOOS)
+}
 
 // claudeSubProbeParseOnly parses the experiment selection: a comma-separated list
 // of experiment ID prefixes, upper-cased and trimmed. An empty value selects every
@@ -123,13 +137,17 @@ func claudeSubProbeSelectedBounds(selected []claudeSubProbeExperiment) time.Dura
 }
 
 // claudeSubProbeE7TrialCount resolves E7's trial count. Without an override it is
-// claudeSubProbeCrashTrials, raised by one when E7 is the only selected experiment
-// because the freed ceiling pays for it. An override is honoured exactly and fails
-// when the selection cannot fit it; the derived count is lowered until it fits, so
-// only a selection that cannot fit one trial fails.
+// claudeSubProbeCrashTrials in a full run and claudeSubProbeE7OnlyTrials when E7 is
+// the only selected experiment, because the freed ceiling pays for more trials. An
+// override is honoured exactly and fails when the selection cannot fit it; the
+// derived count is lowered until it fits, so only a selection that cannot fit one
+// trial fails. An override with E7 unselected is an error rather than ignored.
 func claudeSubProbeE7TrialCount(raw string, selected []claudeSubProbeExperiment) (int, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed != "" {
+		if !claudeSubProbeSelectsE7(selected) {
+			return 0, fmt.Errorf("%s is set but E7 is not selected", claudeSubProbeE7TrialsEnv)
+		}
 		count, err := strconv.Atoi(trimmed)
 		if err != nil {
 			return 0, fmt.Errorf("probe E7 trial count %q is not a number", raw)
@@ -145,7 +163,7 @@ func claudeSubProbeE7TrialCount(raw string, selected []claudeSubProbeExperiment)
 
 	requested := claudeSubProbeCrashTrials
 	if len(selected) == 1 && claudeSubProbeSelectsE7(selected) {
-		requested = claudeSubProbeCrashTrials + 1
+		requested = claudeSubProbeE7OnlyTrials
 	}
 	for count := requested; count >= claudeSubProbeE7MinTrials; count-- {
 		if claudeSubProbeSelectedBounds(claudeSubProbeWithE7Trials(selected, count)) < claudeSubProbeRunTimeout {
@@ -216,10 +234,10 @@ func TestClaudeSubProbeSelectedExperiments(t *testing.T) {
 	if names := claudeSubProbeExperimentNames(e7Only); len(names) != 1 || names[0] != claudeSubProbeE7Name {
 		t.Fatalf("E7-only selection = %v, want [%s]", names, claudeSubProbeE7Name)
 	}
-	if got := e7Only[0].steps.trials; got != claudeSubProbeCrashTrials+1 {
-		t.Fatalf("E7-only trials = %d, want %d", got, claudeSubProbeCrashTrials+1)
+	if got := e7Only[0].steps.trials; got != claudeSubProbeE7OnlyTrials {
+		t.Fatalf("E7-only trials = %d, want %d", got, claudeSubProbeE7OnlyTrials)
 	}
-	if got, want := e7Only[0].timeout, claudeSubProbeE7Steps(claudeSubProbeCrashTrials+1).plan(); got != want {
+	if got, want := e7Only[0].timeout, claudeSubProbeE7Steps(claudeSubProbeE7OnlyTrials).plan(); got != want {
 		t.Fatalf("E7-only bound = %s, want its %s plan", got, want)
 	}
 
@@ -250,6 +268,10 @@ func TestClaudeSubProbeE7TrialBounds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("select E7: %v", err)
 	}
+	e1Only, err := claudeSubProbeSelect(all, []string{"E1"})
+	if err != nil {
+		t.Fatalf("select E1: %v", err)
+	}
 	cases := []struct {
 		name       string
 		raw        string
@@ -258,12 +280,13 @@ func TestClaudeSubProbeE7TrialBounds(t *testing.T) {
 		wantErr    string
 	}{
 		{name: "full run keeps the default", selected: all, wantTrials: claudeSubProbeCrashTrials},
-		{name: "E7 alone gets one more trial", selected: e7Only, wantTrials: claudeSubProbeCrashTrials + 1},
+		{name: "E7 alone derives its own count", selected: e7Only, wantTrials: claudeSubProbeE7OnlyTrials},
 		{name: "explicit one", raw: "1", selected: e7Only, wantTrials: 1},
 		{name: "explicit maximum", raw: "5", selected: e7Only, wantTrials: claudeSubProbeE7MaxTrials},
 		{name: "below the minimum", raw: "0", selected: e7Only, wantErr: "outside 1 to 5"},
 		{name: "above the maximum", raw: "6", selected: e7Only, wantErr: "outside 1 to 5"},
 		{name: "not a number", raw: "three", selected: e7Only, wantErr: "not a number"},
+		{name: "override without E7 selected", raw: "2", selected: e1Only, wantErr: "not selected"},
 		{name: "override that cannot fit the ceiling", raw: "5", selected: all, wantErr: "probe ceiling"},
 	}
 	for _, tc := range cases {
@@ -283,7 +306,8 @@ func TestClaudeSubProbeE7TrialBounds(t *testing.T) {
 			}
 			plan := claudeSubProbeE7Steps(count)
 			want := claudeSubProbeInitWorstCase + time.Duration(count)*(claudeSubProbeInitWorstCase+
-				claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation)
+				claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation+
+				2*claudeSubProbeTeardownBudget)
 			if got := plan.plan(); got != want {
 				t.Fatalf("plan(%d) = %s, want %s", count, got, want)
 			}
@@ -292,5 +316,22 @@ func TestClaudeSubProbeE7TrialBounds(t *testing.T) {
 				t.Fatalf("resolved %d trials claim %s, at or above the ceiling %s", count, total, claudeSubProbeRunTimeout)
 			}
 		})
+	}
+}
+
+// TestClaudeSubProbeE7Platform checks that selecting E7 on a platform without the
+// kill seam fails before any spawn, and that other experiments are unaffected.
+func TestClaudeSubProbeE7Platform(t *testing.T) {
+	if err := claudeSubProbeE7Unsupported(); err != nil {
+		t.Fatalf("E7 platform check = %v, want nil on this platform", err)
+	}
+	old := claudeSubProbeKillSupported
+	claudeSubProbeKillSupported = false
+	t.Cleanup(func() { claudeSubProbeKillSupported = old })
+	if _, err := claudeSubProbeExperiments(claudeSubProbeConfig{Model: claudeSubProbeDefaultModel, Only: "E7"}); err == nil || !strings.Contains(err.Error(), "SIGKILL") {
+		t.Fatalf("E7 selection error = %v, want the unsupported-platform failure", err)
+	}
+	if _, err := claudeSubProbeExperiments(claudeSubProbeConfig{Model: claudeSubProbeDefaultModel, Only: "E1"}); err != nil {
+		t.Fatalf("E1 selection error = %v, want E1 to run without the kill seam", err)
 	}
 }

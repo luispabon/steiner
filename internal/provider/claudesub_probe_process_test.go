@@ -25,6 +25,11 @@ const (
 	claudeSubProbeInterruptAck    = 30 * time.Second
 	claudeSubProbeHandlerPoll     = 25 * time.Millisecond
 
+	// claudeSubProbeTeardownBudget is the per-process budget the step plan charges
+	// for retiring a process and closing its pool through the production paths,
+	// which no wait covers.
+	claudeSubProbeTeardownBudget = 5 * time.Second
+
 	// claudeSubProbeInitWorstCase is the worst case of the init gate: no init
 	// before the first input, a gating turn that spends its whole result budget,
 	// then the post-gating init budget.
@@ -97,7 +102,7 @@ type claudeSubProbeProcess struct {
 // environment shape, argv switches and every exchanged line. The returned
 // process has passed the init gate, so it is the only point from which an
 // ordinary prompt may be written.
-func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, rep *claudeSubProbeProcessReport, key string, spec claudeSubStartSpec, gatingPrompt string, gatingBlocks []map[string]any) (*claudeSubProbeProcess, error) {
+func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, rep *claudeSubProbeProcessReport, key string, spec claudeSubStartSpec, gatingPrompt string, gatingBlocks []map[string]any, gatingResult time.Duration) (*claudeSubProbeProcess, error) {
 	rec := newClaudeSubProbeRecorder(rep, cfg.Model)
 	pool := NewClaudeSubscriptionPool(ClaudeSubscriptionPoolOptions{
 		WorkDir:            cfg.WorkDir,
@@ -137,7 +142,7 @@ func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, r
 		process.callHost = sess.host
 		process.callSnapshot = func() []claudeSubProbeCallState { return claudeSubProbeHostCalls(sess.host) }
 	}
-	if err := claudeSubProbeGateInit(ctx, process, gatingPrompt, claudeSubProbeInitBeforeInput, claudeSubProbeInitAfterWarmup, claudeSubProbeWarmupResult); err != nil {
+	if err := claudeSubProbeGateInit(ctx, process, gatingPrompt, claudeSubProbeInitBeforeInput, claudeSubProbeInitAfterWarmup, claudeSubProbeGateResultBudget(gatingResult)); err != nil {
 		if closeErr := process.teardown(); closeErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("close probe process after a failed init gate: %w", closeErr))
 		}
@@ -224,6 +229,17 @@ func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, gatin
 		}
 	}
 	return nil
+}
+
+// claudeSubProbeGateResultBudget is the budget the init gate gives the gating
+// turn's result: the experiment's declared budget when it has one, otherwise the
+// probe's fixed gating-result budget. E7 passes its declared continuation budget
+// so the gate and the step plan charge the same time for the same turn.
+func claudeSubProbeGateResultBudget(declared time.Duration) time.Duration {
+	if declared > 0 {
+		return declared
+	}
+	return claudeSubProbeWarmupResult
 }
 
 // claudeSubProbeRejectMCPCalls resolves every live MCP call with an error result

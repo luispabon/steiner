@@ -69,6 +69,9 @@ type claudeSubProbeSteps struct {
 	// trials is how many trials a repeated experiment (E7) runs: its declared
 	// waits are the per-trial plan repeated trials times.
 	trials int
+	// processes is how many CLI processes the experiment starts, each of which
+	// spends its own bounded teardown.
+	processes int
 }
 
 // next spends the experiment's next declared wait. A body that asks for more
@@ -86,12 +89,13 @@ func (s *claudeSubProbeSteps) next() time.Duration {
 // copy returns an independent consumer of the same plan, so a run leaves the
 // declaration intact for the bound check.
 func (s *claudeSubProbeSteps) copy() *claudeSubProbeSteps {
-	return &claudeSubProbeSteps{gate: s.gate, waits: s.waits, extra: s.extra, trials: s.trials}
+	return &claudeSubProbeSteps{gate: s.gate, waits: s.waits, extra: s.extra, trials: s.trials, processes: s.processes}
 }
 
 // plan reports the worst case the plan declares: the init gate, every declared
 // extra budget such as the interrupt control settle or a child process's gate,
-// and every wait the body consumes.
+// every wait the body consumes, and a bounded teardown for every process it
+// starts.
 func (s *claudeSubProbeSteps) plan() time.Duration {
 	total := s.gate
 	for _, wait := range s.waits {
@@ -100,6 +104,7 @@ func (s *claudeSubProbeSteps) plan() time.Duration {
 	for _, extra := range s.extra {
 		total += extra
 	}
+	total += time.Duration(s.processes) * claudeSubProbeTeardownBudget
 	return total
 }
 
@@ -414,17 +419,18 @@ func claudeSubProbeRun(t *testing.T) {
 // experiment even when its body returned no error: an incomplete timeline, an
 // exit before the probe began teardown, and an unexpected teardown result. A
 // non-zero exit status after the probe's own stdin close is evidence, not a
-// failure, and a process the experiment killed itself (ExpectedCrash) is expected
-// to show both the early exit and the crash-derived teardown result.
+// failure. A process the experiment killed itself (ExpectedCrash) is expected to
+// show the SIGKILL exit and a teardown result that carries that signal, and
+// nothing else is exempt.
 func claudeSubProbeProcessFailure(rep *claudeSubProbeProcessReport) error {
 	var errs []error
 	if rep.TimelineTruncated {
 		errs = append(errs, fmt.Errorf("probe process %s timeline hit the %d entry cap, so its exchange is incomplete", rep.Name, claudeSubProbeTimelineMax))
 	}
-	if rep.Exit != nil && rep.Exit.ExitedBeforeTeardown && !rep.ExpectedCrash {
+	if rep.Exit != nil && rep.Exit.ExitedBeforeTeardown && !(rep.ExpectedCrash && claudeSubProbeKilledBySignal(rep.Exit)) {
 		errs = append(errs, fmt.Errorf("probe process %s exited before teardown began (status %d, wait error %q)", rep.Name, rep.Exit.Status, rep.Exit.WaitErr))
 	}
-	if rep.TeardownErr != "" && !rep.ExpectedCrash && !claudeSubProbeExpectedTeardownError(rep.TeardownErr) {
+	if rep.TeardownErr != "" && !claudeSubProbeExpectedTeardownError(rep.TeardownErr) && !(rep.ExpectedCrash && strings.Contains(rep.TeardownErr, "signal: killed")) {
 		errs = append(errs, fmt.Errorf("probe process %s teardown reported %s", rep.Name, rep.TeardownErr))
 	}
 	return errors.Join(errs...)
@@ -460,16 +466,18 @@ func claudeSubProbeWriteReport(path string, report *claudeSubProbeReport) error 
 // arrive before input: empty means the probe's own fixed warmup prompt, which
 // only the ephemeral (non-persisted) specs use.
 func claudeSubProbeStart(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec, gatingPrompt string) (*claudeSubProbeProcess, error) {
-	return claudeSubProbeStartGated(ctx, cfg, exp, name, key, spec, gatingPrompt, nil)
+	return claudeSubProbeStartGated(ctx, cfg, exp, name, key, spec, gatingPrompt, nil, 0)
 }
 
 // claudeSubProbeStartGated is claudeSubProbeStart for a gating turn whose wire
 // line is not the single text block gatingPrompt would produce: E7's continuation
-// line carries the original prompt and the note as two text blocks.
-func claudeSubProbeStartGated(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec, gatingPrompt string, gatingBlocks []map[string]any) (*claudeSubProbeProcess, error) {
+// line carries the original prompt and the note as two text blocks. gatingResult is
+// the budget the gate gives that turn's result, so a long continuation uses the
+// same declared budget the experiment's step plan charges for it.
+func claudeSubProbeStartGated(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec, gatingPrompt string, gatingBlocks []map[string]any, gatingResult time.Duration) (*claudeSubProbeProcess, error) {
 	rep := &claudeSubProbeProcessReport{Name: name, Key: key, Persist: spec.Persist, Resume: claudeSubProbeResumeOf(spec.Resume)}
 	exp.Processes = append(exp.Processes, rep)
-	process, err := claudeSubProbeStartProcess(ctx, cfg, rep, key, spec, gatingPrompt, gatingBlocks)
+	process, err := claudeSubProbeStartProcess(ctx, cfg, rep, key, spec, gatingPrompt, gatingBlocks, gatingResult)
 	if err != nil {
 		rep.StartError = claudeSubProbeErrorString(err)
 		return nil, fmt.Errorf("start probe process %s: %w", name, err)

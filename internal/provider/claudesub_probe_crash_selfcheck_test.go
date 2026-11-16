@@ -3,9 +3,11 @@
 package provider
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestClaudeSubProbeContinuationNote checks the note E7 sends after the original
@@ -39,72 +41,103 @@ func TestClaudeSubProbeContinuationNote(t *testing.T) {
 }
 
 // TestClaudeSubProbeSeamAnalysis checks what the item numbers say about a
-// continuation: clean, duplicate, gap, restart, a fragment that completes a cut
-// item number, and commentary.
+// continuation, including the verdicts that report a failed or partial measurement
+// before any numbering judgement: empty, no-items and short.
 func TestClaudeSubProbeSeamAnalysis(t *testing.T) {
 	cases := []struct {
 		name         string
 		partial      string
 		continuation string
+		errored      bool
 		want         claudeSubProbeSeam
 		wantVerdict  string
 	}{
 		{
 			name:         "clean continuation",
-			partial:      "item-1 one\nitem-2 two\n",
-			continuation: "item-3 three\nitem-4 four\n",
-			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 3, MaxItem: 4},
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: claudeSubProbeItemText(3, 200),
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 3, ContinuationItems: 198, MaxItem: 200},
 			wantVerdict:  "clean",
 		},
 		{
 			name:         "duplicate item",
-			partial:      "item-1 one\nitem-2 two\n",
-			continuation: "item-2 two\nitem-3 three\n",
-			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 2, Duplicate: []int{2}, MaxItem: 3},
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: "item-2 two\n" + claudeSubProbeItemText(3, 200),
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 2, ContinuationItems: 199, Duplicate: []int{2}, MaxItem: 200},
 			wantVerdict:  "duplicate",
 		},
 		{
 			name:         "gap in the numbering",
-			partial:      "item-1 one\nitem-2 two\n",
-			continuation: "item-4 four\nitem-5 five\n",
-			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 4, Missing: []int{3}, MaxItem: 5},
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: claudeSubProbeItemText(4, 200),
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 4, ContinuationItems: 197, Missing: []int{3}, MaxItem: 200},
 			wantVerdict:  "gap",
 		},
 		{
 			name:         "restart at item one",
-			partial:      "item-1 one\nitem-2 two\n",
-			continuation: "item-1 one\nitem-2 two\n",
-			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 1, Duplicate: []int{1, 2}, MaxItem: 2},
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: claudeSubProbeItemText(1, 200),
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 1, ContinuationItems: 200, Duplicate: []int{1, 2}, MaxItem: 200},
 			wantVerdict:  "restart",
 		},
 		{
 			name:         "continuation completes a cut item number",
 			partial:      "item-1 one\nitem-2 two\nitem-3 three\nitem-4",
-			continuation: "1 forty-one\n",
-			want: claudeSubProbeSeam{PartialLastComplete: 3, PartialMax: 4, ContinuationFirst: 41,
-				Missing: claudeSubProbeItemRange(5, 40), CutDigits: "4", FragmentCompletes: true, MaxItem: 41},
+			continuation: "1 forty-one\n" + claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 3, PartialMax: 3, ContinuationFirst: 41, ContinuationItems: 160,
+				Missing: claudeSubProbeItemRange(4, 40), CutDigits: "4", FragmentCompletes: true, MaxItem: 200},
 			wantVerdict: "gap",
 		},
 		{
-			name:         "commentary with clean numbering",
-			partial:      "item-1 one\nitem-2 two\n",
-			continuation: "Continuing from item-3:\nitem-3 three\n",
-			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 3, MaxItem: 3},
-			wantVerdict:  "commentary",
+			name:         "list stops short of the end",
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: claudeSubProbeItemText(3, 100),
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 3, ContinuationItems: 98, MaxItem: 100},
+			wantVerdict:  "short",
+		},
+		{
+			name:         "continuation carries no items",
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: "The list continues below.\n",
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, MaxItem: 2},
+			wantVerdict:  "no-items",
+		},
+		{
+			name:        "empty continuation",
+			partial:     claudeSubProbeItemText(1, 2),
+			want:        claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, MaxItem: 2},
+			wantVerdict: "empty",
+		},
+		{
+			name:         "errored continuation with clean numbering",
+			partial:      claudeSubProbeItemText(1, 2),
+			continuation: claudeSubProbeItemText(3, 200),
+			errored:      true,
+			want:         claudeSubProbeSeam{PartialLastComplete: 2, PartialMax: 2, ContinuationFirst: 3, ContinuationItems: 198, MaxItem: 200, Errored: true},
+			wantVerdict:  "empty",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := claudeSubProbeAnalyseSeam(tc.partial, tc.continuation)
+			got.Errored = tc.errored
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("seam = %+v, want %+v", got, tc.want)
 			}
 			mentioned := claudeSubProbeMentionsInterruption(tc.continuation)
-			if verdict := claudeSubProbeCrashVerdict(got, mentioned); verdict != tc.wantVerdict {
+			if verdict := claudeSubProbeCrashVerdict(got, tc.continuation, mentioned); verdict != tc.wantVerdict {
 				t.Fatalf("verdict = %q, want %q (mentioned=%v)", verdict, tc.wantVerdict, mentioned)
 			}
 		})
 	}
+
+	t.Run("commentary with a complete clean list", func(t *testing.T) {
+		continuation := "Continuing from where the text stopped:\n" + claudeSubProbeItemText(3, 200)
+		seam := claudeSubProbeAnalyseSeam(claudeSubProbeItemText(1, 2), continuation)
+		if verdict := claudeSubProbeCrashVerdict(seam, continuation, claudeSubProbeMentionsInterruption(continuation)); verdict != "commentary" {
+			t.Fatalf("verdict = %q, want commentary", verdict)
+		}
+	})
 }
 
 // TestClaudeSubProbeCutItemDigits checks the cut detection behind the fragment
@@ -152,7 +185,7 @@ func TestClaudeSubProbeMentionsInterruption(t *testing.T) {
 }
 
 // TestClaudeSubProbeCrashExitFinding checks that a trial only counts as measured
-// when the spawned CLI really died of the signal.
+// when the spawned CLI died of the SIGKILL the probe sent.
 func TestClaudeSubProbeCrashExitFinding(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -161,9 +194,10 @@ func TestClaudeSubProbeCrashExitFinding(t *testing.T) {
 	}{
 		{name: "killed by signal", exit: &claudeSubProbeExit{StatusKnown: true, Status: -1, WaitErr: "signal: killed"}},
 		{name: "no evidence", wantErr: "no exit evidence"},
-		{name: "unknown status", exit: &claudeSubProbeExit{}, wantErr: "status is unknown"},
-		{name: "clean exit", exit: &claudeSubProbeExit{StatusKnown: true}, wantErr: "without a wait error"},
-		{name: "zero status with a wait error", exit: &claudeSubProbeExit{StatusKnown: true, WaitErr: "exit status 0"}, wantErr: "exited 0"},
+		{name: "unknown status", exit: &claudeSubProbeExit{}, wantErr: "exited before kill"},
+		{name: "clean exit", exit: &claudeSubProbeExit{StatusKnown: true}, wantErr: "exited before kill"},
+		{name: "zero status", exit: &claudeSubProbeExit{StatusKnown: true, Status: 0, WaitErr: "exit status 0"}, wantErr: "exited before kill"},
+		{name: "status minus one without the signal", exit: &claudeSubProbeExit{StatusKnown: true, Status: -1, WaitErr: "wait: no child processes"}, wantErr: "exited before kill"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,29 +215,111 @@ func TestClaudeSubProbeCrashExitFinding(t *testing.T) {
 	}
 }
 
-// TestClaudeSubProbeExpectedCrash checks that only the process an experiment
-// killed itself is exempt from the exit-before-teardown and teardown-result
-// failures.
+// TestClaudeSubProbeExpectedCrash checks that ExpectedCrash exempts only the
+// crash-derived evidence: the SIGKILL exit and the existing bounded-teardown
+// allowlist. Any other teardown error still fails the experiment.
 func TestClaudeSubProbeExpectedCrash(t *testing.T) {
-	crashed := func(expected bool) *claudeSubProbeProcessReport {
+	killed := func(expected bool, teardown string) *claudeSubProbeProcessReport {
 		return &claudeSubProbeProcessReport{
 			Name:          "E7 trial 1 parent",
 			ExpectedCrash: expected,
 			Exit:          &claudeSubProbeExit{StatusKnown: true, Status: -1, WaitErr: "signal: killed", ExitedBeforeTeardown: true},
-			TeardownErr:   "claude cli exited: signal: killed",
+			TeardownErr:   teardown,
 		}
 	}
-	if err := claudeSubProbeProcessFailure(crashed(false)); err == nil {
-		t.Fatal("a process that exited before teardown passed without ExpectedCrash")
+	cases := []struct {
+		name    string
+		report  *claudeSubProbeProcessReport
+		wantErr string
+	}{
+		{name: "killed process not marked", report: killed(false, "claude cli exited: signal: killed"), wantErr: "exited before teardown"},
+		{name: "killed process marked", report: killed(true, "claude cli exited: signal: killed")},
+		{name: "marked with the bounded-teardown allowlist", report: killed(true, "stop claude_subscription router: teardown did not complete")},
+		{name: "marked with an unrelated teardown error", report: killed(true, "remove claude_subscription session dir: permission denied"), wantErr: "teardown reported"},
+		{name: "marked with a clean exit", report: &claudeSubProbeProcessReport{
+			Name:          "E7 trial 1 parent",
+			ExpectedCrash: true,
+			Exit:          &claudeSubProbeExit{StatusKnown: true, Status: 0, WaitErr: "exit status 0", ExitedBeforeTeardown: true},
+			TeardownErr:   "claude cli exited: exit status 0",
+		}, wantErr: "exited before teardown"},
 	}
-	if err := claudeSubProbeProcessFailure(crashed(true)); err != nil {
-		t.Fatalf("a process the experiment killed failed its own check: %v", err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := claudeSubProbeProcessFailure(tc.report)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("process failure = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("process failure = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
-	truncated := crashed(true)
+
+	truncated := killed(true, "claude cli exited: signal: killed")
 	truncated.TimelineTruncated = true
 	if err := claudeSubProbeProcessFailure(truncated); err == nil || !strings.Contains(err.Error(), "entry cap") {
 		t.Fatalf("truncated crash process error = %v, want the entry cap failure", err)
 	}
+}
+
+// TestClaudeSubProbeGateResultBudget checks that the init gate uses the budget the
+// experiment declares for its gating turn, so E7's long continuation is not cut to
+// the probe's fixed warmup budget.
+func TestClaudeSubProbeGateResultBudget(t *testing.T) {
+	if got := claudeSubProbeGateResultBudget(0); got != claudeSubProbeWarmupResult {
+		t.Fatalf("default gating result budget = %s, want %s", got, claudeSubProbeWarmupResult)
+	}
+	if got := claudeSubProbeGateResultBudget(claudeSubProbeCrashContinuation); got != claudeSubProbeCrashContinuation {
+		t.Fatalf("declared gating result budget = %s, want %s", got, claudeSubProbeCrashContinuation)
+	}
+	if claudeSubProbeCrashContinuation <= claudeSubProbeWarmupResult {
+		t.Fatalf("E7's continuation budget %s does not exceed the fixed gating budget %s", claudeSubProbeCrashContinuation, claudeSubProbeWarmupResult)
+	}
+}
+
+// TestClaudeSubProbeE7PlanShape checks the E7 step plan: one repetition per trial,
+// the declared continuation budget in every trial, and two processes per trial, so
+// the body, the gate and the teardown term cannot drift apart.
+func TestClaudeSubProbeE7PlanShape(t *testing.T) {
+	for _, trials := range []int{claudeSubProbeCrashTrials, claudeSubProbeE7OnlyTrials} {
+		plan := claudeSubProbeE7Steps(trials)
+		if plan.trials != trials {
+			t.Fatalf("plan trials = %d, want %d", plan.trials, trials)
+		}
+		if plan.processes != 2*trials {
+			t.Fatalf("plan processes = %d, want %d", plan.processes, 2*trials)
+		}
+		if len(plan.extra) != trials {
+			t.Fatalf("plan extras = %d, want one resumed-process gate per trial (%d)", len(plan.extra), trials)
+		}
+		for _, extra := range plan.extra {
+			if extra != claudeSubProbeInitWorstCase {
+				t.Fatalf("plan extra = %s, want the resumed-process gate %s", extra, claudeSubProbeInitWorstCase)
+			}
+		}
+		for trial := 0; trial < trials; trial++ {
+			base := trial * 4
+			want := []time.Duration{claudeSubProbeCrashReply, claudeSubProbeCrashStream, claudeSubProbeCrashExit, claudeSubProbeCrashContinuation}
+			for i, budget := range want {
+				if got := plan.waits[base+i]; got != budget {
+					t.Fatalf("trial %d wait %d = %s, want %s", trial+1, i, got, budget)
+				}
+			}
+		}
+	}
+}
+
+// claudeSubProbeItemText renders one item line per number from..to, which is the
+// numbering the E7 list prompt asks for.
+func claudeSubProbeItemText(from, to int) string {
+	var builder strings.Builder
+	for number := from; number <= to; number++ {
+		fmt.Fprintf(&builder, "item-%d\n", number)
+	}
+	return builder.String()
 }
 
 // claudeSubProbeItemRange is the inclusive item number range from..to, which is

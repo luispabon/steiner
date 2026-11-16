@@ -38,12 +38,21 @@ const (
 	claudeSubProbeCrashExit         = 5 * time.Second
 	claudeSubProbeCrashContinuation = 30 * time.Second
 
-	// claudeSubProbeCrashTrials is E7's trial count in a full run. Two, not three:
+	// claudeSubProbeCrashTrials is E7's trial count in a full run. One, not two:
 	// each trial starts two persisted processes, so it spends one init gate, its
-	// resumed process's gate and four waits, and E1 to E6 already claim 1210s of the
-	// probe's 1500s ceiling. An E7-only run has the ceiling to itself and derives
-	// one more trial (see claudeSubProbeE7TrialCount).
-	claudeSubProbeCrashTrials = 2
+	// resumed process's gate, four waits and two per-process teardown budgets, and
+	// E1 to E6 with their own teardowns already claim most of the probe's 1500s
+	// ceiling. An E7-only selection derives claudeSubProbeE7OnlyTrials instead (see
+	// claudeSubProbeE7TrialCount).
+	claudeSubProbeCrashTrials = 1
+
+	// claudeSubProbeE7OnlyTrials is E7's derived trial count when E7 is the only
+	// selected experiment.
+	claudeSubProbeE7OnlyTrials = 3
+
+	// claudeSubProbeListEnd is the last item the second prompt asks for: a
+	// continuation that stops short of it is a truncated answer.
+	claudeSubProbeListEnd = 200
 
 	// claudeSubProbeCrashSampleTail and claudeSubProbeCrashSampleHead bound the
 	// partial and continuation excerpts the findings quote.
@@ -77,7 +86,7 @@ func claudeSubProbeContinuationBlocks(prompt, partial string) []map[string]any {
 // this plan, so the two cannot drift, and the plan carries the trial count the body
 // runs.
 func claudeSubProbeE7Steps(trials int) *claudeSubProbeSteps {
-	steps := &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, trials: trials}
+	steps := &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, trials: trials, processes: 2 * trials}
 	for trial := 0; trial < trials; trial++ {
 		steps.waits = append(steps.waits,
 			claudeSubProbeCrashReply, claudeSubProbeCrashStream, claudeSubProbeCrashExit, claudeSubProbeCrashContinuation)
@@ -152,9 +161,10 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 	if _, err := parent.pumpUntil(ctx, steps.next(), "the streamed list reaching its kill point", claudeSubProbeLinesAtLeast(parent, turn, claudeSubProbeCrashLines)); err != nil {
 		return "", err
 	}
-	partial, partialTruncated := parent.turnText(turn)
-	if partialTruncated {
-		return "", fmt.Errorf("the killed turn passed the %d rune answer cap, so the note cannot quote it exactly", claudeSubProbeAnswerMaxRunes)
+	// A turn that already has its result was never crashed mid-reply, so the quoted
+	// text would be the whole answer and the trial would measure nothing.
+	if result := parent.turnResult(turn); result != nil {
+		return "", fmt.Errorf("the turn finished before kill (subtype %q terminal_reason %q), so there was no partial to quote", result.Subtype, result.TerminalReason)
 	}
 	if err := parent.killChild(); err != nil {
 		return "", err
@@ -164,6 +174,12 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 	}
 	claudeSubProbeFinish(parent)
 	continuationBudget := steps.next()
+	// Read the partial only after the process exited and its events were drained, so
+	// the quoted text is everything the CLI streamed before the kill.
+	partial, partialTruncated := parent.turnText(turn)
+	if partialTruncated {
+		return "", fmt.Errorf("the killed turn passed the %d rune answer cap, so the note cannot quote it exactly", claudeSubProbeAnswerMaxRunes)
+	}
 	exitFinding, exitErr := claudeSubProbeCrashExitFinding(parent.rep.Exit)
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s killed with SIGKILL after %d streamed newlines (%d runes): %s",
 		label, strings.Count(partial, "\n"), utf8.RuneCountInString(partial), exitFinding))
@@ -177,7 +193,7 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 	line := claudeSubProbeContinuationBlocks(claudeSubProbePromptE7T2, partial)
 	resumeSpec := spec
 	resumeSpec.Resume = claudeSubResume{SessionID: sessionID, AtUUID: resumeUUID, Fork: true}
-	resumed, err := claudeSubProbeStartGated(ctx, cfg, exp, label+" resume fork", fmt.Sprintf("probe-e7-%d-fork", trial), resumeSpec, claudeSubProbePromptE7T2, line)
+	resumed, err := claudeSubProbeStartGated(ctx, cfg, exp, label+" resume fork", fmt.Sprintf("probe-e7-%d-fork", trial), resumeSpec, claudeSubProbePromptE7T2, line, continuationBudget)
 	if err != nil {
 		return "", err
 	}
@@ -194,24 +210,26 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 	if continuationTurn == nil {
 		return "", errors.New("the resumed process recorded no continuation turn")
 	}
+	result := continuationTurn.Result
+	if result == nil {
+		return "", errors.New("the resumed turn recorded no result")
+	}
 	continuation, continuationTruncated := resumed.turnText(continuationTurn)
 	forkSessionID := resumed.sessionID()
 	claudeSubProbeFinish(resumed)
 	exp.Transcripts = append(exp.Transcripts, claudeSubProbeReadTranscript(label+" after the forked process exit", configDir, cfg.WorkDir, forkSessionID))
 
 	seam := claudeSubProbeAnalyseSeam(partial, continuation)
+	seam.Errored = result.IsError
 	mentioned := claudeSubProbeMentionsInterruption(continuation)
-	verdict := claudeSubProbeCrashVerdict(seam, mentioned)
-	usage := "none"
-	if continuationTurn.Result != nil {
-		usage = claudeSubProbeUsageString(continuationTurn.Result.Usage)
-	}
+	verdict := claudeSubProbeCrashVerdict(seam, continuation, mentioned)
+	usage := claudeSubProbeUsageString(result.Usage)
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s partial tail (last %d runes): %q",
 		label, claudeSubProbeCrashSampleTail, claudeSubProbeTailSample(partial, claudeSubProbeCrashSampleTail)))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s continuation head (first %d runes, truncated=%v): %q",
 		label, claudeSubProbeCrashSampleHead, continuationTruncated, claudeSubProbeHeadSample(continuation, claudeSubProbeCrashSampleHead)))
-	exp.Findings = append(exp.Findings, fmt.Sprintf("%s seam: partial last complete item=%d, partial max item=%d, continuation first item=%d, duplicates=%v, missing=%v, cut digits=%q, fragment completes=%v, max item=%d",
-		label, seam.PartialLastComplete, seam.PartialMax, seam.ContinuationFirst, seam.Duplicate, seam.Missing, seam.CutDigits, seam.FragmentCompletes, seam.MaxItem))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("%s seam: partial last complete item=%d, partial max item=%d, continuation first item=%d, continuation items=%d, duplicates=%v, missing=%v, cut digits=%q, fragment completes=%v, max item=%d, result error=%v",
+		label, seam.PartialLastComplete, seam.PartialMax, seam.ContinuationFirst, seam.ContinuationItems, seam.Duplicate, seam.Missing, seam.CutDigits, seam.FragmentCompletes, seam.MaxItem, seam.Errored))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s mentioned the interruption: %v", label, mentioned))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s continuation usage=%s assistant usage=%s",
 		label, usage, claudeSubProbeUsageString(continuationTurn.AssistantUsage)))
@@ -220,6 +238,9 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s verdict: %s", label, verdict))
 	if forkSessionID == "" || forkSessionID == sessionID {
 		return "", fmt.Errorf("the resumed process reported session %q, so the fork created no new session", forkSessionID)
+	}
+	if result.IsError {
+		return "", fmt.Errorf("the resumed turn ended with an error result (subtype %q terminal_reason %q), so the trial measured nothing", result.Subtype, result.TerminalReason)
 	}
 	return verdict, nil
 }
@@ -230,6 +251,14 @@ func (p *claudeSubProbeProcess) turnText(turn *claudeSubProbeTurn) (string, bool
 	p.rec.mu.Lock()
 	defer p.rec.mu.Unlock()
 	return turn.AnswerText, turn.AnswerTruncated
+}
+
+// turnResult returns the turn's terminal result, or nil while the turn is still
+// open.
+func (p *claudeSubProbeProcess) turnResult(turn *claudeSubProbeTurn) *claudeSubProbeResult {
+	p.rec.mu.Lock()
+	defer p.rec.mu.Unlock()
+	return turn.Result
 }
 
 // claudeSubProbeLinesAtLeast matches once the turn's recorded text carries want
@@ -281,9 +310,16 @@ func (p *claudeSubProbeProcess) awaitExit(ctx context.Context, timeout time.Dura
 	return err
 }
 
+// claudeSubProbeKilledBySignal reports the exit E7's crash path produces: the
+// reaped child died of SIGKILL, so its wait error names the signal and its status
+// is -1.
+func claudeSubProbeKilledBySignal(exit *claudeSubProbeExit) bool {
+	return exit != nil && exit.StatusKnown && exit.Status == -1 && strings.Contains(exit.WaitErr, "signal: killed")
+}
+
 // claudeSubProbeCrashExitFinding states the killed process's exit evidence and
-// fails when the CLI did not die of a signal, which is what the trial needs to
-// measure.
+// fails unless the CLI died of the SIGKILL the probe sent, which is what the trial
+// needs to measure.
 func claudeSubProbeCrashExitFinding(exit *claudeSubProbeExit) (string, error) {
 	if exit == nil {
 		return "no exit evidence", errors.New("the killed CLI recorded no exit evidence")
@@ -294,13 +330,8 @@ func claudeSubProbeCrashExitFinding(exit *claudeSubProbeExit) (string, error) {
 	}
 	message := fmt.Sprintf("exit status=%s wait_error=%q exited_before_teardown=%v proc_err=%q conn_err=%q",
 		status, exit.WaitErr, exit.ExitedBeforeTeardown, exit.ProcErr, exit.ConnErr)
-	switch {
-	case !exit.StatusKnown:
-		return message, errors.New("the killed CLI's exit status is unknown, so the crash path is unproven")
-	case exit.WaitErr == "":
-		return message, errors.New("the killed CLI exited without a wait error, so the crash path is unproven")
-	case exit.Status == 0:
-		return message, errors.New("the killed CLI exited 0 rather than by signal")
+	if !claudeSubProbeKilledBySignal(exit) {
+		return message, errors.New("the CLI exited before kill: its exit is not the SIGKILL the probe sent")
 	}
 	return message, nil
 }
@@ -308,16 +339,20 @@ func claudeSubProbeCrashExitFinding(exit *claudeSubProbeExit) (string, error) {
 // claudeSubProbeSeam is how a continuation joins the text it continues: the item
 // numbers either side of the seam, what they duplicate, what the merged numbering
 // skips, and whether the continuation finishes an item number the partial cut.
-// An item is complete when its number sits on a line the partial finished.
+// An item is complete when its number sits on a line the partial finished. Errored
+// records that the continuation's own turn ended with an error result, which the
+// calling trial sets.
 type claudeSubProbeSeam struct {
 	PartialLastComplete int
 	PartialMax          int
 	ContinuationFirst   int
+	ContinuationItems   int
 	Duplicate           []int
 	Missing             []int
 	CutDigits           string
 	FragmentCompletes   bool
 	MaxItem             int
+	Errored             bool
 }
 
 // claudeSubProbeItemPattern matches the list prompt's item numbers.
@@ -340,6 +375,11 @@ func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam 
 	}
 
 	partialAll := claudeSubProbeItemNumbers(partial)
+	if cut && len(partialAll) > 0 {
+		// The number the cut fell inside is not an item the partial produced, so it
+		// counts neither as the partial's last item nor as evidence for the numbering.
+		partialAll = partialAll[:len(partialAll)-1]
+	}
 	if complete := claudeSubProbeItemNumbers(claudeSubProbeCompleteLines(partial)); len(complete) > 0 {
 		seam.PartialLastComplete = complete[len(complete)-1]
 	}
@@ -347,6 +387,7 @@ func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam 
 		seam.PartialMax = partialAll[len(partialAll)-1]
 	}
 	continuationItems := claudeSubProbeItemNumbers(scan)
+	seam.ContinuationItems = len(continuationItems)
 	if len(continuationItems) > 0 {
 		seam.ContinuationFirst = continuationItems[0]
 	}
@@ -454,16 +495,24 @@ func claudeSubProbeMentionsInterruption(text string) bool {
 }
 
 // claudeSubProbeCrashVerdict names how a continuation joined the partial. The
-// order is deliberate: a restart is a restart even when it also duplicates, and
-// commentary is reported only when the numbering itself is clean.
-func claudeSubProbeCrashVerdict(seam claudeSubProbeSeam, mentioned bool) string {
+// precedence is total and deliberate: a failed measurement comes before the
+// numbering, a restart is a restart even when it also duplicates, a list that stops
+// short comes before commentary, and commentary is reported only when the numbering
+// is complete and clean.
+func claudeSubProbeCrashVerdict(seam claudeSubProbeSeam, continuation string, mentioned bool) string {
 	switch {
+	case seam.Errored || strings.TrimSpace(continuation) == "":
+		return "empty"
+	case seam.ContinuationItems == 0:
+		return "no-items"
 	case seam.ContinuationFirst == 1:
 		return "restart"
 	case len(seam.Duplicate) > 0:
 		return "duplicate"
 	case len(seam.Missing) > 0:
 		return "gap"
+	case seam.MaxItem < claudeSubProbeListEnd:
+		return "short"
 	case mentioned:
 		return "commentary"
 	default:

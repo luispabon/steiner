@@ -7,6 +7,9 @@ import (
 	"runtime"
 )
 
+// claudeSubProbeKillAvailable reports that this platform has no kill seam.
+const claudeSubProbeKillAvailable = false
+
 // claudeSubProbeKillProcess is unavailable off Unix: E7 needs a SIGKILL of the
 // child it spawned, and this platform's production child handle exposes no
 // equivalent signal. The experiment fails with this reason instead of skipping a

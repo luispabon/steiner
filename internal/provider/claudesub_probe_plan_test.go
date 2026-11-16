@@ -120,8 +120,8 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 	parent := planned["E5 parent persisted process"]
 	crashFork := planned["E5 and E7 fork resume"]
 	crashPlan := claudeSubProbeE7Steps(claudeSubProbeCrashTrials)
-	steps := func(waits, extra []time.Duration) *claudeSubProbeSteps {
-		return &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, waits: waits, extra: extra}
+	steps := func(processes int, waits, extra []time.Duration) *claudeSubProbeSteps {
+		return &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, waits: waits, extra: extra, processes: processes}
 	}
 	return []claudeSubProbeExperiment{
 		{
@@ -130,6 +130,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			argv:    subAgent,
 			timeout: 180 * time.Second,
 			steps: steps(
+				1,
 				[]time.Duration{
 					claudeSubProbeResultTimeout, claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout,
 					claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
@@ -144,6 +145,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			argv:    subAgent,
 			timeout: 190 * time.Second,
 			steps: steps(
+				1,
 				[]time.Duration{
 					claudeSubProbeReadyTimeout, claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout,
 					claudeSubProbeTailWindow, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
@@ -159,6 +161,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			argv:    subAgent,
 			timeout: 170 * time.Second,
 			steps: steps(
+				1,
 				[]time.Duration{
 					claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
 					claudeSubProbeTailWindow, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
@@ -173,6 +176,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			argv:    subAgent,
 			timeout: 150 * time.Second,
 			steps: steps(
+				1,
 				[]time.Duration{
 					claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
 					claudeSubProbeRaceTail,
@@ -187,6 +191,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			argv:    parent,
 			timeout: 330 * time.Second,
 			steps: steps(
+				3,
 				[]time.Duration{
 					claudeSubProbeResultTimeout, claudeSubProbeResultTimeout, claudeSubProbeReadyTimeout,
 					claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
@@ -202,6 +207,7 @@ func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExp
 			argv:    subAgent,
 			timeout: 190 * time.Second,
 			steps: steps(
+				1,
 				[]time.Duration{
 					claudeSubProbeReadyTimeout, claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout,
 					claudeSubProbeResultTimeout, claudeSubProbeQueuedTail,
@@ -234,6 +240,11 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) ([]claudeSubProbeExperi
 	selected, err := claudeSubProbeSelect(all, prefixes)
 	if err != nil {
 		return nil, err
+	}
+	if claudeSubProbeSelectsE7(selected) {
+		if err := claudeSubProbeE7Unsupported(); err != nil {
+			return nil, err
+		}
 	}
 	trials, err := claudeSubProbeE7TrialCount(cfg.E7Trials, selected)
 	if err != nil {
@@ -304,8 +315,8 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig, experiments 
 		if experiment.name != claudeSubProbeE7Name {
 			continue
 		}
-		fmt.Fprintf(w, "E7 trials: %d (default %d, %d when E7 is the only selection; %s accepts %d to %d, and a count that does not fit the ceiling fails)\n",
-			experiment.steps.trials, claudeSubProbeCrashTrials, claudeSubProbeCrashTrials+1,
+		fmt.Fprintf(w, "E7 trials: %d (full-run default %d, %d when E7 is the only selection; %s accepts %d to %d, and a count that does not fit the ceiling fails)\n",
+			experiment.steps.trials, claudeSubProbeCrashTrials, claudeSubProbeE7OnlyTrials,
 			claudeSubProbeE7TrialsEnv, claudeSubProbeE7MinTrials, claudeSubProbeE7MaxTrials)
 	}
 	fmt.Fprintln(w)

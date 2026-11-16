@@ -140,19 +140,20 @@ func TestClaudeSubProbeExperimentBounds(t *testing.T) {
 		t.Fatalf("summed experiment bounds %s reach the probe ceiling %s", total, claudeSubProbeRunTimeout)
 	}
 	wantE6 := claudeSubProbeInitWorstCase + 2*claudeSubProbeReadyTimeout + claudeSubProbeInterruptAck +
-		2*claudeSubProbeResultTimeout + claudeSubProbeQueuedTail
+		2*claudeSubProbeResultTimeout + claudeSubProbeQueuedTail + claudeSubProbeTeardownBudget
 	if got := byName["E6-queued-after-interrupt"].steps.plan(); got != wantE6 {
-		t.Fatalf("E6 step plan = %s, want %s including the outbound-interrupt wait", got, wantE6)
+		t.Fatalf("E6 step plan = %s, want %s including the outbound-interrupt wait and one teardown", got, wantE6)
 	}
 	// E7 starts two persisted processes per trial, so each trial spends one init
-	// gate, its resumed process's gate, and four waits. In a full run E1 to E6
-	// already claim 1210s of the 1500s ceiling, so only the default two trials fit;
-	// an E7-only selection derives a third.
-	if claudeSubProbeCrashTrials != 2 {
-		t.Fatalf("the full run plans %d E7 trials; only two fit", claudeSubProbeCrashTrials)
+	// gate, its resumed process's gate, four waits and two teardowns. The per-process
+	// teardown term is what leaves room for only the default single trial in a full
+	// run; an E7-only selection derives claudeSubProbeE7OnlyTrials.
+	if claudeSubProbeCrashTrials != 1 {
+		t.Fatalf("the full run plans %d E7 trials; only one fits the ceiling", claudeSubProbeCrashTrials)
 	}
 	wantE7 := claudeSubProbeInitWorstCase + claudeSubProbeCrashTrials*(claudeSubProbeInitWorstCase+
-		claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation)
+		claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation+
+		2*claudeSubProbeTeardownBudget)
 	if got := byName["E7-crash-resume-continue"].steps.plan(); got != wantE7 {
 		t.Fatalf("E7 step plan = %s, want %s for %d trials", got, wantE7, claudeSubProbeCrashTrials)
 	}
