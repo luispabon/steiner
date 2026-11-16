@@ -249,7 +249,17 @@ func claudeSubEventIsOverage(ev claudeSubEvent) bool {
 		Subtype string `json:"subtype"`
 	}
 	if json.Unmarshal(ev.Raw, &header) == nil && header.Subtype == "api_retry" {
-		return false
+		// Only the notice's own error string is read for an explicit overage
+		// notice. A notice whose error field is not a string stays a retry and
+		// never an overage, so an ordinary numeric field is not treated as
+		// malformed.
+		var notice struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(ev.Raw, &notice) != nil {
+			return false
+		}
+		return claudeSubNotificationIsOverage(notice.Error)
 	}
 	var envelope struct {
 		Subtype string `json:"subtype"`

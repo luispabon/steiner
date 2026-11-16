@@ -288,8 +288,9 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 // nothing for a rendered transcript), and the freshly spawned process holds
 // exactly the history steiner just sent as that one message, so accepting one
 // relaxed assistant at the suffix head accepts only text the CLI itself streamed
-// after it. A delivery that appended nothing at all cannot reach a drain: it
-// writes nothing to the CLI and so never has a turn to interrupt.
+// after it. A delivery that would write nothing at all is refused before it
+// starts (claudeSubDeliver), so a delivery that reached the CLI always wrote at
+// least one entry and never leaves the record untouched behind a drain.
 func claudeSubDeliveryTail(entries []claudeSubEntry, start int) bool {
 	if start < 0 || start > len(entries) {
 		return false

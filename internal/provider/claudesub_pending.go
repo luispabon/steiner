@@ -28,6 +28,19 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 	if len(stale) == 0 {
 		return nil
 	}
+	if s.delivery.terminal {
+		// The previous delivery already read the turn's terminal result, so the
+		// CLI is idle and has no turn to interrupt: an interrupt here would only
+		// produce a stray result. The stale handles are retired without claiming
+		// a drain or assuming any tool ran, and the request then goes through the
+		// ordinary mismatch and restore rules.
+		for _, pending := range stale {
+			s.host.resolve(pending.Handle, claudeSubToolResult{Text: "tool call interrupted", IsError: true})
+			claudeSubRemovePending(s, pending.ID)
+		}
+		s.host.cancelUnresolved(s.pending)
+		return nil
+	}
 	// The interrupted turn still reports its own terminal result. Draining to it
 	// under the same proof the cancel path uses both stops the turn and empties the
 	// queue, so a later call never reads this turn's result as its own. The drain

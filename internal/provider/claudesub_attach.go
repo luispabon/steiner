@@ -5,6 +5,11 @@ import (
 	"errors"
 )
 
+// errClaudeSubEmptyDelivery reports a request that adds nothing to the CLI
+// record it matched: with no user message and no tool result to write, a
+// delivery would wait on an idle CLI for a turn that was never started.
+var errClaudeSubEmptyDelivery = errors.New("claude_subscription request adds nothing to the conversation")
+
 // claudeSubAttach is the per-call input to the attach state machine.
 type claudeSubAttach struct {
 	key         string
@@ -240,8 +245,15 @@ func claudeSubLiveAccepts(ctx context.Context, s *claudeSubSession, req ChatRequ
 			drained = true
 		}
 	}
-	if _, err := s.sync.plan(req); err != nil {
+	delta, err := s.sync.plan(req)
+	if err != nil {
 		return false, claudeSubReseedPlan, nil
+	}
+	if len(delta.User) == 0 && len(delta.ToolResults) == 0 {
+		// The request adds nothing to the record the process already holds, so the
+		// delivery would write nothing and wait on an idle CLI for events that
+		// never come. It is refused here instead.
+		return false, "", errClaudeSubEmptyDelivery
 	}
 	if drained {
 		claudeSubMetricsFrom(ctx).noteRecovery(claudeSubRecoveryDrainedReuse)

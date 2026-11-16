@@ -951,3 +951,144 @@ func TestClaudeSubFailAfterVisibleSubAgentReturnsError(t *testing.T) {
 	}
 	claudeSubWantNoRecoveryNotice(t, got)
 }
+
+// TestClaudeSubEmptyDeltaSameHistoryRejected proves a request that adds nothing
+// to the live record fails promptly instead of parking the call on an idle CLI,
+// and that it never interrupts that process.
+func TestClaudeSubEmptyDeltaSameHistoryRejected(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+	st := claudeSubDecodeState(t, first.BackendState)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := claudeSubTurn(ctx, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages:         []Message{claudeSubUserText("read notes"), first.Delta},
+		BackendState:     claudeSubEncodeState(t, st),
+	}, func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubEmptyDelivery) {
+		t.Fatalf("turn error = %v, want %v", err, errClaudeSubEmptyDelivery)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("the empty request waited instead of failing")
+	}
+	conn := spawner.call(t, 0).Conn
+	if got := claudeSubUsageProbeCount(conn, `"subtype":"interrupt"`); got != 0 {
+		t.Errorf("interrupt requests = %d, want none for an idle process", got)
+	}
+	if got := len(claudeSubUserLines(conn)); got != 1 {
+		t.Errorf("user lines = %d, want only the first turn's", got)
+	}
+}
+
+// TestClaudeSubEmptyDeliveryRejectedBeforeWrite proves the delivery guard refuses
+// a delta that would write nothing, before anything reaches the CLI.
+func TestClaudeSubEmptyDeliveryRejectedBeforeWrite(t *testing.T) {
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	s, err := pool.acquire(context.Background(), "parent", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	pool.release(s)
+	err = claudeSubDeliver(context.Background(), s, ChatRequest{TransportSession: "parent", Model: claudeSubTestSpec().Model}, claudeSubDelta{}, func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubEmptyDelivery) {
+		t.Fatalf("deliver error = %v, want %v", err, errClaudeSubEmptyDelivery)
+	}
+	conn := spawner.call(t, 0).Conn
+	if lines := claudeSubUserLines(conn); len(lines) != 0 {
+		t.Errorf("user lines = %q, want none", lines)
+	}
+	if got := claudeSubUsageProbeCount(conn, `"subtype":"interrupt"`); got != 0 {
+		t.Errorf("interrupt requests = %d, want none", got)
+	}
+}
+
+// TestClaudeSubStalePendingAfterTerminalDoesNotInterrupt proves the stale-call
+// cleanup never interrupts a CLI that already reported its terminal result: the
+// handles are retired, nothing is marked drained, and the next request follows the
+// ordinary mismatch and resume rules.
+func TestClaudeSubStalePendingAfterTerminalDoesNotInterrupt(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	// The opening turn runs with the same tools, so the stored prompt/tools
+	// fingerprint matches this request and it resumes the checkpoint.
+	openPool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	opened := claudeSubRunTurn(t, openPool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		Messages:         []Message{claudeSubUserText("read notes")},
+	})
+	assistant, st := opened.Delta, claudeSubDecodeState(t, opened.BackendState)
+	batch := append(claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:5], claudeSubMaxTurnsResult())
+	pool, spawner := claudeSubPoolWithScripts(t,
+		&claudeSubScript{batches: [][]claudeSubEvent{batch}},
+		claudeSubTextTurns(t, 1),
+	)
+	history := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
+	failed := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		Messages:         history,
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if failed.err == nil {
+		t.Fatal("tool turn error = nil, want the terminal failure")
+	}
+	if !claudeSubLiveSession(pool, "parent").delivery.terminal {
+		t.Fatal("the failed delivery did not read its terminal result")
+	}
+	conn := spawner.call(t, 0).Conn
+	// The agent never received a tool call, so its next request drops the call and
+	// adds a message.
+	next := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		Messages:         append(append([]Message(nil), history...), claudeSubUserText("again")),
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if next.err != nil {
+		t.Fatalf("next turn error = %v", next.err)
+	}
+	if got := claudeSubUsageProbeCount(conn, `"subtype":"interrupt"`); got != 0 {
+		t.Errorf("interrupt requests = %d, want none: the turn already ended", got)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the ended process and its resume)", n)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume != st.CLISessionID {
+		t.Errorf("next spawn --resume = %q, want %q", resume, st.CLISessionID)
+	}
+	if final := next.final(t); final.Delta.Content != "Hello world" {
+		t.Errorf("next content = %q, want %q", final.Delta.Content, "Hello world")
+	}
+}
+
+// TestClaudeSubAPIRetryOverageExemption proves an api_retry notice whose own
+// error text starts with an explicit overage notice is treated as one, while a
+// plain retry, an unrelated word and a non-string error stay retries.
+func TestClaudeSubAPIRetryOverageExemption(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "plain retry", line: claudeSubRetryOverloaded},
+		{name: "usage credits notice", line: `{"type":"system","subtype":"api_retry","attempt":1,"error":"You're now using usage credits","uuid":"r1"}`, want: true},
+		{name: "extra usage notice", line: `{"type":"system","subtype":"api_retry","attempt":1,"error":"now using extra usage"}`, want: true},
+		{name: "unrelated error word", line: `{"type":"system","subtype":"api_retry","attempt":1,"error":"usage credits are enabled"}`},
+		{name: "numeric error stays a retry", line: `{"type":"system","subtype":"api_retry","attempt":1,"error":42}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := claudeSubEvent{Type: "system", Subtype: "api_retry", Raw: json.RawMessage(tt.line)}
+			if got := claudeSubEventIsOverage(ev); got != tt.want {
+				t.Errorf("claudeSubEventIsOverage(%s) = %v, want %v", tt.line, got, tt.want)
+			}
+		})
+	}
+}

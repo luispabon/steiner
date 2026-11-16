@@ -101,9 +101,11 @@ const claudeSubStoppedReplyNoteOpening = "Your previous reply to the message abo
 
 // claudeSubStoppedReplyNote is the note a resumed delivery sends with the
 // partial a stopped turn left, so the model sees what it had produced before the
-// new message. The partial is quoted verbatim between markers that cannot occur
-// in it (claudeSubPartialFence), labelled untrusted and possibly incomplete, and
-// capped by claudeSubQuotePartial.
+// new message. The partial is quoted between markers that cannot occur in it
+// (claudeSubPartialFence) and labelled untrusted and possibly incomplete, and it
+// is capped by claudeSubQuotePartial: a quote under the cap is verbatim, while a
+// longer one keeps its beginning and end verbatim and marks the dropped middle,
+// so the model must not treat a capped quote as the complete text.
 func claudeSubStoppedReplyNote(partial string) string {
 	quoted := claudeSubQuotePartial(partial)
 	fence := claudeSubPartialFence(quoted)

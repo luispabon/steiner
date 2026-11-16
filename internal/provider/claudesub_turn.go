@@ -300,6 +300,13 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	}
 	metrics := claudeSubMetricsFrom(ctx)
 	metrics.noteProcess(s)
+	if len(delta.User) == 0 && len(delta.ToolResults) == 0 {
+		// Nothing would be written, so the delivery would wait on an idle CLI for
+		// events that never come. A plan that appends nothing is a request that
+		// adds nothing to the record the process holds; it fails here instead of
+		// parking the call and leaving a cancellation to drain an idle process.
+		return errClaudeSubEmptyDelivery
+	}
 	if len(delta.User) > 0 {
 		getUsage := claudeSubQuotaObservedGetUsage(s.pool, s.control.getUsage)
 		polls := 0
