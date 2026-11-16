@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+// Experiment-specific tail windows, part of each experiment's step budget.
+const (
+	claudeSubProbeRaceTail   = 5 * time.Second
+	claudeSubProbeQueuedTail = 10 * time.Second
+)
+
 // claudeSubProbeToolSpec is the probe's only published tool. Its schema rejects
 // unexpected input: a single enumerated tag and no extra properties. The
 // production MCP host holds the call open until the probe resolves it, which is
@@ -100,57 +106,86 @@ func claudeSubProbeSpawnOptions(model string, persist bool, resume claudeSubResu
 	return opts
 }
 
-// claudeSubProbeExperiments is the probe's experiment table. Each argv is the
-// planned main process for that experiment, and each timeout bounds every step
-// of that experiment, so the steps' budgets fit inside it.
+// claudeSubProbeExperiments is the probe's experiment table. Each steps list is
+// the worst case of that experiment's waits, and each timeout is at or above
+// their sum, so no step can be cut short by the experiment bound.
 func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperiment {
 	planned := map[string][]string{}
 	for _, invocation := range claudeSubProbePlannedInvocations(cfg.CLIPath, cfg.Model) {
 		planned[invocation.Name] = invocation.Argv
 	}
-	const shortBound = 120 * time.Second
+	subAgent := planned["E1-E4 and E6 sub-agent process"]
+	parent := planned["E5 parent persisted process"]
 	return []claudeSubProbeExperiment{
 		{
 			name:    "E1-text-interrupt-reuse",
 			summary: "interrupt a streaming text turn, then reuse the same process for a follow-up turn",
-			argv:    planned["E1-E4 and E6 sub-agent process"],
-			timeout: shortBound,
-			run:     claudeSubProbeE1,
+			argv:    subAgent,
+			timeout: 180 * time.Second,
+			steps: []time.Duration{
+				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout, claudeSubProbeReadyTimeout,
+				claudeSubProbeInterruptAck, claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
+			},
+			run: claudeSubProbeE1,
 		},
 		{
 			name:    "E2-tool-exec-interrupt",
 			summary: "interrupt while a blocking MCP tool call runs, then reuse the process",
-			argv:    planned["E1-E4 and E6 sub-agent process"],
-			timeout: shortBound,
-			run:     claudeSubProbeE2,
+			argv:    subAgent,
+			timeout: 190 * time.Second,
+			steps: []time.Duration{
+				claudeSubProbeInitWorstCase, claudeSubProbeReadyTimeout, claudeSubProbeReadyTimeout,
+				claudeSubProbeInterruptAck, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
+				claudeSubProbeTailWindow, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
+			},
+			run: claudeSubProbeE2,
 		},
 		{
 			name:    "E3-tool-stream-interrupt",
 			summary: "interrupt at the streamed tool_use block start, then reuse the process",
-			argv:    planned["E1-E4 and E6 sub-agent process"],
-			timeout: shortBound,
-			run:     claudeSubProbeE3,
+			argv:    subAgent,
+			timeout: 170 * time.Second,
+			steps: []time.Duration{
+				claudeSubProbeInitWorstCase, claudeSubProbeReadyTimeout, claudeSubProbeInterruptAck,
+				claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeTailWindow,
+				claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
+			},
+			run: claudeSubProbeE3,
 		},
 		{
 			name:    "E4-interrupt-after-result",
 			summary: "interrupt immediately after a result and record whether a stray result arrives before the next turn",
-			argv:    planned["E1-E4 and E6 sub-agent process"],
-			timeout: shortBound,
-			run:     claudeSubProbeE4,
+			argv:    subAgent,
+			timeout: 150 * time.Second,
+			steps: []time.Duration{
+				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout, claudeSubProbeInterruptAck,
+				claudeSubProbeTailWindow, claudeSubProbeResultTimeout, claudeSubProbeRaceTail,
+			},
+			run: claudeSubProbeE4,
 		},
 		{
 			name:    "E5-resume-at-uuid",
 			summary: "interrupt a persisted turn, then resume at an earlier assistant uuid and fork it",
-			argv:    planned["E5 parent persisted process"],
-			timeout: 240 * time.Second,
-			run:     claudeSubProbeE5,
+			argv:    parent,
+			timeout: 330 * time.Second,
+			steps: []time.Duration{
+				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout, claudeSubProbeResultTimeout,
+				claudeSubProbeReadyTimeout, claudeSubProbeInterruptAck, claudeSubProbeResultTimeout,
+				claudeSubProbeTailWindow, claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout,
+				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout,
+			},
+			run: claudeSubProbeE5,
 		},
 		{
 			name:    "E6-queued-after-interrupt",
 			summary: "queue a user message immediately after an interrupt and record whether it runs",
-			argv:    planned["E1-E4 and E6 sub-agent process"],
-			timeout: shortBound,
-			run:     claudeSubProbeE6,
+			argv:    subAgent,
+			timeout: 170 * time.Second,
+			steps: []time.Duration{
+				claudeSubProbeInitWorstCase, claudeSubProbeReadyTimeout, claudeSubProbeInterruptAck,
+				claudeSubProbeResultTimeout, claudeSubProbeResultTimeout, claudeSubProbeQueuedTail,
+			},
+			run: claudeSubProbeE6,
 		},
 	}
 }
@@ -178,7 +213,7 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	fmt.Fprintf(w, "CLI session store: %s\n", configDir)
 	fmt.Fprintf(w, "CLI project directory for this cwd: %s\n", claudeSubProbeProjectDir(configDir, cfg.WorkDir))
 	fmt.Fprintf(w, "remove the recorded session transcripts afterwards: %v (set %s=1 to enable)\n", cfg.Cleanup, claudeSubProbeCleanupEnv)
-	fmt.Fprintf(w, "bounds: probe ceiling %s, per-experiment budgets in the experiment list below\n", claudeSubProbeRunTimeout)
+	fmt.Fprintf(w, "bounds: probe ceiling %s, per-experiment bounds listed below\n", claudeSubProbeRunTimeout)
 	fmt.Fprintln(w)
 
 	env := claudeSubProbeEnvSummary(claudeSubSessionEnv(os.Environ(), claudeSubProbeToolOutputMaxBytes))
@@ -203,14 +238,15 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "experiments (bound, then summary):")
+	fmt.Fprintln(w, "experiments (bound, worst-case step sum, then summary):")
 	for _, experiment := range claudeSubProbeExperiments(cfg) {
-		fmt.Fprintf(w, "  %s (%s): %s\n", experiment.name, experiment.timeout, experiment.summary)
+		fmt.Fprintf(w, "  %s (bound %s, steps %s): %s\n", experiment.name, experiment.timeout, claudeSubProbeExperimentBudget(experiment), experiment.summary)
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "init validation: the first process event must be a system/init event within 20s, reporting only mcp__steiner__probe_wait, the requested model, and no MCP server other than steiner; no prompt is written before it passes")
-	fmt.Fprintln(w, "init reporting: the report records the init event's tools, model, capabilities, CLI version, and the names in its plugins, mcp_servers, slash_commands, agents, skills and hook fields")
+	fmt.Fprintln(w, "init handling: the CLI is given 10s to report system/init before input. Without it the probe sends one fixed warmup turn and rejects any MCP tool call with an error result; init must validate within 20s of the warmup or the experiment fails, and no other prompt is written until it does")
+	fmt.Fprintln(w, "init validation: exactly mcp__steiner__probe_wait, the requested model, and no MCP server other than steiner")
+	fmt.Fprintln(w, "init reporting: the report records the init event's tools, model, capabilities, CLI version, and the names in its plugins, mcp_servers, slash_commands, agents, skills and hook fields, plus which init path happened")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "exact commands:")
 	fmt.Fprintf(w, "  plan: STEINER_CLAUDESUB_PROBE=plan go test -tags claudesub_probe -count=1 -timeout %s -run TestClaudeSubProbe -v ./internal/provider\n", claudeSubProbeRequiredTimeout)

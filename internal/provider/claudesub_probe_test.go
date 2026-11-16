@@ -89,35 +89,40 @@ type claudeSubProbeResume struct {
 
 // claudeSubProbeExit is the exit evidence for one process.
 type claudeSubProbeExit struct {
-	AtMS         int64  `json:"at_ms"`
-	ProcErr      string `json:"proc_err,omitempty"`
-	ConnErr      string `json:"conn_err,omitempty"`
-	PoolCloseErr string `json:"pool_close_err,omitempty"`
-	Unobserved   int    `json:"unobserved_events,omitempty"`
+	AtMS                 int64  `json:"at_ms"`
+	Status               int    `json:"status"`
+	WaitErr              string `json:"wait_error,omitempty"`
+	ProcErr              string `json:"proc_err,omitempty"`
+	ConnErr              string `json:"conn_err,omitempty"`
+	PoolCloseErr         string `json:"pool_close_err,omitempty"`
+	Unobserved           int    `json:"unobserved_events,omitempty"`
+	ExitedBeforeTeardown bool   `json:"exited_before_teardown,omitempty"`
 }
 
 // claudeSubProbeProcessReport is one CLI process: the argv and environment shape
 // it ran with, its whole recorded exchange, and its exit evidence.
 type claudeSubProbeProcessReport struct {
-	Name              string                     `json:"name"`
-	Key               string                     `json:"key"`
-	Persist           bool                       `json:"persist"`
-	Resume            claudeSubProbeResume       `json:"resume,omitempty"`
-	Dir               string                     `json:"dir,omitempty"`
-	Argv              []string                   `json:"argv,omitempty"`
-	Flags             []string                   `json:"argv_switches,omitempty"`
-	Env               *claudeSubProbeEnv         `json:"env,omitempty"`
-	StartError        string                     `json:"start_error,omitempty"`
-	Init              *claudeSubProbeInit        `json:"init,omitempty"`
-	SessionID         string                     `json:"session_id,omitempty"`
-	Turns             []*claudeSubProbeTurn      `json:"turns,omitempty"`
-	Timeline          []claudeSubProbeEntry      `json:"timeline,omitempty"`
-	TimelineTruncated bool                       `json:"timeline_truncated,omitempty"`
-	Dropped           int                        `json:"dropped_events,omitempty"`
-	MCPCalls          []claudeSubProbeCallSample `json:"mcp_calls,omitempty"`
-	Exit              *claudeSubProbeExit        `json:"exit,omitempty"`
-	TeardownErr       string                     `json:"teardown_err,omitempty"`
-	Findings          []string                   `json:"findings,omitempty"`
+	Name                string                     `json:"name"`
+	Key                 string                     `json:"key"`
+	Persist             bool                       `json:"persist"`
+	Resume              claudeSubProbeResume       `json:"resume,omitempty"`
+	Dir                 string                     `json:"dir,omitempty"`
+	Argv                []string                   `json:"argv,omitempty"`
+	Flags               []string                   `json:"argv_switches,omitempty"`
+	Env                 *claudeSubProbeEnv         `json:"env,omitempty"`
+	StartError          string                     `json:"start_error,omitempty"`
+	InitPath            string                     `json:"init_path,omitempty"`
+	WarmupRejectedCalls []string                   `json:"warmup_rejected_calls,omitempty"`
+	Init                *claudeSubProbeInit        `json:"init,omitempty"`
+	SessionID           string                     `json:"session_id,omitempty"`
+	Turns               []*claudeSubProbeTurn      `json:"turns,omitempty"`
+	Timeline            []claudeSubProbeEntry      `json:"timeline,omitempty"`
+	TimelineTruncated   bool                       `json:"timeline_truncated,omitempty"`
+	Dropped             int                        `json:"dropped_events,omitempty"`
+	MCPCalls            []claudeSubProbeCallSample `json:"mcp_calls,omitempty"`
+	Exit                *claudeSubProbeExit        `json:"exit,omitempty"`
+	TeardownErr         string                     `json:"teardown_err,omitempty"`
+	Findings            []string                   `json:"findings,omitempty"`
 }
 
 // claudeSubProbeCleanupReport states what the probe deleted. Only transcript
@@ -161,13 +166,26 @@ type claudeSubProbeReport struct {
 	Cleanup      claudeSubProbeCleanupReport       `json:"cleanup"`
 }
 
-// claudeSubProbeExperiment is one experiment of the probe.
+// claudeSubProbeExperiment is one experiment of the probe. timeout is the bound
+// every step of the experiment runs inside; steps lists the budgets the body can
+// spend, so their sum can be checked against the bound.
 type claudeSubProbeExperiment struct {
 	name    string
 	summary string
 	argv    []string
 	timeout time.Duration
+	steps   []time.Duration
 	run     func(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error
+}
+
+// claudeSubProbeExperimentBudget returns the worst case of one experiment's step
+// budgets.
+func claudeSubProbeExperimentBudget(experiment claudeSubProbeExperiment) time.Duration {
+	total := time.Duration(0)
+	for _, step := range experiment.steps {
+		total += step
+	}
+	return total
 }
 
 // TestClaudeSubProbe is the probe entry point. It skips unless the mode
@@ -324,12 +342,17 @@ func claudeSubProbeRun(t *testing.T) {
 }
 
 // claudeSubProbeProcessFailure reports the per-process conditions that fail an
-// experiment even when its body returned no error: an incomplete timeline and an
-// unexpected teardown result.
+// experiment even when its body returned no error: an incomplete timeline, an
+// exit before the probe began teardown, and an unexpected teardown result. A
+// non-zero exit status after the probe's own stdin close is evidence, not a
+// failure.
 func claudeSubProbeProcessFailure(rep *claudeSubProbeProcessReport) error {
 	var errs []error
 	if rep.TimelineTruncated {
 		errs = append(errs, fmt.Errorf("probe process %s timeline hit the %d entry cap, so its exchange is incomplete", rep.Name, claudeSubProbeTimelineMax))
+	}
+	if rep.Exit != nil && rep.Exit.ExitedBeforeTeardown {
+		errs = append(errs, fmt.Errorf("probe process %s exited before teardown began (status %d, wait error %q)", rep.Name, rep.Exit.Status, rep.Exit.WaitErr))
 	}
 	if rep.TeardownErr != "" && !claudeSubProbeExpectedTeardownError(rep.TeardownErr) {
 		errs = append(errs, fmt.Errorf("probe process %s teardown reported %s", rep.Name, rep.TeardownErr))

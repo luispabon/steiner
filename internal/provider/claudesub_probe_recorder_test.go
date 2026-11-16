@@ -23,9 +23,14 @@ const (
 // the harness self-check can lower it.
 var claudeSubProbeTimelineMax = 6000
 
-// errClaudeSubProbeEnded reports that the process's recorded exchange ended
-// before the probe observed what it was waiting for.
-var errClaudeSubProbeEnded = errors.New("probe process exchange ended")
+var (
+	// errClaudeSubProbeEnded reports that the recorder stopped before the probe
+	// observed what it was waiting for.
+	errClaudeSubProbeEnded = errors.New("probe process exchange ended")
+	// errClaudeSubProbeCLIExited reports that the CLI process exited, so a wait
+	// for another event ends at once instead of running out its step budget.
+	errClaudeSubProbeCLIExited = errors.New("claude cli exited")
+)
 
 // claudeSubProbeUsage is one usage snapshot's four counters.
 type claudeSubProbeUsage struct {
@@ -108,21 +113,27 @@ type claudeSubProbeObserved struct {
 // forwards each inbound event to the probe's consumer. It sits on the process
 // connection, so it sees every stdout line including control responses, which
 // the production router consumes before they could reach the event queue.
+//
+// Turns are attributed in order: every inbound event belongs to the oldest turn
+// still waiting for its terminal result, so two open turns (a queued prompt
+// behind an interrupted one) are never merged.
 type claudeSubProbeRecorder struct {
 	start time.Time
 	model string
 
 	mu        sync.Mutex
 	report    *claudeSubProbeProcessReport
-	current   *claudeSubProbeTurn
+	open      []*claudeSubProbeTurn
 	fatal     error
 	initValid bool
 	dropped   int
 	truncated bool
 	closed    bool
 
-	obs  chan claudeSubProbeObserved
-	done chan struct{}
+	obs      chan claudeSubProbeObserved
+	exit     chan struct{}
+	exitOnce sync.Once
+	done     chan struct{}
 }
 
 func newClaudeSubProbeRecorder(report *claudeSubProbeProcessReport, model string) *claudeSubProbeRecorder {
@@ -131,6 +142,7 @@ func newClaudeSubProbeRecorder(report *claudeSubProbeProcessReport, model string
 		model:  model,
 		report: report,
 		obs:    make(chan claudeSubProbeObserved, claudeSubProbeObserveBuffer),
+		exit:   make(chan struct{}),
 		done:   make(chan struct{}),
 	}
 }
@@ -138,6 +150,12 @@ func newClaudeSubProbeRecorder(report *claudeSubProbeProcessReport, model string
 // at reports milliseconds since the process's recorder was created.
 func (r *claudeSubProbeRecorder) at() int64 {
 	return time.Since(r.start).Milliseconds()
+}
+
+// markExit reports that the CLI process's event stream ended, which wakes every
+// wait with errClaudeSubProbeCLIExited.
+func (r *claudeSubProbeRecorder) markExit() {
+	r.exitOnce.Do(func() { close(r.exit) })
 }
 
 // addInbound records one stdout event and its derived state: the init report and
@@ -167,11 +185,11 @@ func (r *claudeSubProbeRecorder) addInbound(ev claudeSubEvent) {
 			r.initValid = true
 		}
 	}
-	turn := r.current
-	if turn != nil {
+	if len(r.open) > 0 {
+		turn := r.open[0]
 		r.recordTurnLocked(turn, entry)
 		if entry.Type == "result" {
-			r.current = nil
+			r.open = r.open[1:]
 		}
 	}
 	r.mu.Unlock()
@@ -268,13 +286,15 @@ func (r *claudeSubProbeRecorder) appendLocked(entry claudeSubProbeEntry) {
 	r.report.Timeline = append(r.report.Timeline, entry)
 }
 
-// beginTurn records a probe-authored turn as the current one and returns it.
+// beginTurn records a probe-authored turn as the newest open turn and returns
+// it. Its inbound events and its terminal result are attributed to it once every
+// earlier open turn has received its own result.
 func (r *claudeSubProbeRecorder) beginTurn(prompt string) *claudeSubProbeTurn {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	turn := &claudeSubProbeTurn{Index: len(r.report.Turns), Prompt: claudeSubProbeExcerpt(prompt)}
 	r.report.Turns = append(r.report.Turns, turn)
-	r.current = turn
+	r.open = append(r.open, turn)
 	return turn
 }
 
@@ -314,8 +334,9 @@ func (r *claudeSubProbeRecorder) initGate() error {
 	return nil
 }
 
-// pump consumes observed events until stop matches, the exchange ends, or ctx is
-// done. A nil stop consumes until ctx is done.
+// pump consumes observed events until stop matches, the exchange ends, ctx is
+// done, or the CLI exits. A nil stop consumes until one of those ends. Recorded
+// events that are already queued are still delivered before an exit is reported.
 func (r *claudeSubProbeRecorder) pump(ctx context.Context, stop func(claudeSubProbeEntry) bool) (claudeSubProbeEntry, bool, error) {
 	for {
 		if err := r.fatalErr(); err != nil {
@@ -329,6 +350,17 @@ func (r *claudeSubProbeRecorder) pump(ctx context.Context, stop func(claudeSubPr
 		case obs := <-r.obs:
 			if stop != nil && stop(obs.entry) {
 				return obs.entry, true, nil
+			}
+		case <-r.exit:
+			// The process exited. Deliver whatever was recorded before the exit,
+			// then report it instead of waiting out the caller's budget.
+			select {
+			case obs := <-r.obs:
+				if stop != nil && stop(obs.entry) {
+					return obs.entry, true, nil
+				}
+			default:
+				return claudeSubProbeEntry{}, false, errClaudeSubProbeCLIExited
 			}
 		}
 	}
@@ -386,7 +418,8 @@ func newClaudeSubProbeTeeConn(conn claudeSubConn, rec *claudeSubProbeRecorder) *
 }
 
 // forward copies the process's events into the session's channel, recording each
-// one first.
+// one first. When the process's event stream ends, the probe's waits are woken
+// with a CLI-exit result.
 func (c *claudeSubProbeTeeConn) forward() {
 	defer close(c.done)
 	defer close(c.out)
@@ -396,6 +429,7 @@ func (c *claudeSubProbeTeeConn) forward() {
 			return
 		case ev, ok := <-c.claudeSubConn.Events():
 			if !ok {
+				c.rec.markExit()
 				return
 			}
 			c.rec.addInbound(ev)

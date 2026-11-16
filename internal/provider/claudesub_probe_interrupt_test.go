@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // Synthetic prompts. Every prompt carries a PROBE marker so the report can show
@@ -54,7 +53,9 @@ func claudeSubProbeE1(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 
 // claudeSubProbeE2 interrupts while the MCP tool call is parked in the host
 // (window B), releases the handler late with a marked result, and asks the next
-// turn whether that result was seen.
+// turn whether that result was seen. The late release only reports what the host
+// did with the call; whether the model received it comes from the next turn's
+// inbound text.
 func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
 	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e2", claudeSubProbeSubAgentSpec(cfg.Model))
 	if err != nil {
@@ -75,28 +76,28 @@ func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if call == nil {
 		return errors.New("probe MCP registration failed for the observed tool_use")
 	}
-	process.sampleMCP("tool_use observed", false)
+	process.sampleMCP("tool_use observed")
 	if err := claudeSubProbeAwaitMCPHandler(ctx, process, entry.ToolUseID, claudeSubProbeReadyTimeout); err != nil {
 		return err
 	}
-	process.sampleMCP("tools/call handler parked", false)
+	process.sampleMCP("tools/call handler parked")
 	turn.Interrupted = true
 	if err := process.interrupt(ctx); err != nil {
 		return err
 	}
-	process.sampleMCP("after interrupt", false)
+	process.sampleMCP("after interrupt")
 	if err := process.awaitInterruptedResult(ctx); err != nil {
 		return err
 	}
-	process.sampleMCP("after interrupted result", false)
+	process.sampleMCP("after interrupted result")
 	process.tail(ctx, claudeSubProbeTailWindow)
 
-	// Release the handler late with a marked result: whether the CLI still listens
-	// is the measurement.
+	// Release the handler late with a marked result. The host's own state is the
+	// evidence here; delivery is checked below from inbound text only.
 	process.sess.host.resolve(call, claudeSubToolResult{Text: claudeSubProbeLateResultMarker + " the probe released this tool call late"})
-	process.sampleMCP("after late release", true)
+	process.sampleMCP("after late release")
 	process.tail(ctx, claudeSubProbeTailWindow)
-	exp.Findings = append(exp.Findings, fmt.Sprintf("E2 MCP call outcome after the late release: %+v", process.hostCallState(entry.ToolUseID, true)))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("E2 MCP call state after the late release: %+v", process.hostCallState(entry.ToolUseID)))
 
 	mark := process.timelineLen()
 	if err := process.runTurn(ctx, claudeSubProbePromptLateResult); err != nil {
@@ -128,21 +129,21 @@ func claudeSubProbeE3(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if call == nil {
 		return errors.New("probe MCP registration failed at the tool_use block start")
 	}
-	process.sampleMCP("tool_use block start", false)
+	process.sampleMCP("tool_use block start")
 	turn.Interrupted = true
 	if err := process.interrupt(ctx); err != nil {
 		return err
 	}
-	process.sampleMCP("after interrupt", false)
+	process.sampleMCP("after interrupt")
 	if err := process.awaitInterruptedResult(ctx); err != nil {
 		return err
 	}
-	process.sampleMCP("after interrupted result", false)
+	process.sampleMCP("after interrupted result")
 	process.tail(ctx, claudeSubProbeTailWindow)
 	process.sess.host.resolve(call, claudeSubToolResult{Text: claudeSubProbeLateResultMarker + " the probe released this tool call late"})
-	process.sampleMCP("after late release", true)
+	process.sampleMCP("after late release")
 	process.tail(ctx, claudeSubProbeTailWindow)
-	exp.Findings = append(exp.Findings, fmt.Sprintf("E3 MCP call outcome after the late release: %+v", process.hostCallState(entry.ToolUseID, true)))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("E3 MCP call state after the late release: %+v", process.hostCallState(entry.ToolUseID)))
 	return process.runTurn(ctx, claudeSubProbePromptNextTurn)
 }
 
@@ -166,7 +167,7 @@ func claudeSubProbeE4(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if err := process.runTurn(ctx, "PROBE-T2E4 Reply with exactly: race-b. Do not use tools."); err != nil {
 		return err
 	}
-	process.tail(ctx, 5*time.Second)
+	process.tail(ctx, claudeSubProbeRaceTail)
 	results := process.resultsAfter(mark)
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E4 results from the interrupt onward: %d", len(results)))
 	stray := 0
@@ -179,9 +180,9 @@ func claudeSubProbeE4(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	return nil
 }
 
-// claudeSubProbeE6 queues a user message immediately after the interrupt request
-// is written, without waiting for its control response, and records whether the
-// queued message runs.
+// claudeSubProbeE6 queues a user message as soon as the interrupt request is
+// written, without waiting for its control response, and records whether the
+// queued message runs. The interrupt request is awaited on every return path.
 func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
 	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e6", claudeSubProbeSubAgentSpec(cfg.Model))
 	if err != nil {
@@ -198,8 +199,18 @@ func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	}
 	turn.Interrupted = true
 	interruptDone := make(chan error, 1)
+	interruptSettled := false
 	since := process.timelineLen()
 	go func() { interruptDone <- process.interrupt(ctx) }()
+	defer func() {
+		if interruptSettled {
+			return
+		}
+		// Every return path waits for the interrupt request to settle, bounded by
+		// the production control timeout, so the goroutine never outlives the
+		// experiment.
+		_ = claudeSubProbeAwaitInterrupt(interruptDone, claudeSubProbeInterruptAck)
+	}()
 	if err := process.awaitOutboundInterrupt(ctx, since, claudeSubProbeReadyTimeout); err != nil {
 		return err
 	}
@@ -216,15 +227,16 @@ func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	} else {
 		exp.Findings = append(exp.Findings, "E6 the queued message produced a second result")
 	}
-	process.tail(ctx, 10*time.Second)
-	if err := <-interruptDone; err != nil {
+	process.tail(ctx, claudeSubProbeQueuedTail)
+	if err := claudeSubProbeAwaitInterrupt(interruptDone, claudeSubProbeInterruptAck); err != nil {
 		return err
 	}
+	interruptSettled = true
 	results := process.resultsAfter(mark)
 	queuedResults := process.resultsWithTextAfter(mark, "queued-ok")
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E6 results after the queued prompt was written: %d, carrying queued-ok: %d", len(results), len(queuedResults)))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E6 inbound assistant or result text carrying queued-ok: %v", process.inboundTextAfter(mark, "queued-ok")))
-	exp.Findings = append(exp.Findings, fmt.Sprintf("E6 queued turn recorded %d events", queuedTurn.Events))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("E6 queued turn recorded %d events with its own result: %v", queuedTurn.Events, queuedTurn.Result != nil))
 	return nil
 }
 
