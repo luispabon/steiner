@@ -269,6 +269,13 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 // A cancelled delivery may claim its process is clean only when nothing else
 // touched the record after it, because the record is what the next request is
 // matched against.
+//
+// An empty tail is safe. It is what a reseed delivery leaves (commitSent appends
+// nothing for a rendered transcript), and the freshly spawned process holds
+// exactly the history steiner just sent as that one message, so accepting one
+// relaxed assistant at the suffix head accepts only text the CLI itself streamed
+// after it. A delivery that appended nothing at all cannot reach a drain: it
+// writes nothing to the CLI and so never has a turn to interrupt.
 func claudeSubDeliveryTail(entries []claudeSubEntry, start int) bool {
 	if start < 0 || start > len(entries) {
 		return false
@@ -283,10 +290,12 @@ func claudeSubDeliveryTail(entries []claudeSubEntry, start int) bool {
 
 // adopt replaces the record with the state plan computed for a normal-mode
 // request. Call it only after every check that can fail before delivery has
-// passed.
+// passed. It drops the drained state: a delivery that appends to the record
+// supersedes the one delivery that state describes.
 func (s *claudeSubSync) adopt(delta claudeSubDelta) {
 	s.entries = delta.keep
 	s.interruptible = delta.keepInterruptible
+	s.drained = false
 }
 
 // commitToolResult records one tool result as delivered to the CLI. It is

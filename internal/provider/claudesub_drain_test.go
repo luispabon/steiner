@@ -392,8 +392,9 @@ func TestClaudeSubDrainFallsBackWhenProcessExits(t *testing.T) {
 		return events
 	}
 	conn.mu.Unlock()
+	drainTimeout := claudeSubDrainTimeout
 	claudeSubDrainTimeout = 10 * time.Second
-	t.Cleanup(func() { claudeSubDrainTimeout = 50 * time.Millisecond })
+	t.Cleanup(func() { claudeSubDrainTimeout = drainTimeout })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -515,8 +516,9 @@ func TestClaudeSubDrainStopsOnPoolClose(t *testing.T) {
 	}
 	conn := spawner.call(t, 0).Conn
 	pool.release(seed)
+	drainTimeout := claudeSubDrainTimeout
 	claudeSubDrainTimeout = 30 * time.Second
-	t.Cleanup(func() { claudeSubDrainTimeout = 50 * time.Millisecond })
+	t.Cleanup(func() { claudeSubDrainTimeout = drainTimeout })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -805,5 +807,468 @@ func TestClaudeSubSyncDrainedClearedByCommitSent(t *testing.T) {
 	}
 	if got := claudeSubSyncContents(repeat.User); !reflect.DeepEqual(got, []string{"more"}) {
 		t.Errorf("repeat user = %q, want only the new message", got)
+	}
+}
+
+// claudeSubStaleToolCallSetup runs the sub-agent turn that streams a tool_use
+// and returns the request history plus the Done chunk that carried the call.
+func claudeSubStaleToolCallSetup(t *testing.T, sc *claudeSubScript, more ...*claudeSubScript) (*ClaudeSubscriptionPool, *claudeSubTestSpawner, *claudeSubFakeConn, string, string, []ToolSpec, []Message) {
+	t.Helper()
+	pool, spawner, key, model, tools, history := claudeSubToolLoopSetup(t, sc, more...)
+	conn := spawner.call(t, 0).Conn
+	return pool, spawner, conn, key, model, tools, history
+}
+
+// TestClaudeSubFinishPendingDrainsStaleToolCall proves a request that abandons a
+// pending tool call reads the interrupted turn's own aborted result, so the turn
+// it then delivers is its own and the process is reused.
+func TestClaudeSubFinishPendingDrainsStaleToolCall(t *testing.T) {
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
+	pool, spawner, conn, key, model, tools, history := claudeSubStaleToolCallSetup(t, sc)
+	if conn.isClosed() {
+		t.Fatal("the first turn's process was closed")
+	}
+	// The user gives up on the tool call instead of delivering a result.
+	next := []Message{history[0], history[1], claudeSubUserText("never mind")}
+	req := claudeSubDrainRequest(key, model, next...)
+	req.Tools = tools
+	got := claudeSubRunCollected(t, pool, req)
+	if got.err != nil {
+		t.Fatalf("follow-up error = %v", got.err)
+	}
+	if text := got.final(t).Delta.Content; text != "Hello world" {
+		t.Fatalf("follow-up text = %q, want its own %q, not the interrupted turn's result", text, "Hello world")
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (the drained process reused)", n)
+	}
+	if warnings := got.warnings(); len(warnings) != 0 {
+		t.Errorf("warnings = %q, want none for a drained stale-tool turn", warnings)
+	}
+	live := claudeSubLiveSession(pool, key)
+	if live == nil {
+		t.Fatal("the drained process left the pool")
+	}
+	if len(live.pending) != 0 {
+		t.Errorf("pending registrations = %d, want none after the stale-call drain", len(live.pending))
+	}
+}
+
+// TestClaudeSubFinishPendingDrainFailureRetires proves an unproven stale-call
+// drain abandons the process, and the request re-attaches on a fresh one with the
+// existing replacement warning.
+func TestClaudeSubFinishPendingDrainFailureRetires(t *testing.T) {
+	tests := []struct {
+		name  string
+		reply *claudeSubInterruptReply
+	}{
+		{name: "no result", reply: &claudeSubInterruptReply{}},
+		{name: "success result", reply: &claudeSubInterruptReply{events: []claudeSubEvent{claudeSubDrainResultEvent(t, "success", "completed", false)}}},
+		{name: "error control response", reply: &claudeSubInterruptReply{err: "interrupt unavailable"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := &claudeSubScript{
+				batches: [][]claudeSubEvent{
+					claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+					claudeSubDecodeEvents(t, "turn_text.jsonl"),
+				},
+				interrupt: tt.reply,
+			}
+			pool, spawner, conn, key, model, tools, history := claudeSubStaleToolCallSetup(t, sc, claudeSubTextTurns(t, 1))
+			next := []Message{history[0], history[1], claudeSubUserText("never mind")}
+			req := claudeSubDrainRequest(key, model, next...)
+			req.Tools = tools
+			got := claudeSubRunCollected(t, pool, req)
+			if got.err != nil {
+				t.Fatalf("follow-up error = %v", got.err)
+			}
+			if text := got.final(t).Delta.Content; text != "Hello world" {
+				t.Fatalf("follow-up text = %q, want its own %q", text, "Hello world")
+			}
+			if n := spawner.callCount(); n != 2 {
+				t.Fatalf("spawn count = %d, want 2 (the unproven process replaced)", n)
+			}
+			if !conn.isClosed() {
+				t.Error("the unproven process was reused")
+			}
+			claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+		})
+	}
+}
+
+// TestClaudeSubFinishPendingDrainFailureOnExit proves a process that exits during
+// the stale-call drain is replaced rather than reused.
+func TestClaudeSubFinishPendingDrainFailureOnExit(t *testing.T) {
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+	}
+	pool, spawner, conn, key, model, tools, history := claudeSubStaleToolCallSetup(t, sc, claudeSubTextTurns(t, 1))
+	conn.mu.Lock()
+	conn.responder = func(line []byte) []claudeSubEvent {
+		if strings.Contains(string(line), `"subtype":"interrupt"`) {
+			conn.exitAfterNextSend()
+		}
+		return nil
+	}
+	conn.mu.Unlock()
+	drainTimeout := claudeSubDrainTimeout
+	claudeSubDrainTimeout = 10 * time.Second
+	t.Cleanup(func() { claudeSubDrainTimeout = drainTimeout })
+
+	next := []Message{history[0], history[1], claudeSubUserText("never mind")}
+	req := claudeSubDrainRequest(key, model, next...)
+	req.Tools = tools
+	got := claudeSubRunCollected(t, pool, req)
+	if got.err != nil {
+		t.Fatalf("follow-up error = %v", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the exited process replaced)", n)
+	}
+	claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+}
+
+// TestClaudeSubFinishPendingDrainThenCancelledDelivery proves the stale-call
+// drain consumes the interrupted turn's own result, so a delivery cancelled right
+// after it never accepts that result as its own and never leaves its own events
+// for the next call.
+func TestClaudeSubFinishPendingDrainThenCancelledDelivery(t *testing.T) {
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
+	pool, spawner, conn, key, model, tools, history := claudeSubStaleToolCallSetup(t, sc)
+	// The user abandons the tool call, so the stale-call drain runs first, and the
+	// delivery that follows is cancelled.
+	abandoned := append(append([]Message(nil), history[:2]...), claudeSubUserText("never mind"))
+	req := claudeSubDrainRequest(key, model, abandoned...)
+	req.Tools = tools
+	if err := claudeSubCancelOnText(t, pool, req); err == nil {
+		t.Fatal("cancelled delivery returned no error")
+	}
+	if conn.isClosed() {
+		t.Fatal("the drained delivery retired the process")
+	}
+
+	// The next request must see only its own turn. A result left behind by the
+	// stale-call interrupt, or events left by the cancelled delivery, would be
+	// consumed here.
+	next := append(append([]Message(nil), abandoned...), claudeSubUserText("keep going"))
+	nextReq := claudeSubDrainRequest(key, model, next...)
+	nextReq.Tools = tools
+	got := claudeSubRunCollected(t, pool, nextReq)
+	if got.err != nil {
+		t.Fatalf("retried turn error = %v", got.err)
+	}
+	if text := got.final(t).Delta.Content; text != "Hello world" {
+		t.Fatalf("retried text = %q, want its own %q", text, "Hello world")
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (the process reused)", n)
+	}
+	interrupts := 0
+	for _, line := range conn.sentLines() {
+		if strings.Contains(line, `"subtype":"interrupt"`) {
+			interrupts++
+		}
+	}
+	if interrupts != 2 {
+		t.Errorf("interrupt requests = %d, want the stale-call drain and the delivery drain: %q", interrupts, conn.sentLines())
+	}
+}
+
+// TestClaudeSubDrainCancelsUnregisteredHostCalls proves a drained turn retires an
+// MCP call the CLI opened for an id steiner never registered.
+func TestClaudeSubDrainCancelsUnregisteredHostCalls(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	sc := &claudeSubScript{
+		batches:   [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")[:8]},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc)
+	spec := claudeSubTestSpec()
+	spec.Tools = tools
+	seed, err := pool.acquire(context.Background(), "child-1", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	pool.release(seed)
+	// A tools/call opens the call before steiner registered the id, and the
+	// cancel means no tool_use for it is ever decoded.
+	if _, _, state := seed.host.openCall("toolu_queued"); state != claudeSubCallAcquired {
+		t.Fatalf("openCall state = %v, want acquired", state)
+	}
+	req := claudeSubDrainRequest("child-1", model, claudeSubUserText(claudeSubDrainFirstUser))
+	req.Tools = tools
+	if err := claudeSubCancelOnText(t, pool, req); err == nil {
+		t.Fatal("cancelled turn returned no error")
+	}
+	live := claudeSubLiveSession(pool, "child-1")
+	if live == nil {
+		t.Fatal("the drained process left the pool")
+	}
+	if n := claudeSubHostCallCount(live); n != 0 {
+		t.Errorf("live MCP calls = %d, want the drained turn to retire the unregistered call", n)
+	}
+	if len(live.pending) != 0 {
+		t.Errorf("pending registrations = %d, want none", len(live.pending))
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Errorf("spawn count = %d, want 1 (the drained process reused)", n)
+	}
+}
+
+// TestClaudeSubDrainReusesAdvisorProcess proves a drained advisor stop still
+// appends only the new snapshot delta to the live process.
+func TestClaudeSubDrainReusesAdvisorProcess(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc)
+	advisor := func(msgs ...Message) ChatRequest {
+		return ChatRequest{
+			TransportSession:       "parent-advisor",
+			ParentTransportSession: "parent",
+			AdvisorCacheProfile:    true,
+			Model:                  model,
+			Messages:               msgs,
+		}
+	}
+	first := []Message{claudeSubUserText("read notes"), {Role: MessageRoleAssistant, Content: "Hello world"}, claudeSubUserText("is it right?")}
+	if err := claudeSubCancelOnText(t, pool, advisor(first...)); err == nil {
+		t.Fatal("cancelled advisor turn returned no error")
+	}
+	conn := spawner.call(t, 0).Conn
+	if conn.isClosed() {
+		t.Fatal("the drained advisor process was retired")
+	}
+
+	second := append(append([]Message(nil), first...), claudeSubUserText("now check this"), claudeSubUserText("is it right again?"))
+	got := claudeSubRunCollected(t, pool, advisor(second...))
+	if got.err != nil {
+		t.Fatalf("second advisor error = %v", got.err)
+	}
+	if text := got.final(t).Delta.Content; text != "Hello world" {
+		t.Fatalf("second advisor text = %q, want its own %q", text, "Hello world")
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (the drained advisor reused)", n)
+	}
+	if warnings := got.warnings(); len(warnings) != 0 {
+		t.Errorf("warnings = %q, want none", warnings)
+	}
+	lines := claudeSubUserLines(conn)
+	if len(lines) != 2 {
+		t.Fatalf("advisor user lines = %q, want the cancelled call plus the delta", lines)
+	}
+	if !strings.Contains(lines[1], "now check this") {
+		t.Errorf("second advisor user line = %s, want the new snapshot part", lines[1])
+	}
+	if strings.Contains(lines[1], "read notes") {
+		t.Errorf("second advisor user line = %s, want only the delta, not the whole snapshot", lines[1])
+	}
+}
+
+// TestClaudeSubSummaryInPlaceCancelDrainsWithoutNotice proves a cancelled
+// in-place summary now drains, records no replacement notice, and still retires
+// the tainted parent.
+func TestClaudeSubSummaryInPlaceCancelDrainsWithoutNotice(t *testing.T) {
+	parent := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubTextTurnWithUUID(t, ""),
+			claudeSubTextTurnWithUUID(t, ""),
+			claudeSubPartialTextBatch(),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, parent)
+	u1, a1, _, _, second := claudeSubTwoTurnParent(t, pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := claudeSubTurn(ctx, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 []Message{u1, a1, claudeSubUserText("summarize the older part")},
+		BackendState:             second.BackendState,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	}, func(chunk ChatChunk) error {
+		if chunk.Delta.Content != "" {
+			cancel()
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("cancelled in-place summary returned no error")
+	}
+	if pool.replacementPending("parent") {
+		t.Error("a drained in-place summary recorded a replacement notice")
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("a cancelled in-place summary left its tainted parent running")
+	}
+	pool.mu.Lock()
+	_, live := pool.sessions["parent"]
+	pool.mu.Unlock()
+	if live {
+		t.Error("a cancelled in-place summary left its tainted parent pooled")
+	}
+}
+
+// TestClaudeSubSyncDrainedRefusesSummary proves a drained record plans no
+// compaction summary.
+func TestClaudeSubSyncDrainedRefusesSummary(t *testing.T) {
+	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+	s.markDrained(0)
+	if _, err := s.planSummary([]Message{claudeSubSyncUserMsg("hi"), claudeSubSyncUserMsg("summarize")}, 1); !errors.Is(err, errClaudeSubSummaryNoPlace) {
+		t.Fatalf("planSummary error = %v, want errClaudeSubSummaryNoPlace", err)
+	}
+}
+
+// TestClaudeSubSyncDrainedRejectsEditedUserLine proves the drained acceptance
+// does not tolerate a rewrite of the user line the stopped turn delivered.
+func TestClaudeSubSyncDrainedRejectsEditedUserLine(t *testing.T) {
+	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+	s.markDrained(0)
+	msgs := []Message{claudeSubSyncUserMsg("changed"), {Role: MessageRoleAssistant, Content: "partial", Turn: 1}}
+	if _, err := s.plan(ChatRequest{Messages: msgs}); !errors.Is(err, errClaudeSubHistoryChanged) {
+		t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
+	}
+}
+
+// TestClaudeSubCancelWithQueuedResultKeepsProcess proves a cancel that lands
+// after the turn's terminal result was already queued changes nothing: the call
+// succeeds, sends no interrupt, and the process is reused.
+func TestClaudeSubCancelWithQueuedResultKeepsProcess(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2))
+	seed, err := pool.acquire(context.Background(), "child-1", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	conn := spawner.call(t, 0).Conn
+	pool.release(seed)
+	req := claudeSubDrainRequest("child-1", model, claudeSubUserText("read notes"))
+	if err := claudeSubCancelTurnAfter(t, pool, conn, 2, true, req); err != nil {
+		t.Fatalf("turn error = %v, want none for an already-queued terminal result", err)
+	}
+	for _, line := range conn.sentLines() {
+		if strings.Contains(line, `"subtype":"interrupt"`) {
+			t.Errorf("the completed turn interrupted its own process: %s", line)
+		}
+	}
+	next := claudeSubDrainRequest("child-1", model,
+		claudeSubUserText("read notes"),
+		Message{Role: MessageRoleAssistant, Content: "Hello world"},
+		claudeSubUserText("keep going"))
+	got := claudeSubRunCollected(t, pool, next)
+	claudeSubWantDrainedReuse(t, spawner, got)
+}
+
+// TestClaudeSubDrainAcceptsResultQueuedBeforeAck proves the drain accepts the
+// aborted result even when the CLI queued it before its acknowledgement.
+func TestClaudeSubDrainAcceptsResultQueuedBeforeAck(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{beforeAck: []claudeSubEvent{
+			claudeSubDrainResultEvent(t, claudeSubDrainAbortedSubtype, "aborted_streaming", true),
+		}},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc)
+	if err := claudeSubCancelOnText(t, pool, claudeSubDrainRequest("child-1", model, claudeSubUserText(claudeSubDrainFirstUser))); err == nil {
+		t.Fatal("cancelled turn returned no error")
+	}
+	got := claudeSubDrainFollowUp(t, pool, "child-1", model, "half a report")
+	claudeSubWantDrainedReuse(t, spawner, got)
+}
+
+// TestClaudeSubDrainIgnoresWindowEnvelopes proves system status, a plain allowed
+// rate limit and the CLI's interruption marker in the drain window leave the
+// proof intact.
+func TestClaudeSubDrainIgnoresWindowEnvelopes(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_window.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc)
+	if err := claudeSubCancelOnText(t, pool, claudeSubDrainRequest("child-1", model, claudeSubUserText(claudeSubDrainFirstUser))); err == nil {
+		t.Fatal("cancelled turn returned no error")
+	}
+	got := claudeSubDrainFollowUp(t, pool, "child-1", model, "half a report")
+	claudeSubWantDrainedReuse(t, spawner, got)
+}
+
+// TestClaudeSubDrainFallsBackOnOverage proves paid extra usage inside the drain
+// window abandons the process instead of proving it clean.
+func TestClaudeSubDrainFallsBackOnOverage(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	sc := &claudeSubScript{
+		batches:   [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")[:8]},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "rate_limit_overage.jsonl")},
+	}
+	pool, _ := claudeSubPoolWithScripts(t, sc)
+	if err := claudeSubCancelOnText(t, pool, claudeSubDrainRequest("child-1", model, claudeSubUserText(claudeSubDrainFirstUser))); err == nil {
+		t.Fatal("cancelled turn returned no error")
+	}
+	if !pool.replacementPending("child-1") {
+		t.Error("an overage inside the drain recorded no replacement notice")
+	}
+}
+
+// TestClaudeSubDeliveryTail pins the record boundary check a drain relies on.
+func TestClaudeSubDeliveryTail(t *testing.T) {
+	record := []claudeSubEntry{
+		{Role: MessageRoleUser},
+		{Role: MessageRoleTool},
+		{Role: MessageRoleAssistant},
+	}
+	tests := []struct {
+		name    string
+		entries []claudeSubEntry
+		start   int
+		want    bool
+	}{
+		{name: "user and tool tail", entries: record[:2], start: 0, want: true},
+		{name: "tool-only tail", entries: record[:2], start: 1, want: true},
+		{name: "assistant in the tail", entries: record, start: 1, want: false},
+		{name: "assistant at the head of the tail", entries: record, start: 2, want: false},
+		{name: "empty tail", entries: record, start: 3, want: true},
+		{name: "start past the record", entries: record, start: 4, want: false},
+		{name: "negative start", entries: record, start: -1, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeSubDeliveryTail(tc.entries, tc.start); got != tc.want {
+				t.Fatalf("claudeSubDeliveryTail(%d entries, start %d) = %v, want %v", len(tc.entries), tc.start, got, tc.want)
+			}
+		})
 	}
 }

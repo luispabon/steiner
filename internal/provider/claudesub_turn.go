@@ -429,6 +429,15 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	}
 	if s.primed {
 		if err := claudeSubFinishPending(ctx, s, req); err != nil {
+			if s.unsafeForReuse() {
+				// A stale-pending interrupt that could not be drained leaves the CLI
+				// possibly still producing that turn's events, so the process is
+				// retired here and the request re-attaches on a fresh one. This is the
+				// same path a cancelled delivery takes at entry; the replacement
+				// notice reports it to the user.
+				pool.retireAndRelease(a.key, s)
+				return claudeSubAttachSession(ctx, pool, req, a, forceReseed)
+			}
 			pool.release(s)
 			return claudeSubAttachResult{}, err
 		}
@@ -673,13 +682,16 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 	if len(stale) == 0 {
 		return nil
 	}
-	if _, err := s.control.interrupt(ctx); err != nil {
-		if ctx.Err() != nil {
-			// The interrupt request is queued before its response is waited for, so
-			// a cancelled wait can leave the CLI stopping this turn: events from it
-			// may still arrive and cannot be attributed to a later call.
-			s.abandon()
-		}
+	// The interrupted turn still reports its own terminal result. Draining to it
+	// under the same proof the cancel path uses both stops the turn and empties the
+	// queue, so a later call never reads this turn's result as its own. The drain
+	// runs on a context the caller cannot abort, so the proof completes even when
+	// the request is cancelled.
+	if err := claudeSubDrainToAbortedResult(ctx, s); err != nil {
+		// The CLI may still produce this turn's events, so the process is never
+		// reused: the existing unsafe-session path retires it on the next use and
+		// reports the replacement.
+		s.abandon()
 		return err
 	}
 	s.sync.markInterrupted()
@@ -687,6 +699,10 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 		s.host.resolve(pending.Handle, claudeSubToolResult{Text: "tool call interrupted", IsError: true})
 		claudeSubRemovePending(s, pending.ID)
 	}
+	// A call the CLI opened for an id steiner never registered can never receive a
+	// result now either, so it is retired with the stale ones. The calls this
+	// request does provide keep their handles for the delivery that resolves them.
+	s.host.cancelUnresolved(s.pending)
 	return nil
 }
 

@@ -236,11 +236,13 @@ type claudeSubScript struct {
 // claudeSubInterruptReply is how a scripted fake CLI answers an interrupt: an
 // error instead of the acknowledgement when err is set, nothing at all when
 // silent is set, otherwise the acknowledgement followed by the events a stopping
-// CLI emits.
+// CLI emits. beforeAck queues events before the acknowledgement, modelling a CLI
+// whose terminal result was already read before its control response was.
 type claudeSubInterruptReply struct {
-	events []claudeSubEvent
-	err    string
-	silent bool
+	beforeAck []claudeSubEvent
+	events    []claudeSubEvent
+	err       string
+	silent    bool
 }
 
 func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
@@ -280,7 +282,7 @@ func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
 				return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, sc.interrupt.err)}
 			}
 			out := []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"still_queued":[]}`))}
-			return append(out, sc.interrupt.events...)
+			return append(append(sc.interrupt.beforeAck, out...), sc.interrupt.events...)
 		}
 		return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
 	case "user":
@@ -371,10 +373,15 @@ func TestClaudeSubTurnPreConsumeFailureRetryKeepsMessageUsage(t *testing.T) {
 // TestClaudeSubTurnInterruptFollowUpUsage checks that the follow-up turn after
 // an interrupt reports its own message's usage.
 func TestClaudeSubTurnInterruptFollowUpUsage(t *testing.T) {
-	sc := &claudeSubScript{batches: [][]claudeSubEvent{
-		claudeSubDecodeEvents(t, "turn_tool_text_extra_usage.jsonl")[:8],
-		claudeSubDecodeEvents(t, "turn_text.jsonl"),
-	}}
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_text_extra_usage.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		// The stale tool call is interrupted, so the CLI reports its own aborted
+		// result for that turn.
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
 	pool, _ := claudeSubScriptedPool(t, "interrupt", sc)
 	model := claudeSubTestSpec().Model
 	noop := func(ChatChunk) error { return nil }
@@ -1479,13 +1486,23 @@ func TestClaudeSubPendingCleanupInterruptsAndResolvesOpaqueHandle(t *testing.T) 
 	conn := spawner.call(t, 0).Conn
 	conn.mu.Lock()
 	conn.responder = func(line []byte) []claudeSubEvent {
-		var req struct {
+		var envelope struct {
+			Type      string `json:"type"`
 			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
 		}
-		if json.Unmarshal(line, &req) != nil {
+		if json.Unmarshal(line, &envelope) != nil {
 			return nil
 		}
-		return []claudeSubEvent{claudeSubSuccessEvent(req.RequestID, nil)}
+		ack := []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+		if envelope.Type == "control_request" && envelope.Request.Subtype == "interrupt" {
+			// The interrupted turn reports its own aborted result, which the
+			// stale-pending drain reads.
+			return append(ack, claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")...)
+		}
+		return ack
 	}
 	conn.mu.Unlock()
 	call := s.beginPendingCall("toolu-stale")

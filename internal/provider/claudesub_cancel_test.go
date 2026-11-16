@@ -793,9 +793,11 @@ func TestClaudeSubCancelWarningReportsRetriedOutcome(t *testing.T) {
 	}
 }
 
-// TestClaudeSubFinishPendingCancelAbandonsProcess proves a cancellation during
-// the stale-pending interrupt leaves the process unusable and the replacement
-// reportable, because the interrupt request may already be on its way.
+// TestClaudeSubFinishPendingCancelAbandonsProcess proves a stale-pending interrupt
+// whose drain never proves the turn ended leaves the process unusable and the
+// replacement reportable. The drain runs on a context the caller cannot abort, so
+// this fake CLI's missing aborted result, not the cancellation, is what fails the
+// proof.
 func TestClaudeSubFinishPendingCancelAbandonsProcess(t *testing.T) {
 	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
 	spec := claudeSubTestSpec()
