@@ -3,6 +3,7 @@ package advisor
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
@@ -45,6 +46,81 @@ func TestStreamWithEventsReconcilesFinalContent(t *testing.T) {
 			}
 			if got.Message.Content != tc.want {
 				t.Errorf("Content = %q, want %q", got.Message.Content, tc.want)
+			}
+		})
+	}
+}
+
+// TestStreamWithEventsEmitsRetryDiagnostics proves both retry shapes reach the
+// sink as a retry diagnostic: a provider resetting its partial stream, and a
+// provider retrying before it produced output, such as the claude CLI retrying
+// an API request itself.
+func TestStreamWithEventsEmitsRetryDiagnostics(t *testing.T) {
+	tests := []struct {
+		name        string
+		chunk       provider.ChatChunk
+		wantAttempt int
+		wantMax     int
+		wantDelay   string
+	}{
+		{
+			name: "stream reset retry",
+			chunk: provider.ChatChunk{
+				RetryReset:       true,
+				Diagnostic:       "retrying turn 2/3",
+				Severity:         "warning",
+				RetryAttempt:     2,
+				RetryMaxAttempts: 3,
+				RetryDelay:       time.Second,
+			},
+			wantAttempt: 2,
+			wantMax:     3,
+			wantDelay:   "1s",
+		},
+		{
+			name: "pre-output retry",
+			chunk: provider.ChatChunk{
+				Diagnostic:       "claude CLI retrying API request after overloaded",
+				Severity:         "warning",
+				RetryAttempt:     1,
+				RetryMaxAttempts: 10,
+				RetryDelay:       2500 * time.Millisecond,
+			},
+			wantAttempt: 1,
+			wantMax:     10,
+			wantDelay:   "2.5s",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := make(chan provider.ChatChunk, 2)
+			ch <- tt.chunk
+			ch <- provider.ChatChunk{Done: true, Delta: provider.Message{Content: "answer"}, FinishReason: "stop"}
+			close(ch)
+			sink := &toolSink{}
+			got, err := streamWithEvents(ch, sink)
+			if err != nil {
+				t.Fatalf("streamWithEvents() error = %v", err)
+			}
+			if got.Message.Content != "answer" {
+				t.Errorf("content = %q, want %q", got.Message.Content, "answer")
+			}
+			var retries []output.ProviderDiagnosticEvent
+			for _, event := range sink.events {
+				if payload, ok := event.Payload.(output.ProviderDiagnosticEvent); ok {
+					retries = append(retries, payload)
+				}
+			}
+			if len(retries) != 1 {
+				t.Fatalf("diagnostics = %+v, want exactly one retry event", retries)
+			}
+			if retries[0].Kind != output.DiagnosticKindRetry || retries[0].Attempt != tt.wantAttempt ||
+				retries[0].MaxAttempts != tt.wantMax || retries[0].Delay != tt.wantDelay {
+				t.Errorf("retry diagnostic = %+v, want kind retry, attempt %d, max attempts %d, delay %s",
+					retries[0], tt.wantAttempt, tt.wantMax, tt.wantDelay)
+			}
+			if retries[0].Message != tt.chunk.Diagnostic {
+				t.Errorf("retry diagnostic message = %q, want %q", retries[0].Message, tt.chunk.Diagnostic)
 			}
 		})
 	}

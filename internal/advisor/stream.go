@@ -15,7 +15,23 @@ func emitAdvisorChunkDiagnostic(sink output.EventSink, chunk provider.ChatChunk)
 	if severity == "" {
 		severity = "warning"
 	}
-	emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Severity: severity, Message: chunk.Diagnostic}))
+	event := output.ProviderDiagnosticEvent{Severity: severity, Message: chunk.Diagnostic}
+	if chunk.RetryAttempt > 0 || chunk.RetryReset {
+		event.Kind = output.DiagnosticKindRetry
+		event.Attempt = chunk.RetryAttempt
+		event.MaxAttempts = chunk.RetryMaxAttempts
+		event.Delay = chunk.RetryDelay.String()
+	}
+	emitEvent(sink, output.NewProviderDiagnosticEvent(event))
+}
+
+// emitAdvisorRetryDiagnostic reports a provider retry. A chunk with no message
+// reports nothing.
+func emitAdvisorRetryDiagnostic(sink output.EventSink, chunk provider.ChatChunk) {
+	if chunk.Diagnostic == "" {
+		return
+	}
+	emitAdvisorChunkDiagnostic(sink, chunk)
 }
 
 // streamWithEvents reads all chunks from a streaming response, assembles them
@@ -28,6 +44,10 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (
 
 	for chunk := range chunks {
 		if chunk.RetryReset {
+			// The provider discarded its partial stream and retries. The retry is
+			// reported like any other, so the advisor shows the same indicator the
+			// main turn does.
+			emitAdvisorRetryDiagnostic(sink, chunk)
 			response = provider.ChatResponse{}
 			message = provider.Message{Role: provider.MessageRoleAssistant}
 			sawFinal = false

@@ -80,6 +80,9 @@ const (
 	claudeSubDecodeMessage
 	// claudeSubDecodeResult is one CLI turn's terminal result envelope.
 	claudeSubDecodeResult
+	// claudeSubDecodeAPIRetry is one CLI `system/api_retry` notice: the CLI is
+	// retrying an API request itself, before it produced assistant output.
+	claudeSubDecodeAPIRetry
 )
 
 // claudeSubDecoded is one decoded stream-json event. Only the fields relevant
@@ -106,6 +109,8 @@ type claudeSubDecoded struct {
 	UUID string
 	// Result carries terminal turn metadata.
 	Result *claudeSubResult
+	// Retry carries the CLI's own API retry notice.
+	Retry *claudeSubAPIRetry
 }
 
 // claudeSubResult is the terminal metadata of one CLI turn's result envelope.
@@ -280,6 +285,8 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 			return nil, fmt.Errorf("%w: duplicate terminal result", errClaudeSubResultEnvelope)
 		}
 		return d.decodeResult(ev.Raw)
+	case "system":
+		return decodeClaudeSubSystem(ev), nil
 	default:
 		// Unrelated top-level, control and system envelopes carry nothing the
 		// decoder needs and are ignored in every phase.

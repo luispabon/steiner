@@ -275,7 +275,11 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			if err := report.before(); err != nil {
 				return err
 			}
-			emitted = true
+			// A CLI API-retry notice carries no output, so it must not close the
+			// pre-output retry window.
+			if !claudeSubAPIRetryNotice(chunk) {
+				emitted = true
+			}
 			return emit(chunk)
 		})
 		// A decode error means the process may hold stale events from the failed

@@ -249,8 +249,10 @@ type ChatChunk struct {
 	Severity        string      `json:"severity,omitempty"`
 	RetryReset      bool        `json:"retry_reset,omitempty"`
 	OriginalError   error       `json:"-"` // preserves the original error type (not serialized)
-	// RetryAttempt, RetryMaxAttempts and RetryDelay describe the retry that a
-	// RetryReset chunk reports.
+	// RetryAttempt, RetryMaxAttempts and RetryDelay describe a retry the
+	// provider reports. RetryReset marks a retry that discarded the partial
+	// stream; a provider that retries before producing output, such as the
+	// claude CLI retrying an API request, reports it without a reset.
 	RetryAttempt     int           `json:"retry_attempt,omitempty"`
 	RetryMaxAttempts int           `json:"retry_max_attempts,omitempty"`
 	RetryDelay       time.Duration `json:"retry_delay,omitempty"`

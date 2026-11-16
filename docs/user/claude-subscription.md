@@ -57,6 +57,10 @@ Model discovery asks the signed-in CLI for the models your account can use, with
 
 You can switch model and reasoning effort during a session.
 
+## API retries
+
+The CLI retries its own retryable API failures, up to 10 times by default, before it produces any output. While it does, the activity row shows `retrying N/M` with the attempt and the permitted retry count. A retry discards nothing Steiner already received and does not end the response. The dev log records the failure category, the HTTP status when the CLI had a response, and the delay before the next attempt.
+
 ## Privacy
 
 - Prompts, system instructions, accepted images, tool calls, and tool results go to the local `claude` process, which sends them to Anthropic under your Claude account. Claude's own data handling, telemetry, retention, and account controls apply.
