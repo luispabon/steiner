@@ -250,6 +250,10 @@ type ClaudeSubscriptionPool struct {
 	// reseedKeys holds one record per session key whose process could not be
 	// proven gone: the next attach for that key reseeds with a new session.
 	reseedKeys map[string]struct{}
+	// confirmRetire, when set, decides whether a retire confirmed the process
+	// left. It is a test seam: production confirmation is the close path's own
+	// result.
+	confirmRetire func(*claudeSubSession) bool
 
 	// unresolved holds sessions the pool still owns because their teardown did
 	// not finish cleanly: a partial-start cleanup failure, a caller-cancelled or

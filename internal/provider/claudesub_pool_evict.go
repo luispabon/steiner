@@ -89,24 +89,54 @@ func (p *ClaudeSubscriptionPool) retireConfirmed(key string, s *claudeSubSession
 	p.mu.Unlock()
 	err := p.closeSession(s)
 	p.finishEviction(st, s, err)
+	if p.confirmRetire != nil {
+		return p.confirmRetire(s)
+	}
 	return err == nil
 }
 
 // noteReseedKey records that the process under key could not be proven gone, so
 // the next attach for it must reseed with a new session instead of resuming the
-// stored one. consumeReseedKey reports, once, whether key has such a record.
+// stored one. Resuming is the conservative choice to give up here: the process
+// the retire could not settle may still hold the session file, its cache and its
+// other resources, and a fresh session cannot collide with any of them.
+// reseedPending reports whether that record is set for key, and clearReseedKey
+// drops it.
 func (p *ClaudeSubscriptionPool) noteReseedKey(key string) {
 	p.mu.Lock()
 	p.reseedKeys[key] = struct{}{}
 	p.mu.Unlock()
 }
 
-func (p *ClaudeSubscriptionPool) consumeReseedKey(key string) bool {
+func (p *ClaudeSubscriptionPool) reseedPending(key string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	_, ok := p.reseedKeys[key]
-	delete(p.reseedKeys, key)
 	return ok
+}
+
+func (p *ClaudeSubscriptionPool) clearReseedKey(key string) {
+	p.mu.Lock()
+	delete(p.reseedKeys, key)
+	p.mu.Unlock()
+}
+
+// retirePooled retires a pooled process for key when one exists and no call now
+// holds its lease, so the next acquire spawns a new one. It reports whether it
+// retired one. It is the reseed record's step before a fresh spawn: a process
+// already retired by the caller leaves nothing to do, and a leased one is left
+// to its own call.
+func (p *ClaudeSubscriptionPool) retirePooled(key string) bool {
+	p.mu.Lock()
+	s, ok := p.sessions[key]
+	if p.state != claudeSubPoolRunning || !ok || s.active > 0 {
+		p.mu.Unlock()
+		return false
+	}
+	st := p.evictLocked(key, s)
+	p.mu.Unlock()
+	p.finishEviction(st, s, p.closeSession(s))
+	return true
 }
 
 // retireAndRelease retires the process under key, then releases the caller's

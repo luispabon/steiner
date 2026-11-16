@@ -57,14 +57,14 @@ type claudeSubAttachResult struct {
 //   - A process that exited is evicted, and its successor resumes the stored
 //     state when that state is restorable (D3).
 func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed bool) (claudeSubAttachResult, error) {
-	reseedProcess := false
-	if pool.consumeReseedKey(a.key) {
-		// An earlier call could not prove its process gone, so resuming the stored
-		// session could collide with a CLI that may still be writing it. The live
-		// process is retired too, and the request reseeds on a new session.
+	reseedPending := pool.reseedPending(a.key)
+	if reseedPending {
+		// An earlier call could not prove its process gone. Retire whatever is
+		// still pooled (usually nothing, because that call already evicted it),
+		// then reseed on a new session instead of resuming the stored one.
 		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
 		forceReseed = true
-		reseedProcess = true
+		pool.retirePooled(a.key)
 	}
 	if evicted, confirmed := pool.evictDead(a.key); evicted {
 		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedExited)
@@ -83,14 +83,11 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	}
 	s, err := pool.acquire(ctx, a.key, spawn)
 	if err != nil {
+		// The record stays: a failed spawn has not reseeded anything yet.
 		return claudeSubAttachResult{}, err
 	}
-	if reseedProcess {
-		if !pool.retireConfirmed(a.key, s) {
-			claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
-		}
-		pool.release(s)
-		return claudeSubAttachSession(ctx, pool, req, a, true)
+	if reseedPending {
+		pool.clearReseedKey(a.key)
 	}
 	if s.unsafeForReuse() {
 		// A cancelled delivery may still be producing events on this process, so
@@ -105,6 +102,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		}
 		if !confirmed {
 			claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
+			pool.noteReseedKey(a.key)
 			return claudeSubAttachSession(ctx, pool, req, a, true)
 		}
 		next := a
@@ -159,6 +157,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 			pool.noteReplacement(a.key)
 			if !pool.retireConfirmed(a.key, s) {
 				claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
+				pool.noteReseedKey(a.key)
 				pool.release(s)
 				return claudeSubAttachSession(ctx, pool, req, a, true)
 			}

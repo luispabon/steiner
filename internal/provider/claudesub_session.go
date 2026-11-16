@@ -341,7 +341,9 @@ func (s *claudeSubSession) unsafeForReuse() bool {
 // when a cancelled delivery left it unsafe for reuse. The caller holds the
 // session's whole-call lease; once this returns true the lease is released and
 // the session must not be used again. The next acquire under the same key starts
-// a fresh process.
+// a fresh process. No exit confirmation is needed here: the caller is the
+// advisor or summary path, which never resumes a stored session, and the next
+// acquire spawns a new process regardless.
 func (s *claudeSubSession) retireIfUnsafe() bool {
 	if !s.unsafeForReuse() {
 		return false

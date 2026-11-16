@@ -745,35 +745,52 @@ func TestClaudeSubRestoreRefusesDanglingToolCalls(t *testing.T) {
 	}
 }
 
-// TestClaudeSubUnconfirmedRetireReseedsNextCall proves the per-key record an
-// unconfirmed retire leaves makes the next call reseed with a new session. The
-// decode-failure, signed-out and unsafe-guard retires record it through
-// pool.noteReseedKey, which this test calls directly so the assertion never
-// depends on a stalled teardown; TestClaudeSubResumeFallbackOnUnconfirmedExit
-// covers the same deadline through a real unanswered stop.
+// TestClaudeSubUnconfirmedRetireReseedsNextCall proves an unconfirmed retire of
+// a process a stopped turn abandoned records the key, so the next call reseeds
+// with a new session instead of resuming the stored one, and spawns once.
 func TestClaudeSubUnconfirmedRetireReseedsNextCall(t *testing.T) {
 	model := claudeSubTestSpec().Model
-	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+		},
+		// The interrupt is acknowledged but never proven, so the drain fails and
+		// the process is abandoned with a replacement notice.
+		interrupt: &claudeSubInterruptReply{},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	// The harness cannot stall a fake teardown deterministically, so the
+	// unconfirmed outcome is injected at the retireConfirmed seam.
+	pool.confirmRetire = func(*claudeSubSession) bool { return false }
+
 	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
 	storedState := claudeSubEncodeState(t, claudeSubDecodeState(t, first.BackendState))
-	// A retire that could not confirm the CLI was gone records the key instead of
-	// letting the next attach resume the session that process may still write.
-	pool.noteReseedKey("parent")
+	history := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+	if err := claudeSubStopParentTurn(t, pool, model, storedState, history); err == nil {
+		t.Fatal("cancelled parent turn returned no error")
+	}
 
-	msgs := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
-	got := claudeSubRunStreamCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, BackendState: storedState, Messages: msgs})
+	got := claudeSubRunStreamCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, BackendState: storedState, Messages: history})
 	final := got.final(t)
 	if final.Error != "" {
 		t.Fatalf("next turn chunk error = %s", final.Error)
 	}
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (the unconfirmed process replaced)", n)
+		t.Fatalf("spawn count = %d, want 2 (the abandoned process and one reseed)", n)
 	}
-	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume != "" {
-		t.Errorf("replacement --resume = %q, want a new session", resume)
+	serving := spawner.call(t, 1)
+	if resume, _ := claudeSubArgValue(serving.Args, "--resume"); resume != "" {
+		t.Errorf("reseed spawn --resume = %q, want a new session", resume)
+	}
+	if !strings.Contains(claudeSubUserLines(serving.Conn)[0], "Conversation so far") {
+		t.Errorf("reseed user lines = %q, want the flattened transcript", claudeSubUserLines(serving.Conn))
 	}
 	if reason := claudeSubRecoveryReseedReason(final); reason != claudeSubReseedUnconfirmed {
 		t.Errorf("reseed reason = %q, want %q", reason, claudeSubReseedUnconfirmed)
+	}
+	if pool.reseedPending("parent") {
+		t.Error("the reseed record survived the spawn it drove")
 	}
 }
 

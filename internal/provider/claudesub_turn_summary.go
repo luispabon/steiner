@@ -200,6 +200,8 @@ func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	defer pool.retireAndRelease(helperKey, h)
 	// The helper always starts from the rendered transcript.
 	claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedHelper)
+	// The helper runs on its own ephemeral key and never resumes a stored state,
+	// so the parent key's reseed record stays with the parent attach that owns it.
 	return claudeSubDeliverNormal(ctx, h, req, claudeSubAttachResult{reseed: true}, emit)
 }
 
