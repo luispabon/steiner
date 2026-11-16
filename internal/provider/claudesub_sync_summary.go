@@ -15,9 +15,12 @@ import (
 // only a record whose trailing entries are exactly the user and tool entries that
 // delivery wrote can accept the agent's kept partial, so any other shape leaves
 // the record undrained and the next request reseeds. A drained record plans no
-// summary, because its tail is not a completed turn.
+// summary, because its tail is not a completed turn. The start index is kept so
+// a stored checkpoint one stopped delivery behind can be proven equal to the
+// record up to it.
 func (s *claudeSubSync) markDrained(start int) {
 	s.drained = claudeSubDeliveryTail(s.entries, start)
+	s.drainedBase = start
 }
 
 // markInterrupted records that the CLI was interrupted (Esc or tool

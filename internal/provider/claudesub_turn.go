@@ -224,20 +224,6 @@ func claudeSubAdvisorPlan(ctx context.Context, s *claudeSubSession, req ChatRequ
 	return s.sync.planAdvisor(req)
 }
 
-// claudeSubAttach is the per-call input to the attach state machine.
-type claudeSubAttach struct {
-	key         string
-	spec        claudeSubStartSpec // spawn spec for a new process, without resume
-	fingerprint string             // prompt and tools fingerprint of this request
-	msgs        []Message          // non-system request messages
-	stored      claudeSubBackendState
-	hasState    bool
-	// resume is the restore target for a new process; it is valid only when
-	// restorable is true.
-	resume     claudeSubResume
-	restorable bool
-}
-
 // claudeSubNormalTurn runs a parent or sub-agent request. A process is reused
 // only while its record matches the request (see claudeSubAttachSession), and a
 // process a cancelled delivery left behind is replaced before it can deliver
@@ -251,10 +237,18 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 	}
 	a := claudeSubAttach{key: key, spec: spec, fingerprint: fingerprint, msgs: claudeSubMessages(req.Messages)}
 	a.stored, a.hasState = claudeSubParseState(req.BackendState)
+	a.partial = -1
 	var restoreReason string
 	a.resume, a.restorable, restoreReason, err = claudeSubRestoreFor(a.msgs, a.stored, a.hasState, key, fingerprint)
 	if err != nil {
 		return err
+	}
+	if a.hasState {
+		// A stopped turn leaves its kept partial in the request suffix, after the
+		// stored checkpoint the stopped delivery was meant to extend.
+		if partial, ok := claudeSubInterruptedTail(a.msgs, a.stored.SyncEntries); ok {
+			a.partial = partial
+		}
 	}
 	if !a.restorable {
 		claudeSubMetricsFrom(ctx).noteReseed(restoreReason)
@@ -279,7 +273,7 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		// attempt. Its retry budget is then spent, so replacing the process would
 		// only repeat the wait.
 		cliRetried := false
-		err = claudeSubDeliverNormal(ctx, s, req, attached.reseed, func(chunk ChatChunk) error {
+		err = claudeSubDeliverNormal(ctx, s, req, attached, func(chunk ChatChunk) error {
 			if claudeSubAPIRetryNotice(chunk) {
 				// A retry notice carries no output: it neither closes the pre-output
 				// retry window nor lets the pending replacement warning stand in
@@ -384,145 +378,6 @@ func claudeSubClearOnDone(emit func(ChatChunk) error) func(ChatChunk) error {
 		}
 		return emit(chunk)
 	}
-}
-
-// claudeSubAttachResult is how claudeSubAttachSession settled a request: the
-// locked process to deliver on and whether the request must go to it as a
-// rendered transcript.
-type claudeSubAttachResult struct {
-	session *claudeSubSession
-	reseed  bool
-}
-
-// claudeSubAttachSession returns the process req runs on, locked (the caller
-// releases it) and whether req must be delivered as a reseed transcript.
-//
-//   - A process a cancelled delivery left unsafe is retired before anything is
-//     planned on it, because the CLI may still produce that turn's events (see
-//     claudeSubSession.abandon). The replacement call reports it from the pool's
-//     replacement notice.
-//   - A live process is reused only when it accepts req as an append (see
-//     claudeSubLiveAccepts). Otherwise it is retired: a changed owner resumes
-//     with a fork when the stored state is restorable, and any other mismatch
-//     reseeds.
-//   - A new process resumes the stored state when that state is restorable for
-//     req. Otherwise it starts fresh, and a request with history is reseeded.
-//   - A process that exited is evicted and never resumed: its successor reseeds
-//     (D3).
-func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed bool) (claudeSubAttachResult, error) {
-	if pool.evictDead(a.key) {
-		forceReseed = true
-		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedExited)
-	}
-	spawn := a.spec
-	if a.restorable && !forceReseed {
-		spawn.Resume = a.resume
-	}
-	s, err := pool.acquire(ctx, a.key, spawn)
-	if err != nil {
-		return claudeSubAttachResult{}, err
-	}
-	if s.retireIfUnsafe() {
-		// A cancelled delivery may still be producing events on that process, so
-		// nothing is planned on it. The successor resumes or reseeds on its own.
-		return claudeSubAttachSession(ctx, pool, req, a, forceReseed)
-	}
-	if s.primed {
-		if err := claudeSubFinishPending(ctx, s, req); err != nil {
-			if s.unsafeForReuse() {
-				// A stale-pending interrupt that could not be drained leaves the CLI
-				// possibly still producing that turn's events, so the process is
-				// retired here and the request re-attaches on a fresh one. The retry
-				// always reseeds: the stored checkpoint may end on an assistant
-				// message whose tool calls the request abandoned, and a new user line
-				// straight after a dangling tool_use is not a transcript steiner has
-				// proven. The replacement notice reports it to the user.
-				pool.retireAndRelease(a.key, s)
-				return claudeSubAttachSession(ctx, pool, req, a, true)
-			}
-			pool.release(s)
-			return claudeSubAttachResult{}, err
-		}
-		accepted, rejectReason, err := claudeSubLiveAccepts(s, req, a)
-		if err != nil {
-			pool.release(s)
-			return claudeSubAttachResult{}, err
-		}
-		if accepted {
-			claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessReuse)
-			return claudeSubAttachResult{session: s}, nil
-		}
-		owner := a.hasState && a.stored.TransportSession != a.key
-		claudeSubMetricsFrom(ctx).noteReseed(rejectReason)
-		pool.retireAndRelease(a.key, s)
-		return claudeSubAttachSession(ctx, pool, req, a, !owner)
-	}
-	if s.resume != spawn.Resume || (s.sync.fingerprint != "" && s.sync.fingerprint != a.fingerprint) {
-		// An unprimed process left by an earlier attempt was started with a
-		// different resume target or prompt, so it cannot serve this request.
-		// Persist is not compared: a key always maps to one process kind.
-		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
-		pool.retireAndRelease(a.key, s)
-		return claudeSubAttachSession(ctx, pool, req, a, true)
-	}
-	s.sync.fingerprint = a.fingerprint
-	if spawn.Resume.SessionID == "" {
-		claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessSpawn)
-		return claudeSubAttachResult{session: s, reseed: claudeSubHasHistory(a.msgs)}, nil
-	}
-	entries, ok := claudeSubResumeEntries(a.msgs, a.stored)
-	if !ok {
-		pool.release(s)
-		return claudeSubAttachResult{}, errors.New("claude_subscription resume record does not match the stored state")
-	}
-	// The resumed process holds the stored history; the request appends to it.
-	s.sync.entries = entries
-	s.sync.started = true
-	s.sync.interruptible = -1
-	s.primed = true
-	claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessResume)
-	return claudeSubAttachResult{session: s}, nil
-}
-
-// claudeSubLiveAccepts reports whether a live process can take req as an
-// append, and the branch that refused it. When a state is given, the process
-// record must equal its checkpoint and the state must be owned by this key. The
-// request must also be a valid append to the record (D8, D22). A history the
-// record cannot take is a reseed trigger, not an error, so it reports false with
-// a nil error.
-func claudeSubLiveAccepts(s *claudeSubSession, req ChatRequest, a claudeSubAttach) (bool, string, error) {
-	if a.hasState {
-		if a.stored.TransportSession != a.key {
-			return false, claudeSubReseedOwnerFork, nil
-		}
-		live, ok, err := s.sync.checkpoint(a.key)
-		if err != nil {
-			return false, "", err
-		}
-		if !ok || !claudeSubStateMatches(live, a.stored) {
-			return false, claudeSubReseedCheckpoint, nil
-		}
-	}
-	if _, err := s.sync.plan(req); err != nil {
-		return false, claudeSubReseedPlan, nil
-	}
-	return true, "", nil
-}
-
-// claudeSubDeliverNormal plans the request against a locked parent or
-// sub-agent process and delivers it. A reseeded process receives the rendered
-// transcript instead of a delta.
-func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRequest, reseed bool, emit func(ChatChunk) error) error {
-	var delta claudeSubDelta
-	if reseed {
-		delta = claudeSubReseedDelta(claudeSubMessages(req.Messages))
-		return claudeSubReseedSendError(claudeSubDeliver(ctx, s, req, delta, emit))
-	}
-	var err error
-	if delta, err = s.sync.plan(req); err != nil {
-		return err
-	}
-	return claudeSubDeliver(ctx, s, req, delta, emit)
 }
 
 // claudeSubReseedSendError names the payload an oversized stdin line belonged

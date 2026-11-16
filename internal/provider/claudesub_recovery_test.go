@@ -2,10 +2,11 @@ package provider
 
 // Characterization tests for claude_subscription turn recovery. Every assertion
 // in this file describes the provider's CURRENT behaviour, verified against the
-// code as it stands. Two of them record defects: a live failure after delivery
-// forces a full transcript reseed, and a restart after an interrupted turn
-// cannot resume. Treat these as a regression baseline for the recovery design,
-// not as desired behaviour. Each affected test says so in its own doc comment.
+// code as it stands. A live failure after delivery and a restart after an
+// interrupted turn both resume the stored CLI session, and the tool-result
+// divergence is the one case that still reseeds. Treat these as a regression
+// baseline for the recovery design, not as desired behaviour. Each affected
+// test says so in its own doc comment.
 // Cancellation recovery is covered by the regression tests in
 // claudesub_cancel_test.go.
 
@@ -68,6 +69,15 @@ func claudeSubRecoveryReseedReason(final ChatChunk) string {
 	return final.Diagnostics.ClaudeSub.ReseedReason
 }
 
+// claudeSubRecoveryLabel returns the recovery label the terminal chunk's
+// diagnostics recorded, or the empty string when the stream carried none.
+func claudeSubRecoveryLabel(final ChatChunk) string {
+	if final.Diagnostics == nil || final.Diagnostics.ClaudeSub == nil {
+		return ""
+	}
+	return final.Diagnostics.ClaudeSub.Recovery
+}
+
 // claudeSubRecoveryRecordLen returns how many entries the live process record
 // for key holds. It reads the pool's session map instead of acquiring, so it can
 // never start a process; turns run synchronously in the test goroutine, so the
@@ -85,15 +95,9 @@ func claudeSubRecoveryRecordLen(t *testing.T, pool *ClaudeSubscriptionPool, key 
 
 // TestClaudeSubRecoveryLiveFailureReseedsCharacterization proves a failure
 // streamed after the user line was committed leaves the live record ahead of the
-// stored checkpoint, so the next request retires the process and reseeds the
-// rendered transcript on a fresh one.
-//
-// CHARACTERIZATION OF A CURRENT BUG: the delivered user line is already
-// checkpointed when the turn streams, so a failed turn makes the parent's stored
-// state stale and throws away the live CLI session. Both subtests assert the
-// reseed, and the second carries the real projection of an interrupted partial
-// to show it does not change the outcome.
-func TestClaudeSubRecoveryLiveFailureReseedsCharacterization(t *testing.T) {
+// stored checkpoint, so the next request retires that process and resumes the
+// stored session at its final uuid, which hides the failed turn.
+func TestClaudeSubRecoveryLiveFailureResumes(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	tests := []struct {
 		name        string
@@ -108,7 +112,7 @@ func TestClaudeSubRecoveryLiveFailureReseedsCharacterization(t *testing.T) {
 				claudeSubDecodeEvents(t, "turn_text.jsonl"),
 				claudeSubDecodeEvents(t, "result_error.jsonl"),
 			}}
-			// The second spawn answers the reseed of the next request.
+			// The second spawn answers the resumed request.
 			pool, spawner := claudeSubPoolWithScripts(t, script, claudeSubTextTurns(t, 1))
 			first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
 			stored := claudeSubDecodeState(t, first.BackendState)
@@ -153,21 +157,43 @@ func TestClaudeSubRecoveryLiveFailureReseedsCharacterization(t *testing.T) {
 				t.Fatalf("next turn error = %s", final.Error)
 			}
 			if got := spawner.callCount(); got != 2 {
-				t.Fatalf("spawn count = %d, want 2 (retired live process plus fresh reseed)", got)
+				t.Fatalf("spawn count = %d, want 2 (retired live process plus its resume)", got)
 			}
 			serving := spawner.call(t, 1)
-			if resume, _ := claudeSubArgValue(serving.Args, "--resume"); resume != "" {
-				t.Errorf("reseed spawn --resume = %q, want none", resume)
+			resume, _ := claudeSubArgValue(serving.Args, "--resume")
+			at, _ := claudeSubArgValue(serving.Args, "--resume-session-at")
+			if resume != stored.CLISessionID || at != stored.FinalUUID {
+				t.Errorf("resume = %q at %q, want %q at %q", resume, at, stored.CLISessionID, stored.FinalUUID)
+			}
+			if !claudeSubHasArg(serving.Args, "--fork-session") {
+				t.Errorf("args %q, want --fork-session for the retired live process", serving.Args)
 			}
 			lines := claudeSubUserLines(serving.Conn)
-			if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
-				t.Fatalf("reseed user lines = %q, want one rendered transcript", lines)
+			if len(lines) != 1 {
+				t.Fatalf("resumed user lines = %q, want one", lines)
 			}
-			if tt.withPartial && (!strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubPartialLabel)) {
-				t.Errorf("reseed transcript = %s, want the kept partial labelled as untrusted incomplete text", lines[0])
+			if strings.Contains(lines[0], "Conversation so far") {
+				t.Errorf("resumed user line = %s, want a resume, not a rendered transcript", lines[0])
 			}
-			if got := claudeSubRecoveryReseedReason(final); got != claudeSubReseedCheckpoint {
-				t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedCheckpoint)
+			blocks := claudeSubUserTextBlocks(t, lines[0])
+			wantBlocks := 2
+			if tt.withPartial {
+				wantBlocks = 3
+			}
+			if len(blocks) != wantBlocks {
+				t.Fatalf("user blocks = %q, want %d", blocks, wantBlocks)
+			}
+			if blocks[0] != "more" || blocks[len(blocks)-1] != "again" {
+				t.Errorf("user blocks = %q, want the stopped user content first and the new message last", blocks)
+			}
+			if tt.withPartial && (!strings.Contains(blocks[1], "half a report") || !strings.Contains(blocks[1], claudeSubStoppedReplyNoteOpening)) {
+				t.Errorf("note block = %q, want the stopped reply quoted", blocks[1])
+			}
+			if got := claudeSubRecoveryReseedReason(final); got != "" {
+				t.Errorf("reseed reason = %q, want none", got)
+			}
+			if got := claudeSubRecoveryLabel(final); got != claudeSubRecoveryResumeAfterStop {
+				t.Errorf("recovery = %q, want %q", got, claudeSubRecoveryResumeAfterStop)
 			}
 		})
 	}
@@ -178,11 +204,9 @@ func TestClaudeSubRecoveryLiveFailureReseedsCharacterization(t *testing.T) {
 // instead of a user line: the result is committed as it is resolved, so the
 // streamed failure after it makes the stored checkpoint stale.
 //
-// CHARACTERIZATION OF A CURRENT BUG: the tool result is durable in the provider
-// record but the failed turn returns no backend state, so the next request
-// reseeds a transcript instead of appending the new user message to the live
-// process. The fake CLI is driven directly for the failed turn because a tool
-// result reaches it through the MCP host, not a user line on stdin.
+// CHARACTERIZATION OF A CURRENT LIMIT: a stored tool result cannot be delivered
+// on a resumed process, so the restore refuses and the request reseeds.
+// The next request below asserts that reseed.
 func TestClaudeSubRecoveryToolResultLiveFailureReseedsCharacterization(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
@@ -331,24 +355,18 @@ func TestClaudeSubRecoveryPreDeliveryFailureReusesProcess(t *testing.T) {
 }
 
 // TestClaudeSubRecoveryRestartAfterInterruptedTurn proves the restore path
-// independently of any live process: without a committed partial the stored
-// checkpoint resumes at its saved uuid, and the committed partial the agent
-// keeps is what makes the restore refuse and reseed.
-//
-// CHARACTERIZATION OF A CURRENT BUG (the reseeding subtest): steiner holds the
-// interrupted assistant text locally, the CLI record does not, and the restore
-// treats it as an unappendable message, so a restart renders the whole
-// transcript instead of resuming the saved session.
+// independently of any live process: a restart resumes the stored checkpoint at
+// its saved uuid whether or not the agent kept a partial. A kept partial is not
+// in the CLI transcript, so the resume sends it as a quoted note between the
+// stopped user content and the new message.
 func TestClaudeSubRecoveryRestartAfterInterruptedTurn(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	tests := []struct {
-		name       string
-		partial    bool
-		wantResume bool
-		wantReason string
+		name    string
+		partial bool
 	}{
-		{name: "absent partial resumes at the saved uuid", wantResume: true},
-		{name: "committed partial reseeds", partial: true, wantReason: claudeSubReseedPlan},
+		{name: "absent partial resumes at the saved uuid"},
+		{name: "committed partial resumes with the note", partial: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -378,28 +396,36 @@ func TestClaudeSubRecoveryRestartAfterInterruptedTurn(t *testing.T) {
 			serving := spawner.call(t, 0)
 			resume, _ := claudeSubArgValue(serving.Args, "--resume")
 			at, _ := claudeSubArgValue(serving.Args, "--resume-session-at")
-			if (resume != "") != tt.wantResume {
-				t.Errorf("resumed = %v, want %v (args %q)", resume != "", tt.wantResume, serving.Args)
-			}
-			if tt.wantResume && (resume != stored.CLISessionID || at != stored.FinalUUID) {
+			if resume != stored.CLISessionID || at != stored.FinalUUID {
 				t.Errorf("resume target = %q at %q, want %q at %q", resume, at, stored.CLISessionID, stored.FinalUUID)
 			}
-			if got := claudeSubRecoveryReseedReason(final); got != tt.wantReason {
-				t.Errorf("reseed reason = %q, want %q", got, tt.wantReason)
+			if claudeSubHasArg(serving.Args, "--fork-session") {
+				t.Errorf("restart args %q forked a session no live process held", serving.Args)
+			}
+			if got := claudeSubRecoveryReseedReason(final); got != "" {
+				t.Errorf("reseed reason = %q, want none", got)
 			}
 			lines := claudeSubUserLines(serving.Conn)
 			if len(lines) != 1 {
 				t.Fatalf("user lines = %q, want one", lines)
 			}
-			reseeded := strings.Contains(lines[0], "Conversation so far")
-			if reseeded == tt.wantResume {
-				t.Errorf("transcript reseed = %v, want %v: %s", reseeded, !tt.wantResume, lines[0])
+			if strings.Contains(lines[0], "Conversation so far") {
+				t.Errorf("user line = %s, want a resume, not a reseeded transcript", lines[0])
 			}
-			if !strings.Contains(lines[0], "again") {
-				t.Errorf("user line = %s, want it to carry the new message", lines[0])
+			if !strings.Contains(lines[0], "again") || !strings.Contains(lines[0], "more") {
+				t.Errorf("user line = %s, want the stopped and new user content", lines[0])
 			}
-			if reseeded && (!strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubPartialLabel)) {
-				t.Errorf("reseeded transcript = %s, want the kept partial labelled as untrusted incomplete text", lines[0])
+			if tt.partial {
+				if !strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubStoppedReplyNoteOpening) {
+					t.Errorf("user line = %s, want the kept partial quoted in the stopped-reply note", lines[0])
+				}
+				if strings.Contains(lines[0], claudeSubPartialLabel) {
+					t.Errorf("user line = %s, want the note, not the flattened transcript label", lines[0])
+				}
+				blocks := claudeSubUserTextBlocks(t, lines[0])
+				if len(blocks) != 3 {
+					t.Errorf("user blocks = %d, want the stopped content, the note and the new message: %s", len(blocks), lines[0])
+				}
 			}
 		})
 	}
@@ -546,15 +572,16 @@ func TestClaudeSubReseedWarningBranches(t *testing.T) {
 	// A live process that cannot take the request is retired and the request
 	// reseeds on a fresh one.
 	t.Run("live branches", func(t *testing.T) {
+		// A restorable checkpoint mismatch and an exited process both resume the
+		// stored session now, which reports no reseed reason; the warning they
+		// report is covered by TestClaudeSubRecoveryLiveFailureResumes and
+		// TestClaudeSubLiveAppendSelection.
 		tests := []struct {
 			name    string
 			mutate  func(*claudeSubBackendState)
 			rewrite bool
-			dead    bool
 		}{
-			{name: "checkpoint", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }},
 			{name: "plan", rewrite: true},
-			{name: "exited", dead: true},
 			{name: "owner_fork", mutate: func(st *claudeSubBackendState) {
 				st.TransportSession = "previous-owner"
 				st.SyncPrefixDigest = "bad"
@@ -562,17 +589,11 @@ func TestClaudeSubReseedWarningBranches(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+				pool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
 				first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
 				st := claudeSubDecodeState(t, first.BackendState)
 				if tt.mutate != nil {
 					tt.mutate(&st)
-				}
-				if tt.dead {
-					if err := spawner.call(t, 0).Conn.Close(context.Background()); err != nil {
-						t.Fatalf("close fake CLI: %v", err)
-					}
-					claudeSubWaitExited(t, pool, "parent")
 				}
 				msgs := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
 				if tt.rewrite {

@@ -200,7 +200,7 @@ func claudeSubReseedSummary(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	defer pool.retireAndRelease(helperKey, h)
 	// The helper always starts from the rendered transcript.
 	claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedHelper)
-	return claudeSubDeliverNormal(ctx, h, req, true, emit)
+	return claudeSubDeliverNormal(ctx, h, req, claudeSubAttachResult{reseed: true}, emit)
 }
 
 // claudeSubSubAgentSummary answers a sub-agent summary request in place on the

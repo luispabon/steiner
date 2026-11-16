@@ -192,26 +192,17 @@ func TestClaudeSubCancelReplacesUnsafeProcess(t *testing.T) {
 }
 
 // TestClaudeSubCancelRecoveryWarning proves the recovery warning describes what
-// actually happened: a restorable saved checkpoint is resumed, and a kept
-// partial forces the transcript to be rebuilt. Both replace the process first.
+// actually happened: a restorable saved checkpoint is resumed, whether or not a
+// kept partial travels with it as a quoted note. Both replace the process first
+// and report only the replacement, because nothing is flattened.
 func TestClaudeSubCancelRecoveryWarning(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	tests := []struct {
-		name       string
-		partial    bool
-		wantResume bool
-		wantText   string
+		name    string
+		partial bool
 	}{
-		{
-			name:       "saved checkpoint resumes",
-			wantResume: true,
-			wantText:   claudeSubReplacedProcessWarning,
-		},
-		{
-			name:     "kept partial rebuilds the transcript",
-			partial:  true,
-			wantText: claudeSubReplacedProcessWarning,
-		},
+		{name: "saved checkpoint resumes"},
+		{name: "kept partial resumes with its note", partial: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -258,8 +249,8 @@ func TestClaudeSubCancelRecoveryWarning(t *testing.T) {
 			}
 			serving := spawner.call(t, 1)
 			resume, _ := claudeSubArgValue(serving.Args, "--resume")
-			if (resume != "") != tt.wantResume {
-				t.Errorf("replacement --resume = %q, want present %v", resume, tt.wantResume)
+			if resume != stored.CLISessionID {
+				t.Errorf("replacement --resume = %q, want %q", resume, stored.CLISessionID)
 			}
 			if !conn.isClosed() {
 				t.Error("the cancelled turn's process was reused instead of retired")
@@ -268,13 +259,19 @@ func TestClaudeSubCancelRecoveryWarning(t *testing.T) {
 			if len(lines) != 1 {
 				t.Fatalf("replacement user lines = %q, want one", lines)
 			}
-			if reseeded := strings.Contains(lines[0], "Conversation so far"); reseeded == tt.wantResume {
-				t.Errorf("transcript rebuilt = %v, want %v: %s", reseeded, !tt.wantResume, lines[0])
+			if strings.Contains(lines[0], "Conversation so far") {
+				t.Errorf("transcript rebuilt, want a resume: %s", lines[0])
 			}
 			if strings.Contains(lines[0], claudeSubStaleText) {
 				t.Errorf("replacement received the cancelled turn's text: %s", lines[0])
 			}
-			claudeSubWantOneWarning(t, got, tt.wantText)
+			if tt.partial {
+				blocks := claudeSubUserTextBlocks(t, lines[0])
+				if len(blocks) != 3 || !strings.Contains(blocks[1], "half a report") {
+					t.Errorf("user blocks = %q, want the stopped content, the note and the new message", blocks)
+				}
+			}
+			claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
 		})
 	}
 }

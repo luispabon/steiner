@@ -1869,8 +1869,8 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 	}{
 		{name: "matching state appends", wantSpawns: 1},
 		{name: "changed system prompt still appends", system: "a new prompt", wantSpawns: 1},
-		{name: "chain mismatch reseeds", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, wantSpawns: 2, wantTranscript: true},
-		{name: "dead process reseeds", dead: true, wantSpawns: 2, wantTranscript: true},
+		{name: "chain mismatch resumes a fork", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, wantSpawns: 2, wantResume: true, wantFork: true},
+		{name: "dead process resumes", dead: true, wantSpawns: 2, wantResume: true},
 		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantSpawns: 2, wantResume: true, wantFork: true},
 		{name: "rewritten history reseeds", rewrite: true, wantSpawns: 2, wantTranscript: true},
 	}

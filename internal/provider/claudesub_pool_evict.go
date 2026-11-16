@@ -76,6 +76,23 @@ func (p *ClaudeSubscriptionPool) retire(key string, s *claudeSubSession) {
 	p.finishEviction(st, s, p.closeSession(s))
 }
 
+// retireConfirmed retires the process under key, releases the caller's
+// whole-call lock and reports whether its teardown completed within the pool's
+// teardown deadline. Completion is the confirmation a resume needs: the close
+// path's process wait has returned and the session's router is done (teardown
+// fails when either deadline expires). Any exit status, including a failure
+// status or a signal, counts as confirmed; only a teardown that hit its deadline
+// or failed does not, and then the CLI process may still be running.
+func (p *ClaudeSubscriptionPool) retireConfirmed(key string, s *claudeSubSession) bool {
+	p.mu.Lock()
+	st := p.evictLocked(key, s)
+	p.mu.Unlock()
+	err := p.closeSession(s)
+	p.finishEviction(st, s, err)
+	p.release(s)
+	return err == nil
+}
+
 // retireAndRelease retires the process under key, then releases the caller's
 // whole-call lock on it. It is retire followed by release for callers that
 // always do both, in that order.
@@ -86,18 +103,20 @@ func (p *ClaudeSubscriptionPool) retireAndRelease(key string, s *claudeSubSessio
 
 // evictDead retires the process under key when it has exited, so the next
 // acquire under key starts a fresh one. It reports whether a dead process was
-// evicted. The check and the removal happen under one mutex hold.
-func (p *ClaudeSubscriptionPool) evictDead(key string) bool {
+// evicted, and whether its teardown was confirmed (see retireConfirmed). The
+// check and the removal happen under one mutex hold.
+func (p *ClaudeSubscriptionPool) evictDead(key string) (evicted, confirmed bool) {
 	p.mu.Lock()
 	s, ok := p.sessions[key]
 	if p.state != claudeSubPoolRunning || !ok || !s.exited() {
 		p.mu.Unlock()
-		return false
+		return false, false
 	}
 	st := p.evictLocked(key, s)
 	p.mu.Unlock()
-	p.finishEviction(st, s, p.closeSession(s))
-	return true
+	err := p.closeSession(s)
+	p.finishEviction(st, s, err)
+	return true, err == nil
 }
 
 // noteReplacement records that a cancelled delivery abandoned the process for

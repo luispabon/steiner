@@ -441,78 +441,134 @@ func TestClaudeSubDrainFallsBackWhenProcessExits(t *testing.T) {
 	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 }
 
-// TestClaudeSubDrainParentReseedsAfterStop pins the parent outcome: draining
-// leaves the live record ahead of the stored checkpoint, so the next parent
-// request still reseeds from the CLI session. No replacement warning is invented
-// for the drained path.
-func TestClaudeSubDrainParentReseedsAfterStop(t *testing.T) {
+// TestClaudeSubDrainParentReusesAfterStop proves a parent stop reuses the
+// drained process: the stored checkpoint is exactly one stopped delivery behind
+// the live record, so the request appends to the same pid with no reseed and no
+// warning, and the Done checkpoint it returns round-trips through a fresh
+// process.
+func TestClaudeSubDrainParentReusesAfterStop(t *testing.T) {
 	model := claudeSubTestSpec().Model
-	parent := &claudeSubScript{
-		batches: [][]claudeSubEvent{
-			claudeSubDecodeEvents(t, "turn_text.jsonl"),
-			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
-		},
-		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+	tests := []struct {
+		name    string
+		partial string
+	}{
+		{name: "kept partial", partial: "half a report"},
+		{name: "no partial"},
 	}
-	pool, spawner := claudeSubPoolWithScripts(t, parent, claudeSubTextTurns(t, 1))
-	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
-	stored := claudeSubDecodeState(t, first.BackendState)
-	history := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("write the report")}
-	storedState := claudeSubEncodeState(t, stored)
-	conn := spawner.call(t, 0).Conn
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	err := claudeSubTurn(ctx, pool, ChatRequest{
-		TransportSession: "parent",
-		Model:            model,
-		BackendState:     storedState,
-		Messages:         history,
-	}, func(chunk ChatChunk) error {
-		if chunk.Delta.Content != "" {
-			cancel()
-		}
-		return nil
-	})
-	if err == nil {
-		t.Fatal("cancelled parent turn returned no error")
-	}
-	if conn.isClosed() {
-		t.Fatal("the parent process was retired at cancellation instead of drained")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := &claudeSubScript{
+				batches: [][]claudeSubEvent{
+					claudeSubDecodeEvents(t, "turn_text.jsonl"),
+					claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+					claudeSubDecodeEvents(t, "turn_text.jsonl"),
+				},
+				interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_text.jsonl")},
+			}
+			pool, spawner := claudeSubPoolWithScripts(t, parent, claudeSubTextTurns(t, 1))
+			first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+			storedState := claudeSubEncodeState(t, claudeSubDecodeState(t, first.BackendState))
+			history := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("write the report")}
+			conn := spawner.call(t, 0).Conn
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			err := claudeSubTurn(ctx, pool, ChatRequest{
+				TransportSession: "parent",
+				Model:            model,
+				BackendState:     storedState,
+				Messages:         history,
+			}, func(chunk ChatChunk) error {
+				if chunk.Delta.Content != "" {
+					cancel()
+				}
+				return nil
+			})
+			if err == nil {
+				t.Fatal("cancelled parent turn returned no error")
+			}
+			if conn.isClosed() {
+				t.Fatal("the parent process was retired at cancellation instead of drained")
+			}
 
-	next := append(append([]Message(nil), history...), claudeSubRecoveryPartial("half a report"), claudeSubUserText("again"))
-	got := claudeSubRunStreamCollected(t, pool, ChatRequest{
-		TransportSession: "parent",
-		Model:            model,
-		BackendState:     storedState,
-		Messages:         next,
-	})
-	if got.err != nil {
-		t.Fatalf("next turn error = %v", got.err)
+			next := append([]Message(nil), history...)
+			if tt.partial != "" {
+				next = append(next, claudeSubRecoveryPartial(tt.partial))
+			}
+			next = append(next, claudeSubUserText("again"))
+			got := claudeSubRunStreamCollected(t, pool, ChatRequest{
+				TransportSession: "parent",
+				Model:            model,
+				BackendState:     storedState,
+				Messages:         next,
+			})
+			final := got.final(t)
+			if final.Error != "" {
+				t.Fatalf("next turn chunk error = %s", final.Error)
+			}
+			if text := final.Delta.Content; text != "Hello world" {
+				t.Fatalf("next turn text = %q, want %q", text, "Hello world")
+			}
+			if n := spawner.callCount(); n != 1 {
+				t.Fatalf("spawn count = %d, want 1 (the drained process reused)", n)
+			}
+			if conn.isClosed() {
+				t.Error("the drained parent process was retired instead of reused")
+			}
+			if warnings := got.warnings(); len(warnings) != 0 {
+				t.Errorf("warnings = %q, want none for a drained reuse", warnings)
+			}
+			if reason := claudeSubRecoveryReseedReason(final); reason != "" {
+				t.Errorf("reseed reason = %q, want none", reason)
+			}
+			if recovery := claudeSubRecoveryLabel(final); recovery != claudeSubRecoveryDrainedReuse {
+				t.Errorf("recovery = %q, want %q", recovery, claudeSubRecoveryDrainedReuse)
+			}
+			lines := claudeSubUserLines(conn)
+			if len(lines) != 3 {
+				t.Fatalf("user lines = %q, want the first turn, the stopped turn and this one", lines)
+			}
+			if !strings.Contains(lines[2], "again") {
+				t.Errorf("next user line = %s, want the new message", lines[2])
+			}
+			if strings.Contains(lines[2], "Conversation so far") {
+				t.Errorf("next user line = %s, want a delta, not a reseeded transcript", lines[2])
+			}
+			if tt.partial != "" && strings.Contains(lines[2], tt.partial) {
+				t.Errorf("next user line = %s, want the kept partial never sent", lines[2])
+			}
+
+			// The Done checkpoint covers the recorded-not-sent partial, so a fresh
+			// process resumes it instead of rejecting the request.
+			historyAfter := append(append([]Message(nil), next...), final.Delta)
+			restarted, restartedSpawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+			restart := claudeSubRunStreamCollected(t, restarted, ChatRequest{
+				TransportSession: "parent",
+				Model:            model,
+				BackendState:     final.BackendState,
+				Messages:         append(append([]Message(nil), historyAfter...), claudeSubUserText("keep going")),
+			})
+			if text := restart.final(t).Delta.Content; text != "Hello world" {
+				t.Fatalf("restarted text = %q, want %q", text, "Hello world")
+			}
+			if n := restartedSpawner.callCount(); n != 1 {
+				t.Fatalf("restart spawn count = %d, want 1", n)
+			}
+			args := restartedSpawner.call(t, 0).Args
+			resume, _ := claudeSubArgValue(args, "--resume")
+			at, _ := claudeSubArgValue(args, "--resume-session-at")
+			state := claudeSubDecodeState(t, final.BackendState)
+			if resume != state.CLISessionID || at != state.FinalUUID {
+				t.Errorf("restart resume = %q at %q, want %q at %q", resume, at, state.CLISessionID, state.FinalUUID)
+			}
+			if claudeSubHasArg(args, "--fork-session") {
+				t.Errorf("restart args %q forked a session no live process held", args)
+			}
+			restartLines := claudeSubUserLines(restartedSpawner.call(t, 0).Conn)
+			if len(restartLines) != 1 || !strings.Contains(restartLines[0], "keep going") || strings.Contains(restartLines[0], "Conversation so far") {
+				t.Errorf("restart user lines = %q, want the plain new message", restartLines)
+			}
+		})
 	}
-	if text := got.final(t).Delta.Content; text != "Hello world" {
-		t.Fatalf("next turn text = %q, want %q", text, "Hello world")
-	}
-	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (drained parent still reseeded)", n)
-	}
-	if !conn.isClosed() {
-		t.Error("the drained parent process was reused past its stored checkpoint")
-	}
-	if reason := claudeSubRecoveryReseedReason(got.final(t)); reason != claudeSubReseedCheckpoint {
-		t.Errorf("reseed reason = %q, want %q", reason, claudeSubReseedCheckpoint)
-	}
-	lines := claudeSubUserLines(spawner.call(t, 1).Conn)
-	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
-		t.Fatalf("replacement user lines = %q, want one rendered transcript", lines)
-	}
-	if !strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubPartialLabel) {
-		t.Errorf("reseed transcript = %s, want the kept partial under its interrupted label", lines[0])
-	}
-	// The drained stop discards no unproven process, so no replacement notice is
-	// recorded. The reseed itself still replays the history flattened, which is
-	// the one warning this turn reports.
-	claudeSubWantOneExactWarning(t, got, claudeSubFlattenedReseedWarning)
 }
 
 // TestClaudeSubDrainStopsOnPoolClose proves the drain never holds pool shutdown:
@@ -713,16 +769,23 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 
 	t.Run("turn-stamped text-only partial is recorded", func(t *testing.T) {
 		s := base(t)
-		delta, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), partial(Message{Content: "partial", Turn: 3})}})
+		delta, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), partial(Message{Content: "partial", Turn: 3}), claudeSubSyncUserMsg("again")}})
 		if err != nil {
 			t.Fatalf("plan: %v", err)
 		}
-		if len(delta.User) != 0 || len(delta.ToolResults) != 0 {
-			t.Fatalf("delta = %+v, want nothing sent", delta)
+		if got := claudeSubSyncContents(delta.User); !reflect.DeepEqual(got, []string{"again"}) || len(delta.ToolResults) != 0 {
+			t.Fatalf("delta = %+v, want only the new user message", delta)
 		}
 		s.adopt(delta)
 		if len(s.entries) != 2 || s.entries[1].Role != MessageRoleAssistant {
 			t.Fatalf("entries = %+v, want the recorded partial", s.entries)
+		}
+	})
+
+	t.Run("partial without a following user is refused", func(t *testing.T) {
+		s := base(t)
+		if _, err := s.plan(ChatRequest{Messages: []Message{claudeSubSyncUserMsg("hi"), partial(Message{Content: "partial", Turn: 3})}}); !errors.Is(err, errClaudeSubHistoryChanged) {
+			t.Fatalf("plan error = %v, want errClaudeSubHistoryChanged", err)
 		}
 	})
 
@@ -751,12 +814,13 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 			claudeSubSyncAssistantMsg("a1", "c1"),
 			claudeSubSyncToolMsg("c1", "body"),
 			{Role: MessageRoleAssistant, Content: "partial", IncompleteText: "partial", Turn: 2},
+			claudeSubSyncUserMsg("again"),
 		}})
 		if err != nil {
 			t.Fatalf("plan: %v", err)
 		}
-		if len(delta.User) != 0 || len(delta.ToolResults) != 0 {
-			t.Fatalf("delta = %+v, want nothing sent", delta)
+		if got := claudeSubSyncContents(delta.User); !reflect.DeepEqual(got, []string{"again"}) || len(delta.ToolResults) != 0 {
+			t.Fatalf("delta = %+v, want only the new user message", delta)
 		}
 	})
 

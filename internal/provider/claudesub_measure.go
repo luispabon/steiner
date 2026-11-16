@@ -50,6 +50,24 @@ const (
 	// claudeSubReseedHelper: the call runs on an ephemeral summary helper that
 	// always starts from the rendered transcript.
 	claudeSubReseedHelper = "helper"
+	// claudeSubReseedUnconfirmed: the process behind an earlier turn could not be
+	// proven gone within its teardown deadline, so the request reseeds on a new
+	// session instead of resuming the stored one.
+	claudeSubReseedUnconfirmed = "unconfirmed"
+)
+
+// claude_subscription recovery reasons reported in
+// ClaudeSubCallDiagnostics.Recovery. Each value names how a call recovered a
+// turn that stopped before it finished.
+const (
+	// claudeSubRecoveryDrainedReuse: the call reused the process its own drain
+	// kept, accepting the record one stopped delivery ahead of the stored
+	// checkpoint.
+	claudeSubRecoveryDrainedReuse = "drained_reuse"
+	// claudeSubRecoveryResumeAfterStop: the call resumed the stored CLI session at
+	// its final uuid after the process a stopped turn left behind was retired, so
+	// the resumed session hides that turn.
+	claudeSubRecoveryResumeAfterStop = "resume_after_stop"
 )
 
 // claudeSubCallMetrics accumulates the measurements claudeSubStream reports on
@@ -60,6 +78,7 @@ const (
 type claudeSubCallMetrics struct {
 	process           string
 	reseedReason      string
+	recovery          string
 	usageGate         time.Duration
 	usageGatePolls    int
 	usageProbeSpawned bool
@@ -92,6 +111,7 @@ func (m *claudeSubCallMetrics) diagnostics() *CallDiagnostics {
 	return &CallDiagnostics{ClaudeSub: &ClaudeSubCallDiagnostics{
 		Process:           m.process,
 		ReseedReason:      m.reseedReason,
+		Recovery:          m.recovery,
 		UsageGateMillis:   m.usageGate.Milliseconds(),
 		UsageGatePolls:    m.usageGatePolls,
 		UsageProbeSpawned: m.usageProbeSpawned,
@@ -154,6 +174,16 @@ func (m *claudeSubCallMetrics) resetDelivery() {
 	}
 	m.process = ""
 	m.reseedReason = ""
+	m.recovery = ""
+}
+
+// noteRecovery records how the call recovered a turn that stopped before it
+// finished. It is independent of noteReseed: a recovered call does not reseed.
+func (m *claudeSubCallMetrics) noteRecovery(reason string) {
+	if m == nil || reason == "" {
+		return
+	}
+	m.recovery = reason
 }
 
 // noteUsageGate records the time and poll count of one delivery attempt's

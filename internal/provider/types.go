@@ -211,6 +211,12 @@ type ClaudeSubCallDiagnostics struct {
 	// ReseedReason names the branch that reseeded the transcript. Empty unless
 	// the call reseeded.
 	ReseedReason string
+	// Recovery names how the call recovered a turn that stopped before it
+	// finished: "drained_reuse" when it reused the drained process one stopped
+	// delivery ahead of the stored checkpoint, and "resume_after_stop" when it
+	// retired that process and resumed the stored session at its final uuid.
+	// Empty for every other call.
+	Recovery string
 	// UsageGateMillis is the wall time the extra-usage gate spent on the call,
 	// truncated to whole milliseconds.
 	UsageGateMillis int64

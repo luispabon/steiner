@@ -86,6 +86,10 @@ type claudeSubSync struct {
 	// is set, plan accepts one relaxed text-only assistant message at the suffix
 	// head: the partial the agent kept from a turn the drain recovered.
 	drained bool
+	// drainedBase is the record length the drained delivery started from. A
+	// stored checkpoint one stopped delivery behind must equal it, so the live
+	// record can be proven to be exactly that delivery ahead (see drainedMatches).
+	drainedBase int
 	// interruptible is the index of the assistant entry produced by the call
 	// that was just interrupted, or -1 when no such assistant exists. Only that
 	// one entry may be subset-matched or omitted. markInterrupted derives it
@@ -211,6 +215,11 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 
 	var delta claudeSubDelta
 	var recorded []claudeSubEntry
+	// drainedPartial is set when the suffix head was the kept partial of a
+	// drained turn. The request must go on with a user message, otherwise
+	// nothing would be sent and the kept text would never be answered.
+	drainedPartial := false
+	suffixUser := false
 	// A tool result whose call id already exists in the record must never be
 	// appended again. This closes the reorder hole left by omitting an
 	// interrupted assistant: dropping its recorded tool entries must not let a
@@ -238,6 +247,7 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			suffixToolIDs[m.ToolCallID] = struct{}{}
 			delta.ToolResults = append(delta.ToolResults, m)
 		case MessageRoleUser:
+			suffixUser = true
 			delta.User = append(delta.User, m)
 		case MessageRoleAssistant:
 			// D22: right after an interrupt, one text-only assistant message may
@@ -252,12 +262,16 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			// the turn number the agent stamps on the message it streamed.
 			if s.drained && si == 0 && claudeSubDrainedPartial(m) {
 				recorded = append(recorded, claudeSubEntryFromMessage(m))
+				drainedPartial = true
 				continue
 			}
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
 		default:
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
 		}
+	}
+	if drainedPartial && !suffixUser {
+		return claudeSubDelta{}, errClaudeSubHistoryChanged
 	}
 	delta.keep = append(out, recorded...)
 	delta.keepInterruptible = keepInterruptible
