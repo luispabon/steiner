@@ -76,21 +76,37 @@ func (p *ClaudeSubscriptionPool) retire(key string, s *claudeSubSession) {
 	p.finishEviction(st, s, p.closeSession(s))
 }
 
-// retireConfirmed retires the process under key, releases the caller's
-// whole-call lock and reports whether its teardown completed within the pool's
-// teardown deadline. Completion is the confirmation a resume needs: the close
-// path's process wait has returned and the session's router is done (teardown
-// fails when either deadline expires). Any exit status, including a failure
-// status or a signal, counts as confirmed; only a teardown that hit its deadline
-// or failed does not, and then the CLI process may still be running.
+// retireConfirmed retires the process under key and reports whether its teardown
+// completed within the pool's teardown deadline. The caller keeps and must
+// release its own lease. Completion is the confirmation a resume needs: the
+// close path's process wait has returned and the session's router is done
+// (teardown fails when either deadline expires). Any exit status, including a
+// failure status or a signal, counts as confirmed; only a teardown that hit its
+// deadline or failed does not, and then the CLI process may still be running.
 func (p *ClaudeSubscriptionPool) retireConfirmed(key string, s *claudeSubSession) bool {
 	p.mu.Lock()
 	st := p.evictLocked(key, s)
 	p.mu.Unlock()
 	err := p.closeSession(s)
 	p.finishEviction(st, s, err)
-	p.release(s)
 	return err == nil
+}
+
+// noteReseedKey records that the process under key could not be proven gone, so
+// the next attach for it must reseed with a new session instead of resuming the
+// stored one. consumeReseedKey reports, once, whether key has such a record.
+func (p *ClaudeSubscriptionPool) noteReseedKey(key string) {
+	p.mu.Lock()
+	p.reseedKeys[key] = struct{}{}
+	p.mu.Unlock()
+}
+
+func (p *ClaudeSubscriptionPool) consumeReseedKey(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.reseedKeys[key]
+	delete(p.reseedKeys, key)
+	return ok
 }
 
 // retireAndRelease retires the process under key, then releases the caller's

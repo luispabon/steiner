@@ -21,9 +21,11 @@ type claudeSubAttach struct {
 	// stopped turn, or -1 when the request suffix carries none (see
 	// claudeSubInterruptedTail).
 	partial int
-	// retired is set once a live process for this key was retired in this call, so
-	// a resume forks the stored CLI session instead of appending to it.
+	// retired is set once a live process for this key was retired in this call.
 	retired bool
+	// stopped is set when the retired process was abandoned by a stopped turn,
+	// which the recovery measurement reports as a stop recovery.
+	stopped bool
 }
 
 // claudeSubAttachResult is how claudeSubAttachSession settled a request: the
@@ -55,6 +57,15 @@ type claudeSubAttachResult struct {
 //   - A process that exited is evicted, and its successor resumes the stored
 //     state when that state is restorable (D3).
 func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed bool) (claudeSubAttachResult, error) {
+	reseedProcess := false
+	if pool.consumeReseedKey(a.key) {
+		// An earlier call could not prove its process gone, so resuming the stored
+		// session could collide with a CLI that may still be writing it. The live
+		// process is retired too, and the request reseeds on a new session.
+		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
+		forceReseed = true
+		reseedProcess = true
+	}
 	if evicted, confirmed := pool.evictDead(a.key); evicted {
 		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedExited)
 		// The stored session resumes on a new process, which is safe only once
@@ -66,14 +77,20 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	}
 	spawn := a.spec
 	if a.restorable && !forceReseed {
+		// Every resume forks: a fork never appends to the transcript file an old,
+		// orphaned or just-retired process may still hold open.
 		spawn.Resume = a.resume
-		if a.retired {
-			spawn.Resume.Fork = true
-		}
 	}
 	s, err := pool.acquire(ctx, a.key, spawn)
 	if err != nil {
 		return claudeSubAttachResult{}, err
+	}
+	if reseedProcess {
+		if !pool.retireConfirmed(a.key, s) {
+			claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
+		}
+		pool.release(s)
+		return claudeSubAttachSession(ctx, pool, req, a, true)
 	}
 	if s.unsafeForReuse() {
 		// A cancelled delivery may still be producing events on this process, so
@@ -82,6 +99,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		// reseeds with a new session instead.
 		resume := a.restorable && !forceReseed
 		confirmed := pool.retireConfirmed(a.key, s)
+		pool.release(s)
 		if !resume {
 			return claudeSubAttachSession(ctx, pool, req, a, forceReseed)
 		}
@@ -91,6 +109,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		}
 		next := a
 		next.retired = true
+		next.stopped = true
 		return claudeSubAttachSession(ctx, pool, req, next, forceReseed)
 	}
 	if s.primed {
@@ -122,19 +141,28 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		claudeSubMetricsFrom(ctx).noteReseed(rejectReason)
 		if owner {
 			// The stored state belongs to another transport session, so its restore
-			// forks instead of reseeding.
-			pool.retireAndRelease(a.key, s)
+			// forks instead of reseeding. The fork never writes the live process's
+			// file, but its teardown is still confirmed first: an unconfirmed
+			// process records that the next attach must reseed.
+			if !pool.retireConfirmed(a.key, s) {
+				claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
+				pool.noteReseedKey(a.key)
+			}
+			pool.release(s)
 			return claudeSubAttachSession(ctx, pool, req, a, false)
 		}
 		if a.restorable {
 			// The request can restore the stored checkpoint, so the process is
-			// retired and the request resumes at the stored uuid, which hides the
-			// turn that stopped. The resume forks the session a live process was
-			// writing.
+			// retired and the request resumes at the stored uuid in a fork, which
+			// hides the turn that stopped. The live process was discarded
+			// unexpectedly, so the recovery reports the replacement.
+			pool.noteReplacement(a.key)
 			if !pool.retireConfirmed(a.key, s) {
 				claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
+				pool.release(s)
 				return claudeSubAttachSession(ctx, pool, req, a, true)
 			}
+			pool.release(s)
 			next := a
 			next.retired = true
 			return claudeSubAttachSession(ctx, pool, req, next, false)
@@ -168,6 +196,9 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	metrics := claudeSubMetricsFrom(ctx)
 	metrics.setProcess(claudeSubProcessResume)
 	if a.retired || a.partial >= 0 {
+		metrics.noteRecovery(claudeSubRecoveryResumeAfterMismatch)
+	}
+	if a.stopped || a.partial >= 0 {
 		metrics.noteRecovery(claudeSubRecoveryResumeAfterStop)
 	}
 	result := claudeSubAttachResult{session: s}
@@ -200,8 +231,11 @@ func claudeSubLiveAccepts(ctx context.Context, s *claudeSubSession, req ChatRequ
 		if !ok || !claudeSubStateMatches(live, a.stored) {
 			// A stored checkpoint one stopped delivery behind is exactly the record
 			// a proven drain leaves. plan below still enforces that delivery's
-			// entries against the request and accepts one relaxed partial.
-			if !s.sync.drainedMatches(a.stored) {
+			// entries against the request and accepts one relaxed partial. A request
+			// without a stored state (a sub-agent) never reaches this check: it has
+			// no checkpoint to be behind, so its drained record is matched by plan
+			// alone, which is the sub-agent reuse this provider already gave it.
+			if !s.sync.drainedMatches(a.stored, a.key) {
 				return false, claudeSubReseedCheckpoint, nil
 			}
 			drained = true

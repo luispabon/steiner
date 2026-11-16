@@ -560,8 +560,8 @@ func TestClaudeSubDrainParentReusesAfterStop(t *testing.T) {
 			if resume != state.CLISessionID || at != state.FinalUUID {
 				t.Errorf("restart resume = %q at %q, want %q at %q", resume, at, state.CLISessionID, state.FinalUUID)
 			}
-			if claudeSubHasArg(args, "--fork-session") {
-				t.Errorf("restart args %q forked a session no live process held", args)
+			if !claudeSubHasArg(args, "--fork-session") {
+				t.Errorf("restart args %q, want --fork-session for every resume", args)
 			}
 			restartLines := claudeSubUserLines(restartedSpawner.call(t, 0).Conn)
 			if len(restartLines) != 1 || !strings.Contains(restartLines[0], "keep going") || strings.Contains(restartLines[0], "Conversation so far") {

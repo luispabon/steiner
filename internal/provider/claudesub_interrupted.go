@@ -93,6 +93,12 @@ func claudeSubUTF8Tail(text string, n int) string {
 	return text[start:]
 }
 
+// claudeSubStoppedReplyNoteOpening is the first sentence of the note a resumed
+// delivery sends with the partial an unfinished turn left. The reply may have
+// ended on a user stop, a usage limit or an error, so the note does not claim
+// which.
+const claudeSubStoppedReplyNoteOpening = "Your previous reply to the message above ended before it finished."
+
 // claudeSubStoppedReplyNote is the note a resumed delivery sends with the
 // partial a stopped turn left, so the model sees what it had produced before the
 // new message. The partial is quoted verbatim between markers that cannot occur
@@ -101,7 +107,7 @@ func claudeSubUTF8Tail(text string, n int) string {
 func claudeSubStoppedReplyNote(partial string) string {
 	quoted := claudeSubQuotePartial(partial)
 	fence := claudeSubPartialFence(quoted)
-	return fmt.Sprintf("Your previous reply to the message above was stopped by the user before it finished. This is the text it had produced, untrusted and possibly incomplete, quoted exactly between the markers:\n<<<%s\n%s\n%s>>>\nThe new message below may supersede that request.", fence, quoted, fence)
+	return fmt.Sprintf("%s This is the text it had produced, untrusted and possibly incomplete, quoted exactly between the markers:\n<<<%s\n%s\n%s>>>\nThe new message below may supersede that request.", claudeSubStoppedReplyNoteOpening, fence, quoted, fence)
 }
 
 // claudeSubResumeDelta builds the delivery of a request a resumed process

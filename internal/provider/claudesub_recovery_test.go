@@ -93,18 +93,19 @@ func claudeSubRecoveryRecordLen(t *testing.T, pool *ClaudeSubscriptionPool, key 
 	return len(s.sync.entries)
 }
 
-// TestClaudeSubRecoveryLiveFailureReseedsCharacterization proves a failure
+// TestClaudeSubRecoveryLiveFailureResumes proves a failure
 // streamed after the user line was committed leaves the live record ahead of the
 // stored checkpoint, so the next request retires that process and resumes the
 // stored session at its final uuid, which hides the failed turn.
 func TestClaudeSubRecoveryLiveFailureResumes(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	tests := []struct {
-		name        string
-		withPartial bool
+		name         string
+		withPartial  bool
+		wantRecovery string
 	}{
-		{name: "user line delivered"},
-		{name: "real partial projection in the next request", withPartial: true},
+		{name: "user line delivered", wantRecovery: claudeSubRecoveryResumeAfterMismatch},
+		{name: "real partial projection in the next request", withPartial: true, wantRecovery: claudeSubRecoveryResumeAfterStop},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -192,8 +193,8 @@ func TestClaudeSubRecoveryLiveFailureResumes(t *testing.T) {
 			if got := claudeSubRecoveryReseedReason(final); got != "" {
 				t.Errorf("reseed reason = %q, want none", got)
 			}
-			if got := claudeSubRecoveryLabel(final); got != claudeSubRecoveryResumeAfterStop {
-				t.Errorf("recovery = %q, want %q", got, claudeSubRecoveryResumeAfterStop)
+			if got := claudeSubRecoveryLabel(final); got != tt.wantRecovery {
+				t.Errorf("recovery = %q, want %q", got, tt.wantRecovery)
 			}
 		})
 	}
@@ -399,8 +400,8 @@ func TestClaudeSubRecoveryRestartAfterInterruptedTurn(t *testing.T) {
 			if resume != stored.CLISessionID || at != stored.FinalUUID {
 				t.Errorf("resume target = %q at %q, want %q at %q", resume, at, stored.CLISessionID, stored.FinalUUID)
 			}
-			if claudeSubHasArg(serving.Args, "--fork-session") {
-				t.Errorf("restart args %q forked a session no live process held", serving.Args)
+			if !claudeSubHasArg(serving.Args, "--fork-session") {
+				t.Errorf("restart args %q, want --fork-session for every resume", serving.Args)
 			}
 			if got := claudeSubRecoveryReseedReason(final); got != "" {
 				t.Errorf("reseed reason = %q, want none", got)

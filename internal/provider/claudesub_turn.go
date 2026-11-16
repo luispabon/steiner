@@ -291,7 +291,13 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		// turn, so it is retired even after output and is never retried inline.
 		decodeFailure := errors.Is(err, errClaudeSubDecodeStream)
 		retry := !decodeFailure && !cliRetried && claudeSubShouldRetryTurn(err, emitted, ctx.Err(), s.resume.SessionID)
-		if decodeFailure || retry {
+		if decodeFailure {
+			// The process may hold stale events, so it is retired. A teardown that
+			// cannot confirm the exit records that the next attach must reseed.
+			if !pool.retireConfirmed(key, s) {
+				pool.noteReseedKey(key)
+			}
+		} else if retry {
 			pool.retire(key, s)
 		}
 		if !retry {
@@ -403,7 +409,9 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 		// A cancelled turn may still be producing events here, so nothing may be
 		// written to this process. It is retired rather than reused; the caller's
 		// release still follows.
-		s.pool.retire(s.key, s)
+		if !s.pool.retireConfirmed(s.key, s) {
+			s.pool.noteReseedKey(s.key)
+		}
 		return errClaudeSubSessionUnsafe
 	}
 	metrics := claudeSubMetricsFrom(ctx)
@@ -436,7 +444,9 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 						// logout. Retire it under the active lease; the caller must issue
 						// an explicit retry after logging in, never an automatic replay.
 						s.pool.retryCLILookup()
-						s.pool.retire(s.key, s)
+						if !s.pool.retireConfirmed(s.key, s) {
+							s.pool.noteReseedKey(s.key)
+						}
 						return &claudeSubUsageGateError{err: authErr}
 					} else if errors.Is(authErr, context.Canceled) || errors.Is(authErr, context.DeadlineExceeded) || errors.Is(authErr, errClaudeSubPoolClosed) {
 						return authErr

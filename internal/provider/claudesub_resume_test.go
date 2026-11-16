@@ -15,10 +15,6 @@ import (
 	"unicode/utf8"
 )
 
-// claudeSubStoppedReplyNoteOpening is the first sentence of the note a resume
-// sends with the partial a stopped turn left.
-const claudeSubStoppedReplyNoteOpening = "Your previous reply to the message above was stopped by the user before it finished."
-
 // claudeSubUserTextBlocks returns the text blocks of one CLI user line, in
 // order, so a folded delivery can be checked block by block.
 func claudeSubUserTextBlocks(t *testing.T, line string) []string {
@@ -152,7 +148,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 		s, stored := drained(t, func(s *claudeSubSync) {
 			s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
 		}, 2)
-		if !s.drainedMatches(stored) {
+		if !s.drainedMatches(stored, "parent") {
 			t.Fatal("a proven stop with a user tail did not match its stored checkpoint")
 		}
 	})
@@ -161,13 +157,13 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 			s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
 			s.commitToolResult(claudeSubSyncToolMsg("c1", "body"))
 		}, 2)
-		if !s.drainedMatches(stored) {
+		if !s.drainedMatches(stored, "parent") {
 			t.Fatal("a proven stop with a user and tool tail did not match its stored checkpoint")
 		}
 	})
 	t.Run("empty tail is not a stopped delivery", func(t *testing.T) {
 		s, stored := drained(t, func(*claudeSubSync) {}, 2)
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("a record with nothing after the checkpoint matched")
 		}
 	})
@@ -178,7 +174,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 		s.commitAssistant(claudeSubSyncAssistantMsg("first answer"), "u-2")
 		s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("two")}})
 		s.markDrained(4)
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("a record two deliveries ahead of the checkpoint matched")
 		}
 	})
@@ -187,7 +183,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 			s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
 		}, 2)
 		s.tainted = true
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("a tainted record matched")
 		}
 	})
@@ -196,7 +192,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 			s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
 		}, 2)
 		s.drained = false
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("a record without the drained state matched")
 		}
 	})
@@ -205,7 +201,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 			s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
 		}, 2)
 		s.started = false
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("an unstarted record matched")
 		}
 	})
@@ -214,7 +210,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 			s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
 		}, 2)
 		stored.SyncChainDigest = "changed"
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("a checkpoint with another chain digest matched")
 		}
 	})
@@ -223,7 +219,7 @@ func TestClaudeSubSyncDrainedMatches(t *testing.T) {
 		stored := checkpointOf(t, s)
 		s.commitAssistant(claudeSubSyncAssistantMsg("recorded by another writer"), "u-2")
 		s.markDrained(2)
-		if s.drainedMatches(stored) {
+		if s.drainedMatches(stored, "parent") {
 			t.Fatal("a record whose tail holds an assistant matched")
 		}
 	})
@@ -384,8 +380,8 @@ func TestClaudeSubResumeAfterFailedDrain(t *testing.T) {
 	if resume, _ := claudeSubArgValue(args, "--resume"); resume == "" {
 		t.Errorf("second restart args %q, want a resume", args)
 	}
-	if claudeSubHasArg(args, "--fork-session") {
-		t.Errorf("second restart args %q forked a session no live process held", args)
+	if !claudeSubHasArg(args, "--fork-session") {
+		t.Errorf("second restart args %q, want --fork-session for every resume", args)
 	}
 	restartLines := claudeSubUserLines(restartedSpawner.call(t, 0).Conn)
 	if len(restartLines) != 1 || !strings.Contains(restartLines[0], "onwards") {
@@ -454,8 +450,8 @@ func TestClaudeSubDrainedParentEditedStoppedUserResumes(t *testing.T) {
 	if len(blocks) != 3 || blocks[0] != "write a different report" || blocks[2] != "again" {
 		t.Fatalf("user blocks = %q, want [edited stopped user, note, new user]", blocks)
 	}
-	if warnings := got.warnings(); len(warnings) != 0 {
-		t.Errorf("warnings = %q, want none: the drained stop abandoned nothing", warnings)
+	if warnings := got.warnings(); len(warnings) != 1 {
+		t.Errorf("warnings = %q, want the replacement the discarded live process reports", warnings)
 	}
 	if recovery := claudeSubRecoveryLabel(final); recovery != claudeSubRecoveryResumeAfterStop {
 		t.Errorf("recovery = %q, want %q", recovery, claudeSubRecoveryResumeAfterStop)
@@ -694,6 +690,90 @@ func TestClaudeSubRestoreRefusesToolSuffix(t *testing.T) {
 	}
 	if reason := claudeSubRecoveryReseedReason(final); reason != claudeSubReseedPlan {
 		t.Errorf("reseed reason = %q, want %q", reason, claudeSubReseedPlan)
+	}
+}
+
+// TestClaudeSubSyncDrainedMatchesOwner proves a stored state owned by another
+// key never matches on the drained path.
+func TestClaudeSubSyncDrainedMatchesOwner(t *testing.T) {
+	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
+	s.commitAssistant(claudeSubSyncAssistantMsg("an answer"), "u-1")
+	s.fingerprint = "fp"
+	s.cliSessionID = "sess-1"
+	stored, ok, err := s.checkpoint("parent")
+	if err != nil || !ok {
+		t.Fatalf("checkpoint = %+v, %v, %v", stored, ok, err)
+	}
+	s.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("stopped")}})
+	s.markDrained(2)
+	if !s.drainedMatches(stored, "parent") {
+		t.Fatal("a proven stop did not match its own stored checkpoint")
+	}
+	if s.drainedMatches(stored, "other") {
+		t.Fatal("a stored state owned by another key matched")
+	}
+}
+
+// TestClaudeSubRestoreRefusesDanglingToolCalls proves a stored final assistant
+// whose tool calls the request never answers cannot resume: the successor user
+// line would follow an unanswered call.
+func TestClaudeSubRestoreRefusesDanglingToolCalls(t *testing.T) {
+	history := []Message{claudeSubSyncUserMsg("read notes"), claudeSubSyncAssistantMsg("looking", "c1"), claudeSubSyncUserMsg("more")}
+	entries := []claudeSubEntry{claudeSubEntryFromMessage(history[0]), claudeSubEntryFromMessage(history[1])}
+	entries[1].UUID = "u-final"
+	prefix, err := claudeSubPrefixDigest(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := claudeSubBackendState{
+		Provider:               "claude_subscription",
+		Version:                claudeSubBackendStateVersion,
+		CLISessionID:           "sess-1",
+		TransportSession:       "parent",
+		SyncEntries:            2,
+		FinalMessageDigest:     entries[1].Digest,
+		FinalUUID:              "u-final",
+		SyncPrefixDigest:       prefix,
+		PromptToolsFingerprint: "fp",
+	}
+	_, ok, reason, err := claudeSubRestoreFor(history, stored, true, "parent", "fp")
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if ok || reason != claudeSubReseedPlan {
+		t.Fatalf("restorable = %v, reason = %q; want a reseed reported as %q", ok, reason, claudeSubReseedPlan)
+	}
+}
+
+// TestClaudeSubUnconfirmedRetireReseedsNextCall proves the per-key record an
+// unconfirmed retire leaves makes the next call reseed with a new session. The
+// decode-failure, signed-out and unsafe-guard retires record it through
+// pool.noteReseedKey, which this test calls directly so the assertion never
+// depends on a stalled teardown; TestClaudeSubResumeFallbackOnUnconfirmedExit
+// covers the same deadline through a real unanswered stop.
+func TestClaudeSubUnconfirmedRetireReseedsNextCall(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+	storedState := claudeSubEncodeState(t, claudeSubDecodeState(t, first.BackendState))
+	// A retire that could not confirm the CLI was gone records the key instead of
+	// letting the next attach resume the session that process may still write.
+	pool.noteReseedKey("parent")
+
+	msgs := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+	got := claudeSubRunStreamCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, BackendState: storedState, Messages: msgs})
+	final := got.final(t)
+	if final.Error != "" {
+		t.Fatalf("next turn chunk error = %s", final.Error)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the unconfirmed process replaced)", n)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume != "" {
+		t.Errorf("replacement --resume = %q, want a new session", resume)
+	}
+	if reason := claudeSubRecoveryReseedReason(final); reason != claudeSubReseedUnconfirmed {
+		t.Errorf("reseed reason = %q, want %q", reason, claudeSubReseedUnconfirmed)
 	}
 }
 

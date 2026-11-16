@@ -120,11 +120,13 @@ func TestClaudeSubCallDiagnosticsLiveReseedReason(t *testing.T) {
 		rewrite bool
 		dead    bool
 		want    string
+		// wantRecovery is the recovery label the call must report.
+		wantRecovery string
 		// wantProcess is the process disposition the call reports. Empty means
 		// spawn.
 		wantProcess string
 	}{
-		{name: "checkpoint mismatch resumes", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, want: "", wantProcess: claudeSubProcessResume},
+		{name: "checkpoint mismatch resumes", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, want: "", wantRecovery: claudeSubRecoveryResumeAfterMismatch, wantProcess: claudeSubProcessResume},
 		{name: "rewritten history", rewrite: true, want: claudeSubReseedPlan},
 		{name: "exited process resumes", dead: true, want: "", wantProcess: claudeSubProcessResume},
 		// The state belongs to another transport session and no longer
@@ -170,6 +172,9 @@ func TestClaudeSubCallDiagnosticsLiveReseedReason(t *testing.T) {
 			}
 			if got := final.Diagnostics.ClaudeSub.Process; got != want {
 				t.Errorf("process = %q, want %q", got, want)
+			}
+			if got := final.Diagnostics.ClaudeSub.Recovery; got != tt.wantRecovery {
+				t.Errorf("recovery = %q, want %q", got, tt.wantRecovery)
 			}
 			if got := final.Diagnostics.ClaudeSub.ReseedReason; got != tt.want {
 				t.Errorf("reseed reason = %q, want %q", got, tt.want)

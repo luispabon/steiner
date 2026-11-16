@@ -247,6 +247,9 @@ type ClaudeSubscriptionPool struct {
 	// cleared only when a call reports the replacement to the user. Guarded by
 	// mu.
 	replacements map[string]struct{}
+	// reseedKeys holds one record per session key whose process could not be
+	// proven gone: the next attach for that key reseeds with a new session.
+	reseedKeys map[string]struct{}
 
 	// unresolved holds sessions the pool still owns because their teardown did
 	// not finish cleanly: a partial-start cleanup failure, a caller-cancelled or
@@ -291,6 +294,7 @@ func NewClaudeSubscriptionPool(opts ClaudeSubscriptionPoolOptions) *ClaudeSubscr
 		sessions:     map[string]*claudeSubSession{},
 		startups:     map[*claudeSubStartup]struct{}{},
 		replacements: map[string]struct{}{},
+		reseedKeys:   map[string]struct{}{},
 		opts:         opts,
 		ctx:          ctx,
 		cancel:       cancel,

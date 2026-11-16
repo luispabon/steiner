@@ -1796,7 +1796,7 @@ func TestClaudeSubRestoreSelection(t *testing.T) {
 		wantFork       bool
 		wantTranscript bool
 	}{
-		{name: "restart resumes the stored session", wantResume: true},
+		{name: "restart resumes the stored session", wantResume: true, wantFork: true},
 		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantResume: true, wantFork: true},
 		{name: "stale prompt and tools fingerprint reseeds", mutate: func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }, wantTranscript: true},
 		{name: "changed system prompt reseeds", system: "a new prompt", wantTranscript: true},
@@ -1866,12 +1866,16 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 		wantResume     bool
 		wantFork       bool
 		wantTranscript bool
+		// wantWarning is the warning the call must report. wantSilent asserts it
+		// reports none.
+		wantWarning string
+		wantSilent  bool
 	}{
-		{name: "matching state appends", wantSpawns: 1},
-		{name: "changed system prompt still appends", system: "a new prompt", wantSpawns: 1},
-		{name: "chain mismatch resumes a fork", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, wantSpawns: 2, wantResume: true, wantFork: true},
-		{name: "dead process resumes", dead: true, wantSpawns: 2, wantResume: true},
-		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantSpawns: 2, wantResume: true, wantFork: true},
+		{name: "matching state appends", wantSpawns: 1, wantSilent: true},
+		{name: "changed system prompt still appends", system: "a new prompt", wantSpawns: 1, wantSilent: true},
+		{name: "chain mismatch resumes a fork", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, wantSpawns: 2, wantResume: true, wantFork: true, wantWarning: claudeSubReplacedProcessWarning},
+		{name: "dead process resumes", dead: true, wantSpawns: 2, wantResume: true, wantFork: true, wantSilent: true},
+		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantSpawns: 2, wantResume: true, wantFork: true, wantSilent: true},
 		{name: "rewritten history reseeds", rewrite: true, wantSpawns: 2, wantTranscript: true},
 	}
 	for _, tt := range tests {
@@ -1895,7 +1899,18 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 			if tt.system != "" {
 				msgs = append([]Message{{Role: MessageRoleSystem, Content: tt.system}}, msgs...)
 			}
-			claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+			got := claudeSubRunCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+			if got.err != nil {
+				t.Fatalf("turn error = %v", got.err)
+			}
+			if tt.wantWarning != "" {
+				claudeSubWantOneWarning(t, got, tt.wantWarning)
+			}
+			if tt.wantSilent {
+				if warnings := got.warnings(); len(warnings) != 0 {
+					t.Errorf("warnings = %q, want none", warnings)
+				}
+			}
 			if n := spawner.callCount(); n != tt.wantSpawns {
 				t.Fatalf("spawn count = %d, want %d", n, tt.wantSpawns)
 			}

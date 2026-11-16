@@ -65,9 +65,13 @@ const (
 	// checkpoint.
 	claudeSubRecoveryDrainedReuse = "drained_reuse"
 	// claudeSubRecoveryResumeAfterStop: the call resumed the stored CLI session at
-	// its final uuid after the process a stopped turn left behind was retired, so
-	// the resumed session hides that turn.
+	// its final uuid in a fork after a process a stopped turn abandoned was
+	// retired, or with the partial that turn kept.
 	claudeSubRecoveryResumeAfterStop = "resume_after_stop"
+	// claudeSubRecoveryResumeAfterMismatch: the call retired a live process whose
+	// record no longer matched the request and resumed the stored session in a
+	// fork. No stop abandoned that process.
+	claudeSubRecoveryResumeAfterMismatch = "resume_after_mismatch"
 )
 
 // claudeSubCallMetrics accumulates the measurements claudeSubStream reports on

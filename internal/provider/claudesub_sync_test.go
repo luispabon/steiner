@@ -1265,7 +1265,7 @@ func TestClaudeSubRestoreFor(t *testing.T) {
 		wantFork   bool
 		wantReason string
 	}{
-		{name: "restart resumes", stored: stored, hasState: true, msgs: history, fp: "fp", wantOK: true},
+		{name: "restart resumes", stored: stored, hasState: true, msgs: history, fp: "fp", wantOK: true, wantFork: true},
 		{name: "owner mismatch forks", stored: with(func(st *claudeSubBackendState) { st.TransportSession = "previous" }), hasState: true, msgs: history, fp: "fp", wantOK: true, wantFork: true},
 		{name: "no stored state reseeds", msgs: history, fp: "fp", wantReason: claudeSubReseedNoState},
 		// A stored state with no request history needs no reseed, so it reports
