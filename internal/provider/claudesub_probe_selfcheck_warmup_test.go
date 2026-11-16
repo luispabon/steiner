@@ -115,22 +115,30 @@ func TestClaudeSubProbePumpCLIExit(t *testing.T) {
 	}
 }
 
-// TestClaudeSubProbeExperimentBounds checks that every experiment's bound exceeds
-// its worst-case step sum and that the bounds fit inside the probe ceiling.
+// TestClaudeSubProbeExperimentBounds checks every bound against the same step
+// plan the experiment body consumes, and that the declared plans include the
+// waits the bodies take.
 func TestClaudeSubProbeExperimentBounds(t *testing.T) {
 	total := time.Duration(0)
+	byName := map[string]claudeSubProbeExperiment{}
 	for _, experiment := range claudeSubProbeExperiments(claudeSubProbeConfig{Model: claudeSubProbeDefaultModel}) {
-		budget := claudeSubProbeExperimentBudget(experiment)
-		if len(experiment.steps) == 0 {
-			t.Fatalf("%s has no step budgets", experiment.name)
+		byName[experiment.name] = experiment
+		if experiment.steps == nil {
+			t.Fatalf("%s has no step plan", experiment.name)
 		}
-		if experiment.timeout < budget {
-			t.Fatalf("%s bound %s is below its worst-case step sum %s", experiment.name, experiment.timeout, budget)
+		plan := experiment.steps.plan()
+		if experiment.timeout < plan {
+			t.Fatalf("%s bound %s is below its step plan %s", experiment.name, experiment.timeout, plan)
 		}
 		total += experiment.timeout
 	}
 	if total >= claudeSubProbeRunTimeout {
 		t.Fatalf("summed experiment bounds %s reach the probe ceiling %s", total, claudeSubProbeRunTimeout)
+	}
+	wantE6 := claudeSubProbeInitWorstCase + 2*claudeSubProbeReadyTimeout + claudeSubProbeInterruptAck +
+		2*claudeSubProbeResultTimeout + claudeSubProbeQueuedTail
+	if got := byName["E6-queued-after-interrupt"].steps.plan(); got != wantE6 {
+		t.Fatalf("E6 step plan = %s, want %s including the outbound-interrupt wait", got, wantE6)
 	}
 }
 
@@ -142,9 +150,9 @@ func TestClaudeSubProbeInitWarmup(t *testing.T) {
 		process, conn := claudeSubProbeTestProcess(t)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		err := claudeSubProbeGateInit(ctx, process, 50*time.Millisecond, 50*time.Millisecond, 50*time.Millisecond)
-		if err == nil || !strings.Contains(err.Error(), "init event after the warmup turn") {
-			t.Fatalf("gate error = %v, want the post-warmup init failure", err)
+		err := claudeSubProbeGateInit(ctx, process, "", 50*time.Millisecond, 50*time.Millisecond, 50*time.Millisecond)
+		if err == nil || !strings.Contains(err.Error(), "init event after the gating turn") {
+			t.Fatalf("gate error = %v, want the post-gating init failure", err)
 		}
 		if process.rep.InitPath != claudeSubProbeInitPathWarmup {
 			t.Fatalf("init path = %q, want %q", process.rep.InitPath, claudeSubProbeInitPathWarmup)
@@ -164,15 +172,12 @@ func TestClaudeSubProbeInitWarmup(t *testing.T) {
 		defer cancel()
 		refused := make(chan error, 1)
 		go func() {
-			deadline := time.Now().Add(2 * time.Second)
-			for len(claudeSubProbeSentLines(conn)) == 0 && time.Now().Before(deadline) {
-				time.Sleep(claudeSubProbeHandlerPoll)
-			}
+			claudeSubProbeWaitForSentLine(t, conn, "PROBE-WARMUP", 2*time.Second)
 			refused <- process.sendPrompt("PROBE-T2 during the warmup")
 			claudeSubProbePushEvent(t, conn, claudeSubProbeSelfCheckInit)
 			claudeSubProbePushEvent(t, conn, `{"type":"result","subtype":"success","stop_reason":"end_turn","result":"ok"}`)
 		}()
-		if err := claudeSubProbeGateInit(ctx, process, 50*time.Millisecond, 3*time.Second, 3*time.Second); err != nil {
+		if err := claudeSubProbeGateInit(ctx, process, "", 50*time.Millisecond, 3*time.Second, 3*time.Second); err != nil {
 			t.Fatalf("gate error = %v, want a validated warmup path", err)
 		}
 		if err := <-refused; err == nil {
@@ -187,7 +192,76 @@ func TestClaudeSubProbeInitWarmup(t *testing.T) {
 	})
 }
 
-// claudeSubProbeFakeCallHost records what the warmup rejecter resolves.
+// TestClaudeSubProbePersistedGateUsesFirstPrompt checks that a persisted spec
+// gates on its own first prompt instead of writing a separate warmup turn.
+func TestClaudeSubProbePersistedGateUsesFirstPrompt(t *testing.T) {
+	process, conn := claudeSubProbeTestProcess(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	const firstPrompt = "PROBE-T1E5 Reply with exactly: alpha. Do not use tools."
+	go func() {
+		claudeSubProbeWaitForSentLine(t, conn, "PROBE-T1E5", 2*time.Second)
+		claudeSubProbePushEvent(t, conn, claudeSubProbeSelfCheckInit)
+		claudeSubProbePushEvent(t, conn, `{"type":"result","subtype":"success","stop_reason":"end_turn","result":"alpha"}`)
+	}()
+	if err := claudeSubProbeGateInit(ctx, process, firstPrompt, 50*time.Millisecond, 3*time.Second, 3*time.Second); err != nil {
+		t.Fatalf("gate error = %v, want a validated first-prompt path", err)
+	}
+	if process.rep.InitPath != claudeSubProbeInitPathFirstPrompt {
+		t.Fatalf("init path = %q, want %q", process.rep.InitPath, claudeSubProbeInitPathFirstPrompt)
+	}
+	if !process.gateConsumed {
+		t.Fatal("the gate did not record that it consumed the experiment's first prompt")
+	}
+	sent := claudeSubProbeSentLines(conn)
+	if len(sent) != 1 || !strings.Contains(string(sent[0]), "PROBE-T1E5") {
+		t.Fatalf("sent lines = %q, want exactly the experiment's first prompt", sent)
+	}
+	if strings.Contains(string(sent[0]), "PROBE-WARMUP") {
+		t.Fatal("a persisted process was sent the separate warmup prompt")
+	}
+	if err := process.sendPrompt("PROBE-T2 after the gate"); err != nil {
+		t.Fatalf("sendPrompt() after the gate error = %v", err)
+	}
+}
+
+// TestClaudeSubProbeGateKeepsRejectingUntilResult checks that the MCP rejecter is
+// still active after init validates, up to the gating turn's result.
+func TestClaudeSubProbeGateKeepsRejectingUntilResult(t *testing.T) {
+	process, conn := claudeSubProbeTestProcess(t)
+	host := newClaudeSubProbeFakeCallHost()
+	process.callHost = host
+	process.callSnapshot = func() []claudeSubProbeCallState {
+		if process.rec.initGate() != nil {
+			return nil
+		}
+		return []claudeSubProbeCallState{{ID: "toolu-gate", Present: true, Owner: true, Waiting: true}}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		claudeSubProbeWaitForSentLine(t, conn, "PROBE-WARMUP", 2*time.Second)
+		claudeSubProbePushEvent(t, conn, claudeSubProbeSelfCheckInit)
+		// Give the rejecter a window in which init is already valid but the gating
+		// result has not arrived.
+		time.Sleep(200 * time.Millisecond)
+		claudeSubProbePushEvent(t, conn, `{"type":"result","subtype":"success","stop_reason":"end_turn","result":"ok"}`)
+	}()
+	if err := claudeSubProbeGateInit(ctx, process, "", 50*time.Millisecond, 3*time.Second, 3*time.Second); err != nil {
+		t.Fatalf("gate error = %v", err)
+	}
+	host.mu.Lock()
+	result, ok := host.resolved["toolu-gate"]
+	host.mu.Unlock()
+	if !ok {
+		t.Fatal("the rejecter stopped before the gating turn's result; the call was never rejected")
+	}
+	if !result.IsError {
+		t.Fatalf("gating call resolved with %+v, want an error result", result)
+	}
+}
+
+// claudeSubProbeFakeCallHost records what the gating rejecter resolves.
 type claudeSubProbeFakeCallHost struct {
 	mu       sync.Mutex
 	calls    map[string]*claudeSubCall
@@ -221,7 +295,7 @@ func (f *claudeSubProbeFakeCallHost) resolve(call *claudeSubCall, result claudeS
 	f.resolved[call.id] = result
 }
 
-// TestClaudeSubProbeWarmupRejectsCalls checks that a tool call during the warmup
+// TestClaudeSubProbeWarmupRejectsCalls checks that a tool call during a gating
 // turn is resolved with an error result.
 func TestClaudeSubProbeWarmupRejectsCalls(t *testing.T) {
 	host := newClaudeSubProbeFakeCallHost()
@@ -243,12 +317,12 @@ func TestClaudeSubProbeWarmupRejectsCalls(t *testing.T) {
 		host.mu.Unlock()
 		if ok {
 			if !result.IsError {
-				t.Fatalf("warmup call resolved with %+v, want an error result", result)
+				t.Fatalf("gating call resolved with %+v, want an error result", result)
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the warmup rejecter resolved nothing")
+			t.Fatal("the gating rejecter resolved nothing")
 		}
 		time.Sleep(claudeSubProbeHandlerPoll)
 	}
@@ -259,20 +333,60 @@ func TestClaudeSubProbeWarmupRejectsCalls(t *testing.T) {
 	}
 }
 
+// TestClaudeSubProbeResumeUUIDByPrompt checks that the resume target comes from
+// the turn whose prompt carries the marker, not from a turn index.
+func TestClaudeSubProbeResumeUUIDByPrompt(t *testing.T) {
+	process, conn := claudeSubProbeTestProcess(t)
+	rec := process.rec
+	rec.beginTurn("PROBE-T1E5 Reply with exactly: alpha. Do not use tools.")
+	rec.beginTurn("PROBE-T2E5 Reply with exactly: beta. Do not use tools.")
+	claudeSubProbePushEvent(t, conn, `{"type":"assistant","uuid":"uuid-t1","message":{"role":"assistant","content":[{"type":"text","text":"alpha"}]}}`)
+	claudeSubProbePushEvent(t, conn, `{"type":"result","subtype":"success","stop_reason":"end_turn","result":"alpha"}`)
+	claudeSubProbePushEvent(t, conn, `{"type":"assistant","uuid":"uuid-t2","message":{"role":"assistant","content":[{"type":"text","text":"beta"}]}}`)
+	claudeSubProbePushEvent(t, conn, `{"type":"result","subtype":"success","stop_reason":"end_turn","result":"beta"}`)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rec.mu.Lock()
+		ready := len(process.rep.Turns) == 2 && process.rep.Turns[0].Result != nil && process.rep.Turns[1].Result != nil
+		rec.mu.Unlock()
+		if ready {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("turns did not complete: %+v", process.rep.Turns)
+		}
+		time.Sleep(claudeSubProbeHandlerPoll)
+	}
+	if got := process.lastAssistantUUIDForPrompt("PROBE-T2E5"); got != "uuid-t2" {
+		t.Fatalf("resume uuid = %q, want uuid-t2", got)
+	}
+	if got := process.lastAssistantUUIDForPrompt("PROBE-T1E5"); got != "uuid-t1" {
+		t.Fatalf("resume uuid = %q, want uuid-t1", got)
+	}
+	if got := process.lastAssistantUUIDForPrompt("PROBE-T9E5"); got != "" {
+		t.Fatalf("resume uuid = %q, want an empty result for an absent marker", got)
+	}
+}
+
 // TestClaudeSubProbeValidateArgv checks the load-deciding argv assertion.
 func TestClaudeSubProbeValidateArgv(t *testing.T) {
 	good := claudeSubArgs(claudeSubProbeSpawnOptions(claudeSubProbeDefaultModel, false, claudeSubResume{}))
 	if err := claudeSubProbeValidateArgv(good); err != nil {
 		t.Fatalf("claudeSubArgs() argv rejected: %v", err)
 	}
+	base := []string{"--strict-mcp-config", "--setting-sources=", "--tools", "", "--allowedTools", "mcp__steiner__*"}
 	cases := []struct {
 		name string
 		args []string
 		want string
 	}{
-		{name: "missing strict mcp config", args: []string{"--tools", "", "--allowedTools", "mcp__steiner__*", "--setting-sources="}, want: "--strict-mcp-config"},
+		{name: "missing strict mcp config", args: []string{"--setting-sources=", "--tools", "", "--allowedTools", "mcp__steiner__*"}, want: "--strict-mcp-config"},
 		{name: "missing setting sources", args: []string{"--strict-mcp-config", "--tools", "", "--allowedTools", "mcp__steiner__*"}, want: "--setting-sources"},
+		{name: "setting sources not empty", args: []string{"--strict-mcp-config", "--setting-sources=project", "--tools", "", "--allowedTools", "mcp__steiner__*"}, want: "--setting-sources value"},
 		{name: "tools not empty", args: []string{"--strict-mcp-config", "--setting-sources=", "--tools", "Bash", "--allowedTools", "mcp__steiner__*"}, want: "--tools value"},
+		{name: "duplicate tools", args: append(append([]string{}, base...), "--tools", ""), want: "2 --tools switches"},
+		{name: "duplicate allowed tools", args: append(append([]string{}, base...), "--allowedTools", "mcp__steiner__*"), want: "2 --allowedTools switches"},
 		{name: "allowed tools missing", args: []string{"--strict-mcp-config", "--setting-sources=", "--tools", ""}, want: "--allowedTools"},
 	}
 	for _, tc := range cases {
@@ -282,5 +396,23 @@ func TestClaudeSubProbeValidateArgv(t *testing.T) {
 				t.Fatalf("validate error = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// claudeSubProbeWaitForSentLine waits until the fake connection recorded an
+// outbound line containing want.
+func claudeSubProbeWaitForSentLine(t *testing.T, conn *claudeSubFakeConn, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		for _, line := range claudeSubProbeSentLines(conn) {
+			if strings.Contains(string(line), want) {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no outbound line containing %q within %s", want, timeout)
+		}
+		time.Sleep(claudeSubProbeHandlerPoll)
 	}
 }

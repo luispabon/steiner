@@ -59,8 +59,12 @@ func claudeSubProbeFindings(rep *claudeSubProbeProcessReport) []string {
 		out = append(out, fmt.Sprintf("MCP at %dms %s: %s", call.AtMS, call.Label, strings.Join(states, " ")))
 	}
 	if rep.Exit != nil {
-		out = append(out, fmt.Sprintf("exit at %dms: status=%d wait_error=%q exited_before_teardown=%v proc_err=%q conn_err=%q pool_close_err=%q unobserved_events=%d",
-			rep.Exit.AtMS, rep.Exit.Status, rep.Exit.WaitErr, rep.Exit.ExitedBeforeTeardown, rep.Exit.ProcErr, rep.Exit.ConnErr, rep.Exit.PoolCloseErr, rep.Exit.Unobserved))
+		status := "unknown"
+		if rep.Exit.StatusKnown {
+			status = fmt.Sprintf("%d", rep.Exit.Status)
+		}
+		out = append(out, fmt.Sprintf("exit at %dms: status=%s wait_error=%q exited_before_teardown=%v proc_err=%q conn_err=%q pool_close_err=%q unobserved_events=%d",
+			rep.Exit.AtMS, status, rep.Exit.WaitErr, rep.Exit.ExitedBeforeTeardown, rep.Exit.ProcErr, rep.Exit.ConnErr, rep.Exit.PoolCloseErr, rep.Exit.Unobserved))
 	}
 	return out
 }

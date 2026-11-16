@@ -23,32 +23,32 @@ const (
 )
 
 // claudeSubProbeE1 interrupts a streaming text turn and reuses the process.
-func claudeSubProbeE1(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
-	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e1", claudeSubProbeSubAgentSpec(cfg.Model))
+func claudeSubProbeE1(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error {
+	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e1", claudeSubProbeSubAgentSpec(cfg.Model), "")
 	if err != nil {
 		return err
 	}
 	defer claudeSubProbeFinish(process)
 
-	if err := process.runTurn(ctx, claudeSubProbePromptBaseline); err != nil {
+	if err := process.runTurn(ctx, claudeSubProbePromptBaseline, steps.next()); err != nil {
 		return err
 	}
 	turn, err := process.beginTurn(claudeSubProbePromptLongList)
 	if err != nil {
 		return err
 	}
-	if _, err := process.pumpUntil(ctx, claudeSubProbeReadyTimeout, "first text delta", claudeSubProbeIsTextDelta); err != nil {
+	if _, err := process.pumpUntil(ctx, steps.next(), "first text delta", claudeSubProbeIsTextDelta); err != nil {
 		return err
 	}
 	turn.Interrupted = true
 	if err := process.interrupt(ctx); err != nil {
 		return err
 	}
-	if err := process.awaitInterruptedResult(ctx); err != nil {
+	if err := process.awaitInterruptedResult(ctx, steps.next()); err != nil {
 		return err
 	}
-	process.tail(ctx, claudeSubProbeTailWindow)
-	return process.runTurn(ctx, claudeSubProbePromptRecall)
+	process.tail(ctx, steps.next())
+	return process.runTurn(ctx, claudeSubProbePromptRecall, steps.next())
 }
 
 // claudeSubProbeE2 interrupts while the MCP tool call is parked in the host
@@ -56,8 +56,8 @@ func claudeSubProbeE1(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 // turn whether that result was seen. The late release only reports what the host
 // did with the call; whether the model received it comes from the next turn's
 // inbound text.
-func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
-	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e2", claudeSubProbeSubAgentSpec(cfg.Model))
+func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error {
+	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e2", claudeSubProbeSubAgentSpec(cfg.Model), "")
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if err != nil {
 		return err
 	}
-	entry, err := process.pumpUntil(ctx, claudeSubProbeReadyTimeout, "tool_use", claudeSubProbeIsToolUse)
+	entry, err := process.pumpUntil(ctx, steps.next(), "tool_use", claudeSubProbeIsToolUse)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 		return errors.New("probe MCP registration failed for the observed tool_use")
 	}
 	process.sampleMCP("tool_use observed")
-	if err := claudeSubProbeAwaitMCPHandler(ctx, process, entry.ToolUseID, claudeSubProbeReadyTimeout); err != nil {
+	if err := claudeSubProbeAwaitMCPHandler(ctx, process, entry.ToolUseID, steps.next()); err != nil {
 		return err
 	}
 	process.sampleMCP("tools/call handler parked")
@@ -86,31 +86,31 @@ func claudeSubProbeE2(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 		return err
 	}
 	process.sampleMCP("after interrupt")
-	if err := process.awaitInterruptedResult(ctx); err != nil {
+	if err := process.awaitInterruptedResult(ctx, steps.next()); err != nil {
 		return err
 	}
 	process.sampleMCP("after interrupted result")
-	process.tail(ctx, claudeSubProbeTailWindow)
+	process.tail(ctx, steps.next())
 
 	// Release the handler late with a marked result. The host's own state is the
 	// evidence here; delivery is checked below from inbound text only.
 	process.sess.host.resolve(call, claudeSubToolResult{Text: claudeSubProbeLateResultMarker + " the probe released this tool call late"})
 	process.sampleMCP("after late release")
-	process.tail(ctx, claudeSubProbeTailWindow)
+	process.tail(ctx, steps.next())
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E2 MCP call state after the late release: %+v", process.hostCallState(entry.ToolUseID)))
 
 	mark := process.timelineLen()
-	if err := process.runTurn(ctx, claudeSubProbePromptLateResult); err != nil {
+	if err := process.runTurn(ctx, claudeSubProbePromptLateResult, steps.next()); err != nil {
 		return err
 	}
-	process.tail(ctx, claudeSubProbeTailWindow)
+	process.tail(ctx, steps.next())
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E2 inbound text naming %s in the next turn: %v", claudeSubProbeLateResultMarker, process.inboundTextAfter(mark, claudeSubProbeLateResultMarker)))
 	return nil
 }
 
 // claudeSubProbeE3 interrupts at the streamed tool_use block start (window A).
-func claudeSubProbeE3(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
-	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e3", claudeSubProbeSubAgentSpec(cfg.Model))
+func claudeSubProbeE3(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error {
+	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e3", claudeSubProbeSubAgentSpec(cfg.Model), "")
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func claudeSubProbeE3(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if err != nil {
 		return err
 	}
-	entry, err := process.pumpUntil(ctx, claudeSubProbeReadyTimeout, "stream_event content_block_start tool_use", claudeSubProbeIsToolUseStart)
+	entry, err := process.pumpUntil(ctx, steps.next(), "stream_event content_block_start tool_use", claudeSubProbeIsToolUseStart)
 	if err != nil {
 		return err
 	}
@@ -135,39 +135,39 @@ func claudeSubProbeE3(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 		return err
 	}
 	process.sampleMCP("after interrupt")
-	if err := process.awaitInterruptedResult(ctx); err != nil {
+	if err := process.awaitInterruptedResult(ctx, steps.next()); err != nil {
 		return err
 	}
 	process.sampleMCP("after interrupted result")
-	process.tail(ctx, claudeSubProbeTailWindow)
+	process.tail(ctx, steps.next())
 	process.sess.host.resolve(call, claudeSubToolResult{Text: claudeSubProbeLateResultMarker + " the probe released this tool call late"})
 	process.sampleMCP("after late release")
-	process.tail(ctx, claudeSubProbeTailWindow)
+	process.tail(ctx, steps.next())
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E3 MCP call state after the late release: %+v", process.hostCallState(entry.ToolUseID)))
-	return process.runTurn(ctx, claudeSubProbePromptNextTurn)
+	return process.runTurn(ctx, claudeSubProbePromptNextTurn, steps.next())
 }
 
 // claudeSubProbeE4 interrupts immediately after a result and records whether a
 // stray result arrives. A stray result is the measurement, not a failure.
-func claudeSubProbeE4(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
-	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e4", claudeSubProbeSubAgentSpec(cfg.Model))
+func claudeSubProbeE4(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error {
+	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e4", claudeSubProbeSubAgentSpec(cfg.Model), "")
 	if err != nil {
 		return err
 	}
 	defer claudeSubProbeFinish(process)
 
-	if err := process.runTurn(ctx, "PROBE-T1E4 Reply with exactly: race-a. Do not use tools."); err != nil {
+	if err := process.runTurn(ctx, "PROBE-T1E4 Reply with exactly: race-a. Do not use tools.", steps.next()); err != nil {
 		return err
 	}
 	mark := process.timelineLen()
 	if err := process.interrupt(ctx); err != nil {
 		return err
 	}
-	process.tail(ctx, claudeSubProbeTailWindow)
-	if err := process.runTurn(ctx, "PROBE-T2E4 Reply with exactly: race-b. Do not use tools."); err != nil {
+	process.tail(ctx, steps.next())
+	if err := process.runTurn(ctx, "PROBE-T2E4 Reply with exactly: race-b. Do not use tools.", steps.next()); err != nil {
 		return err
 	}
-	process.tail(ctx, claudeSubProbeRaceTail)
+	process.tail(ctx, steps.next())
 	results := process.resultsAfter(mark)
 	exp.Findings = append(exp.Findings, fmt.Sprintf("E4 results from the interrupt onward: %d", len(results)))
 	stray := 0
@@ -183,8 +183,8 @@ func claudeSubProbeE4(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 // claudeSubProbeE6 queues a user message as soon as the interrupt request is
 // written, without waiting for its control response, and records whether the
 // queued message runs. The interrupt request is awaited on every return path.
-func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error {
-	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e6", claudeSubProbeSubAgentSpec(cfg.Model))
+func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error {
+	process, err := claudeSubProbeStart(ctx, cfg, exp, "sub-agent", "probe-e6", claudeSubProbeSubAgentSpec(cfg.Model), "")
 	if err != nil {
 		return err
 	}
@@ -194,7 +194,7 @@ func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if err != nil {
 		return err
 	}
-	if _, err := process.pumpUntil(ctx, claudeSubProbeReadyTimeout, "first text delta", claudeSubProbeIsTextDelta); err != nil {
+	if _, err := process.pumpUntil(ctx, steps.next(), "first text delta", claudeSubProbeIsTextDelta); err != nil {
 		return err
 	}
 	turn.Interrupted = true
@@ -211,7 +211,7 @@ func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 		// experiment.
 		_ = claudeSubProbeAwaitInterrupt(interruptDone, claudeSubProbeInterruptAck)
 	}()
-	if err := process.awaitOutboundInterrupt(ctx, since, claudeSubProbeReadyTimeout); err != nil {
+	if err := process.awaitOutboundInterrupt(ctx, since, steps.next()); err != nil {
 		return err
 	}
 	mark := process.timelineLen()
@@ -219,15 +219,15 @@ func claudeSubProbeE6(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if err != nil {
 		return err
 	}
-	if err := process.awaitInterruptedResult(ctx); err != nil {
+	if err := process.awaitInterruptedResult(ctx, steps.next()); err != nil {
 		return err
 	}
-	if err := process.awaitResult(ctx); err != nil {
+	if err := process.awaitResult(ctx, steps.next()); err != nil {
 		exp.Findings = append(exp.Findings, "E6 the queued message produced no second result: "+claudeSubProbeErrorString(err))
 	} else {
 		exp.Findings = append(exp.Findings, "E6 the queued message produced a second result")
 	}
-	process.tail(ctx, claudeSubProbeQueuedTail)
+	process.tail(ctx, steps.next())
 	if err := claudeSubProbeAwaitInterrupt(interruptDone, claudeSubProbeInterruptAck); err != nil {
 		return err
 	}

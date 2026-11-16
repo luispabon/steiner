@@ -106,9 +106,11 @@ func claudeSubProbeSpawnOptions(model string, persist bool, resume claudeSubResu
 	return opts
 }
 
-// claudeSubProbeExperiments is the probe's experiment table. Each steps list is
-// the worst case of that experiment's waits, and each timeout is at or above
-// their sum, so no step can be cut short by the experiment bound.
+// claudeSubProbeExperiments is the probe's experiment table. Each steps plan is
+// both the declaration the bound is checked against and the waits the body
+// spends in order, so the two cannot drift: waits are consumed by the body and
+// extra holds the budgets no body call takes (the interrupt control settle and
+// a child process's own init gate).
 func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperiment {
 	planned := map[string][]string{}
 	for _, invocation := range claudeSubProbePlannedInvocations(cfg.CLIPath, cfg.Model) {
@@ -116,16 +118,22 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 	}
 	subAgent := planned["E1-E4 and E6 sub-agent process"]
 	parent := planned["E5 parent persisted process"]
+	steps := func(waits, extra []time.Duration) *claudeSubProbeSteps {
+		return &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, waits: waits, extra: extra}
+	}
 	return []claudeSubProbeExperiment{
 		{
 			name:    "E1-text-interrupt-reuse",
 			summary: "interrupt a streaming text turn, then reuse the same process for a follow-up turn",
 			argv:    subAgent,
 			timeout: 180 * time.Second,
-			steps: []time.Duration{
-				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout, claudeSubProbeReadyTimeout,
-				claudeSubProbeInterruptAck, claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
-			},
+			steps: steps(
+				[]time.Duration{
+					claudeSubProbeResultTimeout, claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout,
+					claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
+				},
+				[]time.Duration{claudeSubProbeInterruptAck},
+			),
 			run: claudeSubProbeE1,
 		},
 		{
@@ -133,11 +141,14 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 			summary: "interrupt while a blocking MCP tool call runs, then reuse the process",
 			argv:    subAgent,
 			timeout: 190 * time.Second,
-			steps: []time.Duration{
-				claudeSubProbeInitWorstCase, claudeSubProbeReadyTimeout, claudeSubProbeReadyTimeout,
-				claudeSubProbeInterruptAck, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
-				claudeSubProbeTailWindow, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
-			},
+			steps: steps(
+				[]time.Duration{
+					claudeSubProbeReadyTimeout, claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout,
+					claudeSubProbeTailWindow, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
+					claudeSubProbeTailWindow,
+				},
+				[]time.Duration{claudeSubProbeInterruptAck},
+			),
 			run: claudeSubProbeE2,
 		},
 		{
@@ -145,11 +156,13 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 			summary: "interrupt at the streamed tool_use block start, then reuse the process",
 			argv:    subAgent,
 			timeout: 170 * time.Second,
-			steps: []time.Duration{
-				claudeSubProbeInitWorstCase, claudeSubProbeReadyTimeout, claudeSubProbeInterruptAck,
-				claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeTailWindow,
-				claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
-			},
+			steps: steps(
+				[]time.Duration{
+					claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
+					claudeSubProbeTailWindow, claudeSubProbeResultTimeout, claudeSubProbeTailWindow,
+				},
+				[]time.Duration{claudeSubProbeInterruptAck},
+			),
 			run: claudeSubProbeE3,
 		},
 		{
@@ -157,10 +170,13 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 			summary: "interrupt immediately after a result and record whether a stray result arrives before the next turn",
 			argv:    subAgent,
 			timeout: 150 * time.Second,
-			steps: []time.Duration{
-				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout, claudeSubProbeInterruptAck,
-				claudeSubProbeTailWindow, claudeSubProbeResultTimeout, claudeSubProbeRaceTail,
-			},
+			steps: steps(
+				[]time.Duration{
+					claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
+					claudeSubProbeRaceTail,
+				},
+				[]time.Duration{claudeSubProbeInterruptAck},
+			),
 			run: claudeSubProbeE4,
 		},
 		{
@@ -168,23 +184,28 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 			summary: "interrupt a persisted turn, then resume at an earlier assistant uuid and fork it",
 			argv:    parent,
 			timeout: 330 * time.Second,
-			steps: []time.Duration{
-				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout, claudeSubProbeResultTimeout,
-				claudeSubProbeReadyTimeout, claudeSubProbeInterruptAck, claudeSubProbeResultTimeout,
-				claudeSubProbeTailWindow, claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout,
-				claudeSubProbeInitWorstCase, claudeSubProbeResultTimeout,
-			},
+			steps: steps(
+				[]time.Duration{
+					claudeSubProbeResultTimeout, claudeSubProbeResultTimeout, claudeSubProbeReadyTimeout,
+					claudeSubProbeResultTimeout, claudeSubProbeTailWindow, claudeSubProbeResultTimeout,
+					claudeSubProbeResultTimeout,
+				},
+				[]time.Duration{claudeSubProbeInterruptAck, claudeSubProbeInitWorstCase, claudeSubProbeInitWorstCase},
+			),
 			run: claudeSubProbeE5,
 		},
 		{
 			name:    "E6-queued-after-interrupt",
 			summary: "queue a user message immediately after an interrupt and record whether it runs",
 			argv:    subAgent,
-			timeout: 170 * time.Second,
-			steps: []time.Duration{
-				claudeSubProbeInitWorstCase, claudeSubProbeReadyTimeout, claudeSubProbeInterruptAck,
-				claudeSubProbeResultTimeout, claudeSubProbeResultTimeout, claudeSubProbeQueuedTail,
-			},
+			timeout: 190 * time.Second,
+			steps: steps(
+				[]time.Duration{
+					claudeSubProbeReadyTimeout, claudeSubProbeReadyTimeout, claudeSubProbeResultTimeout,
+					claudeSubProbeResultTimeout, claudeSubProbeQueuedTail,
+				},
+				[]time.Duration{claudeSubProbeInterruptAck},
+			),
 			run: claudeSubProbeE6,
 		},
 	}
@@ -238,13 +259,14 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "experiments (bound, worst-case step sum, then summary):")
+	fmt.Fprintln(w, "experiments (bound, worst-case step plan, then summary):")
 	for _, experiment := range claudeSubProbeExperiments(cfg) {
-		fmt.Fprintf(w, "  %s (bound %s, steps %s): %s\n", experiment.name, experiment.timeout, claudeSubProbeExperimentBudget(experiment), experiment.summary)
+		fmt.Fprintf(w, "  %s (bound %s, steps %s): %s\n", experiment.name, experiment.timeout, experiment.steps.plan(), experiment.summary)
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "init handling: the CLI is given 10s to report system/init before input. Without it the probe sends one fixed warmup turn and rejects any MCP tool call with an error result; init must validate within 20s of the warmup or the experiment fails, and no other prompt is written until it does")
+	fmt.Fprintln(w, "init handling: the CLI is given 10s to report system/init before input. Without it the probe sends one gating turn and rejects any MCP tool call with an error result until that turn's result arrives; init must validate within 20s of it or the experiment fails, and no other prompt is written until then")
+	fmt.Fprintln(w, "gating turn: a fixed warmup prompt for the non-persisted specs, and the experiment's own first tool-free prompt for the persisted and resumed ones (T1 for the parent, T4 for the resume and fork processes), so no extra turn enters a persisted transcript")
 	fmt.Fprintln(w, "init validation: exactly mcp__steiner__probe_wait, the requested model, and no MCP server other than steiner")
 	fmt.Fprintln(w, "init reporting: the report records the init event's tools, model, capabilities, CLI version, and the names in its plugins, mcp_servers, slash_commands, agents, skills and hook fields, plus which init path happened")
 	fmt.Fprintln(w)

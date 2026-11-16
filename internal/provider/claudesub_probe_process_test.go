@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,16 +26,17 @@ const (
 	claudeSubProbeHandlerPoll     = 25 * time.Millisecond
 
 	// claudeSubProbeInitWorstCase is the worst case of the init gate: no init
-	// before the first input, a warmup turn that spends its whole result budget,
-	// then the post-warmup init budget.
+	// before the first input, a gating turn that spends its whole result budget,
+	// then the post-gating init budget.
 	claudeSubProbeInitWorstCase = claudeSubProbeInitBeforeInput + claudeSubProbeWarmupResult + claudeSubProbeInitAfterWarmup
 
 	claudeSubProbeWarmupPrompt        = "PROBE-WARMUP: reply with the single word ok and do not call any tool."
 	claudeSubProbeInitPathBeforeInput = "init before input"
-	claudeSubProbeInitPathWarmup      = "init after warmup"
+	claudeSubProbeInitPathWarmup      = "init after the separate warmup turn"
+	claudeSubProbeInitPathFirstPrompt = "init after the experiment's first prompt"
 )
 
-// claudeSubProbeCallHost is the MCP host subset the warmup rejection uses. The
+// claudeSubProbeCallHost is the MCP host subset the gating rejection uses. The
 // production host satisfies it; the self-check supplies a fake.
 type claudeSubProbeCallHost interface {
 	beginCall(id string) *claudeSubCall
@@ -71,6 +73,15 @@ type claudeSubProbeProcess struct {
 	rec  *claudeSubProbeRecorder
 	rep  *claudeSubProbeProcessReport
 
+	// callHost and callSnapshot expose the MCP host the gating revert uses; both
+	// are nil for a tool-less session and are replaceable by a self-check.
+	callHost     claudeSubProbeCallHost
+	callSnapshot func() []claudeSubProbeCallState
+
+	// gateConsumed records that the init gate used the experiment's own first
+	// prompt as its gating turn, so the body must not send it again.
+	gateConsumed bool
+
 	teardownOnce sync.Once
 	teardownErr  error
 }
@@ -82,12 +93,13 @@ type claudeSubProbeProcess struct {
 // environment shape, argv switches and every exchanged line. The returned
 // process has passed the init gate, so it is the only point from which an
 // ordinary prompt may be written.
-func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, rep *claudeSubProbeProcessReport, key string, spec claudeSubStartSpec) (*claudeSubProbeProcess, error) {
+func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, rep *claudeSubProbeProcessReport, key string, spec claudeSubStartSpec, gatingPrompt string) (*claudeSubProbeProcess, error) {
 	rec := newClaudeSubProbeRecorder(rep, cfg.Model)
 	pool := NewClaudeSubscriptionPool(ClaudeSubscriptionPoolOptions{
 		WorkDir:            cfg.WorkDir,
 		ToolOutputMaxBytes: claudeSubProbeToolOutputMaxBytes,
 	})
+	var spawned *claudeSubProbeTeeConn
 	pool.spawn = func(ctx context.Context, path string, args, env []string, dir string) (claudeSubConn, error) {
 		if err := claudeSubProbeValidateArgv(args); err != nil {
 			return nil, err
@@ -100,19 +112,28 @@ func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, r
 		rep.Flags = claudeSubProbeFlagSummary(claudeSubProbeArgvFlags(args))
 		rep.Dir = dir
 		rep.Env = claudeSubProbeEnvSummary(env)
-		return newClaudeSubProbeTeeConn(conn, rec), nil
+		spawned = newClaudeSubProbeTeeConn(conn, rec)
+		return spawned, nil
 	}
 	sess, err := pool.acquire(ctx, key, spec)
 	if err != nil {
-		rec.close()
 		// acquire tore down any partially started session itself, so the pool holds
-		// no session here; closing it only stops the reaper goroutine.
+		// no session here; closing it only stops the reaper goroutine. A spawned
+		// tee still owns a forwarding goroutine, which is shut down explicitly.
+		if spawned != nil {
+			spawned.shutdown()
+		}
+		rec.close()
 		_ = pool.Close()
 		return nil, err
 	}
-	tee, _ := sess.conn.(*claudeSubProbeTeeConn)
+	tee := spawned
 	process := &claudeSubProbeProcess{key: key, pool: pool, sess: sess, tee: tee, rec: rec, rep: rep}
-	if err := claudeSubProbeGateInit(ctx, process, claudeSubProbeInitBeforeInput, claudeSubProbeInitAfterWarmup, claudeSubProbeWarmupResult); err != nil {
+	if sess.host != nil {
+		process.callHost = sess.host
+		process.callSnapshot = func() []claudeSubProbeCallState { return claudeSubProbeHostCalls(sess.host) }
+	}
+	if err := claudeSubProbeGateInit(ctx, process, gatingPrompt, claudeSubProbeInitBeforeInput, claudeSubProbeInitAfterWarmup, claudeSubProbeWarmupResult); err != nil {
 		if closeErr := process.teardown(); closeErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("close probe process after a failed init gate: %w", closeErr))
 		}
@@ -122,12 +143,13 @@ func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, r
 }
 
 // claudeSubProbeGateInit settles the process's init event. When init arrives
-// before input it is validated directly. Otherwise the probe sends one fixed
-// warmup turn, because the CLI may only report init after the first user input,
-// and holds every other prompt until init validates. While the warmup turn runs,
-// any MCP tool call is resolved with an error result, so no tool work can happen
-// before the probe knows what the process loaded.
-func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, beforeInput, afterWarmup, warmupResult time.Duration) error {
+// before input it is validated directly. Otherwise the probe sends one gating
+// turn and holds every other prompt until init validates. The gating turn is the
+// probe's fixed warmup prompt for an ephemeral process, and the experiment's own
+// first tool-free prompt for a persisted or resumed one, so no extra turn enters
+// a stored transcript. While the gating turn runs, and until its result arrives,
+// every MCP tool call is resolved with an error result.
+func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, gatingPrompt string, beforeInput, afterGating, gatingResult time.Duration) error {
 	_, err := p.pumpUntil(ctx, beforeInput, "init event", claudeSubProbeIsInit)
 	if err == nil {
 		if err := p.rec.initGate(); err != nil {
@@ -143,29 +165,42 @@ func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, befor
 		return fmt.Errorf("probe init gate: %w", ctxErr)
 	}
 
-	p.rep.InitPath = claudeSubProbeInitPathWarmup
-	p.rec.beginTurn(claudeSubProbeWarmupPrompt)
-	if err := p.sendRawPrompt(claudeSubProbeWarmupPrompt); err != nil {
+	prompt := gatingPrompt
+	if prompt == "" {
+		prompt = claudeSubProbeWarmupPrompt
+		p.rep.InitPath = claudeSubProbeInitPathWarmup
+	} else {
+		p.rep.InitPath = claudeSubProbeInitPathFirstPrompt
+	}
+	p.rec.beginTurn(prompt)
+	if err := p.sendRawPrompt(prompt); err != nil {
 		return err
 	}
+	p.gateConsumed = gatingPrompt != ""
+
 	rejectCtx, stopReject := context.WithCancel(ctx)
 	rejectDone := make(chan struct{})
 	go func() {
 		defer close(rejectDone)
-		claudeSubProbeRejectMCPCalls(rejectCtx, p.hostSnapshot(), p.sess.host, func(id string) {
+		claudeSubProbeRejectMCPCalls(rejectCtx, p.callSnapshot, p.callHost, func(id string) {
 			p.rep.WarmupRejectedCalls = append(p.rep.WarmupRejectedCalls, id)
 		})
 	}()
+	// The rejecter stays active until the gating turn's result is in, not just
+	// until init validates, so a tool call the gating turn issues after init
+	// cannot do work either.
+	defer func() {
+		stopReject()
+		<-rejectDone
+	}()
 
 	var sawResult bool
-	_, err = p.pumpUntil(ctx, afterWarmup, "init event after the warmup turn", func(entry claudeSubProbeEntry) bool {
+	_, err = p.pumpUntil(ctx, afterGating, "init event after the gating turn", func(entry claudeSubProbeEntry) bool {
 		if claudeSubProbeIsResult(entry) {
 			sawResult = true
 		}
 		return claudeSubProbeIsInit(entry)
 	})
-	stopReject()
-	<-rejectDone
 	if err != nil {
 		if fatal := p.rec.fatalErr(); fatal != nil {
 			return fmt.Errorf("probe init gate: %w", fatal)
@@ -176,7 +211,7 @@ func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, befor
 		return fmt.Errorf("probe init gate: %w", err)
 	}
 	if !sawResult {
-		if _, err := p.pumpUntil(ctx, warmupResult, "warmup result", claudeSubProbeIsResult); err != nil {
+		if _, err := p.pumpUntil(ctx, gatingResult, "gating turn result", claudeSubProbeIsResult); err != nil {
 			return fmt.Errorf("probe init gate: %w", err)
 		}
 	}
@@ -184,7 +219,7 @@ func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, befor
 }
 
 // claudeSubProbeRejectMCPCalls resolves every live MCP call with an error result
-// until ctx ends. It keeps a warmup turn from doing tool work before init is
+// until ctx ends. It keeps a gating turn from doing tool work before init is
 // validated, and reports each rejected call id.
 func claudeSubProbeRejectMCPCalls(ctx context.Context, snapshot func() []claudeSubProbeCallState, host claudeSubProbeCallHost, record func(string)) {
 	if host == nil || snapshot == nil {
@@ -205,7 +240,7 @@ func claudeSubProbeRejectMCPCalls(ctx context.Context, snapshot func() []claudeS
 			if call == nil {
 				continue
 			}
-			host.resolve(call, claudeSubToolResult{Text: "probe warmup turn rejected this tool call: init is not validated", IsError: true})
+			host.resolve(call, claudeSubToolResult{Text: "probe gating turn rejected this tool call: init is not validated", IsError: true})
 			rejected[state.ID] = struct{}{}
 			record(state.ID)
 		}
@@ -215,14 +250,6 @@ func claudeSubProbeRejectMCPCalls(ctx context.Context, snapshot func() []claudeS
 		case <-ticker.C:
 		}
 	}
-}
-
-// hostSnapshot returns a function reporting the host's live call states.
-func (p *claudeSubProbeProcess) hostSnapshot() func() []claudeSubProbeCallState {
-	if p.sess == nil || p.sess.host == nil {
-		return nil
-	}
-	return func() []claudeSubProbeCallState { return claudeSubProbeHostCalls(p.sess.host) }
 }
 
 // teardown closes the process through the production retire path, records the
@@ -238,7 +265,7 @@ func (p *claudeSubProbeProcess) teardown() error {
 		exit.ProcErr = claudeSubProbeErrorString(p.sess.procErr)
 		exit.ConnErr = claudeSubProbeErrorString(p.sess.conn.Err())
 		if p.tee != nil {
-			exit.Status, exit.WaitErr = claudeSubProbeExitStatus(p.tee.claudeSubConn)
+			exit.Status, exit.WaitErr, exit.StatusKnown = claudeSubProbeExitStatus(p.tee.claudeSubConn)
 			p.tee.shutdown()
 		}
 		exit.PoolCloseErr = claudeSubProbeErrorString(p.pool.Close())
@@ -253,19 +280,27 @@ func (p *claudeSubProbeProcess) teardown() error {
 }
 
 // claudeSubProbeExitStatus reports the reaped child's exit status and wait error.
-// It is meaningful only after teardown reaped the child.
-func claudeSubProbeExitStatus(conn claudeSubConn) (int, string) {
+// The production lifecycle coordinator reaps the child before it publishes its
+// terminal state, and session teardown waits for that state, so the status is
+// known only once that terminal channel is closed. A bounded teardown that gave
+// up leaves it unknown rather than reporting a false 0.
+func claudeSubProbeExitStatus(conn claudeSubConn) (int, string, bool) {
 	proc, ok := conn.(*claudeSubProcess)
 	if !ok {
-		return 0, ""
+		return 0, "", false
+	}
+	select {
+	case <-proc.terminal:
+	default:
+		return 0, "", false
 	}
 	proc.errMu.Lock()
 	waitErr := proc.waitErr
 	proc.errMu.Unlock()
 	if waitErr == nil {
-		return 0, ""
+		return 0, "", true
 	}
-	return claudeSubExitCode(waitErr), claudeSubProbeErrorString(waitErr)
+	return claudeSubExitCode(waitErr), claudeSubProbeErrorString(waitErr), true
 }
 
 // sendPrompt writes one synthetic user turn through the production writer. It
@@ -278,7 +313,7 @@ func (p *claudeSubProbeProcess) sendPrompt(prompt string) error {
 }
 
 // sendRawPrompt writes one synthetic user turn without consulting the init gate.
-// Only the warmup turn, which exists to make the CLI report init, uses it.
+// Only the gating turn, which exists to make the CLI report init, uses it.
 func (p *claudeSubProbeProcess) sendRawPrompt(prompt string) error {
 	blocks := claudeSubUserBlocks([]Message{{Role: MessageRoleUser, Content: prompt}})
 	if err := writeClaudeSubUser(p.sess.conn, blocks); err != nil {
@@ -295,22 +330,22 @@ func (p *claudeSubProbeProcess) beginTurn(prompt string) (*claudeSubProbeTurn, e
 	return turn, nil
 }
 
-func (p *claudeSubProbeProcess) runTurn(ctx context.Context, prompt string) error {
+func (p *claudeSubProbeProcess) runTurn(ctx context.Context, prompt string, timeout time.Duration) error {
 	if _, err := p.beginTurn(prompt); err != nil {
 		return err
 	}
-	return p.awaitResult(ctx)
+	return p.awaitResult(ctx, timeout)
 }
 
 // awaitResult waits for a terminal result.
-func (p *claudeSubProbeProcess) awaitResult(ctx context.Context) error {
-	_, err := p.pumpUntil(ctx, claudeSubProbeResultTimeout, "result", claudeSubProbeIsResult)
+func (p *claudeSubProbeProcess) awaitResult(ctx context.Context, timeout time.Duration) error {
+	_, err := p.pumpUntil(ctx, timeout, "result", claudeSubProbeIsResult)
 	return err
 }
 
 // awaitInterruptedResult waits for the result of a turn the probe interrupted.
-func (p *claudeSubProbeProcess) awaitInterruptedResult(ctx context.Context) error {
-	_, err := p.pumpUntil(ctx, claudeSubProbeResultTimeout, "result after interrupt", claudeSubProbeIsResult)
+func (p *claudeSubProbeProcess) awaitInterruptedResult(ctx context.Context, timeout time.Duration) error {
+	_, err := p.pumpUntil(ctx, timeout, "result after interrupt", claudeSubProbeIsResult)
 	return err
 }
 
@@ -353,7 +388,8 @@ func (p *claudeSubProbeProcess) awaitOutboundInterrupt(ctx context.Context, sinc
 
 // pumpUntil waits up to timeout for an event the stop predicate matches. A
 // timeout is reported as the step's own reason while the experiment still has
-// time left, and as the experiment deadline once the parent context expired.
+// time left, and as the experiment deadline once the parent context expired. A
+// CLI exit or a closed event stream ends the wait at once.
 func (p *claudeSubProbeProcess) pumpUntil(ctx context.Context, timeout time.Duration, what string, stop func(claudeSubProbeEntry) bool) (claudeSubProbeEntry, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -510,6 +546,20 @@ func (p *claudeSubProbeProcess) turn(index int) *claudeSubProbeTurn {
 	return p.rep.Turns[index]
 }
 
+// lastAssistantUUIDForPrompt returns the last assistant echo uuid of the turn
+// whose prompt contains marker, which is how E5 picks a resume target without
+// depending on turn indexes.
+func (p *claudeSubProbeProcess) lastAssistantUUIDForPrompt(marker string) string {
+	p.rec.mu.Lock()
+	defer p.rec.mu.Unlock()
+	for _, turn := range p.rep.Turns {
+		if strings.Contains(turn.Prompt, marker) {
+			return turn.LastAssistantUUID
+		}
+	}
+	return ""
+}
+
 func (p *claudeSubProbeProcess) sessionID() string {
 	p.rec.mu.Lock()
 	defer p.rec.mu.Unlock()
@@ -550,15 +600,21 @@ func claudeSubProbeValidateArgv(args []string) error {
 	if !claudeSubProbeHasFlag(args, "--strict-mcp-config") {
 		return errors.New("probe argv is missing --strict-mcp-config")
 	}
-	if !claudeSubProbeHasFlag(args, "--setting-sources") {
+	sources, ok := claudeSubProbeArgValue(args, "--setting-sources")
+	if !ok {
 		return errors.New("probe argv is missing --setting-sources")
 	}
-	value, ok := claudeSubProbeArgValue(args, "--tools")
-	if !ok {
-		return errors.New("probe argv is missing --tools")
+	if sources != "" {
+		return fmt.Errorf("probe argv --setting-sources value is %q, want an empty value", sources)
 	}
-	if value != "" {
+	if count := claudeSubProbeArgCount(args, "--tools"); count != 1 {
+		return fmt.Errorf("probe argv carries %d --tools switches, want exactly 1", count)
+	}
+	if value, ok := claudeSubProbeArgValue(args, "--tools"); !ok || value != "" {
 		return fmt.Errorf("probe argv --tools value is %q, want an empty value", value)
+	}
+	if count := claudeSubProbeArgCount(args, "--allowedTools"); count != 1 {
+		return fmt.Errorf("probe argv carries %d --allowedTools switches, want exactly 1", count)
 	}
 	allowed, ok := claudeSubProbeArgValue(args, "--allowedTools")
 	if !ok {
@@ -572,12 +628,18 @@ func claudeSubProbeValidateArgv(args []string) error {
 
 // claudeSubProbeHasFlag reports whether args carries flag, bare or with a value.
 func claudeSubProbeHasFlag(args []string, flag string) bool {
+	return claudeSubProbeArgCount(args, flag) > 0
+}
+
+// claudeSubProbeArgCount counts the occurrences of flag, bare or with "=value".
+func claudeSubProbeArgCount(args []string, flag string) int {
+	count := 0
 	for _, arg := range args {
-		if arg == flag || len(arg) > len(flag) && arg[:len(flag)+1] == flag+"=" {
-			return true
+		if arg == flag || strings.HasPrefix(arg, flag+"=") {
+			count++
 		}
 	}
-	return false
+	return count
 }
 
 // claudeSubProbeArgValue returns the value of flag, either the next argv entry or
@@ -587,8 +649,8 @@ func claudeSubProbeArgValue(args []string, flag string) (string, bool) {
 		if arg == flag && i+1 < len(args) {
 			return args[i+1], true
 		}
-		if len(arg) > len(flag) && arg[:len(flag)+1] == flag+"=" {
-			return arg[len(flag)+1:], true
+		if strings.HasPrefix(arg, flag+"=") {
+			return strings.TrimPrefix(arg, flag+"="), true
 		}
 	}
 	return "", false

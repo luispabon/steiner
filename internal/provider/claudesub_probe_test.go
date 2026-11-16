@@ -55,6 +55,49 @@ const (
 // claudeSubProbeSystemPrompt is the only system prompt a probe process gets.
 const claudeSubProbeSystemPrompt = "You are a probe target. Follow the user's instruction exactly and keep answers short unless you are asked for a long list."
 
+// claudeSubProbeSteps is one experiment's declared step budget. The experiment
+// body spends it in order through next, and the experiment table sums the same
+// declaration against the bound, so a bound cannot drift from the waits it
+// covers.
+type claudeSubProbeSteps struct {
+	gate  time.Duration
+	waits []time.Duration
+	extra []time.Duration
+	short bool
+}
+
+// next spends the experiment's next declared wait. A body that asks for more
+// waits than the plan declares marks the plan short, which fails the experiment.
+func (s *claudeSubProbeSteps) next() time.Duration {
+	if len(s.waits) == 0 {
+		s.short = true
+		return 0
+	}
+	wait := s.waits[0]
+	s.waits = s.waits[1:]
+	return wait
+}
+
+// copy returns an independent consumer of the same plan, so a run leaves the
+// declaration intact for the bound check.
+func (s *claudeSubProbeSteps) copy() *claudeSubProbeSteps {
+	return &claudeSubProbeSteps{gate: s.gate, waits: s.waits, extra: s.extra}
+}
+
+// plan reports the worst case the plan declares: the init gate, every declared
+// extra budget such as the interrupt control settle or a child process's gate,
+// and every wait the body consumes.
+func (s *claudeSubProbeSteps) plan() time.Duration {
+	total := s.gate
+	for _, wait := range s.waits {
+		total += wait
+	}
+	for _, extra := range s.extra {
+		total += extra
+	}
+	return total
+}
+
 // claudeSubProbeConfig is the settled configuration of one probe invocation.
 type claudeSubProbeConfig struct {
 	Model       string
@@ -87,10 +130,14 @@ type claudeSubProbeResume struct {
 	Fork      bool   `json:"fork,omitempty"`
 }
 
-// claudeSubProbeExit is the exit evidence for one process.
+// claudeSubProbeExit is the exit evidence for one process. Status is meaningful
+// only when StatusKnown is set: the child is reaped by the production teardown,
+// and a teardown that ran out of deadline leaves the status unknown rather than
+// reporting a false 0.
 type claudeSubProbeExit struct {
 	AtMS                 int64  `json:"at_ms"`
 	Status               int    `json:"status"`
+	StatusKnown          bool   `json:"status_known"`
 	WaitErr              string `json:"wait_error,omitempty"`
 	ProcErr              string `json:"proc_err,omitempty"`
 	ConnErr              string `json:"conn_err,omitempty"`
@@ -167,25 +214,15 @@ type claudeSubProbeReport struct {
 }
 
 // claudeSubProbeExperiment is one experiment of the probe. timeout is the bound
-// every step of the experiment runs inside; steps lists the budgets the body can
-// spend, so their sum can be checked against the bound.
+// every step of the experiment runs inside, and steps is the same declaration
+// the body consumes.
 type claudeSubProbeExperiment struct {
 	name    string
 	summary string
 	argv    []string
 	timeout time.Duration
-	steps   []time.Duration
-	run     func(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport) error
-}
-
-// claudeSubProbeExperimentBudget returns the worst case of one experiment's step
-// budgets.
-func claudeSubProbeExperimentBudget(experiment claudeSubProbeExperiment) time.Duration {
-	total := time.Duration(0)
-	for _, step := range experiment.steps {
-		total += step
-	}
-	return total
+	steps   *claudeSubProbeSteps
+	run     func(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error
 }
 
 // TestClaudeSubProbe is the probe entry point. It skips unless the mode
@@ -314,9 +351,13 @@ func claudeSubProbeRun(t *testing.T) {
 		if timeout <= 0 {
 			timeout = claudeSubProbeExperimentTimeout
 		}
+		steps := experiment.steps.copy()
 		expCtx, cancelExp := context.WithTimeout(overall, timeout)
-		err := experiment.run(expCtx, cfg, exp)
+		err := experiment.run(expCtx, cfg, exp, steps)
 		cancelExp()
+		if steps.short {
+			err = errors.Join(err, errors.New("probe step plan ran out before the experiment finished"))
+		}
 		// Findings and failure checks run after the experiment returned, so every
 		// process it started has already recorded its exit evidence.
 		for _, process := range exp.Processes {
@@ -386,10 +427,13 @@ func claudeSubProbeWriteReport(path string, report *claudeSubProbeReport) error 
 }
 
 // claudeSubProbeStart starts one process for exp and registers its report.
-func claudeSubProbeStart(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec) (*claudeSubProbeProcess, error) {
+// gatingPrompt is the tool-free prompt the init gate uses when init does not
+// arrive before input: empty means the probe's own fixed warmup prompt, which
+// only the ephemeral (non-persisted) specs use.
+func claudeSubProbeStart(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec, gatingPrompt string) (*claudeSubProbeProcess, error) {
 	rep := &claudeSubProbeProcessReport{Name: name, Key: key, Persist: spec.Persist, Resume: claudeSubProbeResumeOf(spec.Resume)}
 	exp.Processes = append(exp.Processes, rep)
-	process, err := claudeSubProbeStartProcess(ctx, cfg, rep, key, spec)
+	process, err := claudeSubProbeStartProcess(ctx, cfg, rep, key, spec, gatingPrompt)
 	if err != nil {
 		rep.StartError = claudeSubProbeErrorString(err)
 		return nil, fmt.Errorf("start probe process %s: %w", name, err)
