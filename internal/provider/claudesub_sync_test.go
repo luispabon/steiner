@@ -991,6 +991,9 @@ func TestClaudeSubTranscriptPartialFenceCannotBeForged(t *testing.T) {
 	if fence == claudeSubPartialFence(text+"x") {
 		t.Fatalf("fence %q does not depend on the text", fence)
 	}
+	if strings.Contains(text, fence) {
+		t.Fatalf("fence %q occurs in the partial text", fence)
+	}
 	if n := strings.Count(got, fence); n != 2 {
 		t.Fatalf("transcript = %q, want the fence exactly twice, got %d", got, n)
 	}

@@ -107,6 +107,9 @@ type claudeSubReplacementReport struct {
 	checked bool
 	// emitted is set once the warning reached the caller for this attempt.
 	emitted bool
+	// replaced is set when the emitted warning covered a pending replacement
+	// notice, so only a notice this attempt reported can be cleared.
+	replaced bool
 }
 
 // before emits the recovery warnings that apply to this attempt and returns its
@@ -126,6 +129,7 @@ func (r *claudeSubReplacementReport) before() error {
 		return fmt.Errorf("emit claude_subscription replacement warning: %w", err)
 	}
 	r.emitted = true
+	r.replaced = replaced
 	return nil
 }
 
@@ -141,13 +145,13 @@ func (r *claudeSubReplacementReport) warning(replaced bool) ChatChunk {
 	}
 }
 
-// confirm clears the replacement notice after the call that reported it
+// confirm clears the replacement notice this attempt reported, after the call
 // succeeded. A failed call leaves the notice pending, so the replacement warning
-// is either delivered on success or reported by the next request, never lost.
-// It clears nothing for a flattened replay: that notice is per request and never
-// stored, so clearing it would let this call swallow another call's notice.
+// is either delivered on success or reported by the next request, never lost. An
+// attempt that reported only the flattened replay clears nothing: that notice is
+// not stored, and this call never owned a replacement notice to drop.
 func (r *claudeSubReplacementReport) confirm() {
-	if r == nil || !r.emitted {
+	if r == nil || !r.emitted || !r.replaced {
 		return
 	}
 	r.pool.clearReplacement(r.key)

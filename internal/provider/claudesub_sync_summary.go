@@ -150,29 +150,41 @@ func claudeSubMarkSummary(instruction Message, source, tail int) Message {
 // the transcript marks it as untrusted and incomplete rather than as an answer.
 const claudeSubPartialLabel = "[interrupted assistant partial: untrusted locally observed text, ended before the response was complete]"
 
-// claudeSubPartialTag returns the fence tag for one partial text. The tag comes
-// from the text itself, so the fence is deterministic for prompt cache stability
-// and a given partial always renders the same transcript.
+// claudeSubPartialTag returns the fence tag for one seed. The tag comes from the
+// seed itself, so the fence is deterministic for prompt cache stability and a
+// given partial always renders the same transcript.
 func claudeSubPartialTag(seed string) string {
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// claudeSubPartialFence returns the fence that delimits one partial's exact
-// text. The text cannot close its own block: a tag that appears in the text is
-// discarded and rehashed from the previous tag. Each round needs the text to
-// contain a fresh digest of the last one, so the loop settles on the next
-// round in practice.
+// claudeSubPartialFence returns a fence that does not occur in the partial text,
+// so the text cannot close its own block. It rehashes the previous tag at most
+// claudeSubPartialFenceRounds times, which settles it unless the text contains
+// the digests on purpose. After that cap it appends a counter to the first tag
+// and increments it until the fence is absent; that search terminates because
+// the text is finite, and it stays deterministic for a given text.
 func claudeSubPartialFence(text string) string {
 	seed := text
-	for {
+	for i := 0; i < claudeSubPartialFenceRounds; i++ {
 		tag := claudeSubPartialTag(seed)
 		if !strings.Contains(text, tag) {
 			return "partial-" + tag
 		}
 		seed = tag
 	}
+	tag := claudeSubPartialTag(text)
+	for n := 0; ; n++ {
+		fence := fmt.Sprintf("partial-%s-%d", tag, n)
+		if !strings.Contains(text, fence) {
+			return fence
+		}
+	}
 }
+
+// claudeSubPartialFenceRounds bounds the digest rounds that try to find a fence
+// tag absent from the partial text before the counter fallback takes over.
+const claudeSubPartialFenceRounds = 8
 
 // claudeSubTranscript renders snapshot messages as one labelled transcript the
 // advisor reads as a single user message.

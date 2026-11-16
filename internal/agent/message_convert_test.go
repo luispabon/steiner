@@ -732,9 +732,12 @@ func TestMessageConvert_FromProviderMessage(t *testing.T) {
 		if got, want := toProviderMessage(result).Content, "half a report"+interruptedAssistantNote; got != want {
 			t.Fatalf("reprojected content = %q, want the note once: %q", got, want)
 		}
+		if got := strings.Count(toProviderMessage(result).Content, interruptedAssistantNote); got != 1 {
+			t.Errorf("reprojected content carries the note %d times, want exactly once", got)
+		}
 	})
 
-	t.Run("modified content keeps its own text but stays incomplete", func(t *testing.T) {
+	t.Run("modified content keeps its own text and is not incomplete", func(t *testing.T) {
 		msg := provider.Message{
 			Role:           provider.MessageRoleAssistant,
 			Content:        "edited half a report",
@@ -744,8 +747,11 @@ func TestMessageConvert_FromProviderMessage(t *testing.T) {
 		if got, want := result.Content, "edited half a report"; got != want {
 			t.Fatalf("content = %q, want the provider content %q", got, want)
 		}
-		if !result.Incomplete {
-			t.Error("incomplete = false, want true")
+		if result.Incomplete {
+			t.Error("incomplete = true, want false so the note is never re-appended")
+		}
+		if got := strings.Count(toProviderMessage(result).Content, interruptedAssistantNote); got != 0 {
+			t.Errorf("reprojected content carries the note %d times, want none", got)
 		}
 	})
 

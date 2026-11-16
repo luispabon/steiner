@@ -136,11 +136,12 @@ func fromProviderMessage(message provider.Message) Message {
 		// An Incomplete partial always has text, so the field alone marks it. When
 		// the projection is the raw text plus the note, restore the stored partial
 		// exactly, so projecting it again appends the note once. A Content that was
-		// changed after projection keeps its own text.
+		// changed after projection keeps its own text and is not marked incomplete,
+		// so the note is never re-appended to it.
 		if message.Content == message.IncompleteText+interruptedAssistantNote {
 			out.Content = message.IncompleteText
+			out.Incomplete = true
 		}
-		out.Incomplete = true
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]ToolCall, 0, len(message.ToolCalls))
