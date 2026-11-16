@@ -4,9 +4,14 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
+	// A cancelled delivery drains the interrupted CLI turn; tests that exercise
+	// the fallback path would each wait out the full bound, so shorten it here.
+	// A test that needs its own bound sets claudeSubDrainTimeout.
+	claudeSubDrainTimeout = 50 * time.Millisecond
 	tmp, err := os.MkdirTemp("", "steiner-provider-test")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create temp dir: %v\n", err)

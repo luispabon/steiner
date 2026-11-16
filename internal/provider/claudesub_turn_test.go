@@ -222,12 +222,25 @@ func TestClaudeSubConsumeUsageCountsEachMessageOnce(t *testing.T) {
 // claudeSubScript answers control requests and, on each user line, pushes the
 // next scripted batch of stream events. setModelErr makes set_model fail.
 // usage replaces the get_usage reply and usageErr makes get_usage fail.
+// interrupt scripts the reply to an interrupt control request; nil answers with a
+// bare acknowledgement and no further events.
 type claudeSubScript struct {
 	batches     [][]claudeSubEvent
 	users       int
 	setModelErr bool
 	usage       json.RawMessage
 	usageErr    string
+	interrupt   *claudeSubInterruptReply
+}
+
+// claudeSubInterruptReply is how a scripted fake CLI answers an interrupt: an
+// error instead of the acknowledgement when err is set, nothing at all when
+// silent is set, otherwise the acknowledgement followed by the events a stopping
+// CLI emits.
+type claudeSubInterruptReply struct {
+	events []claudeSubEvent
+	err    string
+	silent bool
 }
 
 func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
@@ -256,6 +269,18 @@ func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
 			if sc.setModelErr {
 				return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, "model unavailable")}
 			}
+		case "interrupt":
+			if sc.interrupt == nil {
+				break
+			}
+			if sc.interrupt.silent {
+				return nil
+			}
+			if sc.interrupt.err != "" {
+				return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, sc.interrupt.err)}
+			}
+			out := []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"still_queued":[]}`))}
+			return append(out, sc.interrupt.events...)
 		}
 		return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
 	case "user":

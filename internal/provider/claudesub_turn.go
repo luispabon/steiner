@@ -638,11 +638,12 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	s.parentCall = claudeSubPersists(req)
 	if err := claudeSubConsume(ctx, s, emit); err != nil {
 		if ctx.Err() != nil {
-			// The caller stopped reading a turn the CLI keeps producing, so the
-			// process can no longer prove which call its events belong to. It is
-			// never reused; the next request for this key replaces it and reports
-			// the replacement.
-			s.abandon()
+			// The caller stopped reading a turn the CLI keeps producing. When the
+			// CLI can be interrupted and driven to its own aborted result the
+			// process stays reusable, which keeps its prompt cache warm; every
+			// other outcome abandons it, so the next request for this key replaces
+			// it and reports the replacement.
+			claudeSubRecoverInterrupted(ctx, s)
 		}
 		return err
 	}

@@ -62,6 +62,15 @@ func claudeSubTextOnlyAssistant(m Message) bool {
 		m.ProviderMetadata == nil
 }
 
+// claudeSubDrainedPartial reports whether m is the partial assistant the agent
+// kept from the turn a drain recovered. It must carry exactly the text-only
+// shape claudeSubTextOnlyAssistant requires, except that the agent records the
+// partial on the turn it streamed in, so Turn is not required to be zero.
+func claudeSubDrainedPartial(m Message) bool {
+	m.Turn = 0
+	return claudeSubTextOnlyAssistant(m)
+}
+
 // claudeSubEntrySnapshotEqual reports whether a recorded advisor-snapshot entry
 // still matches the snapshot message at its position (role and content digest).
 func claudeSubEntrySnapshotEqual(entry claudeSubEntry, m Message) bool {

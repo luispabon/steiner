@@ -9,6 +9,20 @@ import (
 	"strings"
 )
 
+// markDrained records that an interrupted turn was driven to its aborted
+// terminal result, so the CLI holds a transcript steiner can prove and the next
+// request may append to it. Only a delivery whose last record entry is the user
+// entry that turn wrote can accept the agent's kept partial, so any other shape
+// leaves the record undrained and the next request reseeds. A drained record
+// plans no summary: it ends on a user message the CLI never answered.
+func (s *claudeSubSync) markDrained() {
+	s.drained = false
+	if n := len(s.entries); n == 0 || s.entries[n-1].Role != MessageRoleUser {
+		return
+	}
+	s.drained = true
+}
+
 // markInterrupted records that the CLI was interrupted (Esc or tool
 // cancellation) so the next request tolerates the resulting clean-up edits
 // (D22). Only the assistant produced by the interrupted call may become
@@ -112,7 +126,7 @@ func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool
 // record, and it reports errClaudeSubSummaryNoPlace when the record cannot take
 // the request.
 func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta, error) {
-	if s.tainted || !s.started || s.interrupted || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
+	if s.tainted || !s.started || s.interrupted || s.drained || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
 		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
 	}
 	if !s.sourcePrefixMatches(msgs, source) {

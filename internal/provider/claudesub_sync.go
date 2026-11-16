@@ -82,6 +82,10 @@ type claudeSubSync struct {
 
 	// interrupted is set by markInterrupted and cleared by the next commitSent.
 	interrupted bool
+	// drained is set by markDrained and cleared by the next commitSent. While it
+	// is set, plan accepts one relaxed text-only assistant message at the suffix
+	// head: the partial the agent kept from a turn the drain recovered.
+	drained bool
 	// interruptible is the index of the assistant entry produced by the call
 	// that was just interrupted, or -1 when no such assistant exists. Only that
 	// one entry may be subset-matched or omitted. markInterrupted derives it
@@ -244,6 +248,12 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 				recorded = append(recorded, claudeSubEntryFromMessage(m))
 				continue
 			}
+			// A drained turn accepts the kept partial under the same rules, plus
+			// the turn number the agent stamps on the message it streamed.
+			if s.drained && si == 0 && claudeSubDrainedPartial(m) {
+				recorded = append(recorded, claudeSubEntryFromMessage(m))
+				continue
+			}
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
 		default:
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
@@ -281,6 +291,7 @@ func (s *claudeSubSync) commitSent(delta claudeSubDelta) {
 	}
 	s.started = true
 	s.interrupted = false
+	s.drained = false
 	s.interruptible = -1
 }
 

@@ -8,6 +8,7 @@ import (
 )
 
 func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatChunk) error) error {
+	s.delivery = claudeSubDelivery{}
 	decoder := newClaudeSubDecoder(claudeSubDecodeHooks{
 		ToolName: func(name string) string {
 			if s.host == nil {
@@ -95,6 +96,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			case claudeSubDecodeMessage:
 				if len(item.Message.ToolCalls) > 0 {
 					s.sync.commitAssistant(*item.Message, item.UUID)
+					s.delivery.assistant = true
 					if s.host != nil {
 						s.host.settle()
 					}
@@ -106,6 +108,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				copy := item
 				ordinary = &copy
 			case claudeSubDecodeResult:
+				s.delivery.terminal = true
 				if s.host != nil {
 					// The turn has no tool calls left to wait for.
 					s.host.settle()
@@ -118,6 +121,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				// message's own usage, or none when that message has no usage.
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message, ordinary.UUID)
+					s.delivery.assistant = true
 					if err := emitFinal(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: ordinary.Usage}); err != nil {
 						return err
 					}

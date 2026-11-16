@@ -15,6 +15,7 @@ func (d *claudeSubDecoder) decodeResult(raw json.RawMessage) ([]claudeSubDecoded
 		Subtype           string            `json:"subtype"`
 		IsError           bool              `json:"is_error"`
 		Result            string            `json:"result"`
+		TerminalReason    string            `json:"terminal_reason"`
 		NumTurns          int               `json:"num_turns"`
 		StopReason        string            `json:"stop_reason"`
 		TotalCostUSD      float64           `json:"total_cost_usd"`
@@ -60,6 +61,7 @@ func (d *claudeSubDecoder) decodeResult(raw json.RawMessage) ([]claudeSubDecoded
 			Subtype:           payload.Subtype,
 			IsError:           isError,
 			Text:              payload.Result,
+			TerminalReason:    payload.TerminalReason,
 			NumTurns:          payload.NumTurns,
 			StopReason:        payload.StopReason,
 			TotalCostUSD:      payload.TotalCostUSD,

@@ -123,6 +123,10 @@ type claudeSubResult struct {
 	// Text is the result envelope's final assistant text. It is metadata only:
 	// the decoder never re-emits it as a text delta.
 	Text string
+	// TerminalReason is the CLI's own label for why the turn ended (for example
+	// "completed", "aborted_streaming" or "aborted_tools"). Older CLI versions
+	// omit it. An interrupted turn's drain accepts only an aborted label.
+	TerminalReason string
 	// NumTurns, StopReason and TotalCostUSD mirror the envelope fields.
 	NumTurns     int
 	StopReason   string

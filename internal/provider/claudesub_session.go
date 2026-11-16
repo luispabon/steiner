@@ -120,6 +120,11 @@ type claudeSubSession struct {
 	// Guarded by the whole-call lock (the caller holds it for the whole call).
 	pending []claudeSubPendingCall
 
+	// delivery records what the current delivery's event stream produced, so a
+	// cancelled delivery can tell whether its process is provably clean. Guarded
+	// by the whole-call lock.
+	delivery claudeSubDelivery
+
 	queue      *claudeSubQueue
 	stop       chan struct{}
 	routerDone chan struct{}
