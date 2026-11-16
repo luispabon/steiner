@@ -432,11 +432,13 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 			if s.unsafeForReuse() {
 				// A stale-pending interrupt that could not be drained leaves the CLI
 				// possibly still producing that turn's events, so the process is
-				// retired here and the request re-attaches on a fresh one. This is the
-				// same path a cancelled delivery takes at entry; the replacement
-				// notice reports it to the user.
+				// retired here and the request re-attaches on a fresh one. The retry
+				// always reseeds: the stored checkpoint may end on an assistant
+				// message whose tool calls the request abandoned, and a new user line
+				// straight after a dangling tool_use is not a transcript steiner has
+				// proven. The replacement notice reports it to the user.
 				pool.retireAndRelease(a.key, s)
-				return claudeSubAttachSession(ctx, pool, req, a, forceReseed)
+				return claudeSubAttachSession(ctx, pool, req, a, true)
 			}
 			pool.release(s)
 			return claudeSubAttachResult{}, err
@@ -661,71 +663,6 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 		return err
 	}
 	return nil
-}
-
-func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRequest) error {
-	if len(s.pending) == 0 {
-		return nil
-	}
-	provided := make(map[string]struct{})
-	for _, msg := range req.Messages {
-		if msg.Role == MessageRoleTool {
-			provided[msg.ToolCallID] = struct{}{}
-		}
-	}
-	var stale []claudeSubPendingCall
-	for _, pending := range s.pending {
-		if _, ok := provided[pending.ID]; !ok {
-			stale = append(stale, pending)
-		}
-	}
-	if len(stale) == 0 {
-		return nil
-	}
-	// The interrupted turn still reports its own terminal result. Draining to it
-	// under the same proof the cancel path uses both stops the turn and empties the
-	// queue, so a later call never reads this turn's result as its own. The drain
-	// runs on a context the caller cannot abort, so the proof completes even when
-	// the request is cancelled.
-	if err := claudeSubDrainToAbortedResult(ctx, s); err != nil {
-		// The CLI may still produce this turn's events, so the process is never
-		// reused: the existing unsafe-session path retires it on the next use and
-		// reports the replacement.
-		s.abandon()
-		return err
-	}
-	s.sync.markInterrupted()
-	for _, pending := range stale {
-		s.host.resolve(pending.Handle, claudeSubToolResult{Text: "tool call interrupted", IsError: true})
-		claudeSubRemovePending(s, pending.ID)
-	}
-	// A call the CLI opened for an id steiner never registered can never receive a
-	// result now either, so it is retired with the stale ones. The calls this
-	// request does provide keep their handles for the delivery that resolves them.
-	s.host.cancelUnresolved(s.pending)
-	return nil
-}
-
-func claudeSubPendingByID(s *claudeSubSession, id string) *claudeSubPendingCall {
-	for i := range s.pending {
-		if s.pending[i].ID == id {
-			return &s.pending[i]
-		}
-	}
-	return nil
-}
-
-func claudeSubRemovePending(s *claudeSubSession, id string) {
-	for i := range s.pending {
-		if s.pending[i].ID == id {
-			s.pending = append(s.pending[:i], s.pending[i+1:]...)
-			return
-		}
-	}
-}
-
-func claudeSubToolResultFromMessage(msg Message) claudeSubToolResult {
-	return claudeSubToolResult{Text: msg.Content, Images: msg.Images, IsError: false}
 }
 
 var _ Provider = (*ClaudeSubscriptionProvider)(nil)

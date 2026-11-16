@@ -1295,3 +1295,84 @@ func TestClaudeSubDeliveryTail(t *testing.T) {
 		})
 	}
 }
+
+// TestClaudeSubFinishPendingDrainRetryDoesNotResume proves the retry after a
+// failed stale-call drain reseeds even when a stored checkpoint is restorable:
+// resuming would put a new user line right after an assistant message whose tool
+// calls the request abandoned.
+func TestClaudeSubFinishPendingDrainRetryDoesNotResume(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8]},
+		// The stale-call interrupt is never proven.
+		interrupt: &claudeSubInterruptReply{},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	first := claudeSubRunTurn(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		Messages:         []Message{claudeSubUserText("read notes")},
+	})
+	conn := spawner.call(t, 0).Conn
+	next := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("never mind")}
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		BackendState:     first.BackendState,
+		Messages:         next,
+	})
+	if got.err != nil {
+		t.Fatalf("follow-up error = %v", got.err)
+	}
+	if text := got.final(t).Delta.Content; text != "Hello world" {
+		t.Fatalf("follow-up text = %q, want its own %q", text, "Hello world")
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the unproven process replaced)", n)
+	}
+	retry := spawner.call(t, 1)
+	if resume, _ := claudeSubArgValue(retry.Args, "--resume"); resume != "" {
+		t.Errorf("retry --resume = %q, want none: a dangling tool_use must not be resumed", resume)
+	}
+	lines := claudeSubUserLines(retry.Conn)
+	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
+		t.Fatalf("retry user lines = %q, want one flattened reseed", lines)
+	}
+	if !conn.isClosed() {
+		t.Error("the unproven process was reused")
+	}
+	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
+}
+
+// TestClaudeSubDrainFallsBackOnEventAfterResult proves an event queued after the
+// aborted result fails the proof: the CLI must send nothing after its result, so
+// anything already there cannot be attributed to a later call.
+func TestClaudeSubDrainFallsBackOnEventAfterResult(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	after := append(claudeSubDecodeEvents(t, "interrupt_text.jsonl"), claudeSubDecodeEvents(t, "interrupt_window.jsonl")[1])
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: after},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	if err := claudeSubCancelOnText(t, pool, claudeSubDrainRequest("child-1", model, claudeSubUserText(claudeSubDrainFirstUser))); err == nil {
+		t.Fatal("cancelled turn returned no error")
+	}
+	if !pool.replacementPending("child-1") {
+		t.Fatal("a drain that found an event after the result recorded no replacement notice")
+	}
+	got := claudeSubDrainFollowUp(t, pool, "child-1", model, "half a report")
+	if got.err != nil {
+		t.Fatalf("follow-up error = %v", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the unproven process replaced)", n)
+	}
+	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
+}

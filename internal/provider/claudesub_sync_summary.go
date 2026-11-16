@@ -95,8 +95,7 @@ var errClaudeSubSummaryNoPlace = errors.New("claude_subscription summary request
 
 // taint marks the record as no longer describing the CLI transcript, after an
 // in-place summary was sent. A tainted record plans and checkpoints nothing, so
-// its process is never reused and returns no backend state.
-// taint marks the record as holding steiner's summary request. It drops the
+// its process is never reused and returns no backend state. It also drops the
 // drained state, which describes a transcript with no summary instruction.
 func (s *claudeSubSync) taint() {
 	s.tainted = true

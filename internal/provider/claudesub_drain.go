@@ -76,7 +76,10 @@ func claudeSubInterruptedDrainable(s *claudeSubSession) bool {
 // no stored result, and clears the session's stream-time registrations. The
 // interrupted turn's tool uses were never run by the CLI, or the CLI cancelled
 // them, so no result is recorded and none of those calls may survive into a
-// later request. The caller holds the whole-call lock.
+// later request. A call that already holds a stored result stays until the
+// process is retired, which is harmless: no handler can reach it without the
+// CLI issuing that call again, and retirement drops it with the host. The caller
+// holds the whole-call lock.
 func claudeSubDiscardPending(s *claudeSubSession) {
 	if s.host != nil {
 		s.host.cancelUnresolved(nil)
@@ -148,9 +151,12 @@ func claudeSubDrainToAbortedResult(ctx context.Context, s *claudeSubSession) err
 				return fmt.Errorf("interrupted claude_subscription turn ended with subtype %q and terminal reason %q", item.Result.Subtype, item.Result.TerminalReason)
 			}
 			// The CLI emits nothing after an aborted result until the next user
-			// input (probe timelines E1 to E6, CLI 2.1.316). An event already
-			// queued here means that rule did not hold, so nothing after the result
-			// can be attributed and the process is not clean.
+			// input: the fixtures derived from the interrupt probe recordings
+			// (testdata/claudesub/interrupt_text.jsonl and interrupt_tool_stream.jsonl)
+			// end at the result, as the "Live interrupt probe" section of
+			// docs/internals/claude-subscription.md records. An event already queued
+			// here means that rule did not hold, so nothing after the result can be
+			// attributed and the process is not clean.
 			if _, queued := s.queue.tryPop(); queued {
 				return errClaudeSubDrainEventAfterResult
 			}
