@@ -89,6 +89,9 @@ func toProviderMessage(message Message) provider.Message {
 	}
 	if message.Role == MessageRoleAssistant && message.Incomplete {
 		out.Content += interruptedAssistantNote
+		// IncompleteText keeps the exact streamed text, so a consumer that labels
+		// the partial can do so without stripping the note Content carries.
+		out.IncompleteText = message.Content
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]provider.ToolCall, 0, len(message.ToolCalls))
@@ -128,6 +131,12 @@ func fromProviderMessage(message provider.Message) Message {
 		ToolCallID:       message.ToolCallID,
 		Turn:             message.Turn,
 		ProviderMetadata: fromProviderMessageMetadata(message.ProviderMetadata),
+	}
+	if message.IncompleteText != "" {
+		// Restore the stored partial exactly, so projecting it again appends the
+		// interrupted note once rather than keeping the note in the content.
+		out.Content = message.IncompleteText
+		out.Incomplete = true
 	}
 	if len(message.ToolCalls) > 0 {
 		out.ToolCalls = make([]ToolCall, 0, len(message.ToolCalls))

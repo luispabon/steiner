@@ -67,6 +67,18 @@ const claudeSubReplacedProcessWarning = "claude_subscription discarded the CLI p
 // claudeSubAdvisorReplacementWarning is the advisor form of the same warning.
 const claudeSubAdvisorReplacementWarning = "claude_subscription discarded the advisor CLI process behind an earlier turn that did not finish"
 
+// claudeSubFlattenedReseedWarning is the warning a call reports when a reseed
+// replays the prior conversation to the CLI as one flattened user message, for
+// any reseed branch. Summary requests and advisor snapshots render a transcript
+// by design and report no warning.
+const claudeSubFlattenedReseedWarning = "claude_subscription replayed the prior conversation as one flattened user message"
+
+// claudeSubReplacedAndFlattenedWarning is the single warning a call reports when
+// it discarded the process behind an earlier unfinished turn and also replayed
+// the conversation flattened. It keeps the replacement wording intact so the
+// two events stay identifiable in one message.
+const claudeSubReplacedAndFlattenedWarning = claudeSubReplacedProcessWarning + " and replayed the prior conversation as one flattened user message"
+
 // claudeSubReplacementWarning reports that a call discarded the process an
 // earlier turn left behind. Advisor keys get the advisor wording.
 func claudeSubReplacementWarning(key string) ChatChunk {
@@ -86,28 +98,45 @@ type claudeSubReplacementReport struct {
 	pool *ClaudeSubscriptionPool
 	key  string
 	emit func(ChatChunk) error
+	// flattened marks an attempt that delivers the whole history as one rendered
+	// reseed transcript.
+	flattened bool
 	// checked is set once the notice was looked up for this attempt.
 	checked bool
 	// emitted is set once the warning reached the caller for this attempt.
 	emitted bool
 }
 
-// before emits the replacement warning for a pending notice and returns its
+// before emits the recovery warnings that apply to this attempt and returns its
 // emit error. It is called before each chunk of the attempt and reports at most
-// once.
+// once. A pending replacement and a flattened reseed are reported as one
+// combined warning, never as two.
 func (r *claudeSubReplacementReport) before() error {
 	if r.checked {
 		return nil
 	}
 	r.checked = true
-	if !r.pool.replacementPending(r.key) {
+	replaced := r.pool.replacementPending(r.key)
+	if !replaced && !r.flattened {
 		return nil
 	}
-	if err := r.emit(claudeSubReplacementWarning(r.key)); err != nil {
+	if err := r.emit(r.warning(replaced)); err != nil {
 		return fmt.Errorf("emit claude_subscription replacement warning: %w", err)
 	}
 	r.emitted = true
 	return nil
+}
+
+// warning returns the one warning an attempt reports for what happened to it.
+func (r *claudeSubReplacementReport) warning(replaced bool) ChatChunk {
+	switch {
+	case replaced && r.flattened:
+		return claudeSubWarningChunk(claudeSubReplacedAndFlattenedWarning)
+	case r.flattened:
+		return claudeSubWarningChunk(claudeSubFlattenedReseedWarning)
+	default:
+		return claudeSubReplacementWarning(r.key)
+	}
 }
 
 // confirm clears the replacement notice after the call that reported it
@@ -230,8 +259,9 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			claudeSubMetricsFrom(ctx).clearReseed()
 		}
 		// A pending replacement notice is reported before this attempt's first
-		// chunk, so an attempt that produces nothing reports nothing.
-		report = &claudeSubReplacementReport{pool: pool, key: key, emit: emit}
+		// chunk, so an attempt that produces nothing reports nothing. A reseed
+		// attempt reports the flattened replay the same way.
+		report = &claudeSubReplacementReport{pool: pool, key: key, emit: emit, flattened: attached.reseed}
 		emitted := false
 		err = claudeSubDeliverNormal(ctx, s, req, attached.reseed, func(chunk ChatChunk) error {
 			if err := report.before(); err != nil {
@@ -452,11 +482,16 @@ func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRe
 	var delta claudeSubDelta
 	if reseed {
 		delta = claudeSubReseedDelta(claudeSubMessages(req.Messages))
-	} else {
-		var err error
-		if delta, err = s.sync.plan(req); err != nil {
-			return err
+		err := claudeSubDeliver(ctx, s, req, delta, emit)
+		var tooLarge *claudeSubLineTooLargeError
+		if errors.As(err, &tooLarge) {
+			return fmt.Errorf("send flattened reseed transcript: %w", err)
 		}
+		return err
+	}
+	var err error
+	if delta, err = s.sync.plan(req); err != nil {
+		return err
 	}
 	return claudeSubDeliver(ctx, s, req, delta, emit)
 }

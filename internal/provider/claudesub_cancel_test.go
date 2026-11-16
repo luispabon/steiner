@@ -745,7 +745,8 @@ func TestClaudeSubCancelNoticeSurvivesEviction(t *testing.T) {
 
 // TestClaudeSubCancelWarningReportsRetriedOutcome proves the warning describes
 // the attempt that served the user: a resumed attempt that fails before output
-// and is retried as a reseed must report the rebuild, not the resume.
+// and is retried as a reseed must report the replacement and the flattened
+// replay, not the resume.
 func TestClaudeSubCancelWarningReportsRetriedOutcome(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	pool, spawner := claudeSubPoolWithScripts(t,
@@ -782,8 +783,10 @@ func TestClaudeSubCancelWarningReportsRetriedOutcome(t *testing.T) {
 	if len(warnings) != 1 {
 		t.Fatalf("warnings = %q, want exactly one", warnings)
 	}
-	if want := claudeSubWarningChunk(claudeSubReplacedProcessWarning).Diagnostic; warnings[0] != want {
-		t.Errorf("warning = %q, want the wording that claims no resume or rebuild: %q", warnings[0], want)
+	// The attempt that served the user replaced the process and reseeded from
+	// the rebuilt transcript, so it reports both events as one warning.
+	if want := claudeSubWarningChunk(claudeSubReplacedAndFlattenedWarning).Diagnostic; warnings[0] != want {
+		t.Errorf("warning = %q, want the combined replacement and flattened replay wording: %q", warnings[0], want)
 	}
 	if pool.replacementPending("parent") {
 		t.Error("the replacement notice survived being reported")

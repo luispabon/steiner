@@ -272,7 +272,7 @@ func closeFiles(files ...*os.File) {
 // caller.
 func (p *claudeSubProcess) Send(line []byte) error {
 	if len(line) > claudeSubMaxSendBytes {
-		return fmt.Errorf("claude CLI stdin line exceeds %d bytes", claudeSubMaxSendBytes)
+		return &claudeSubLineTooLargeError{limit: claudeSubMaxSendBytes}
 	}
 	buf := make([]byte, 0, len(line)+1)
 	buf = append(buf, line...)
@@ -287,6 +287,15 @@ func (p *claudeSubProcess) Send(line []byte) error {
 	p.sendMu.Unlock()
 	p.sendCond.Signal()
 	return nil
+}
+
+// claudeSubLineTooLargeError reports a stdin line over the CLI's limit. It
+// carries the limit so a caller can recognise the refusal with errors.As and
+// name the payload it could not send.
+type claudeSubLineTooLargeError struct{ limit int }
+
+func (e *claudeSubLineTooLargeError) Error() string {
+	return fmt.Sprintf("claude CLI stdin line exceeds %d bytes", e.limit)
 }
 
 func (p *claudeSubProcess) Events() <-chan claudeSubEvent { return p.events }

@@ -30,9 +30,10 @@ const claudeSubRecoveryTurnFailure = "claude_subscription turn failed: error_dur
 
 // claudeSubRecoveryPartial returns the provider projection of the partial
 // assistant message steiner keeps at an interrupt: the text streamed so far,
-// the interruption notice, and the nonzero turn the agent recorded.
+// the interruption notice, the nonzero turn the agent recorded, and the raw text
+// carried as local provenance.
 func claudeSubRecoveryPartial(text string) Message {
-	return Message{Role: MessageRoleAssistant, Content: text + claudeSubRecoveryNote, Turn: 1}
+	return Message{Role: MessageRoleAssistant, Content: text + claudeSubRecoveryNote, IncompleteText: text, Turn: 1}
 }
 
 func claudeSubRecoveryNoop(ChatChunk) error { return nil }
@@ -161,8 +162,8 @@ func TestClaudeSubRecoveryLiveFailureReseedsCharacterization(t *testing.T) {
 			if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
 				t.Fatalf("reseed user lines = %q, want one rendered transcript", lines)
 			}
-			if tt.withPartial && (!strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubRecoveryNoteText)) {
-				t.Errorf("reseed transcript = %s, want the kept partial and its notice", lines[0])
+			if tt.withPartial && (!strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubPartialLabel)) {
+				t.Errorf("reseed transcript = %s, want the kept partial labelled as untrusted incomplete text", lines[0])
 			}
 			if got := claudeSubRecoveryReseedReason(final); got != claudeSubReseedCheckpoint {
 				t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedCheckpoint)
@@ -396,9 +397,74 @@ func TestClaudeSubRecoveryRestartAfterInterruptedTurn(t *testing.T) {
 			if !strings.Contains(lines[0], "again") {
 				t.Errorf("user line = %s, want it to carry the new message", lines[0])
 			}
-			if reseeded && (!strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubRecoveryNoteText)) {
-				t.Errorf("reseeded transcript = %s, want the kept partial and its notice", lines[0])
+			if reseeded && (!strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubPartialLabel)) {
+				t.Errorf("reseeded transcript = %s, want the kept partial labelled as untrusted incomplete text", lines[0])
 			}
 		})
+	}
+}
+
+// TestClaudeSubReseedWarnsFlattenedReplay proves a conversation reseed tells the
+// user that the prior context was replayed as one flattened user message, and
+// that the delivered transcript labels the interrupted partial.
+func TestClaudeSubReseedWarnsFlattenedReplay(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages: []Message{
+			claudeSubUserText("read notes"),
+			{Role: MessageRoleAssistant, Content: "answer"},
+			claudeSubRecoveryPartial("half a report"),
+			claudeSubUserText("again"),
+		},
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	lines := claudeSubUserLines(spawner.call(t, 0).Conn)
+	if len(lines) != 1 || !strings.Contains(lines[0], claudeSubPartialLabel) {
+		t.Fatalf("reseed user lines = %q, want one transcript labelling the partial", lines)
+	}
+	if strings.Contains(lines[0], claudeSubRecoveryNoteText) {
+		t.Errorf("reseed transcript = %s, want the label instead of the interruption note", lines[0])
+	}
+	claudeSubWantOneWarning(t, got, claudeSubFlattenedReseedWarning)
+	if want := claudeSubWarningChunk(claudeSubFlattenedReseedWarning).Diagnostic; got.warnings()[0] != want {
+		t.Errorf("warning = %q, want %q", got.warnings()[0], want)
+	}
+}
+
+// TestClaudeSubReseedCombinesWarnings proves a call that discards the process
+// behind an earlier unfinished turn and replays the flattened transcript reports
+// one combined warning instead of two.
+func TestClaudeSubReseedCombinesWarnings(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, _, _ := claudeSubAbandonedParent(t,
+		&claudeSubScript{batches: [][]claudeSubEvent{nil}},
+		claudeSubTextTurns(t, 1),
+	)
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages: []Message{
+			claudeSubUserText("first"),
+			{Role: MessageRoleAssistant, Content: "answer"},
+			claudeSubUserText("second"),
+		},
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	warnings := got.warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %q, want exactly one combined warning", warnings)
+	}
+	if want := claudeSubWarningChunk(claudeSubReplacedAndFlattenedWarning).Diagnostic; warnings[0] != want {
+		t.Errorf("warning = %q, want %q", warnings[0], want)
+	}
+	if pool.replacementPending("parent") {
+		t.Error("the replacement notice survived being reported")
 	}
 }

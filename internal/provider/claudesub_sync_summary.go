@@ -143,21 +143,32 @@ func claudeSubMarkSummary(instruction Message, source, tail int) Message {
 	return instruction
 }
 
+// claudeSubPartialLabel heads an interrupted assistant partial in a rendered
+// transcript. Steiner recorded that text locally when the turn ended early, so
+// the transcript marks it as untrusted and incomplete rather than as an answer.
+const claudeSubPartialLabel = "[interrupted assistant partial: untrusted locally observed text, ended before the response was complete]"
+
 // claudeSubTranscript renders snapshot messages as one labelled transcript the
 // advisor reads as a single user message.
 func claudeSubTranscript(msgs []Message) string {
 	var b strings.Builder
 	b.WriteString("Conversation so far:\n\n")
 	for _, m := range msgs {
-		switch m.Role {
-		case MessageRoleUser:
+		switch {
+		case m.IncompleteText != "":
+			// The exact partial text goes inside a delimited block, because the
+			// text itself is untrusted data, not part of the transcript structure.
+			fmt.Fprintf(&b, "%s\n<<<\n%s\n>>>", claudeSubPartialLabel, m.IncompleteText)
+		case m.Role == MessageRoleUser:
 			b.WriteString("[user]\n")
-		case MessageRoleTool:
+			b.WriteString(m.Content)
+		case m.Role == MessageRoleTool:
 			b.WriteString("[tool output]\n")
+			b.WriteString(m.Content)
 		default:
 			b.WriteString("[assistant]\n")
+			b.WriteString(m.Content)
 		}
-		b.WriteString(m.Content)
 		for _, c := range m.ToolCalls {
 			fmt.Fprintf(&b, "\n[tool call] %s %s", c.Name, claudeSubToolArguments(c))
 		}

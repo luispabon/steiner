@@ -933,6 +933,12 @@ func TestClaudeSubTranscript(t *testing.T) {
 			}}},
 			contains: []string{"grep", `{"pattern":"TODO"}`},
 		},
+		{
+			name:     "interrupted partial is labelled with its exact raw text",
+			msgs:     []Message{{Role: MessageRoleAssistant, Content: "half a report" + claudeSubRecoveryNote, IncompleteText: "half a report"}},
+			contains: []string{claudeSubPartialLabel + "\n<<<\nhalf a report\n>>>"},
+			absent:   []string{"[assistant]\nhalf a report", claudeSubRecoveryNoteText},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1280,6 +1286,25 @@ func TestClaudeSubParseState(t *testing.T) {
 				t.Errorf("cli session = %q, want sess-1", st.CLISessionID)
 			}
 		})
+	}
+}
+
+// TestClaudeSubIncompleteTextLeavesDigestAndWireAlone proves the local
+// provenance of an interrupted partial changes neither the content identity the
+// append-only record compares nor the message's serialized form.
+func TestClaudeSubIncompleteTextLeavesDigestAndWireAlone(t *testing.T) {
+	complete := Message{Role: MessageRoleAssistant, Content: "half a report", Name: "bot"}
+	partial := complete
+	partial.IncompleteText = "raw-only-marker"
+	if got, want := claudeSubDigest(partial), claudeSubDigest(complete); got != want {
+		t.Fatalf("digest of an incomplete message = %q, want %q", got, want)
+	}
+	data, err := json.Marshal(partial)
+	if err != nil {
+		t.Fatalf("marshal message: %v", err)
+	}
+	if strings.Contains(string(data), "raw-only-marker") {
+		t.Errorf("serialized message = %s, want no local provenance", data)
 	}
 }
 

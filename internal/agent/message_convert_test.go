@@ -536,6 +536,17 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("incomplete assistant carries its raw text as provenance", func(t *testing.T) {
+		msg := Message{Role: MessageRoleAssistant, Content: "the report so far", Incomplete: true}
+		result := toProviderMessage(msg)
+		if got, want := result.IncompleteText, "the report so far"; got != want {
+			t.Fatalf("incomplete text = %q, want %q", got, want)
+		}
+		if got, want := result.Content, "the report so far"+interruptedAssistantNote; got != want {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("complete assistant gets no note", func(t *testing.T) {
 		msg := Message{Role: MessageRoleAssistant, Content: "the report"}
 		result := toProviderMessage(msg)
@@ -676,6 +687,25 @@ func TestMessageConvert_FromProviderMessage(t *testing.T) {
 		result := fromProviderMessage(msg)
 		if result.Role != MessageRole("system") {
 			t.Errorf("expected system, got %s", result.Role)
+		}
+	})
+
+	t.Run("interrupted provenance restores the stored partial", func(t *testing.T) {
+		msg := provider.Message{
+			Role:           provider.MessageRoleAssistant,
+			Content:        "half a report" + interruptedAssistantNote,
+			IncompleteText: "half a report",
+			Turn:           2,
+		}
+		result := fromProviderMessage(msg)
+		if got, want := result.Content, "half a report"; got != want {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+		if !result.Incomplete {
+			t.Error("incomplete = false, want true")
+		}
+		if got, want := toProviderMessage(result).Content, "half a report"+interruptedAssistantNote; got != want {
+			t.Fatalf("reprojected content = %q, want the note once: %q", got, want)
 		}
 	})
 

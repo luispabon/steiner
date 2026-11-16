@@ -98,6 +98,12 @@ type Message struct {
 	Images           []ImageBlock             `json:"images,omitempty"`
 	Turn             int                      `json:"turn,omitempty"`
 	ProviderMetadata *MessageProviderMetadata `json:"provider_metadata,omitempty"`
+	// IncompleteText, when non-empty, is the text of an assistant message that
+	// ended before it was complete, exactly as it streamed and without the
+	// interrupted note Content carries. It is local provenance for rendering a
+	// transcript, so no provider sends it, it is not part of any digest, and no
+	// persisted format stores it.
+	IncompleteText string `json:"-"`
 }
 
 // UsageStats carries token accounting returned by a provider.
