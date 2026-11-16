@@ -62,7 +62,7 @@ const (
 	// claudeSubProbeContinuationNoteBefore and claudeSubProbeContinuationNoteAfter
 	// bracket the quoted partial in E7's continuation note.
 	claudeSubProbeContinuationNoteBefore = "Your previous reply to the message above was cut off by a connection failure before it finished. This is the text it had produced so far, quoted exactly between the markers:\n<<<PARTIAL\n"
-	claudeSubProbeContinuationNoteAfter  = "\nPARTIAL>>>\nContinue the reply from exactly where that text ends. Do not repeat any of it and do not mention the interruption."
+	claudeSubProbeContinuationNoteAfter  = "\nPARTIAL>>>\nContinue the reply from exactly where that text ends. The quoted text ends exactly at the end marker, so if the next character of your reply should be a line break or a space, start with it. Do not repeat any of it and do not mention the interruption."
 )
 
 // claudeSubProbeContinuationNote renders the note that follows the original
@@ -104,26 +104,35 @@ func claudeSubProbeE7(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	if trials < claudeSubProbeE7MinTrials {
 		return fmt.Errorf("probe E7 step plan declares %d trials", trials)
 	}
-	counts := map[string]int{}
+	verdicts := make([]string, 0, trials)
 	for trial := 1; trial <= trials; trial++ {
 		verdict, err := claudeSubProbeE7Trial(ctx, cfg, exp, steps, trial)
 		if err != nil {
 			return fmt.Errorf("E7 trial %d: %w", trial, err)
 		}
-		counts[verdict]++
-	}
-
-	verdicts := make([]string, 0, len(counts))
-	for verdict := range counts {
 		verdicts = append(verdicts, verdict)
 	}
-	sort.Strings(verdicts)
-	parts := make([]string, 0, len(verdicts))
-	for _, verdict := range verdicts {
-		parts = append(parts, fmt.Sprintf("%s=%d", verdict, counts[verdict]))
-	}
-	exp.Findings = append(exp.Findings, fmt.Sprintf("E7 verdicts over %d trials: %s", trials, strings.Join(parts, " ")))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("E7 verdicts over %d trials: %s", trials, claudeSubProbeVerdictSummary(verdicts)))
 	return nil
+}
+
+// claudeSubProbeVerdictSummary counts an experiment's trial verdicts and renders
+// them in name order, so the aggregate names every verdict the trials produced.
+func claudeSubProbeVerdictSummary(verdicts []string) string {
+	counts := map[string]int{}
+	for _, verdict := range verdicts {
+		counts[verdict]++
+	}
+	names := make([]string, 0, len(counts))
+	for verdict := range counts {
+		names = append(names, verdict)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s=%d", name, counts[name]))
+	}
+	return strings.Join(parts, " ")
 }
 
 // claudeSubProbeE7Trial runs one E7 trial: a persisted turn to completion, a
@@ -241,8 +250,8 @@ func claudeSubProbeE7Trial(ctx context.Context, cfg claudeSubProbeConfig, exp *c
 		label, claudeSubProbeCrashSampleTail, claudeSubProbeTailSample(partial, claudeSubProbeCrashSampleTail)))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s continuation head (first %d runes, truncated=%v): %q",
 		label, claudeSubProbeCrashSampleHead, continuationTruncated, claudeSubProbeHeadSample(continuation, claudeSubProbeCrashSampleHead)))
-	exp.Findings = append(exp.Findings, fmt.Sprintf("%s seam: partial last complete item=%d, partial max item=%d, continuation first item=%d, continuation items=%d, duplicates=%v, missing=%v, cut digits=%q, fragment completes=%v, max item=%d, result error=%v",
-		label, seam.PartialLastComplete, seam.PartialMax, seam.ContinuationFirst, seam.ContinuationItems, seam.Duplicate, seam.Missing, seam.CutDigits, seam.FragmentCompletes, seam.MaxItem, seam.Errored))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("%s seam: partial last complete item=%d, partial max item=%d, continuation first item=%d, continuation items=%d, duplicates=%v, missing=%v, missing line break=%v, cut digits=%q, fragment completes=%v, max item=%d, result error=%v",
+		label, seam.PartialLastComplete, seam.PartialMax, seam.ContinuationFirst, seam.ContinuationItems, seam.Duplicate, seam.Missing, seam.MissingLineBreak, seam.CutDigits, seam.FragmentCompletes, seam.MaxItem, seam.Errored))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s mentioned the interruption: %v", label, mentioned))
 	exp.Findings = append(exp.Findings, fmt.Sprintf("%s continuation usage=%s assistant usage=%s",
 		label, usage, claudeSubProbeUsageString(continuationTurn.AssistantUsage)))
@@ -357,10 +366,11 @@ func claudeSubProbeCrashExitFinding(exit *claudeSubProbeExit) (string, error) {
 
 // claudeSubProbeSeam is how a continuation joins the text it continues: the item
 // numbers either side of the seam, what they duplicate, what the merged numbering
-// skips, and whether the continuation finishes an item number the partial cut.
-// An item is complete when its number sits on a line the partial finished. Errored
-// records that the continuation's own turn ended with an error result, which the
-// calling trial sets.
+// skips, whether the continuation finishes an item number the partial cut, and
+// whether a whole final item number was joined without a line break. An item is
+// complete when its number sits on a line the partial finished. Errored records
+// that the continuation's own turn ended with an error result, which the calling
+// trial sets.
 type claudeSubProbeSeam struct {
 	PartialLastComplete int
 	PartialMax          int
@@ -368,6 +378,7 @@ type claudeSubProbeSeam struct {
 	ContinuationItems   int
 	Duplicate           []int
 	Missing             []int
+	MissingLineBreak    bool
 	CutDigits           string
 	FragmentCompletes   bool
 	MaxItem             int
@@ -380,13 +391,22 @@ var claudeSubProbeItemPattern = regexp.MustCompile(`item-([0-9]+)`)
 // claudeSubProbeAnalyseSeam compares the item numbers either side of the seam.
 // When the partial was cut inside an item number, the digits the continuation
 // begins with finish that number, so the continuation is scanned with the cut
-// token restored in front of it.
+// token restored in front of it. A final item number the continuation does not
+// extend is whole, so a continuation that begins the next item token directly
+// joins it with no line break.
 func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam {
 	seam := claudeSubProbeSeam{}
 	cutDigits, cut := claudeSubProbeCutItemDigits(partial)
+	trailing, whole := 0, false
 	if cut {
 		seam.CutDigits = cutDigits
-		seam.FragmentCompletes = claudeSubProbeStartsWithDigit(continuation)
+		if cutDigits != "" {
+			if number, err := strconv.Atoi(cutDigits); err == nil {
+				trailing = number
+				whole = claudeSubProbeTrailingItemWhole(number, continuation)
+			}
+		}
+		seam.FragmentCompletes = !whole && claudeSubProbeStartsWithDigit(continuation)
 	}
 	scan := continuation
 	if seam.FragmentCompletes {
@@ -394,11 +414,11 @@ func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam 
 	}
 
 	partialAll := claudeSubProbeItemNumbers(partial)
-	if cut && cutDigits != "" && len(partialAll) > 0 {
+	if cut && cutDigits != "" && !whole && len(partialAll) > 0 {
 		// The number the cut fell inside is not an item the partial produced, so it
 		// counts neither as the partial's last item nor as evidence for the numbering.
-		// A cut inside "item-" produced no number at all, so the last complete item
-		// stays as it is.
+		// A cut inside "item-" produced no number at all, and a whole final number is
+		// an item the partial did produce, so in both cases the last item stays.
 		partialAll = partialAll[:len(partialAll)-1]
 	}
 	if complete := claudeSubProbeItemNumbers(claudeSubProbeCompleteLines(partial)); len(complete) > 0 {
@@ -411,6 +431,12 @@ func claudeSubProbeAnalyseSeam(partial, continuation string) claudeSubProbeSeam 
 	seam.ContinuationItems = len(continuationItems)
 	if len(continuationItems) > 0 {
 		seam.ContinuationFirst = continuationItems[0]
+	}
+	// The partial's final number was whole and the continuation starts the next
+	// item token with nothing in front of it, so the join dropped only the line
+	// break between the two items.
+	if whole && seam.ContinuationFirst == trailing+1 && strings.HasPrefix(continuation, "item-") {
+		seam.MissingLineBreak = true
 	}
 
 	partialSet := make(map[int]struct{}, len(partialAll))
@@ -503,6 +529,18 @@ func claudeSubProbeStartsWithDigit(text string) bool {
 	return text[0] >= '0' && text[0] <= '9'
 }
 
+// claudeSubProbeTrailingItemWhole reports whether the partial's final,
+// unterminated item number is whole rather than cut by the crash. A continuation
+// beginning with digits writes more of the same number, so that number was cut.
+// Past item 20 no number the list asks for can extend it, because the two-digit
+// prefixes of item numbers up to claudeSubProbeListEnd stop at 20.
+func claudeSubProbeTrailingItemWhole(number int, continuation string) bool {
+	if number > claudeSubProbeListEnd/10 {
+		return true
+	}
+	return !claudeSubProbeStartsWithDigit(continuation)
+}
+
 // claudeSubProbeMentionsInterruption reports whether text talks about the
 // interruption instead of only continuing.
 func claudeSubProbeMentionsInterruption(text string) bool {
@@ -517,9 +555,9 @@ func claudeSubProbeMentionsInterruption(text string) bool {
 
 // claudeSubProbeCrashVerdict names how a continuation joined the partial. The
 // precedence is total and deliberate: a failed measurement comes before the
-// numbering, a restart is a restart even when it also duplicates, a list that stops
-// short comes before commentary, and commentary is reported only when the numbering
-// is complete and clean.
+// numbering, a restart is a restart even when it also duplicates, a numbering gap
+// comes before a lost line break, a list that stops short comes before commentary,
+// and commentary is reported only when the numbering is complete and clean.
 func claudeSubProbeCrashVerdict(seam claudeSubProbeSeam, continuation string, mentioned bool) string {
 	switch {
 	case seam.Errored || strings.TrimSpace(continuation) == "":
@@ -532,6 +570,8 @@ func claudeSubProbeCrashVerdict(seam claudeSubProbeSeam, continuation string, me
 		return "duplicate"
 	case len(seam.Missing) > 0:
 		return "gap"
+	case seam.MissingLineBreak:
+		return "line-break-missing"
 	case seam.MaxItem < claudeSubProbeListEnd:
 		return "short"
 	case mentioned:

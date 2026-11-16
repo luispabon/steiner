@@ -18,7 +18,9 @@ func TestClaudeSubProbeContinuationNote(t *testing.T) {
 	want := "Your previous reply to the message above was cut off by a connection failure before it finished. " +
 		"This is the text it had produced so far, quoted exactly between the markers:\n" +
 		"<<<PARTIAL\n" + partial + "\nPARTIAL>>>\n" +
-		"Continue the reply from exactly where that text ends. Do not repeat any of it and do not mention the interruption."
+		"Continue the reply from exactly where that text ends. " +
+		"The quoted text ends exactly at the end marker, so if the next character of your reply should be a line break or a space, start with it. " +
+		"Do not repeat any of it and do not mention the interruption."
 	if got := claudeSubProbeContinuationNote(partial); got != want {
 		t.Fatalf("continuation note = %q, want %q", got, want)
 	}
@@ -97,6 +99,46 @@ func TestClaudeSubProbeSeamAnalysis(t *testing.T) {
 			wantVerdict: "gap",
 		},
 		{
+			name:         "line break after a whole final item number",
+			partial:      claudeSubProbeItemText(1, 40) + "item-41",
+			continuation: "\n" + claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 41, ContinuationFirst: 42, ContinuationItems: 159,
+				CutDigits: "41", MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "no line break after a whole final item number",
+			partial:      claudeSubProbeItemText(1, 40) + "item-41",
+			continuation: claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 41, ContinuationFirst: 42, ContinuationItems: 159,
+				MissingLineBreak: true, CutDigits: "41", MaxItem: 200},
+			wantVerdict: "line-break-missing",
+		},
+		{
+			name:         "no line break after an ambiguous short whole item number",
+			partial:      claudeSubProbeItemText(1, 18) + "item-19",
+			continuation: claudeSubProbeItemText(20, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 18, PartialMax: 19, ContinuationFirst: 20, ContinuationItems: 181,
+				MissingLineBreak: true, CutDigits: "19", MaxItem: 200},
+			wantVerdict: "line-break-missing",
+		},
+		{
+			name:         "ambiguous short item number completed by the continuation",
+			partial:      claudeSubProbeItemText(1, 14) + "item-1",
+			continuation: "5\n" + claudeSubProbeItemText(16, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 14, PartialMax: 14, ContinuationFirst: 15, ContinuationItems: 186,
+				CutDigits: "1", FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "cut item number completed by the continuation without a gap",
+			partial:      claudeSubProbeItemText(1, 40) + "item-4",
+			continuation: "1 forty-one\n" + claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 41, ContinuationItems: 160,
+				CutDigits: "4", FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
 			name:         "list stops short of the end",
 			partial:      claudeSubProbeItemText(1, 2),
 			continuation: claudeSubProbeItemText(3, 100),
@@ -146,6 +188,28 @@ func TestClaudeSubProbeSeamAnalysis(t *testing.T) {
 			t.Fatalf("verdict = %q, want commentary", verdict)
 		}
 	})
+}
+
+// TestClaudeSubProbeVerdictSummary checks the aggregate a repeated experiment
+// reports: one entry per verdict in name order, including a lost line break.
+func TestClaudeSubProbeVerdictSummary(t *testing.T) {
+	cases := []struct {
+		name     string
+		verdicts []string
+		want     string
+	}{
+		{name: "no trials", want: ""},
+		{name: "one verdict", verdicts: []string{"clean"}, want: "clean=1"},
+		{name: "repeated and new verdicts", verdicts: []string{"line-break-missing", "clean", "line-break-missing"},
+			want: "clean=1 line-break-missing=2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := claudeSubProbeVerdictSummary(tc.verdicts); got != tc.want {
+				t.Fatalf("verdict summary = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 // TestClaudeSubProbeCutItemDigits checks the cut detection behind the fragment
