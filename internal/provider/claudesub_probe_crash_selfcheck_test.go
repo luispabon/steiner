@@ -99,6 +99,46 @@ func TestClaudeSubProbeSeamAnalysis(t *testing.T) {
 			wantVerdict: "gap",
 		},
 		{
+			name:         "continuation finishes a digitless item fragment",
+			partial:      claudeSubProbeItemText(1, 40) + "item",
+			continuation: "-41\n" + claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 41, ContinuationItems: 160,
+				FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "line break kept after a whole final item number",
+			partial:      claudeSubProbeItemText(1, 41),
+			continuation: claudeSubProbeItemText(42, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 41, PartialMax: 41, ContinuationFirst: 42, ContinuationItems: 159,
+				MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "numbered list cut between the prefix and the item",
+			partial:      claudeSubProbeNumberedItemText(1, 41) + "42",
+			continuation: ". item-42\n" + claudeSubProbeNumberedItemText(43, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 41, PartialMax: 41, ContinuationFirst: 42, ContinuationItems: 159,
+				MaxItem: 200},
+			wantVerdict: "clean",
+		},
+		{
+			name:         "digitless item fragment completed across a gap",
+			partial:      claudeSubProbeItemText(1, 40) + "item",
+			continuation: "-42\n" + claudeSubProbeItemText(43, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 42, ContinuationItems: 159,
+				Missing: []int{41}, FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "gap",
+		},
+		{
+			name:         "duplicate item after a digitless item fragment",
+			partial:      claudeSubProbeItemText(1, 40) + "item",
+			continuation: "-40 forty\n" + claudeSubProbeItemText(41, 200),
+			want: claudeSubProbeSeam{PartialLastComplete: 40, PartialMax: 40, ContinuationFirst: 40, ContinuationItems: 161,
+				Duplicate: []int{40}, FragmentCompletes: true, MaxItem: 200},
+			wantVerdict: "duplicate",
+		},
+		{
 			name:         "line break after a whole final item number",
 			partial:      claudeSubProbeItemText(1, 40) + "item-41",
 			continuation: "\n" + claudeSubProbeItemText(42, 200),
@@ -393,6 +433,17 @@ func claudeSubProbeItemText(from, to int) string {
 	var builder strings.Builder
 	for number := from; number <= to; number++ {
 		fmt.Fprintf(&builder, "item-%d\n", number)
+	}
+	return builder.String()
+}
+
+// claudeSubProbeNumberedItemText renders one numbered line per item from..to, which
+// is the other list shape the E7 prompt accepts: the prefix number, a period and the
+// item.
+func claudeSubProbeNumberedItemText(from, to int) string {
+	var builder strings.Builder
+	for number := from; number <= to; number++ {
+		fmt.Fprintf(&builder, "%d. item-%d\n", number, number)
 	}
 	return builder.String()
 }
