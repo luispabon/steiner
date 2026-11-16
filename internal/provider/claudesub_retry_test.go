@@ -388,3 +388,42 @@ func TestClaudeSubAPIRetryMessage(t *testing.T) {
 		})
 	}
 }
+
+// TestClaudeSubReportedEmitSkipsAPIRetryNotices proves an advisor api_retry
+// notice never reports the pending replacement warning ahead of output the attempt
+// did not produce: the warning waits for the first chunk that carries output, and
+// that attempt still clears the notice it reported.
+func TestClaudeSubReportedEmitSkipsAPIRetryNotices(t *testing.T) {
+	pool, _ := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	key := claudeSubAdvisorSessionKey("parent")
+	pool.noteReplacement(key)
+	var emitted []ChatChunk
+	report := &claudeSubReplacementReport{pool: pool, key: key, emit: func(chunk ChatChunk) error {
+		emitted = append(emitted, chunk)
+		return nil
+	}}
+	emit := claudeSubReportedEmit(report)
+	notice := claudeSubAPIRetryChunk(claudeSubAPIRetry{Attempt: 1, MaxRetries: 10, RetryDelay: time.Second, Error: "overloaded"})
+	if err := emit(notice); err != nil {
+		t.Fatalf("emit api retry notice: %v", err)
+	}
+	if len(emitted) != 1 {
+		t.Fatalf("emitted %+v, want only the notice: the warning must wait for output", emitted)
+	}
+	if emitted[0].Diagnostic != notice.Diagnostic {
+		t.Errorf("emitted chunk = %q, want the notice %q", emitted[0].Diagnostic, notice.Diagnostic)
+	}
+	if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: "answer"}}); err != nil {
+		t.Fatalf("emit content: %v", err)
+	}
+	if len(emitted) != 3 {
+		t.Fatalf("emitted %+v, want notice, replacement warning and content", emitted)
+	}
+	if want := claudeSubAdvisorReplacementWarning; emitted[1].Diagnostic != want {
+		t.Errorf("warning = %q, want %q", emitted[1].Diagnostic, want)
+	}
+	report.confirm()
+	if pool.replacementPending(key) {
+		t.Error("the replacement notice survived being reported")
+	}
+}

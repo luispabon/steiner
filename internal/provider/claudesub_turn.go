@@ -158,9 +158,13 @@ func (r *claudeSubReplacementReport) confirm() {
 }
 
 // claudeSubReportedEmit wraps emit so the attempt reports a pending replacement
-// before its first chunk.
+// before its first chunk that carries output. An api_retry notice carries none, so
+// it passes through without reporting the warning.
 func claudeSubReportedEmit(report *claudeSubReplacementReport) func(ChatChunk) error {
 	return func(chunk ChatChunk) error {
+		if claudeSubAPIRetryNotice(chunk) {
+			return report.emit(chunk)
+		}
 		if err := report.before(); err != nil {
 			return err
 		}
