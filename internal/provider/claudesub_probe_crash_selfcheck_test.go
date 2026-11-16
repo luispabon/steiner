@@ -15,7 +15,7 @@ import (
 // block of the same user line.
 func TestClaudeSubProbeContinuationNote(t *testing.T) {
 	partial := "item-1 one\nitem-2 two"
-	want := "Your previous reply to the message above was cut off by a connection failure before it finished. " +
+	want := "Your previous reply to the message above was cut off by an error before it finished. " +
 		"This is the text it had produced so far, quoted exactly between the markers:\n" +
 		"<<<PARTIAL\n" + partial + "\nPARTIAL>>>\n" +
 		"Continue the reply from exactly where that text ends. " +

@@ -61,7 +61,7 @@ const (
 
 	// claudeSubProbeContinuationNoteBefore and claudeSubProbeContinuationNoteAfter
 	// bracket the quoted partial in E7's continuation note.
-	claudeSubProbeContinuationNoteBefore = "Your previous reply to the message above was cut off by a connection failure before it finished. This is the text it had produced so far, quoted exactly between the markers:\n<<<PARTIAL\n"
+	claudeSubProbeContinuationNoteBefore = "Your previous reply to the message above was cut off by an error before it finished. This is the text it had produced so far, quoted exactly between the markers:\n<<<PARTIAL\n"
 	claudeSubProbeContinuationNoteAfter  = "\nPARTIAL>>>\nContinue the reply from exactly where that text ends. The quoted text ends exactly at the end marker, so if the next character of your reply should be a line break or a space, start with it. Do not repeat any of it and do not mention the interruption."
 )
 
