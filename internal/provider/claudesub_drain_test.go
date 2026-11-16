@@ -89,6 +89,19 @@ func claudeSubRunStreamCollected(t *testing.T, pool *ClaudeSubscriptionPool, req
 	return got
 }
 
+// claudeSubWantOneExactWarning asserts the turn emitted exactly one warning and
+// that it is the expected text.
+func claudeSubWantOneExactWarning(t *testing.T, got claudeSubCollected, wantText string) {
+	t.Helper()
+	warnings := got.warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %q, want exactly one", warnings)
+	}
+	if want := claudeSubWarningChunk(wantText).Diagnostic; warnings[0] != want {
+		t.Errorf("warning = %q, want %q", warnings[0], want)
+	}
+}
+
 // claudeSubWantDrainedReuse asserts the follow-up ran on the cancelled turn's
 // own process with no replacement warning and its own answer.
 func claudeSubWantDrainedReuse(t *testing.T, spawner *claudeSubTestSpawner, got claudeSubCollected) {
@@ -357,7 +370,9 @@ func TestClaudeSubDrainFallsBack(t *testing.T) {
 			if !spawner.call(t, 0).Conn.isClosed() {
 				t.Error("the unproven process was reused")
 			}
-			claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+			// The unproven process is replaced and the recovery reseeds the whole
+			// history, so the one warning covers both.
+			claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 		})
 	}
 }
@@ -423,7 +438,7 @@ func TestClaudeSubDrainFallsBackWhenProcessExits(t *testing.T) {
 	if n := spawner.callCount(); n != 2 {
 		t.Fatalf("spawn count = %d, want 2 (the exited process replaced)", n)
 	}
-	claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 }
 
 // TestClaudeSubDrainParentReseedsAfterStop pins the parent outcome: draining
@@ -491,12 +506,13 @@ func TestClaudeSubDrainParentReseedsAfterStop(t *testing.T) {
 	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
 		t.Fatalf("replacement user lines = %q, want one rendered transcript", lines)
 	}
-	if !strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubRecoveryNoteText) {
-		t.Errorf("reseed transcript = %s, want the kept partial and its notice", lines[0])
+	if !strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubPartialLabel) {
+		t.Errorf("reseed transcript = %s, want the kept partial under its interrupted label", lines[0])
 	}
-	if warnings := got.warnings(); len(warnings) != 0 {
-		t.Errorf("warnings = %q, want none: a drained turn discards no unproven process", warnings)
-	}
+	// The drained stop discards no unproven process, so no replacement notice is
+	// recorded. The reseed itself still replays the history flattened, which is
+	// the one warning this turn reports.
+	claudeSubWantOneExactWarning(t, got, claudeSubFlattenedReseedWarning)
 }
 
 // TestClaudeSubDrainStopsOnPoolClose proves the drain never holds pool shutdown:
@@ -672,7 +688,7 @@ func TestClaudeSubDrainFallsBackOnUnexpectedEntry(t *testing.T) {
 	if !conn.isClosed() {
 		t.Error("a record changed by another writer was reused")
 	}
-	claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 }
 
 // TestClaudeSubSyncDrainedPartialAcceptance proves the drained ledger state
@@ -688,6 +704,9 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 		fields.Role = MessageRoleAssistant
 		if fields.Content == "" {
 			fields.Content = "partial"
+		}
+		if fields.IncompleteText == "" {
+			fields.IncompleteText = fields.Content
 		}
 		return fields
 	}
@@ -731,7 +750,7 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 			claudeSubSyncUserMsg("hi"),
 			claudeSubSyncAssistantMsg("a1", "c1"),
 			claudeSubSyncToolMsg("c1", "body"),
-			{Role: MessageRoleAssistant, Content: "partial", Turn: 2},
+			{Role: MessageRoleAssistant, Content: "partial", IncompleteText: "partial", Turn: 2},
 		}})
 		if err != nil {
 			t.Fatalf("plan: %v", err)
@@ -765,6 +784,10 @@ func TestClaudeSubSyncDrainedPartialAcceptance(t *testing.T) {
 			name: "no drained state",
 			msgs: []Message{claudeSubSyncUserMsg("hi"), partial(Message{Turn: 1})},
 		},
+		{
+			name: "no incomplete marker",
+			msgs: []Message{claudeSubSyncUserMsg("hi"), {Role: MessageRoleAssistant, Content: "partial", Turn: 1}},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -787,7 +810,7 @@ func TestClaudeSubSyncDrainedClearedByCommitSent(t *testing.T) {
 	s.markDrained(0)
 	msgs := []Message{
 		claudeSubSyncUserMsg("hi"),
-		{Role: MessageRoleAssistant, Content: "partial", Turn: 1},
+		{Role: MessageRoleAssistant, Content: "partial", IncompleteText: "partial", Turn: 1},
 		claudeSubSyncUserMsg("again"),
 	}
 	delta, err := s.plan(ChatRequest{Messages: msgs})
@@ -898,7 +921,7 @@ func TestClaudeSubFinishPendingDrainFailureRetires(t *testing.T) {
 			if !conn.isClosed() {
 				t.Error("the unproven process was reused")
 			}
-			claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+			claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 		})
 	}
 }
@@ -935,7 +958,7 @@ func TestClaudeSubFinishPendingDrainFailureOnExit(t *testing.T) {
 	if n := spawner.callCount(); n != 2 {
 		t.Fatalf("spawn count = %d, want 2 (the exited process replaced)", n)
 	}
-	claudeSubWantOneWarning(t, got, claudeSubReplacedProcessWarning)
+	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 }
 
 // TestClaudeSubFinishPendingDrainThenCancelledDelivery proves the stale-call
@@ -1150,7 +1173,7 @@ func TestClaudeSubSyncDrainedRefusesSummary(t *testing.T) {
 func TestClaudeSubSyncDrainedRejectsEditedUserLine(t *testing.T) {
 	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
 	s.markDrained(0)
-	msgs := []Message{claudeSubSyncUserMsg("changed"), {Role: MessageRoleAssistant, Content: "partial", Turn: 1}}
+	msgs := []Message{claudeSubSyncUserMsg("changed"), {Role: MessageRoleAssistant, Content: "partial", IncompleteText: "partial", Turn: 1}}
 	if _, err := s.plan(ChatRequest{Messages: msgs}); !errors.Is(err, errClaudeSubHistoryChanged) {
 		t.Fatalf("err = %v, want errClaudeSubHistoryChanged", err)
 	}

@@ -65,8 +65,14 @@ func claudeSubTextOnlyAssistant(m Message) bool {
 // claudeSubDrainedPartial reports whether m is the partial assistant the agent
 // kept from the turn a drain recovered. It must carry exactly the text-only
 // shape claudeSubTextOnlyAssistant requires, except that the agent records the
-// partial on the turn it streamed in, so Turn is not required to be zero.
+// partial on the turn it streamed in, so Turn is not required to be zero, and it
+// must carry the IncompleteText marker that makes it an interrupted partial.
+// Without that marker a text-only assistant the CLI never produced would be
+// accepted on the strength of its turn stamp alone.
 func claudeSubDrainedPartial(m Message) bool {
+	if m.IncompleteText == "" {
+		return false
+	}
 	m.Turn = 0
 	return claudeSubTextOnlyAssistant(m)
 }
