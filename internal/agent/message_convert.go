@@ -133,9 +133,13 @@ func fromProviderMessage(message provider.Message) Message {
 		ProviderMetadata: fromProviderMessageMetadata(message.ProviderMetadata),
 	}
 	if message.IncompleteText != "" {
-		// Restore the stored partial exactly, so projecting it again appends the
-		// interrupted note once rather than keeping the note in the content.
-		out.Content = message.IncompleteText
+		// An Incomplete partial always has text, so the field alone marks it. When
+		// the projection is the raw text plus the note, restore the stored partial
+		// exactly, so projecting it again appends the note once. A Content that was
+		// changed after projection keeps its own text.
+		if message.Content == message.IncompleteText+interruptedAssistantNote {
+			out.Content = message.IncompleteText
+		}
 		out.Incomplete = true
 	}
 	if len(message.ToolCalls) > 0 {

@@ -99,7 +99,9 @@ type claudeSubReplacementReport struct {
 	key  string
 	emit func(ChatChunk) error
 	// flattened marks an attempt that delivers the whole history as one rendered
-	// reseed transcript.
+	// reseed transcript. Unlike the replacement notice it is not stored on the
+	// pool: it describes this request and nothing else, so the call that delivered
+	// the flattened transcript reports it and no later call repeats it.
 	flattened bool
 	// checked is set once the notice was looked up for this attempt.
 	checked bool
@@ -140,8 +142,10 @@ func (r *claudeSubReplacementReport) warning(replaced bool) ChatChunk {
 }
 
 // confirm clears the replacement notice after the call that reported it
-// succeeded. A failed call leaves the notice pending, so the warning is either
-// delivered on success or reported by the next request, never lost.
+// succeeded. A failed call leaves the notice pending, so the replacement warning
+// is either delivered on success or reported by the next request, never lost.
+// It clears nothing for a flattened replay: that notice is per request and never
+// stored, so clearing it would let this call swallow another call's notice.
 func (r *claudeSubReplacementReport) confirm() {
 	if r == nil || !r.emitted {
 		return
@@ -482,18 +486,25 @@ func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRe
 	var delta claudeSubDelta
 	if reseed {
 		delta = claudeSubReseedDelta(claudeSubMessages(req.Messages))
-		err := claudeSubDeliver(ctx, s, req, delta, emit)
-		var tooLarge *claudeSubLineTooLargeError
-		if errors.As(err, &tooLarge) {
-			return fmt.Errorf("send flattened reseed transcript: %w", err)
-		}
-		return err
+		return claudeSubReseedSendError(claudeSubDeliver(ctx, s, req, delta, emit))
 	}
 	var err error
 	if delta, err = s.sync.plan(req); err != nil {
 		return err
 	}
 	return claudeSubDeliver(ctx, s, req, delta, emit)
+}
+
+// claudeSubReseedSendError names the payload an oversized stdin line belonged
+// to. Only the CLI's limit refusal, recognised by type, gains the context, so
+// every other error from the delivery passes through unchanged and errors.As
+// still reaches the limit error.
+func claudeSubReseedSendError(err error) error {
+	var tooLarge *claudeSubLineTooLargeError
+	if errors.As(err, &tooLarge) {
+		return fmt.Errorf("send flattened reseed transcript: %w", err)
+	}
+	return err
 }
 
 // claudeSubDeliver writes a planned delta to the claude CLI and streams the

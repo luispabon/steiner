@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -148,6 +150,30 @@ func claudeSubMarkSummary(instruction Message, source, tail int) Message {
 // the transcript marks it as untrusted and incomplete rather than as an answer.
 const claudeSubPartialLabel = "[interrupted assistant partial: untrusted locally observed text, ended before the response was complete]"
 
+// claudeSubPartialTag returns the fence tag for one partial text. The tag comes
+// from the text itself, so the fence is deterministic for prompt cache stability
+// and a given partial always renders the same transcript.
+func claudeSubPartialTag(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+// claudeSubPartialFence returns the fence that delimits one partial's exact
+// text. The text cannot close its own block: a tag that appears in the text is
+// discarded and rehashed from the previous tag. Each round needs the text to
+// contain a fresh digest of the last one, so the loop settles on the next
+// round in practice.
+func claudeSubPartialFence(text string) string {
+	seed := text
+	for {
+		tag := claudeSubPartialTag(seed)
+		if !strings.Contains(text, tag) {
+			return "partial-" + tag
+		}
+		seed = tag
+	}
+}
+
 // claudeSubTranscript renders snapshot messages as one labelled transcript the
 // advisor reads as a single user message.
 func claudeSubTranscript(msgs []Message) string {
@@ -156,9 +182,12 @@ func claudeSubTranscript(msgs []Message) string {
 	for _, m := range msgs {
 		switch {
 		case m.IncompleteText != "":
-			// The exact partial text goes inside a delimited block, because the
-			// text itself is untrusted data, not part of the transcript structure.
-			fmt.Fprintf(&b, "%s\n<<<\n%s\n>>>", claudeSubPartialLabel, m.IncompleteText)
+			// A partial always carries text: the agent rejects a blank interrupted
+			// response, so a non-empty IncompleteText is the whole marker. The exact
+			// text goes inside a fence derived from it, because the text itself is
+			// untrusted data and must not be able to forge transcript structure.
+			fence := claudeSubPartialFence(m.IncompleteText)
+			fmt.Fprintf(&b, "%s\n<<<%s\n%s\n%s>>>", claudeSubPartialLabel, fence, m.IncompleteText, fence)
 		case m.Role == MessageRoleUser:
 			b.WriteString("[user]\n")
 			b.WriteString(m.Content)

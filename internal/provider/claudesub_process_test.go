@@ -435,6 +435,38 @@ func TestClaudeSubProcessWriteFailureReachesCoordinator(t *testing.T) {
 	}
 }
 
+// TestClaudeSubReseedSendErrorNamesFlattenedTranscript proves, against the real
+// process limit, that a reseed delivery names the flattened transcript it could
+// not send, keeps errors.As working, and leaves other errors untouched.
+func TestClaudeSubReseedSendErrorNamesFlattenedTranscript(t *testing.T) {
+	oldCeiling := claudeSubMaxSendBytes
+	claudeSubMaxSendBytes = 16
+	t.Cleanup(func() { claudeSubMaxSendBytes = oldCeiling })
+
+	// No writer goroutine runs here, so only the size check can fail the send.
+	p := &claudeSubProcess{started: make(chan struct{})}
+	p.sendCond = sync.NewCond(&p.sendMu)
+	err := p.Send([]byte(strings.Repeat("x", 17)))
+	var tooLarge *claudeSubLineTooLargeError
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("Send error = %v, want a *claudeSubLineTooLargeError", err)
+	}
+	if tooLarge.limit != 16 {
+		t.Errorf("limit = %d, want the lowered ceiling 16", tooLarge.limit)
+	}
+	wrapped := claudeSubReseedSendError(err)
+	if !strings.HasPrefix(wrapped.Error(), "send flattened reseed transcript: ") {
+		t.Errorf("reseed error = %q, want it to name the flattened transcript", wrapped)
+	}
+	if !errors.As(wrapped, &tooLarge) {
+		t.Errorf("reseed error = %v, want errors.As to reach the limit error", wrapped)
+	}
+	other := errors.New("claude CLI connection is closed")
+	if got := claudeSubReseedSendError(other); got != other {
+		t.Errorf("non-reseed error = %v, want it returned unchanged", got)
+	}
+}
+
 // TestClaudeSubProcessSendBounds proves Send rejects a line over the stdin
 // ceiling before queueing it, and that the process stays usable afterwards.
 func TestClaudeSubProcessSendBounds(t *testing.T) {

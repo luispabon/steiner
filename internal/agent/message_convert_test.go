@@ -681,6 +681,31 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 	})
 }
 
+// TestInitializeRunStateRestoresInterruptedPartial proves a provider conversation
+// round trip keeps the interrupted partial as an incomplete message: the run
+// state sees the raw text and the Incomplete flag, not the appended note.
+func TestInitializeRunStateRestoresInterruptedPartial(t *testing.T) {
+	original := []Message{
+		{Role: MessageRoleUser, Content: "read notes"},
+		{Role: MessageRoleAssistant, Content: "half a report", Incomplete: true, Turn: 1},
+		{Role: MessageRoleUser, Content: "again"},
+	}
+	state := initializeRunState(RunRequest{Prompt: prompt.AssemblyOptions{Conversation: ToProviderMessages(original)}})
+	if len(state.Conversation) != 3 {
+		t.Fatalf("conversation = %#v, want three messages", state.Conversation)
+	}
+	partial := state.Conversation[1]
+	if got, want := partial.Content, "half a report"; got != want {
+		t.Errorf("partial content = %q, want %q", got, want)
+	}
+	if !partial.Incomplete {
+		t.Error("partial incomplete = false, want true")
+	}
+	if got, want := partial.Turn, 1; got != want {
+		t.Errorf("partial turn = %d, want %d", got, want)
+	}
+}
+
 func TestMessageConvert_FromProviderMessage(t *testing.T) {
 	t.Run("system role maps to string system", func(t *testing.T) {
 		msg := provider.Message{Role: provider.MessageRoleSystem, Content: "system"}
@@ -706,6 +731,21 @@ func TestMessageConvert_FromProviderMessage(t *testing.T) {
 		}
 		if got, want := toProviderMessage(result).Content, "half a report"+interruptedAssistantNote; got != want {
 			t.Fatalf("reprojected content = %q, want the note once: %q", got, want)
+		}
+	})
+
+	t.Run("modified content keeps its own text but stays incomplete", func(t *testing.T) {
+		msg := provider.Message{
+			Role:           provider.MessageRoleAssistant,
+			Content:        "edited half a report",
+			IncompleteText: "half a report",
+		}
+		result := fromProviderMessage(msg)
+		if got, want := result.Content, "edited half a report"; got != want {
+			t.Fatalf("content = %q, want the provider content %q", got, want)
+		}
+		if !result.Incomplete {
+			t.Error("incomplete = false, want true")
 		}
 	})
 

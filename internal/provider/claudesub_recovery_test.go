@@ -11,6 +11,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -467,4 +468,127 @@ func TestClaudeSubReseedCombinesWarnings(t *testing.T) {
 	if pool.replacementPending("parent") {
 		t.Error("the replacement notice survived being reported")
 	}
+}
+
+// claudeSubWantFlattenedWarning asserts the turn reported exactly the flattened
+// replay warning.
+func claudeSubWantFlattenedWarning(t *testing.T, got claudeSubCollected) {
+	t.Helper()
+	claudeSubWantOneWarning(t, got, claudeSubFlattenedReseedWarning)
+	if want := claudeSubWarningChunk(claudeSubFlattenedReseedWarning).Diagnostic; got.warnings()[0] != want {
+		t.Errorf("warning = %q, want exactly %q", got.warnings()[0], want)
+	}
+}
+
+// TestClaudeSubReseedWarningBranches proves every reseed branch of a
+// conversation reports the flattened replay once, and that a first turn with no
+// prior conversation reports nothing. The retry branch is covered by
+// TestClaudeSubCancelWarningReportsRetriedOutcome, where a pending replacement
+// applies too.
+func TestClaudeSubReseedWarningBranches(t *testing.T) {
+	model := claudeSubTestSpec().Model
+
+	t.Run("first turn reports nothing", func(t *testing.T) {
+		pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+		got := claudeSubRunCollected(t, pool, ChatRequest{
+			TransportSession: "parent",
+			Model:            model,
+			Messages:         []Message{claudeSubUserText("read notes")},
+		})
+		if got.err != nil {
+			t.Fatalf("turn error = %v", got.err)
+		}
+		if warnings := got.warnings(); len(warnings) != 0 {
+			t.Errorf("warnings = %q, want none for a first turn", warnings)
+		}
+		if lines := claudeSubUserLines(spawner.call(t, 0).Conn); len(lines) != 1 || strings.Contains(lines[0], "Conversation so far") {
+			t.Errorf("first turn user lines = %q, want the plain message", lines)
+		}
+	})
+
+	// A process that cannot restore the stored state starts fresh and reseeds.
+	t.Run("restore branches", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			noState bool
+			mutate  func(*claudeSubBackendState)
+		}{
+			{name: "no_state", noState: true},
+			{name: "fingerprint", mutate: func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }},
+			{name: "prefix", mutate: func(st *claudeSubBackendState) { st.SyncPrefixDigest = "bad" }},
+			{name: "final_uuid", mutate: func(st *claudeSubBackendState) { st.FinalUUID = "" }},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				assistant, st := claudeSubOpeningTurn(t)
+				var raw json.RawMessage
+				if !tt.noState {
+					if tt.mutate != nil {
+						tt.mutate(&st)
+					}
+					raw = claudeSubEncodeState(t, st)
+				}
+				pool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+				got := claudeSubRunCollected(t, pool, ChatRequest{
+					TransportSession: "parent",
+					Model:            model,
+					Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+					BackendState:     raw,
+				})
+				if got.err != nil {
+					t.Fatalf("turn error = %v", got.err)
+				}
+				claudeSubWantFlattenedWarning(t, got)
+			})
+		}
+	})
+
+	// A live process that cannot take the request is retired and the request
+	// reseeds on a fresh one.
+	t.Run("live branches", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			mutate  func(*claudeSubBackendState)
+			rewrite bool
+			dead    bool
+		}{
+			{name: "checkpoint", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }},
+			{name: "plan", rewrite: true},
+			{name: "exited", dead: true},
+			{name: "owner_fork", mutate: func(st *claudeSubBackendState) {
+				st.TransportSession = "previous-owner"
+				st.SyncPrefixDigest = "bad"
+			}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+				first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+				st := claudeSubDecodeState(t, first.BackendState)
+				if tt.mutate != nil {
+					tt.mutate(&st)
+				}
+				if tt.dead {
+					if err := spawner.call(t, 0).Conn.Close(context.Background()); err != nil {
+						t.Fatalf("close fake CLI: %v", err)
+					}
+					claudeSubWaitExited(t, pool, "parent")
+				}
+				msgs := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+				if tt.rewrite {
+					msgs[0] = claudeSubUserText("rewritten")
+				}
+				got := claudeSubRunCollected(t, pool, ChatRequest{
+					TransportSession: "parent",
+					Model:            model,
+					Messages:         msgs,
+					BackendState:     claudeSubEncodeState(t, st),
+				})
+				if got.err != nil {
+					t.Fatalf("turn error = %v", got.err)
+				}
+				claudeSubWantFlattenedWarning(t, got)
+			})
+		}
+	})
 }
