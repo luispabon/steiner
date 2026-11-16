@@ -245,10 +245,10 @@ func TestClaudeSubDiagnosticsCallKind(t *testing.T) {
 	}
 }
 
-// TestClaudeSubDiagnosticsResumeReseed proves a resumed process that fails before
-// output is reseeded inside the provider. The call still writes one successful
-// record with attempts 1, because the internal reseed is not counted.
-func TestClaudeSubDiagnosticsResumeReseed(t *testing.T) {
+// TestClaudeSubDiagnosticsResumeRetry proves a resumed process that fails before
+// output is recovered inside the provider. The call still writes one successful
+// record with attempts 1, because the internal retry is not counted.
+func TestClaudeSubDiagnosticsResumeRetry(t *testing.T) {
 	errEvent := claudeSubEvent{
 		Type:      "result",
 		Subtype:   "error_during_execution",
@@ -268,7 +268,7 @@ func TestClaudeSubDiagnosticsResumeReseed(t *testing.T) {
 		t.Fatalf("ChatCompletion() error = %v", err)
 	}
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
+		t.Fatalf("spawn count = %d, want 2 (failed resume, then the retry)", n)
 	}
 	rec := claudeSubDiagOneRecord(t, logPath)
 	if rec.Outcome != "ok" || rec.Attempts != 1 || rec.Error != "" {

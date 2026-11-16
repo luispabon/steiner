@@ -72,6 +72,9 @@ const (
 	// record no longer matched the request and resumed the stored session in a
 	// fork. No stop abandoned that process.
 	claudeSubRecoveryResumeAfterMismatch = "resume_after_mismatch"
+	// claudeSubRecoveryRetryPreOutput: the call replaced the process after a
+	// failure before any output and delivered the request again.
+	claudeSubRecoveryRetryPreOutput = "retry_pre_output"
 )
 
 // claudeSubCallMetrics accumulates the measurements claudeSubStream reports on

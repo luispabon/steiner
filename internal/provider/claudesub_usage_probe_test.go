@@ -549,35 +549,29 @@ func TestClaudeSubUsageLimitEndsTurn(t *testing.T) {
 	}
 }
 
-// TestClaudeSubShouldRetryTurn proves a usage-gate refusal is never retried on a
-// fresh process, while a pre-output failure with a resume target still is.
-func TestClaudeSubShouldRetryTurn(t *testing.T) {
+// TestClaudeSubUsageRefusalIsNotRecovered proves a usage refusal is never
+// recovered: the gate already spent its poll budget, and a usage limit stopped
+// the turn deliberately.
+func TestClaudeSubUsageRefusalIsNotRecovered(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		emitted bool
-		ctxErr  error
-		resume  string
-		want    bool
+		name string
+		err  error
 	}{
-		{name: "pre-output failure with a resume target", err: errors.New("model unavailable"), resume: "sess-1", want: true},
-		{name: "no error", resume: "sess-1"},
-		{name: "after output", err: errors.New("model unavailable"), emitted: true, resume: "sess-1"},
-		{name: "no resume target", err: errors.New("model unavailable")},
-		{name: "caller cancelled", err: errors.New("model unavailable"), ctxErr: context.Canceled, resume: "sess-1"},
-		{name: "unconfirmable usage gate refused after the confirmation", err: &claudeSubUsageGateError{err: claudeSubUsageNotReady("rate_limits_available=false")}, resume: "sess-1"},
-		{name: "probe-reported credits enabled refusal is not retried", err: &claudeSubUsageGateError{err: errClaudeSubUsageCreditsEnabled}, resume: "sess-1"},
-		{name: "probe timeout refusal is not retried", err: &claudeSubUsageGateError{err: context.DeadlineExceeded}, resume: "sess-1"},
-		{name: "probe cancellation refusal is not retried", err: &claudeSubUsageGateError{err: context.Canceled}, resume: "sess-1"},
-		{name: "bare live credits enabled refusal still retries", err: errClaudeSubUsageCreditsEnabled, resume: "sess-1", want: true},
-		{name: "bare live transport failure still retries", err: errors.New("claude CLI get_usage: usage unavailable"), resume: "sess-1", want: true},
-		{name: "usage limit refusal is not retried", err: &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}, resume: "sess-1"},
-		{name: "wrapped usage limit refusal is not retried", err: fmt.Errorf("run: %w", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}), resume: "sess-1"},
+		{name: "unconfirmable usage gate refused after the confirmation", err: &claudeSubUsageGateError{err: claudeSubUsageNotReady("rate_limits_available=false")}},
+		{name: "probe-reported credits enabled refusal", err: &claudeSubUsageGateError{err: errClaudeSubUsageCreditsEnabled}},
+		{name: "probe timeout refusal", err: &claudeSubUsageGateError{err: context.DeadlineExceeded}},
+		{name: "probe cancellation refusal", err: &claudeSubUsageGateError{err: context.Canceled}},
+		{name: "bare live credits enabled refusal", err: errClaudeSubUsageCreditsEnabled},
+		{name: "bare live not-ready refusal", err: errClaudeSubUsageNotReady},
+		{name: "bare live transport failure", err: errors.New("claude CLI get_usage: usage unavailable")},
+		{name: "usage limit refusal", err: &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}},
+		{name: "wrapped usage limit refusal", err: fmt.Errorf("run: %w", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"})},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := claudeSubShouldRetryTurn(tc.err, tc.emitted, tc.ctxErr, tc.resume); got != tc.want {
-				t.Errorf("claudeSubShouldRetryTurn() = %v, want %v", got, tc.want)
+			got := claudeSubRetryDecision(tc.err, claudeSubRetryFacts{CallKind: claudeSubCallKindNormal})
+			if got != claudeSubRetryNone {
+				t.Errorf("claudeSubRetryDecision() = %v, want no recovery", got)
 			}
 		})
 	}

@@ -436,10 +436,11 @@ func TestClaudeSubChatCompletionReturnsCallDiagnostics(t *testing.T) {
 	}
 }
 
-// TestClaudeSubCallDiagnosticsRetryReseed proves a resumed process that fails
-// before output reports the retry reseed, and the retry's own process, on the
-// terminal chunk.
-func TestClaudeSubCallDiagnosticsRetryReseed(t *testing.T) {
+// TestClaudeSubCallDiagnosticsRetryResume proves a resumed process that fails
+// before output reports the recovery and the retry's own process on the terminal
+// chunk: the retry resumes the stored checkpoint in a fork, so it is not a
+// reseed.
+func TestClaudeSubCallDiagnosticsRetryResume(t *testing.T) {
 	errEvent := claudeSubEvent{
 		Type:      "result",
 		Subtype:   "error_during_execution",
@@ -455,13 +456,16 @@ func TestClaudeSubCallDiagnosticsRetryReseed(t *testing.T) {
 		BackendState:     claudeSubEncodeState(t, st),
 	})
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
+		t.Fatalf("spawn count = %d, want 2 (failed resume, then the retry)", n)
 	}
-	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
-		t.Errorf("process = %q, want %q for the reseeding retry", got, claudeSubProcessSpawn)
+	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessResume {
+		t.Errorf("process = %q, want %q for the retried resume", got, claudeSubProcessResume)
 	}
-	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedRetry {
-		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedRetry)
+	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != "" {
+		t.Errorf("reseed reason = %q, want none for a resumed retry", got)
+	}
+	if got := final.Diagnostics.ClaudeSub.Recovery; got != claudeSubRecoveryRetryPreOutput {
+		t.Errorf("recovery = %q, want %q", got, claudeSubRecoveryRetryPreOutput)
 	}
 }
 

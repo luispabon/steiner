@@ -224,103 +224,6 @@ func claudeSubAdvisorPlan(ctx context.Context, s *claudeSubSession, req ChatRequ
 	return s.sync.planAdvisor(req)
 }
 
-// claudeSubNormalTurn runs a parent or sub-agent request. A process is reused
-// only while its record matches the request (see claudeSubAttachSession), and a
-// process a cancelled delivery left behind is replaced before it can deliver
-// anything. A resumed process that fails before producing any output is treated
-// as dead: it is retired and the request is reseeded on a fresh process, once
-// (D3).
-func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
-	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
-	if err != nil {
-		return err
-	}
-	a := claudeSubAttach{key: key, spec: spec, fingerprint: fingerprint, msgs: claudeSubMessages(req.Messages)}
-	a.stored, a.hasState = claudeSubParseState(req.BackendState)
-	a.partial = -1
-	var restoreReason string
-	a.resume, a.restorable, restoreReason, err = claudeSubRestoreFor(a.msgs, a.stored, a.hasState, key, fingerprint)
-	if err != nil {
-		return err
-	}
-	if a.hasState {
-		// A stopped turn leaves its kept partial in the request suffix, after the
-		// stored checkpoint the stopped delivery was meant to extend.
-		if partial, ok := claudeSubInterruptedTail(a.msgs, a.stored.SyncEntries); ok {
-			a.partial = partial
-		}
-	}
-	if !a.restorable {
-		claudeSubMetricsFrom(ctx).noteReseed(restoreReason)
-	}
-	forceReseed := false
-	var report *claudeSubReplacementReport
-	for {
-		attached, err := claudeSubAttachSession(ctx, pool, req, a, forceReseed)
-		if err != nil {
-			return err
-		}
-		s := attached.session
-		if !attached.reseed {
-			claudeSubMetricsFrom(ctx).clearReseed()
-		}
-		// A pending replacement notice is reported before this attempt's first
-		// chunk, so an attempt that produces nothing reports nothing. A reseed
-		// attempt reports the flattened replay the same way.
-		report = &claudeSubReplacementReport{pool: pool, key: key, emit: emit, flattened: attached.reseed}
-		emitted := false
-		// cliRetried records that the CLI retried its own API request in this
-		// attempt. Its retry budget is then spent, so replacing the process would
-		// only repeat the wait.
-		cliRetried := false
-		err = claudeSubDeliverNormal(ctx, s, req, attached, func(chunk ChatChunk) error {
-			if claudeSubAPIRetryNotice(chunk) {
-				// A retry notice carries no output: it neither closes the pre-output
-				// retry window nor lets the pending replacement warning stand in
-				// for output this attempt never produced.
-				cliRetried = true
-				return emit(chunk)
-			}
-			if err := report.before(); err != nil {
-				return err
-			}
-			emitted = true
-			return emit(chunk)
-		})
-		// A decode error means the process may hold stale events from the failed
-		// turn, so it is retired even after output and is never retried inline.
-		decodeFailure := errors.Is(err, errClaudeSubDecodeStream)
-		retry := !decodeFailure && !cliRetried && claudeSubShouldRetryTurn(err, emitted, ctx.Err(), s.resume.SessionID)
-		if decodeFailure {
-			// The process may hold stale events, so it is retired. A teardown that
-			// cannot confirm the exit records that the next attach must reseed.
-			if !pool.retireConfirmed(key, s) {
-				pool.noteReseedKey(key)
-			}
-		} else if retry {
-			pool.retire(key, s)
-		}
-		if !retry {
-			// Clear the notice while this call still owns the lease: after the
-			// release another call for the same key could abandon its own turn and
-			// record a newer notice this call must not clear.
-			if err == nil {
-				report.confirm()
-			}
-			pool.release(s)
-			return err
-		}
-		pool.release(s)
-		// The failed attempt left no usable record, so the retry reseeds. The
-		// reset is defensive: the retry's attach sets the process again and the
-		// noteReseed below overwrites the reason, while the gate's accumulated
-		// time and polls stay.
-		claudeSubMetricsFrom(ctx).resetDelivery()
-		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
-		forceReseed = true
-	}
-}
-
 // claudeSubUsageGateError marks a usage-gate refusal produced after the poll
 // budget, and possibly the fresh-process confirmation, was spent. The generic
 // pre-output retry must not repeat that wait.
@@ -329,25 +232,6 @@ type claudeSubUsageGateError struct{ err error }
 func (e *claudeSubUsageGateError) Error() string { return e.err.Error() }
 
 func (e *claudeSubUsageGateError) Unwrap() error { return e.err }
-
-// claudeSubShouldRetryTurn reports whether a failed delivery is retried once on
-// a fresh process. Only a failure before any output, on a request with a resume
-// target, and while the caller still waits qualifies. It excludes every refusal
-// produced after the usage poll and the fresh confirmation, because retrying
-// would repeat that wait. A usage limit is a refusal, so it is never retried on
-// a fresh process. A live get_usage transport error stays retryable: it can mean
-// the process is dead.
-func claudeSubShouldRetryTurn(err error, emitted bool, ctxErr error, resumeSessionID string) bool {
-	if err == nil || emitted || ctxErr != nil || resumeSessionID == "" {
-		return false
-	}
-	var gateErr *claudeSubUsageGateError
-	if errors.As(err, &gateErr) {
-		return false
-	}
-	_, limited := AsUsageLimit(err)
-	return !limited
-}
 
 // claudeSubSummarySuffix keys the ephemeral helper processes that answer a
 // compaction summary. A helper never uses the parent's key, so the parent's

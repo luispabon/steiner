@@ -83,18 +83,27 @@ func claudeSubDiagnosticError(err error) error {
 	return err
 }
 
+// claude_subscription call kinds, reported as call_kind in provider diagnostics
+// and read by the turn recovery decision.
+const (
+	claudeSubCallKindAdvisor  = "advisor"
+	claudeSubCallKindSummary  = "summary"
+	claudeSubCallKindSubAgent = "sub_agent"
+	claudeSubCallKindNormal   = "normal"
+)
+
 // claudeSubCallKind names the kind of call req makes for the diagnostics
 // record. Precedence is advisor, summary, sub-agent, then normal, so a request
 // that matches several gets the first.
 func claudeSubCallKind(req ChatRequest) string {
 	switch {
 	case req.AdvisorCacheProfile:
-		return "advisor"
+		return claudeSubCallKindAdvisor
 	case req.CompactionSummary:
-		return "summary"
+		return claudeSubCallKindSummary
 	case req.ParentTransportSession != "":
-		return "sub_agent"
+		return claudeSubCallKindSubAgent
 	default:
-		return "normal"
+		return claudeSubCallKindNormal
 	}
 }

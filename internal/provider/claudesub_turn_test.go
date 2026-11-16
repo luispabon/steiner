@@ -815,10 +815,10 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 	}
 }
 
-// TestClaudeSubUsageGateTransportErrorRetriesResumedProcess proves the generic
-// one-reseed retry still covers a resumed process whose get_usage transport-fails:
-// only the post-confirmation unconfirmable refusal is exempt from the retry.
-func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
+// TestClaudeSubUsageGateTransportErrorIsNotRecovered proves a resumed process
+// whose get_usage transport-fails is not recovered: the failure is the usage
+// gate, not a crash, so a second attempt would only repeat the wait.
+func TestClaudeSubUsageGateTransportErrorIsNotRecovered(t *testing.T) {
 	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubPoolWithScripts(t,
 		&claudeSubScript{usageErr: "usage unavailable"},
@@ -830,24 +830,18 @@ func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
 		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
 		BackendState:     claudeSubEncodeState(t, st),
 	}
-	if err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil }); err != nil {
-		t.Fatalf("turn: %v", err)
+	err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "usage unavailable") {
+		t.Fatalf("turn error = %v, want the get_usage transport error", err)
 	}
-	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (resumed process, then one reseed retry)", n)
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (a usage gate failure is not recovered)", n)
 	}
 	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
-		t.Errorf("first spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
+		t.Errorf("spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
 	}
-	if resume, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); ok {
-		t.Errorf("retry spawn --resume = %q, want a fresh reseed process", resume)
-	}
-	retry := spawner.call(t, 1).Conn
-	if got := claudeSubUsageProbeCount(retry, `"subtype":"get_usage"`); got != 1 {
-		t.Errorf("retry get_usage requests = %d, want 1", got)
-	}
-	if got := claudeSubUsageProbeCount(retry, `"type":"user"`); got != 1 {
-		t.Errorf("retry user writes = %d, want 1", got)
+	if got := claudeSubUsageProbeCount(spawner.call(t, 0).Conn, `"type":"user"`); got != 0 {
+		t.Errorf("user writes = %d, want none before the gate passes", got)
 	}
 }
 
@@ -903,8 +897,8 @@ func TestClaudeSubSignedOutUsageRefusalIsNotRetried(t *testing.T) {
 	if !errors.As(err, &gateErr) {
 		t.Fatalf("claudeSubTurn() = %T, want claudeSubUsageGateError wrapper", err)
 	}
-	if claudeSubShouldRetryTurn(err, false, nil, "stored-session") {
-		t.Fatal("confirmed logout would be automatically retried")
+	if got := claudeSubRetryDecision(err, claudeSubRetryFacts{CallKind: claudeSubCallKindNormal}); got != claudeSubRetryNone {
+		t.Fatalf("confirmed logout would be automatically recovered: %v", got)
 	}
 	if spawns != 3 {
 		t.Fatalf("spawn count = %d, want unrelated session, advisor session, and fresh usage probe", spawns)
@@ -1899,7 +1893,7 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 			if tt.system != "" {
 				msgs = append([]Message{{Role: MessageRoleSystem, Content: tt.system}}, msgs...)
 			}
-			got := claudeSubRunCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+			got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
 			if got.err != nil {
 				t.Fatalf("turn error = %v", got.err)
 			}
@@ -1932,9 +1926,10 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 	}
 }
 
-// TestClaudeSubResumeFailureReseeds proves a resumed process that fails before
-// producing output is retired, and the request reseeds one fresh process.
-func TestClaudeSubResumeFailureReseeds(t *testing.T) {
+// TestClaudeSubResumeFailureResumes proves a resumed process that fails before
+// producing output is retired, and the retry resumes the stored checkpoint in a
+// fork instead of replaying the conversation flattened.
+func TestClaudeSubResumeFailureResumes(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	errEvent := claudeSubEvent{
 		Type:      "result",
@@ -1946,23 +1941,41 @@ func TestClaudeSubResumeFailureReseeds(t *testing.T) {
 	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubPoolWithScripts(t, failing, claudeSubTextTurns(t, 1))
 	msgs := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
-	final := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
+		t.Fatalf("spawn count = %d, want 2 (failed resume, then the retry)", n)
 	}
 	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
 		t.Errorf("first spawn --resume = %q, want %q", resume, st.CLISessionID)
 	}
-	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume != "" {
-		t.Errorf("reseed spawn --resume = %q, want none", resume)
+	serving := spawner.call(t, 1)
+	resume, _ := claudeSubArgValue(serving.Args, "--resume")
+	at, _ := claudeSubArgValue(serving.Args, "--resume-session-at")
+	if resume != st.CLISessionID || at != st.FinalUUID {
+		t.Errorf("retry resume = %q at %q, want %q at %q", resume, at, st.CLISessionID, st.FinalUUID)
 	}
-	lines := claudeSubUserLines(spawner.call(t, 1).Conn)
-	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
-		t.Errorf("reseed user lines = %q, want one transcript", lines)
+	if !claudeSubHasArg(serving.Args, "--fork-session") {
+		t.Errorf("retry args %q, want --fork-session", serving.Args)
 	}
+	lines := claudeSubUserLines(serving.Conn)
+	if len(lines) != 1 {
+		t.Fatalf("retry user lines = %q, want one", lines)
+	}
+	if strings.Contains(lines[0], "Conversation so far") {
+		t.Errorf("retry user line = %s, want a resume, not a rendered transcript", lines[0])
+	}
+	final := got.final(t)
 	if final.BackendState == nil {
-		t.Error("reseeded parent turn returned no backend state")
+		t.Error("retried parent turn returned no backend state")
 	}
+	if label := claudeSubRecoveryLabel(final); label != claudeSubRecoveryRetryPreOutput {
+		t.Errorf("recovery = %q, want %q", label, claudeSubRecoveryRetryPreOutput)
+	}
+	want := "claude_subscription turn failed (error_during_execution); retrying, attempt 1/2"
+	claudeSubWantRetryNotice(t, got, want, 1)
 }
 
 // TestClaudeSubPersistenceByCallKind proves only a parent call starts a persisted

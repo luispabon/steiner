@@ -741,9 +741,10 @@ func TestClaudeSubCancelNoticeSurvivesEviction(t *testing.T) {
 }
 
 // TestClaudeSubCancelWarningReportsRetriedOutcome proves the warning describes
-// the attempt that served the user: a resumed attempt that fails before output
-// and is retried as a reseed must report the replacement and the flattened
-// replay, not the resume.
+// the attempt that served the user: the attempt that resides the stored state
+// after the cancel reports the replacement, and the retry that fails before
+// output reports its own recovery notice rather than a flattened replay, because
+// it resumes the stored checkpoint instead of reseeding.
 func TestClaudeSubCancelWarningReportsRetriedOutcome(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	pool, spawner := claudeSubPoolWithScripts(t,
@@ -776,15 +777,10 @@ func TestClaudeSubCancelWarningReportsRetriedOutcome(t *testing.T) {
 	if got := spawner.callCount(); got != 3 {
 		t.Fatalf("spawn count = %d, want 3 (replacement resumed, failed, reseeded)", got)
 	}
-	warnings := got.warnings()
-	if len(warnings) != 1 {
-		t.Fatalf("warnings = %q, want exactly one", warnings)
-	}
-	// The attempt that served the user replaced the process and reseeded from
-	// the rebuilt transcript, so it reports both events as one warning.
-	if want := claudeSubWarningChunk(claudeSubReplacedAndFlattenedWarning).Diagnostic; warnings[0] != want {
-		t.Errorf("warning = %q, want the combined replacement and flattened replay wording: %q", warnings[0], want)
-	}
+	// The attempt that served the user replaced the abandoned process and resumed
+	// the stored checkpoint, so it reports the replacement and no flattened
+	// replay, and the retry notice is a recovery report of its own.
+	claudeSubWantFailureWarning(t, got, claudeSubReplacedProcessWarning)
 	if pool.replacementPending("parent") {
 		t.Error("the replacement notice survived being reported")
 	}
@@ -1042,7 +1038,7 @@ func TestClaudeSubFoldedCallErrorKeepsNotice(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	// The warning is emitted before the first chunk, so this batch proves the
 	// warning was buffered before the failing result.
-	bufferedWarning := append(claudeSubPartialTextBatch(), claudeSubFailedResumeBatch()...)
+	bufferedWarning := append(claudeSubPartialTextBatch(), claudeSubMaxTurnsResult())
 	pool, spawner, _ := claudeSubAbandonedParent(t,
 		&claudeSubScript{batches: [][]claudeSubEvent{nil}},
 		&claudeSubScript{batches: [][]claudeSubEvent{bufferedWarning, claudeSubDecodeEvents(t, "turn_text.jsonl")}},

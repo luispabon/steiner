@@ -50,7 +50,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 			if err := s.conn.Err(); err != nil {
 				return err
 			}
-			return errors.New("claude CLI connection closed")
+			return errClaudeSubConnClosed
 		}
 		if err := s.overage(); err != nil {
 			return err
@@ -193,6 +193,24 @@ func claudeSubAPIRetryMessage(retry claudeSubAPIRetry) string {
 // claudeSubFailureTextMax bounds the result text quoted in a turn failure.
 const claudeSubFailureTextMax = 300
 
+// errClaudeSubConnClosed reports that the CLI connection ended before the turn
+// reported its terminal result.
+var errClaudeSubConnClosed = errors.New("claude CLI connection closed")
+
+// claudeSubFailedTurnError is a turn the CLI ended with an error result. It keeps
+// the result facts the recovery decision reads; its message is the failure the
+// caller sees, unchanged.
+type claudeSubFailedTurnError struct {
+	subtype        string
+	terminalReason string
+	text           string
+	err            error
+}
+
+func (e *claudeSubFailedTurnError) Error() string { return e.err.Error() }
+
+func (e *claudeSubFailedTurnError) Unwrap() error { return e.err }
+
 // claudeSubTurnFailure reports a failed turn, quoting the result text when the
 // CLI supplied one. Long text is cut at a rune boundary and marked with "...".
 func claudeSubTurnFailure(r *claudeSubResult) error {
@@ -204,11 +222,14 @@ func claudeSubTurnFailure(r *claudeSubResult) error {
 		}
 		text = text[:cut] + "..."
 	}
+	var err error
 	if text == "" {
-		return fmt.Errorf("claude_subscription turn failed: %s", r.Subtype)
+		err = fmt.Errorf("claude_subscription turn failed: %s", r.Subtype)
+	} else {
+		err = &claudeSubDetailError{
+			detail: fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text),
+			safe:   fmt.Errorf("claude_subscription turn failed: %s", r.Subtype),
+		}
 	}
-	return &claudeSubDetailError{
-		detail: fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text),
-		safe:   fmt.Errorf("claude_subscription turn failed: %s", r.Subtype),
-	}
+	return &claudeSubFailedTurnError{subtype: r.Subtype, terminalReason: r.TerminalReason, text: r.Text, err: err}
 }

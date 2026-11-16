@@ -497,6 +497,20 @@ func (h *claudeSubMCPHost) settle() {
 	}
 }
 
+// hasOpenCalls reports whether the host holds a call without a stored result: a
+// tool call of the current turn is still in flight, so the turn cannot be
+// recovered without re-running or re-requesting it.
+func (h *claudeSubMCPHost) hasOpenCalls() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, call := range h.calls {
+		if call.result == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // cancelUnresolved retires every live call that holds no stored result, except
 // the handles in keep. A drained turn opened those calls and no result will ever
 // reach them, so they must not survive into a later request. A call whose result
