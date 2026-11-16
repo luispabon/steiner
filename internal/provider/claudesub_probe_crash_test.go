@@ -38,11 +38,11 @@ const (
 	claudeSubProbeCrashExit         = 5 * time.Second
 	claudeSubProbeCrashContinuation = 30 * time.Second
 
-	// claudeSubProbeCrashTrials is the number of trials E7 runs. Two, not three:
+	// claudeSubProbeCrashTrials is E7's trial count in a full run. Two, not three:
 	// each trial starts two persisted processes, so it spends one init gate, its
-	// resumed process's gate and four waits, and E1 to E6 already claim 1210s of
-	// the probe's 1500s ceiling. Three trials do not fit; the self-check pins this
-	// count and the summed bounds.
+	// resumed process's gate and four waits, and E1 to E6 already claim 1210s of the
+	// probe's 1500s ceiling. An E7-only run has the ceiling to itself and derives
+	// one more trial (see claudeSubProbeE7TrialCount).
 	claudeSubProbeCrashTrials = 2
 
 	// claudeSubProbeCrashSampleTail and claudeSubProbeCrashSampleHead bound the
@@ -74,10 +74,11 @@ func claudeSubProbeContinuationBlocks(prompt, partial string) []map[string]any {
 
 // claudeSubProbeE7Steps is E7's step plan: every trial's four waits and its
 // resumed process's init gate, repeated once per trial. The experiment's bound is
-// this plan, so the two cannot drift.
-func claudeSubProbeE7Steps() *claudeSubProbeSteps {
-	steps := &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase}
-	for trial := 0; trial < claudeSubProbeCrashTrials; trial++ {
+// this plan, so the two cannot drift, and the plan carries the trial count the body
+// runs.
+func claudeSubProbeE7Steps(trials int) *claudeSubProbeSteps {
+	steps := &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, trials: trials}
+	for trial := 0; trial < trials; trial++ {
 		steps.waits = append(steps.waits,
 			claudeSubProbeCrashReply, claudeSubProbeCrashStream, claudeSubProbeCrashExit, claudeSubProbeCrashContinuation)
 		steps.extra = append(steps.extra, claudeSubProbeInitWorstCase)
@@ -88,8 +89,12 @@ func claudeSubProbeE7Steps() *claudeSubProbeSteps {
 // claudeSubProbeE7 runs every E7 trial and reports the per-trial verdicts with
 // their aggregate counts.
 func claudeSubProbeE7(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, steps *claudeSubProbeSteps) error {
+	trials := steps.trials
+	if trials < claudeSubProbeE7MinTrials {
+		return fmt.Errorf("probe E7 step plan declares %d trials", trials)
+	}
 	counts := map[string]int{}
-	for trial := 1; trial <= claudeSubProbeCrashTrials; trial++ {
+	for trial := 1; trial <= trials; trial++ {
 		verdict, err := claudeSubProbeE7Trial(ctx, cfg, exp, steps, trial)
 		if err != nil {
 			return fmt.Errorf("E7 trial %d: %w", trial, err)
@@ -106,7 +111,7 @@ func claudeSubProbeE7(ctx context.Context, cfg claudeSubProbeConfig, exp *claude
 	for _, verdict := range verdicts {
 		parts = append(parts, fmt.Sprintf("%s=%d", verdict, counts[verdict]))
 	}
-	exp.Findings = append(exp.Findings, fmt.Sprintf("E7 verdicts over %d trials: %s", claudeSubProbeCrashTrials, strings.Join(parts, " ")))
+	exp.Findings = append(exp.Findings, fmt.Sprintf("E7 verdicts over %d trials: %s", trials, strings.Join(parts, " ")))
 	return nil
 }
 

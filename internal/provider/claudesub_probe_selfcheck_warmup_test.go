@@ -119,9 +119,13 @@ func TestClaudeSubProbePumpCLIExit(t *testing.T) {
 // plan the experiment body consumes, and that the declared plans include the
 // waits the bodies take.
 func TestClaudeSubProbeExperimentBounds(t *testing.T) {
+	experiments, err := claudeSubProbeExperiments(claudeSubProbeConfig{Model: claudeSubProbeDefaultModel})
+	if err != nil {
+		t.Fatalf("full experiment selection error = %v", err)
+	}
 	total := time.Duration(0)
 	byName := map[string]claudeSubProbeExperiment{}
-	for _, experiment := range claudeSubProbeExperiments(claudeSubProbeConfig{Model: claudeSubProbeDefaultModel}) {
+	for _, experiment := range experiments {
 		byName[experiment.name] = experiment
 		if experiment.steps == nil {
 			t.Fatalf("%s has no step plan", experiment.name)
@@ -141,11 +145,11 @@ func TestClaudeSubProbeExperimentBounds(t *testing.T) {
 		t.Fatalf("E6 step plan = %s, want %s including the outbound-interrupt wait", got, wantE6)
 	}
 	// E7 starts two persisted processes per trial, so each trial spends one init
-	// gate, its resumed process's gate, and four waits. The probe's 25 minute
-	// ceiling is what fixes the trial count: E1 to E6 already claim 1210s, and
-	// three E7 trials do not fit.
+	// gate, its resumed process's gate, and four waits. In a full run E1 to E6
+	// already claim 1210s of the 1500s ceiling, so only the default two trials fit;
+	// an E7-only selection derives a third.
 	if claudeSubProbeCrashTrials != 2 {
-		t.Fatalf("E7 runs %d trials; the probe ceiling fits two", claudeSubProbeCrashTrials)
+		t.Fatalf("the full run plans %d E7 trials; only two fit", claudeSubProbeCrashTrials)
 	}
 	wantE7 := claudeSubProbeInitWorstCase + claudeSubProbeCrashTrials*(claudeSubProbeInitWorstCase+
 		claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation)

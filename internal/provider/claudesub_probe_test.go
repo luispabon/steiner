@@ -39,6 +39,8 @@ const (
 	claudeSubProbeModelEnv           = "STEINER_CLAUDESUB_PROBE_MODEL"
 	claudeSubProbeOutEnv             = "STEINER_CLAUDESUB_PROBE_OUT"
 	claudeSubProbeCleanupEnv         = "STEINER_CLAUDESUB_PROBE_CLEANUP"
+	claudeSubProbeOnlyEnv            = "STEINER_CLAUDESUB_PROBE_ONLY"
+	claudeSubProbeE7TrialsEnv        = "STEINER_CLAUDESUB_PROBE_E7_TRIALS"
 	claudeSubProbeModePlan           = "plan"
 	claudeSubProbeModeRun            = "run"
 	claudeSubProbeDefaultModel       = "haiku"
@@ -64,6 +66,9 @@ type claudeSubProbeSteps struct {
 	waits []time.Duration
 	extra []time.Duration
 	short bool
+	// trials is how many trials a repeated experiment (E7) runs: its declared
+	// waits are the per-trial plan repeated trials times.
+	trials int
 }
 
 // next spends the experiment's next declared wait. A body that asks for more
@@ -81,7 +86,7 @@ func (s *claudeSubProbeSteps) next() time.Duration {
 // copy returns an independent consumer of the same plan, so a run leaves the
 // declaration intact for the bound check.
 func (s *claudeSubProbeSteps) copy() *claudeSubProbeSteps {
-	return &claudeSubProbeSteps{gate: s.gate, waits: s.waits, extra: s.extra}
+	return &claudeSubProbeSteps{gate: s.gate, waits: s.waits, extra: s.extra, trials: s.trials}
 }
 
 // plan reports the worst case the plan declares: the init gate, every declared
@@ -108,6 +113,12 @@ type claudeSubProbeConfig struct {
 	RecorderDir string
 	CLIPath     string
 	Cleanup     bool
+	// Only is the raw STEINER_CLAUDESUB_PROBE_ONLY value: a comma-separated list
+	// of experiment ID prefixes. Empty selects every experiment.
+	Only string
+	// E7Trials is the raw STEINER_CLAUDESUB_PROBE_E7_TRIALS value: E7's trial
+	// count. Empty derives it from the selection and the probe's ceiling.
+	E7Trials string
 }
 
 // claudeSubProbeCLI is the located CLI the run used.
@@ -237,7 +248,12 @@ func TestClaudeSubProbe(t *testing.T) {
 	case "":
 		t.Skip("live probe is opt-in: set " + claudeSubProbeModeEnv + "=plan to print the plan, or =run with " + claudeSubProbeAckEnv)
 	case claudeSubProbeModePlan:
-		claudeSubProbePrintPlan(os.Stdout, claudeSubProbePlanConfig())
+		cfg := claudeSubProbePlanConfig()
+		experiments, err := claudeSubProbeExperiments(cfg)
+		if err != nil {
+			t.Fatalf("claude subscription probe plan: %v", err)
+		}
+		claudeSubProbePrintPlan(os.Stdout, cfg, experiments)
 	case claudeSubProbeModeRun:
 		if got := os.Getenv(claudeSubProbeAckEnv); got != claudeSubProbeAckValue {
 			t.Fatalf("%s=run makes real requests to the signed-in Claude subscription and writes CLI session files under the CLI config directory, so it needs an explicit acknowledgement: set %s=%s",
@@ -262,6 +278,8 @@ func claudeSubProbePlanConfig() claudeSubProbeConfig {
 		ReportPath:  filepath.Join(root, "report.json"),
 		RecorderDir: filepath.Join(root, "recordings"),
 		Cleanup:     strings.TrimSpace(os.Getenv(claudeSubProbeCleanupEnv)) == "1",
+		Only:        os.Getenv(claudeSubProbeOnlyEnv),
+		E7Trials:    os.Getenv(claudeSubProbeE7TrialsEnv),
 	}
 	if cfg.Model == "" {
 		cfg.Model = claudeSubProbeDefaultModel
@@ -314,6 +332,12 @@ func claudeSubProbeRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare claude subscription probe: %v", err)
 	}
+	// The selection is resolved before the CLI is located, so an unknown prefix or
+	// an impossible E7 trial count fails before anything is spawned.
+	experiments, err := claudeSubProbeExperiments(cfg)
+	if err != nil {
+		t.Fatalf("select claude subscription probe experiments: %v", err)
+	}
 	if deadline, ok := t.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining < claudeSubProbeRunTimeout+time.Minute {
 			t.Logf("probe: the test deadline is %s away, below the probe ceiling %s; run with -timeout %s", remaining.Round(time.Second), claudeSubProbeRunTimeout, claudeSubProbeRequiredTimeout)
@@ -348,7 +372,7 @@ func claudeSubProbeRun(t *testing.T) {
 
 	overall, cancelOverall := context.WithTimeout(context.Background(), claudeSubProbeRunTimeout)
 	defer cancelOverall()
-	for _, experiment := range claudeSubProbeExperiments(cfg) {
+	for _, experiment := range experiments {
 		exp := &claudeSubProbeExperimentReport{Name: experiment.name, Summary: experiment.summary, PlannedArgv: experiment.argv}
 		report.Experiments = append(report.Experiments, exp)
 		timeout := experiment.timeout

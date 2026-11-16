@@ -106,12 +106,12 @@ func claudeSubProbeSpawnOptions(model string, persist bool, resume claudeSubResu
 	return opts
 }
 
-// claudeSubProbeExperiments is the probe's experiment table. Each steps plan is
-// both the declaration the bound is checked against and the waits the body
+// claudeSubProbeExperimentTable is the probe's whole experiment table. Each steps
+// plan is both the declaration the bound is checked against and the waits the body
 // spends in order, so the two cannot drift: waits are consumed by the body and
-// extra holds the budgets no body call takes (the interrupt control settle and
-// a child process's own init gate).
-func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperiment {
+// extra holds the budgets no body call takes (the interrupt control settle and a
+// child process's own init gate).
+func claudeSubProbeExperimentTable(cfg claudeSubProbeConfig) []claudeSubProbeExperiment {
 	planned := map[string][]string{}
 	for _, invocation := range claudeSubProbePlannedInvocations(cfg.CLIPath, cfg.Model) {
 		planned[invocation.Name] = invocation.Argv
@@ -119,7 +119,7 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 	subAgent := planned["E1-E4 and E6 sub-agent process"]
 	parent := planned["E5 parent persisted process"]
 	crashFork := planned["E5 and E7 fork resume"]
-	crashPlan := claudeSubProbeE7Steps()
+	crashPlan := claudeSubProbeE7Steps(claudeSubProbeCrashTrials)
 	steps := func(waits, extra []time.Duration) *claudeSubProbeSteps {
 		return &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, waits: waits, extra: extra}
 	}
@@ -221,12 +221,37 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 	}
 }
 
-// claudeSubProbePrintPlan reports everything a run would do without starting a
-// process: the located CLI, the argv built by claudeSubArgs and the switches it
-// carries, the child environment shape built by claudeSubSessionEnv, the
-// directories, the expected session store, the model, the bounds, and the exact
-// commands.
-func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
+// claudeSubProbeExperiments resolves the experiments this invocation runs: the
+// prefix selection, E7's trial count, and the ceiling the selection has to fit.
+// It fails before any process starts when the selection names an unknown ID or
+// cannot fit the probe's ceiling.
+func claudeSubProbeExperiments(cfg claudeSubProbeConfig) ([]claudeSubProbeExperiment, error) {
+	all := claudeSubProbeExperimentTable(cfg)
+	prefixes, err := claudeSubProbeParseOnly(cfg.Only)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := claudeSubProbeSelect(all, prefixes)
+	if err != nil {
+		return nil, err
+	}
+	trials, err := claudeSubProbeE7TrialCount(cfg.E7Trials, selected)
+	if err != nil {
+		return nil, err
+	}
+	selected = claudeSubProbeWithE7Trials(selected, trials)
+	if total := claudeSubProbeSelectedBounds(selected); total >= claudeSubProbeRunTimeout {
+		return nil, fmt.Errorf("the selected experiments claim %s, at or above the probe ceiling %s", total, claudeSubProbeRunTimeout)
+	}
+	return selected, nil
+}
+
+// claudeSubProbePrintPlan reports everything the selected experiments would do
+// without starting a process: the located CLI, the argv built by claudeSubArgs and
+// the switches it carries, the child environment shape built by
+// claudeSubSessionEnv, the directories, the expected session store, the model, the
+// selection, the bounds, and the exact commands.
+func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig, experiments []claudeSubProbeExperiment) {
 	fmt.Fprintln(w, "claude subscription live probe: plan")
 	fmt.Fprintln(w, "plan mode starts no process, makes no request, and creates no directory")
 	fmt.Fprintln(w)
@@ -245,6 +270,8 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	fmt.Fprintf(w, "CLI project directory for this cwd: %s\n", claudeSubProbeProjectDir(configDir, cfg.WorkDir))
 	fmt.Fprintf(w, "remove the recorded session transcripts afterwards: %v (set %s=1 to enable)\n", cfg.Cleanup, claudeSubProbeCleanupEnv)
 	fmt.Fprintf(w, "bounds: probe ceiling %s, per-experiment bounds listed below\n", claudeSubProbeRunTimeout)
+	fmt.Fprintf(w, "experiment selection: %s (set %s to a comma-separated list of experiment ID prefixes)\n", claudeSubProbeSelectionLabel(cfg.Only), claudeSubProbeOnlyEnv)
+	fmt.Fprintf(w, "selected experiments claim %s of that ceiling\n", claudeSubProbeSelectedBounds(experiments))
 	fmt.Fprintln(w)
 
 	env := claudeSubProbeEnvSummary(claudeSubSessionEnv(os.Environ(), claudeSubProbeToolOutputMaxBytes))
@@ -270,8 +297,16 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "experiments (bound, worst-case step plan, then summary):")
-	for _, experiment := range claudeSubProbeExperiments(cfg) {
+	for _, experiment := range experiments {
 		fmt.Fprintf(w, "  %s (bound %s, steps %s): %s\n", experiment.name, experiment.timeout, experiment.steps.plan(), experiment.summary)
+	}
+	for _, experiment := range experiments {
+		if experiment.name != claudeSubProbeE7Name {
+			continue
+		}
+		fmt.Fprintf(w, "E7 trials: %d (default %d, %d when E7 is the only selection; %s accepts %d to %d, and a count that does not fit the ceiling fails)\n",
+			experiment.steps.trials, claudeSubProbeCrashTrials, claudeSubProbeCrashTrials+1,
+			claudeSubProbeE7TrialsEnv, claudeSubProbeE7MinTrials, claudeSubProbeE7MaxTrials)
 	}
 	fmt.Fprintln(w)
 
@@ -284,7 +319,12 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	fmt.Fprintf(w, "  plan: STEINER_CLAUDESUB_PROBE=plan go test -tags claudesub_probe -count=1 -timeout %s -run TestClaudeSubProbe -v ./internal/provider\n", claudeSubProbeRequiredTimeout)
 	fmt.Fprintf(w, "  run:  STEINER_CLAUDESUB_PROBE=run %s=%s go test -tags claudesub_probe -count=1 -timeout %s -run TestClaudeSubProbe -v ./internal/provider\n",
 		claudeSubProbeAckEnv, claudeSubProbeAckValue, claudeSubProbeRequiredTimeout)
+	fmt.Fprintf(w, "  plan, E7 only: STEINER_CLAUDESUB_PROBE=plan %s=E7 go test -tags claudesub_probe -count=1 -timeout %s -run TestClaudeSubProbe -v ./internal/provider\n",
+		claudeSubProbeOnlyEnv, claudeSubProbeRequiredTimeout)
+	fmt.Fprintf(w, "  run, E7 only:  STEINER_CLAUDESUB_PROBE=run %s=%s %s=E7 go test -tags claudesub_probe -count=1 -timeout %s -run TestClaudeSubProbe -v ./internal/provider\n",
+		claudeSubProbeAckEnv, claudeSubProbeAckValue, claudeSubProbeOnlyEnv, claudeSubProbeRequiredTimeout)
 	fmt.Fprintln(w, "run mode spends real subscription requests and writes CLI session files under the CLI config directory")
-	fmt.Fprintf(w, "optional environment: %s (default %s), %s, %s=1 for transcript cleanup\n",
-		claudeSubProbeModelEnv, claudeSubProbeDefaultModel, claudeSubProbeOutEnv, claudeSubProbeCleanupEnv)
+	fmt.Fprintf(w, "optional environment: %s (default %s), %s, %s=1 for transcript cleanup, %s (comma-separated experiment ID prefixes), %s (%d to %d E7 trials)\n",
+		claudeSubProbeModelEnv, claudeSubProbeDefaultModel, claudeSubProbeOutEnv, claudeSubProbeCleanupEnv,
+		claudeSubProbeOnlyEnv, claudeSubProbeE7TrialsEnv, claudeSubProbeE7MinTrials, claudeSubProbeE7MaxTrials)
 }
