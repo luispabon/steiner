@@ -81,6 +81,10 @@ type claudeSubProbeProcess struct {
 	// gateConsumed records that the init gate used the experiment's own first
 	// prompt as its gating turn, so the body must not send it again.
 	gateConsumed bool
+	// gateBlocks, when set, is the exact user line the gate writes as that first
+	// prompt. E7's continuation line carries two text blocks, so the gating prompt
+	// text alone is not its wire form.
+	gateBlocks []map[string]any
 
 	teardownOnce sync.Once
 	teardownErr  error
@@ -93,7 +97,7 @@ type claudeSubProbeProcess struct {
 // environment shape, argv switches and every exchanged line. The returned
 // process has passed the init gate, so it is the only point from which an
 // ordinary prompt may be written.
-func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, rep *claudeSubProbeProcessReport, key string, spec claudeSubStartSpec, gatingPrompt string) (*claudeSubProbeProcess, error) {
+func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, rep *claudeSubProbeProcessReport, key string, spec claudeSubStartSpec, gatingPrompt string, gatingBlocks []map[string]any) (*claudeSubProbeProcess, error) {
 	rec := newClaudeSubProbeRecorder(rep, cfg.Model)
 	pool := NewClaudeSubscriptionPool(ClaudeSubscriptionPoolOptions{
 		WorkDir:            cfg.WorkDir,
@@ -128,7 +132,7 @@ func claudeSubProbeStartProcess(ctx context.Context, cfg claudeSubProbeConfig, r
 		return nil, err
 	}
 	tee := spawned
-	process := &claudeSubProbeProcess{key: key, pool: pool, sess: sess, tee: tee, rec: rec, rep: rep}
+	process := &claudeSubProbeProcess{key: key, pool: pool, sess: sess, tee: tee, rec: rec, rep: rep, gateBlocks: gatingBlocks}
 	if sess.host != nil {
 		process.callHost = sess.host
 		process.callSnapshot = func() []claudeSubProbeCallState { return claudeSubProbeHostCalls(sess.host) }
@@ -173,7 +177,11 @@ func claudeSubProbeGateInit(ctx context.Context, p *claudeSubProbeProcess, gatin
 		p.rep.InitPath = claudeSubProbeInitPathFirstPrompt
 	}
 	p.rec.beginTurn(prompt)
-	if err := p.sendRawPrompt(prompt); err != nil {
+	blocks := p.gateBlocks
+	if len(blocks) == 0 {
+		blocks = claudeSubUserBlocks([]Message{{Role: MessageRoleUser, Content: prompt}})
+	}
+	if err := p.sendRawBlocks(blocks); err != nil {
 		return err
 	}
 	p.gateConsumed = gatingPrompt != ""
@@ -315,7 +323,12 @@ func (p *claudeSubProbeProcess) sendPrompt(prompt string) error {
 // sendRawPrompt writes one synthetic user turn without consulting the init gate.
 // Only the gating turn, which exists to make the CLI report init, uses it.
 func (p *claudeSubProbeProcess) sendRawPrompt(prompt string) error {
-	blocks := claudeSubUserBlocks([]Message{{Role: MessageRoleUser, Content: prompt}})
+	return p.sendRawBlocks(claudeSubUserBlocks([]Message{{Role: MessageRoleUser, Content: prompt}}))
+}
+
+// sendRawBlocks writes one user line of pre-built content blocks through the
+// production writer, without consulting the init gate.
+func (p *claudeSubProbeProcess) sendRawBlocks(blocks []map[string]any) error {
 	if err := writeClaudeSubUser(p.sess.conn, blocks); err != nil {
 		return fmt.Errorf("send probe prompt: %w", err)
 	}

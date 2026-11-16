@@ -140,6 +140,18 @@ func TestClaudeSubProbeExperimentBounds(t *testing.T) {
 	if got := byName["E6-queued-after-interrupt"].steps.plan(); got != wantE6 {
 		t.Fatalf("E6 step plan = %s, want %s including the outbound-interrupt wait", got, wantE6)
 	}
+	// E7 starts two persisted processes per trial, so each trial spends one init
+	// gate, its resumed process's gate, and four waits. The probe's 25 minute
+	// ceiling is what fixes the trial count: E1 to E6 already claim 1210s, and
+	// three E7 trials do not fit.
+	if claudeSubProbeCrashTrials != 2 {
+		t.Fatalf("E7 runs %d trials; the probe ceiling fits two", claudeSubProbeCrashTrials)
+	}
+	wantE7 := claudeSubProbeInitWorstCase + claudeSubProbeCrashTrials*(claudeSubProbeInitWorstCase+
+		claudeSubProbeCrashReply+claudeSubProbeCrashStream+claudeSubProbeCrashExit+claudeSubProbeCrashContinuation)
+	if got := byName["E7-crash-resume-continue"].steps.plan(); got != wantE7 {
+		t.Fatalf("E7 step plan = %s, want %s for %d trials", got, wantE7, claudeSubProbeCrashTrials)
+	}
 }
 
 // TestClaudeSubProbeInitWarmup covers the warmup path: a CLI that reports init

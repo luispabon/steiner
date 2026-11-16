@@ -168,8 +168,12 @@ type claudeSubProbeProcessReport struct {
 	Dropped             int                        `json:"dropped_events,omitempty"`
 	MCPCalls            []claudeSubProbeCallSample `json:"mcp_calls,omitempty"`
 	Exit                *claudeSubProbeExit        `json:"exit,omitempty"`
-	TeardownErr         string                     `json:"teardown_err,omitempty"`
-	Findings            []string                   `json:"findings,omitempty"`
+	// ExpectedCrash records that the experiment itself killed this process, so its
+	// exit before teardown and the teardown result that follows a crash are the
+	// measurement rather than failures. E7 sets it.
+	ExpectedCrash bool     `json:"expected_crash,omitempty"`
+	TeardownErr   string   `json:"teardown_err,omitempty"`
+	Findings      []string `json:"findings,omitempty"`
 }
 
 // claudeSubProbeCleanupReport states what the probe deleted. Only transcript
@@ -386,16 +390,17 @@ func claudeSubProbeRun(t *testing.T) {
 // experiment even when its body returned no error: an incomplete timeline, an
 // exit before the probe began teardown, and an unexpected teardown result. A
 // non-zero exit status after the probe's own stdin close is evidence, not a
-// failure.
+// failure, and a process the experiment killed itself (ExpectedCrash) is expected
+// to show both the early exit and the crash-derived teardown result.
 func claudeSubProbeProcessFailure(rep *claudeSubProbeProcessReport) error {
 	var errs []error
 	if rep.TimelineTruncated {
 		errs = append(errs, fmt.Errorf("probe process %s timeline hit the %d entry cap, so its exchange is incomplete", rep.Name, claudeSubProbeTimelineMax))
 	}
-	if rep.Exit != nil && rep.Exit.ExitedBeforeTeardown {
+	if rep.Exit != nil && rep.Exit.ExitedBeforeTeardown && !rep.ExpectedCrash {
 		errs = append(errs, fmt.Errorf("probe process %s exited before teardown began (status %d, wait error %q)", rep.Name, rep.Exit.Status, rep.Exit.WaitErr))
 	}
-	if rep.TeardownErr != "" && !claudeSubProbeExpectedTeardownError(rep.TeardownErr) {
+	if rep.TeardownErr != "" && !rep.ExpectedCrash && !claudeSubProbeExpectedTeardownError(rep.TeardownErr) {
 		errs = append(errs, fmt.Errorf("probe process %s teardown reported %s", rep.Name, rep.TeardownErr))
 	}
 	return errors.Join(errs...)
@@ -431,9 +436,16 @@ func claudeSubProbeWriteReport(path string, report *claudeSubProbeReport) error 
 // arrive before input: empty means the probe's own fixed warmup prompt, which
 // only the ephemeral (non-persisted) specs use.
 func claudeSubProbeStart(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec, gatingPrompt string) (*claudeSubProbeProcess, error) {
+	return claudeSubProbeStartGated(ctx, cfg, exp, name, key, spec, gatingPrompt, nil)
+}
+
+// claudeSubProbeStartGated is claudeSubProbeStart for a gating turn whose wire
+// line is not the single text block gatingPrompt would produce: E7's continuation
+// line carries the original prompt and the note as two text blocks.
+func claudeSubProbeStartGated(ctx context.Context, cfg claudeSubProbeConfig, exp *claudeSubProbeExperimentReport, name, key string, spec claudeSubStartSpec, gatingPrompt string, gatingBlocks []map[string]any) (*claudeSubProbeProcess, error) {
 	rep := &claudeSubProbeProcessReport{Name: name, Key: key, Persist: spec.Persist, Resume: claudeSubProbeResumeOf(spec.Resume)}
 	exp.Processes = append(exp.Processes, rep)
-	process, err := claudeSubProbeStartProcess(ctx, cfg, rep, key, spec, gatingPrompt)
+	process, err := claudeSubProbeStartProcess(ctx, cfg, rep, key, spec, gatingPrompt, gatingBlocks)
 	if err != nil {
 		rep.StartError = claudeSubProbeErrorString(err)
 		return nil, fmt.Errorf("start probe process %s: %w", name, err)

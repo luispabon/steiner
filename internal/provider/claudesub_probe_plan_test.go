@@ -88,7 +88,7 @@ func claudeSubProbePlannedInvocations(cliPath, model string) []claudeSubProbePla
 		invocation("E1-E4 and E6 sub-agent process", subAgent),
 		invocation("E5 parent persisted process", parent),
 		invocation("E5 resume at an assistant uuid", resume),
-		invocation("E5 fork resume", fork),
+		invocation("E5 and E7 fork resume", fork),
 	}
 }
 
@@ -118,6 +118,8 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 	}
 	subAgent := planned["E1-E4 and E6 sub-agent process"]
 	parent := planned["E5 parent persisted process"]
+	crashFork := planned["E5 and E7 fork resume"]
+	crashPlan := claudeSubProbeE7Steps()
 	steps := func(waits, extra []time.Duration) *claudeSubProbeSteps {
 		return &claudeSubProbeSteps{gate: claudeSubProbeInitWorstCase, waits: waits, extra: extra}
 	}
@@ -208,6 +210,14 @@ func claudeSubProbeExperiments(cfg claudeSubProbeConfig) []claudeSubProbeExperim
 			),
 			run: claudeSubProbeE6,
 		},
+		{
+			name:    "E7-crash-resume-continue",
+			summary: "SIGKILL a persisted turn mid-list, then resume at the earlier assistant uuid, fork it, and measure how the continuation joins the quoted partial",
+			argv:    crashFork,
+			timeout: crashPlan.plan(),
+			steps:   crashPlan,
+			run:     claudeSubProbeE7,
+		},
 	}
 }
 
@@ -266,7 +276,7 @@ func claudeSubProbePrintPlan(w io.Writer, cfg claudeSubProbeConfig) {
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "init handling: the CLI is given 10s to report system/init before input. Without it the probe sends one gating turn and rejects any MCP tool call with an error result until that turn's result arrives; init must validate within 20s of it or the experiment fails, and no other prompt is written until then")
-	fmt.Fprintln(w, "gating turn: a fixed warmup prompt for the non-persisted specs, and the experiment's own first tool-free prompt for the persisted and resumed ones (T1 for the parent, T4 for the resume and fork processes), so no extra turn enters a persisted transcript")
+	fmt.Fprintln(w, "gating turn: a fixed warmup prompt for the non-persisted specs, and the experiment's own first tool-free prompt for the persisted and resumed ones (T1 for the parent, T4 for E5's resume and fork processes, the continuation line for E7's resumed fork), so no extra turn enters a persisted transcript")
 	fmt.Fprintln(w, "init validation: exactly mcp__steiner__probe_wait, the requested model, and no MCP server other than steiner")
 	fmt.Fprintln(w, "init reporting: the report records the init event's tools, model, capabilities, CLI version, and the names in its plugins, mcp_servers, slash_commands, agents, skills and hook fields, plus which init path happened")
 	fmt.Fprintln(w)
