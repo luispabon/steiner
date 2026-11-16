@@ -13,11 +13,12 @@ import (
 // anything.
 //
 // A failed attempt is retried at most claudeSubRetryMaxRecoveries times, as
-// claudeSubRetryDecision decides, and only before any output reached the caller:
-// the process is replaced and the request delivered again, which resumes the
-// stored checkpoint in a fork when it can and reseeds otherwise. A failure after
-// output ends the call with its error, so the caller keeps the partial it already
-// streamed and the next request resumes the stored checkpoint.
+// claudeSubRetryDecision decides: only before any output reached the caller, and
+// only when the request carries a stored checkpoint the retry can fork-resume. A
+// retry never reseeds a fresh conversation. A failure after output, and every
+// failure the decision does not qualify, ends the call with its error, so the
+// caller keeps the partial it already streamed and the next request resumes the
+// stored checkpoint.
 func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
 	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
 	if err != nil {
@@ -41,6 +42,12 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 	if !a.restorable {
 		claudeSubMetricsFrom(ctx).noteReseed(restoreReason)
 	}
+	// warned records that an attempt of this call already reported a recovery
+	// warning, so a retry never repeats it. noticeReported records that the
+	// warning covered the pool's pending replacement notice, which this call then
+	// clears when it succeeds even if the attempt that succeeded reported nothing.
+	warned := false
+	noticeReported := false
 	recoveries := 0
 	for {
 		attached, err := claudeSubAttachSession(ctx, pool, req, a, false)
@@ -68,8 +75,10 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 				cliRetried = true
 				return emit(chunk)
 			}
-			if err := report.before(); err != nil {
-				return err
+			if !warned {
+				if err := report.before(); err != nil {
+					return err
+				}
 			}
 			if claudeSubVisibleChunk(chunk) {
 				visible = true
@@ -77,11 +86,18 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			return emit(chunk)
 		}
 		err = claudeSubDeliverNormal(ctx, s, req, attached, deliver)
+		if report.emitted {
+			warned = true
+			noticeReported = noticeReported || report.replaced
+		}
 		if err == nil {
 			// Clear the notice while this call still owns the lease: after the
 			// release another call for the same key could abandon its own turn and
 			// record a newer notice this call must not clear.
 			report.confirm()
+			if noticeReported {
+				pool.clearReplacement(key)
+			}
 			pool.release(s)
 			return nil
 		}
@@ -96,13 +112,13 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			return err
 		}
 		action := claudeSubRetryDecision(err, claudeSubRetryFacts{
-			CallKind:    claudeSubCallKind(req),
-			ContextErr:  ctx.Err(),
-			Visible:     visible,
-			CLIRetried:  cliRetried,
-			Pending:     len(s.pending) > 0 || (s.host != nil && s.host.hasOpenCalls()),
-			ProcessGone: s.exited() || s.conn.Err() != nil,
-			Recoveries:  recoveries,
+			CallKind:   claudeSubCallKind(req),
+			ContextErr: ctx.Err(),
+			Visible:    visible,
+			CLIRetried: cliRetried,
+			Pending:    len(s.pending) > 0 || (s.host != nil && s.host.hasOpenCalls()),
+			Restorable: a.restorable,
+			Recoveries: recoveries,
 		})
 		if action == claudeSubRetryNone {
 			pool.release(s)
@@ -111,6 +127,12 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		recoveries++
 		metrics := claudeSubMetricsFrom(ctx)
 		metrics.resetDelivery()
+		// A retry resumes the stored checkpoint, so the reseed branch belongs to
+		// the restore rules; a teardown that cannot confirm the exit records its
+		// own reason on the next attach.
+		if !a.restorable {
+			metrics.noteReseed(restoreReason)
+		}
 		metrics.noteRecovery(claudeSubActionLabel(action))
 		claudeSubLogRecovery(err, action, recoveries)
 		delay := claudeSubRecoveryDelay(recoveries)
@@ -132,7 +154,8 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 
 // claudeSubVisibleChunk reports whether chunk carries assistant output the caller
 // sees. A usage chunk, a diagnostic, and the terminal chunk carry none, so only
-// text and thinking close the pre-output recovery window.
+// text and thinking close the pre-output recovery window. Thinking counts even
+// though the caller's kept partial is text only: a retry must not lose it.
 func claudeSubVisibleChunk(chunk ChatChunk) bool {
 	if chunk.Done {
 		return false

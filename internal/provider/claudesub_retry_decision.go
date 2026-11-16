@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -10,14 +11,14 @@ import (
 
 // Recovery of failed claude_subscription turns. A delivery attempt that fails
 // before any output and without a user stop is classified here, so one set of
-// rules decides whether a parent or sub-agent call replaces the process and
-// delivers the request again. A failure after the caller already saw output is
-// never recovered: the call returns the error with the partial kept, and the
-// next request resumes the stored checkpoint (see the stopped-turn recovery in
-// claudesub_attach.go). Live probe runs showed the CLI does not join a
-// continued reply reliably, losing a line break when the cut fell after a whole
-// line, so automatic continuation is rejected. Advisor calls, in-place summaries
-// and summary helpers never recover.
+// rules decides whether a parent call replaces the process and delivers the
+// request again. A failure after the caller already saw output is never
+// recovered: the call returns the error with the partial kept, and the next
+// request resumes the stored checkpoint (see the stopped-turn recovery in
+// claudesub_attach.go). Live probe runs showed the CLI does not join a continued
+// reply reliably, losing a line break when the cut fell after a whole line, so
+// automatic continuation is rejected. Advisor calls, in-place summaries and
+// summary helpers never recover.
 
 // claudeSubRetryAction is what a call does after a failed delivery attempt.
 type claudeSubRetryAction int
@@ -63,7 +64,8 @@ type claudeSubRetryFacts struct {
 	// recovered: the user asked for the turn to end.
 	ContextErr error
 	// Visible reports that assistant text or thinking of this attempt already
-	// reached the caller. A visible failure is never recovered.
+	// reached the caller. A visible failure is never recovered, and thinking
+	// alone counts: no partial is preserved for it, so a retry would lose it.
 	Visible bool
 	// CLIRetried reports that the CLI retried its own API request in this
 	// attempt. Its retry budget is then spent, so a new attempt would only
@@ -73,8 +75,10 @@ type claudeSubRetryFacts struct {
 	// streamed tool_use registration without a result, or a host call the CLI
 	// opened. A recovery never re-runs or re-requests a tool call.
 	Pending bool
-	// ProcessGone reports that the CLI process exited or its connection failed.
-	ProcessGone bool
+	// Restorable reports that the request carries a stored checkpoint the retry
+	// can fork-resume. A retry never reseeds: a fresh process or a sub-agent has
+	// nothing to resume, so a failure there ends the call.
+	Restorable bool
 	// Recoveries is the number of recovery attempts this call already spent.
 	Recoveries int
 }
@@ -82,21 +86,22 @@ type claudeSubRetryFacts struct {
 // claudeSubRetryDecision returns what the call does after err failed one
 // delivery attempt.
 //
-// A retry needs every one of these: an error, a live caller, a parent or
-// sub-agent call, no output already streamed, no CLI retry already spent, no
-// tool call in flight, fewer than claudeSubRetryMaxRecoveries attempts, and a
-// failure that ended the CLI process or is the crash result the CLI synthesises
-// after a crash. Everything else ends the call with the failure: a user stop, a
-// visible failure, a usage limit or gate, a mid-response API error (the CLI
-// already exhausted its own retries), an aborted result, an error subtype the
-// CLI reported on purpose, a permanent refusal, a decode or envelope failure, an
-// oversized line, an unsafe session, and any other error the connection did not
-// end.
+// A retry needs every one of these: an error, a live caller, a parent call whose
+// request carries a restorable checkpoint, no output already streamed, no CLI
+// retry already spent, no tool call in flight, fewer than
+// claudeSubRetryMaxRecoveries attempts, and typed evidence that the CLI
+// connection ended, either the closed-connection error or the crash result the
+// CLI synthesises. Everything else ends the call with the failure: a user stop, a
+// visible failure, an ambiguous error from a process that may still be alive, a
+// mid-response API error (the CLI already exhausted its own retries), an aborted
+// result, an error subtype the CLI reported on purpose, a usage or gate refusal,
+// a permanent refusal, a decode or envelope failure, an oversized line, and an
+// unsafe session.
 func claudeSubRetryDecision(err error, facts claudeSubRetryFacts) claudeSubRetryAction {
 	if err == nil || facts.Recoveries >= claudeSubRetryMaxRecoveries {
 		return claudeSubRetryNone
 	}
-	if facts.ContextErr != nil || !claudeSubRecoversCallKind(facts.CallKind) {
+	if facts.ContextErr != nil || !claudeSubRecoversCallKind(facts.CallKind) || !facts.Restorable {
 		return claudeSubRetryNone
 	}
 	if facts.Visible {
@@ -124,11 +129,15 @@ func claudeSubRetryDecision(err error, facts claudeSubRetryFacts) claudeSubRetry
 		// end is deliberate.
 		return claudeSubRetryNone
 	}
-	if !facts.ProcessGone && !errors.Is(err, errClaudeSubConnClosed) {
-		// Nothing else ended the CLI connection, so this failure is not a crash.
-		return claudeSubRetryNone
+	if errors.Is(err, errClaudeSubConnClosed) {
+		// Typed evidence that the connection ended: the event queue closed without
+		// a terminal result, or a write to the CLI failed on a closed connection.
+		return claudeSubRetryPreOutput
 	}
-	return claudeSubRetryPreOutput
+	// Any other error may come from a process that is still alive (a control
+	// request timeout, a gate transport failure, a writer error), so it is not
+	// safe to send the request again.
+	return claudeSubRetryNone
 }
 
 // claudeSubCrashResultSubtype is the result subtype a crashed CLI reports. It is
@@ -156,11 +165,12 @@ func claudeSubRecoversCallKind(kind string) bool {
 
 // claudeSubRetryRefused reports whether err is a refusal no recovery can fix.
 // The refusal has to stay distinguishable from a crash: a usage gate spent its
-// poll budget before refusing, a usage limit stops the turn, an unsafe session
+// poll budget before refusing, a usage limit stops the turn, paid extra usage and
+// an unrecognised rate-limit status fail the session closed, an unsafe session
 // cannot prove which call its events belong to, a decode or envelope failure may
-// leave stale events queued, an oversized line is rejected by the CLI on every
-// attempt, and auth, billing and invalid-request text is the answer the server
-// gave.
+// leave stale events queued, an oversized stdin line is rejected on every
+// attempt, an oversized stdout line did not reach steiner and fails closed, and a
+// permanent refusal is the answer the server gave.
 func claudeSubRetryRefused(err error) bool {
 	var gate *claudeSubUsageGateError
 	if errors.As(err, &gate) {
@@ -174,6 +184,9 @@ func claudeSubRetryRefused(err error) bool {
 		// recovered, even on a CLI version that names no terminal reason for it.
 		return true
 	}
+	if errors.Is(err, errClaudeSubPaidExtraUsage) || errors.Is(err, errClaudeSubUnrecognisedStatus) {
+		return true
+	}
 	if errors.Is(err, errClaudeSubUsageNotReady) || errors.Is(err, errClaudeSubUsageCreditsEnabled) {
 		return true
 	}
@@ -181,6 +194,12 @@ func claudeSubRetryRefused(err error) bool {
 		return true
 	}
 	if errors.Is(err, errClaudeSubDecodeStream) || errors.Is(err, errClaudeSubResultEnvelope) {
+		return true
+	}
+	if errors.Is(err, bufio.ErrTooLong) {
+		// An oversized stdout line never reached Steiner, so the turn cannot be
+		// replayed from what it saw. Fail closed instead of retrying a framing
+		// failure the CLI will reproduce.
 		return true
 	}
 	var tooLarge *claudeSubLineTooLargeError
@@ -197,11 +216,20 @@ var claudeSubPermanentFailureText = []string{
 	"401", "403", "authentication", "billing", "credit", "permission", "invalid_request",
 }
 
-// claudeSubPermanentFailureTextMatch reports whether err's text names a
-// permanent refusal. The match is case-insensitive and deliberately conservative:
-// it only ever stops a recovery.
+// claudeSubPermanentFailureTextMatch reports whether err's structured text names
+// a permanent refusal. A failed turn contributes only its result text, which the
+// CLI wrote into the result envelope; every other error contributes only its safe
+// form, which excludes the stderr tail and control-response text. An incidental
+// word in stderr therefore never blocks a legitimate retry. The match is
+// case-insensitive and only ever stops a recovery.
 func claudeSubPermanentFailureTextMatch(err error) bool {
-	text := strings.ToLower(err.Error())
+	var text string
+	if failure, ok := claudeSubFailedTurnResult(err); ok {
+		text = failure.text
+	} else {
+		text = claudeSubDiagnosticError(err).Error()
+	}
+	text = strings.ToLower(text)
 	for _, want := range claudeSubPermanentFailureText {
 		if strings.Contains(text, want) {
 			return true

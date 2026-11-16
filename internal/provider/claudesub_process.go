@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -281,7 +280,9 @@ func (p *claudeSubProcess) Send(line []byte) error {
 	p.sendMu.Lock()
 	if p.sendClosed {
 		p.sendMu.Unlock()
-		return errors.New("claude CLI connection is closed")
+		// A closed connection is typed evidence that the process is gone, so a
+		// pre-output turn may be retried on a replacement process.
+		return errClaudeSubConnClosed
 	}
 	p.sendQueue = append(p.sendQueue, buf)
 	p.sendMu.Unlock()

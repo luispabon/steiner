@@ -1,16 +1,19 @@
 package provider
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
 
-// Failure recovery. A failure before any output is retried inside the provider.
-// A failure after output is surfaced with the partial kept, and the next request
+// Failure recovery. A failure before any output is retried inside the provider,
+// only when the request carries a stored checkpoint the retry can fork-resume. A
+// failure after output is surfaced with the partial kept, and the next request
 // resumes the stored checkpoint through the stopped-turn recovery. The fake CLI
 // crashes by closing its connection right after it pushed a scripted batch (see
 // claudeSubFakeConn.exitAfterNextSend), which is what an exited CLI looks like to
@@ -40,6 +43,14 @@ func claudeSubMaxTurnsResult() claudeSubEvent {
 func claudeSubStreamedTextBatch(t *testing.T) []claudeSubEvent {
 	t.Helper()
 	return claudeSubDecodeEvents(t, "turn_text.jsonl")[:8]
+}
+
+// claudeSubThinkingOnlyBatch returns the fixture's message start and its thinking
+// delta, before any text: the shape of an attempt that only thought before it
+// failed.
+func claudeSubThinkingOnlyBatch(t *testing.T) []claudeSubEvent {
+	t.Helper()
+	return claudeSubDecodeEvents(t, "turn_text.jsonl")[:6]
 }
 
 // claudeSubStreamedText is the text claudeSubStreamedTextBatch streams.
@@ -168,54 +179,94 @@ func claudeSubFailedTurn(subtype, terminalReason, text string) error {
 	return claudeSubTurnFailure(&claudeSubResult{Subtype: subtype, TerminalReason: terminalReason, Text: text, IsError: true})
 }
 
-// TestClaudeSubRetryDecision proves the recovery decision: a crash before output
-// is retried, a failure after output is never recovered, and every refusal,
-// deliberate end, spent budget and in-flight tool call ends the call.
+// TestClaudeSubRetryDecision proves the recovery decision: a typed
+// connection-ended failure before output is retried when a stored checkpoint can
+// be resumed, a failure after output is never recovered, and every refusal,
+// ambiguous error, deliberate end and spent budget ends the call.
 func TestClaudeSubRetryDecision(t *testing.T) {
 	crash := claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "boom")
 	apiError := claudeSubFailedTurn(claudeSubCrashResultSubtype, "api_error", "API Error: Server error mid-response.")
 	connClosed := errClaudeSubConnClosed
+	processExit := fmt.Errorf("%w: %w", errClaudeSubConnClosed, errors.New("claude CLI process exited: signal: killed"))
 	normal := claudeSubCallKindNormal
+	retry := claudeSubRetryFacts{CallKind: normal, Restorable: true}
 	tests := []struct {
 		name  string
 		err   error
 		facts claudeSubRetryFacts
 		want  claudeSubRetryAction
 	}{
-		{name: "crash before output is retried", err: crash, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}, want: claudeSubRetryPreOutput},
-		{name: "closed connection before output is retried", err: connClosed, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}, want: claudeSubRetryPreOutput},
-		{name: "connection sentinel without a liveness flag is retried", err: connClosed, facts: claudeSubRetryFacts{CallKind: normal}, want: claudeSubRetryPreOutput},
-		{name: "crash after output is surfaced", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Visible: true, ProcessGone: true}},
-		{name: "closed connection after output is surfaced", err: connClosed, facts: claudeSubRetryFacts{CallKind: normal, Visible: true, ProcessGone: true}},
-		{name: "mid-response API error after output is surfaced", err: apiError, facts: claudeSubRetryFacts{CallKind: normal, Visible: true}},
-		{name: "mid-response API error before output is not retried", err: apiError, facts: claudeSubRetryFacts{CallKind: normal}},
-		{name: "sub-agent crash is retried", err: crash, facts: claudeSubRetryFacts{CallKind: claudeSubCallKindSubAgent}, want: claudeSubRetryPreOutput},
-		{name: "advisor call keeps its behaviour", err: crash, facts: claudeSubRetryFacts{CallKind: claudeSubCallKindAdvisor}},
-		{name: "summary call keeps its behaviour", err: crash, facts: claudeSubRetryFacts{CallKind: claudeSubCallKindSummary}},
-		{name: "no error", facts: claudeSubRetryFacts{CallKind: normal}},
-		{name: "caller cancelled", err: crash, facts: claudeSubRetryFacts{CallKind: normal, ContextErr: context.Canceled}},
-		{name: "CLI already retried", err: crash, facts: claudeSubRetryFacts{CallKind: normal, CLIRetried: true}},
-		{name: "tool call in flight", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Pending: true}},
-		{name: "recovery budget spent", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Recoveries: claudeSubRetryMaxRecoveries}},
-		{name: "aborted streaming result", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "aborted_streaming", "stopped"), facts: claudeSubRetryFacts{CallKind: normal}},
-		{name: "aborted tools result", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "aborted_tools", "stopped"), facts: claudeSubRetryFacts{CallKind: normal}},
-		{name: "interrupted result without a terminal reason", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "[Request interrupted by user for tool use]"), facts: claudeSubRetryFacts{CallKind: normal}},
-		{name: "error_max_turns", err: claudeSubFailedTurn("error_max_turns", "", "stopped early"), facts: claudeSubRetryFacts{CallKind: normal}},
-		{name: "auth refusal text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "request failed with status 401"), facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "billing refusal text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "billing not enabled"), facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "invalid request text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "api_error", "invalid_request_error: max_tokens"), facts: claudeSubRetryFacts{CallKind: normal, Visible: true}},
-		{name: "decode failure", err: errors.Join(errClaudeSubDecodeStream, errors.New("boom")), facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "result envelope failure", err: errClaudeSubResultEnvelope, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "oversized line", err: &claudeSubLineTooLargeError{limit: 1}, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "unsafe session", err: errClaudeSubSessionUnsafe, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "usage limit", err: &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "usage gate refusal", err: &claudeSubUsageGateError{err: claudeSubUsageNotReady("rate_limits_available=false")}, facts: claudeSubRetryFacts{CallKind: normal, ProcessGone: true}},
-		{name: "a control failure is not a crash", err: errors.New("claude CLI set_model: model unavailable"), facts: claudeSubRetryFacts{CallKind: normal}},
+		{name: "crash result before output is retried", err: crash, facts: retry, want: claudeSubRetryPreOutput},
+		{name: "closed connection before output is retried", err: connClosed, facts: retry, want: claudeSubRetryPreOutput},
+		{name: "recorded process exit before output is retried", err: processExit, facts: retry, want: claudeSubRetryPreOutput},
+		{name: "crash after output is surfaced", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Visible: true}},
+		{name: "closed connection after output is surfaced", err: connClosed, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Visible: true}},
+		{name: "thinking-only output is surfaced", err: connClosed, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Visible: true}},
+		{name: "mid-response API error after output is surfaced", err: apiError, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Visible: true}},
+		{name: "mid-response API error before output is not retried", err: apiError, facts: retry},
+		{name: "no restorable checkpoint is not retried", err: connClosed, facts: claudeSubRetryFacts{CallKind: normal}},
+		{name: "sub-agent without a checkpoint is not retried", err: crash, facts: claudeSubRetryFacts{CallKind: claudeSubCallKindSubAgent}},
+		{name: "advisor call keeps its behaviour", err: crash, facts: claudeSubRetryFacts{CallKind: claudeSubCallKindAdvisor, Restorable: true}},
+		{name: "summary call keeps its behaviour", err: crash, facts: claudeSubRetryFacts{CallKind: claudeSubCallKindSummary, Restorable: true}},
+		{name: "no error", facts: retry},
+		{name: "caller cancelled", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, ContextErr: context.Canceled}},
+		{name: "CLI already retried", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, CLIRetried: true}},
+		{name: "tool call in flight", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Pending: true}},
+		{name: "recovery budget spent", err: crash, facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Recoveries: claudeSubRetryMaxRecoveries}},
+		{name: "aborted streaming result", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "aborted_streaming", "stopped"), facts: retry},
+		{name: "aborted tools result", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "aborted_tools", "stopped"), facts: retry},
+		{name: "interrupted result without a terminal reason", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "[Request interrupted by user for tool use]"), facts: retry},
+		{name: "error_max_turns", err: claudeSubFailedTurn("error_max_turns", "", "stopped early"), facts: retry},
+		{name: "auth refusal text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "request failed with status 401"), facts: retry},
+		{name: "billing refusal text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "billing not enabled"), facts: retry},
+		{name: "invalid request text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "api_error", "invalid_request_error: max_tokens"), facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Visible: true}},
+		{name: "decode failure", err: errors.Join(errClaudeSubDecodeStream, errors.New("boom")), facts: retry},
+		{name: "result envelope failure", err: errClaudeSubResultEnvelope, facts: retry},
+		{name: "oversized stdin line", err: &claudeSubLineTooLargeError{limit: 1}, facts: retry},
+		{name: "oversized stdout line", err: fmt.Errorf("read claude CLI stdout: %w", bufio.ErrTooLong), facts: retry},
+		{name: "unsafe session", err: errClaudeSubSessionUnsafe, facts: retry},
+		{name: "usage limit", err: &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "claude_subscription"}, facts: retry},
+		{name: "usage gate refusal", err: &claudeSubUsageGateError{err: claudeSubUsageNotReady("rate_limits_available=false")}, facts: retry},
+		{name: "paid extra usage", err: errClaudeSubPaidExtraUsage, facts: retry},
+		{name: "unrecognised rate-limit status", err: errClaudeSubUnrecognisedStatus, facts: retry},
+		{name: "wrapped paid extra usage", err: fmt.Errorf("turn: %w", errClaudeSubPaidExtraUsage), facts: retry},
+		{name: "ambiguous live control failure is not retried", err: errors.New("claude CLI get_usage: usage unavailable"), facts: retry},
+		{name: "a control failure is not a crash", err: errors.New("claude CLI set_model: model unavailable"), facts: retry},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := claudeSubRetryDecision(tt.err, tt.facts); got != tt.want {
 				t.Errorf("decision = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestClaudeSubRetryRefusedEvidence proves the refusal classifier reads only
+// trustworthy structured text: the CLI's result text when the turn reported one,
+// and the safe error form otherwise, which excludes the stderr tail. Incidental
+// stderr words therefore never block a legitimate retry, while a real refusal in
+// the result text still does.
+func TestClaudeSubRetryRefusedEvidence(t *testing.T) {
+	stderrOnly := &claudeSubDetailError{
+		detail: errors.New("claude CLI process exited: exit status 2 (stderr: permission denied, status 401)"),
+		safe:   errors.New("claude CLI process exited: exit status 2"),
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "incidental stderr text is not a refusal", err: stderrOnly},
+		{name: "a crash is not a refusal", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "boom")},
+		{name: "result text naming auth is a refusal", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "request failed with status 401"), want: true},
+		{name: "result text naming permission is a refusal", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "permission denied for this model"), want: true},
+		{name: "result text naming billing is a refusal", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "billing not enabled"), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := claudeSubRetryRefused(tt.err); got != tt.want {
+				t.Errorf("refused = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -335,41 +386,31 @@ func TestClaudeSubRecoverPreOutputCrashResumesParent(t *testing.T) {
 	claudeSubWantRetryNotice(t, got, "claude_subscription turn failed (connection closed); retrying, attempt 1/2", 1)
 }
 
-// TestClaudeSubRecoverPreOutputCrashReseedsSubAgent proves a sub-agent process
-// that crashes before output is replaced, and the retry reseeds the flattened
-// conversation because a sub-agent holds no checkpoint to resume.
-func TestClaudeSubRecoverPreOutputCrashReseedsSubAgent(t *testing.T) {
-	model := claudeSubTestSpec().Model
+// TestClaudeSubRecoverPreOutputCrashSubAgentDoesNotRetry proves a sub-agent holds
+// no checkpoint to fork-resume, so a pre-output crash ends the call: nothing is
+// reseeded or replayed.
+func TestClaudeSubRecoverPreOutputCrashSubAgentDoesNotRetry(t *testing.T) {
 	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{}, claudeSubTextTurns(t, 1))
-	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+	got := claudeSubRunCollected(t, pool, ChatRequest{
 		TransportSession:       "child-1",
 		ParentTransportSession: "parent",
-		Model:                  model,
+		Model:                  claudeSubTestSpec().Model,
 		Messages: []Message{
 			claudeSubUserText("read notes"),
 			{Role: MessageRoleAssistant, Content: "answer"},
 			claudeSubUserText("more"),
 		},
 	})
-	if got.err != nil {
-		t.Fatalf("sub-agent turn error = %v", got.err)
+	if got.err == nil || got.err.Error() != errClaudeSubConnClosed.Error() {
+		t.Fatalf("sub-agent turn error = %v, want the connection-closed failure", got.err)
 	}
-	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (the crashed process and its reseed)", n)
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (a sub-agent has no checkpoint to resume)", n)
 	}
-	serving := spawner.call(t, 1)
-	if _, ok := claudeSubArgValue(serving.Args, "--resume"); ok {
-		t.Errorf("reseed spawn resumed: %q", serving.Args)
+	if warnings := claudeSubFailureWarnings(got); len(warnings) != 0 {
+		t.Errorf("warnings = %q, want none: nothing was reseeded", warnings)
 	}
-	lines := claudeSubUserLines(serving.Conn)
-	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
-		t.Fatalf("reseed user lines = %q, want one rendered transcript", lines)
-	}
-	if final := got.final(t); final.Delta.Content != "Hello world" {
-		t.Errorf("final content = %q, want %q", final.Delta.Content, "Hello world")
-	}
-	claudeSubWantFailureWarning(t, got, claudeSubFlattenedReseedWarning)
-	claudeSubWantRetryNotice(t, got, "claude_subscription turn failed (connection closed); retrying, attempt 1/2", 1)
+	claudeSubWantNoRecoveryNotice(t, got)
 }
 
 // TestClaudeSubRecoverNeverRetries proves each failure the recovery must leave
@@ -478,13 +519,15 @@ func TestClaudeSubRecoverPendingToolUse(t *testing.T) {
 // TestClaudeSubRecoverBoundsAttempts proves a call spends at most
 // claudeSubRetryMaxRecoveries recoveries and then returns the failure.
 func TestClaudeSubRecoverBoundsAttempts(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubCrashingPool(t, 3, &claudeSubScript{}, &claudeSubScript{}, &claudeSubScript{})
 	got := claudeSubRunCollected(t, pool, ChatRequest{
 		TransportSession: "parent",
 		Model:            claudeSubTestSpec().Model,
-		Messages:         []Message{claudeSubUserText("read notes")},
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
 	})
-	if got.err == nil || got.err.Error() != errClaudeSubConnClosed.Error() {
+	if got.err == nil || !strings.Contains(got.err.Error(), "claude CLI connection closed") {
 		t.Fatalf("turn error = %v, want the connection-closed failure", got.err)
 	}
 	if n := spawner.callCount(); n != 1+claudeSubRetryMaxRecoveries {
@@ -507,6 +550,7 @@ func TestClaudeSubRecoverCancelDuringBackoff(t *testing.T) {
 	prev := claudeSubRetryBackoff
 	claudeSubRetryBackoff = []time.Duration{time.Hour, time.Hour}
 	t.Cleanup(func() { claudeSubRetryBackoff = prev })
+	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -516,7 +560,8 @@ func TestClaudeSubRecoverCancelDuringBackoff(t *testing.T) {
 	err := claudeSubTurn(ctx, pool, ChatRequest{
 		TransportSession: "parent",
 		Model:            claudeSubTestSpec().Model,
-		Messages:         []Message{claudeSubUserText("read notes")},
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
 	}, func(ChatChunk) error { return nil })
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("turn error = %v, want context.Canceled", err)
@@ -550,6 +595,142 @@ func TestClaudeSubRecoverAdvisorUnchanged(t *testing.T) {
 	claudeSubWantNoRecoveryNotice(t, got)
 }
 
+// TestClaudeSubRecoverSendClosedIsRetried proves a write that fails because the
+// CLI connection closed is typed evidence: before any output the request is
+// retried on a replacement process that resumes the stored checkpoint.
+func TestClaudeSubRecoverSendClosedIsRetried(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	scripts := []*claudeSubScript{{}, claudeSubTextTurns(t, 1)}
+	pool, spawner := claudeSubPoolWithScripts(t, scripts...)
+	spawner.onSpawn = func(c *claudeSubFakeConn) {
+		index := len(spawner.calls)
+		c.mu.Lock()
+		script := scripts[min(index, len(scripts)-1)]
+		c.responder = func(line []byte) []claudeSubEvent {
+			var env struct {
+				RequestID string `json:"request_id"`
+			}
+			if json.Unmarshal(line, &env) != nil || !strings.Contains(string(line), `"subtype":"get_usage"`) {
+				return script.respond(line)
+			}
+			if index == 0 {
+				// The next write finds the connection closed.
+				c.mu.Lock()
+				c.sendErr = fmt.Errorf("%w: fake send closed", errClaudeSubConnClosed)
+				c.mu.Unlock()
+			}
+			return []claudeSubEvent{claudeSubSuccessEvent(env.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+		}
+		c.mu.Unlock()
+	}
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the closed connection and its retry)", n)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume != st.CLISessionID {
+		t.Errorf("retry --resume = %q, want %q", resume, st.CLISessionID)
+	}
+	if final := got.final(t); final.Delta.Content != "Hello world" {
+		t.Errorf("final content = %q, want %q", final.Delta.Content, "Hello world")
+	}
+	claudeSubWantRetryNotice(t, got, "claude_subscription turn failed (connection closed); retrying, attempt 1/2", 1)
+}
+
+// TestClaudeSubRecoverGateTransportIsNotRetried proves an ambiguous live failure
+// is not retried: a get_usage transport error may come from a process that is
+// still alive, so the call ends.
+func TestClaudeSubRecoverGateTransportIsNotRetried(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{usageErr: "usage unavailable"}, claudeSubTextTurns(t, 1))
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err == nil || !strings.Contains(got.err.Error(), "usage unavailable") {
+		t.Fatalf("turn error = %v, want the get_usage transport error", got.err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (an ambiguous live failure is not retried)", n)
+	}
+	claudeSubWantNoRecoveryNotice(t, got)
+}
+
+// TestClaudeSubRecoverUnconfirmedRetireReseeds proves a retry whose teardown
+// cannot confirm the exit reseeds with its own reason, reported on the terminal
+// chunk, and reports the flattened replay once.
+func TestClaudeSubRecoverUnconfirmedRetireReseeds(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{}, claudeSubTextTurns(t, 1))
+	pool.confirmRetire = func(*claudeSubSession) bool { return false }
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the crashed process and the reseed)", n)
+	}
+	serving := spawner.call(t, 1)
+	if _, ok := claudeSubArgValue(serving.Args, "--resume"); ok {
+		t.Errorf("unconfirmed retry resumed: %q, want a reseed", serving.Args)
+	}
+	if lines := claudeSubUserLines(serving.Conn); len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
+		t.Fatalf("reseed user lines = %q, want one rendered transcript", lines)
+	}
+	final := got.final(t)
+	if diagnostics := final.Diagnostics; diagnostics == nil || diagnostics.ClaudeSub == nil {
+		t.Fatal("terminal chunk carries no claude_subscription measurements")
+	}
+	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedUnconfirmed {
+		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedUnconfirmed)
+	}
+	if got := final.Diagnostics.ClaudeSub.Recovery; got != claudeSubRecoveryRetryPreOutput {
+		t.Errorf("recovery = %q, want %q", got, claudeSubRecoveryRetryPreOutput)
+	}
+	claudeSubWantFailureWarning(t, got, claudeSubFlattenedReseedWarning)
+	claudeSubWantRetryNotice(t, got, "claude_subscription turn failed (connection closed); retrying, attempt 1/2", 1)
+}
+
+// TestClaudeSubRetryReportsReplacementOnce proves a retry reports the pending
+// replacement warning once, even when the failed attempt already reported it
+// after a usage-only chunk, and that the call clears the notice it reported.
+func TestClaudeSubRetryReportsReplacementOnce(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	usageOnly := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_text.jsonl")[:2]}}
+	pool, spawner := claudeSubCrashingPool(t, 1, usageOnly, claudeSubTextTurns(t, 1))
+	pool.noteReplacement("parent")
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the usage-only attempt and its retry)", n)
+	}
+	claudeSubWantFailureWarning(t, got, claudeSubReplacedProcessWarning)
+	if pool.replacementPending("parent") {
+		t.Error("the reported replacement notice survived the successful call")
+	}
+}
+
 // TestClaudeSubFailAfterVisibleCrashResumesNextTurn proves a crash after output
 // ends the call with the error and no retry, and the next request resumes the
 // previous checkpoint warm with the stopped-reply note. The history is what the
@@ -565,14 +746,20 @@ func TestClaudeSubFailAfterVisibleCrashResumesNextTurn(t *testing.T) {
 		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
 		BackendState:     claudeSubEncodeState(t, st),
 	})
-	if got.err == nil || got.err.Error() != errClaudeSubConnClosed.Error() {
+	if got.err == nil || !strings.Contains(got.err.Error(), "claude CLI connection closed") {
 		t.Fatalf("turn error = %v, want the connection-closed failure", got.err)
 	}
 	if n := spawner.callCount(); n != 1 {
 		t.Fatalf("spawn count = %d, want 1 (no attempt follows visible output)", n)
 	}
-	if streamed := claudeSubStreamedText; !strings.Contains(streamed, "Hello") {
-		t.Fatalf("streamed text = %q", streamed)
+	var streamed strings.Builder
+	for _, chunk := range got.chunks {
+		if !chunk.Done {
+			streamed.WriteString(chunk.Delta.Content)
+		}
+	}
+	if streamed.String() != claudeSubStreamedText {
+		t.Fatalf("streamed text = %q, want %q", streamed.String(), claudeSubStreamedText)
 	}
 	claudeSubWantNoRecoveryNotice(t, got)
 
@@ -582,7 +769,7 @@ func TestClaudeSubFailAfterVisibleCrashResumesNextTurn(t *testing.T) {
 		claudeSubUserText("read notes"),
 		assistant,
 		claudeSubUserText("more"),
-		claudeSubRecoveryPartial(claudeSubStreamedText),
+		claudeSubRecoveryPartial(streamed.String()),
 		claudeSubUserText("again"),
 	}
 	resumed := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
@@ -617,6 +804,8 @@ func TestClaudeSubFailAfterVisibleCrashResumesNextTurn(t *testing.T) {
 	if !strings.Contains(blocks[1], claudeSubStreamedText) || !strings.Contains(blocks[1], claudeSubStoppedReplyNoteOpening) {
 		t.Errorf("note = %q, want the partial quoted in the stopped-reply note", blocks[1])
 	}
+	// A dead process leaves nothing to replace, and the parent stop design keeps
+	// that recovery silent: no warning is reported here.
 	if warnings := claudeSubFailureWarnings(resumed); len(warnings) != 0 {
 		t.Errorf("warnings = %q, want none (the fork resume reports no replacement)", warnings)
 	}
@@ -707,6 +896,36 @@ func TestClaudeSubFailMidResponseAPIErrorResumesNextTurn(t *testing.T) {
 	if label := claudeSubRecoveryLabel(resumed.final(t)); label != claudeSubRecoveryResumeAfterStop {
 		t.Errorf("recovery = %q, want %q", label, claudeSubRecoveryResumeAfterStop)
 	}
+}
+
+// TestClaudeSubFailThinkingOnlyReturnsError proves thinking alone counts as
+// visible output: the call ends with its error instead of retrying, and no text
+// partial is preserved for the next turn.
+func TestClaudeSubFailThinkingOnlyReturnsError(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	thinking := &claudeSubScript{batches: [][]claudeSubEvent{claudeSubThinkingOnlyBatch(t)}}
+	pool, spawner := claudeSubCrashingPool(t, 1, thinking, claudeSubTextTurns(t, 1))
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err == nil || !strings.Contains(got.err.Error(), "claude CLI connection closed") {
+		t.Fatalf("turn error = %v, want the connection-closed failure", got.err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (thinking alone is visible output)", n)
+	}
+	var thought, text bool
+	for _, chunk := range got.chunks {
+		thought = thought || chunk.Thinking != ""
+		text = text || chunk.Delta.Content != ""
+	}
+	if !thought || text {
+		t.Errorf("streamed thinking = %v text = %v, want thinking only", thought, text)
+	}
+	claudeSubWantNoRecoveryNotice(t, got)
 }
 
 // TestClaudeSubFailAfterVisibleSubAgentReturnsError proves a sub-agent crash after

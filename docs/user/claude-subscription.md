@@ -65,9 +65,9 @@ When the CLI has already retried an API error in a turn, Steiner does not start 
 
 ## Failed responses
 
-If a response fails before anything was shown and Steiner can recover it, the activity row reports `retrying 1/2` and the request is sent again on a replacement CLI process. It resumes your saved CLI session where it can, so the prompt cache stays warm. That happens at most twice per request.
+If a response fails before anything was shown and Steiner can recover it, the activity row reports `retrying 1/2` and the request is sent again on a replacement CLI process. It resumes your saved CLI session where it can, so the prompt cache can stay warm. That happens at most twice per request.
 
-Once part of a reply has appeared, Steiner does not restart or continue it automatically. A failure then shows the error and keeps the text you already saw as untrusted incomplete assistant text. Your next message resumes the saved CLI session at the last completed step and passes that text to the model as a quoted note, so the conversation carries on with the cache warm instead of replaying everything flattened.
+Once part of a reply has appeared, including thinking, Steiner does not restart or continue it automatically. A failure then shows the error and keeps the text you already saw as untrusted incomplete assistant text. Your next message resumes the saved CLI session at the last completed step and passes that text to the model as a quoted note, so the conversation carries on with the prompt cache able to stay warm instead of replaying everything flattened.
 
 Automatic continuation of a cut-off reply was tested against the live CLI and rejected: in most trials the model dropped a line break where the reply had been cut, so the joined text was not reliable. A response that a usage limit, an auth or billing refusal, or a stop of yours ended is not recovered either: those need your action.
 

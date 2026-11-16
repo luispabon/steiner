@@ -48,7 +48,10 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				return err
 			}
 			if err := s.conn.Err(); err != nil {
-				return err
+				// Typed closed-connection evidence: the queue ended without a terminal
+				// result, and the connection reported why. The inner error keeps its
+				// own type for display and for errors.Is.
+				return fmt.Errorf("%w: %w", errClaudeSubConnClosed, err)
 			}
 			return errClaudeSubConnClosed
 		}
