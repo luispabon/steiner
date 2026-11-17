@@ -7,6 +7,7 @@ Core runtime (start with Architecture):
 - [Architecture](architecture.md)
 - [Context management](context-management.md)
 - [Prompt caching](prompt-caching.md)
+- [System prompts](system-prompts.md)
 - [Sub-agent delegation](sub-agent-delegation.md)
 - [Execution modes](execution-modes.md)
 - [Sandboxing](sandboxing.md)

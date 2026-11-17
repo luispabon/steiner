@@ -25,7 +25,7 @@ This page reproduces prompt text received by models. The code is the source of t
 
 ### Assembly
 
-`internal/prompt/system.go` renders `identity` and the templates in `internal/prompt/templates/` using `renderTemplate` in `internal/prompt/templates.go`. `delegationInstructions` renders the roster from `specialists` in `internal/prompt/specialists.go`. `renderSections` trims each section, drops empty sections, and joins the rest with two newlines. The default order is identity, delegation, advisor, LSP, code child, documentor child, core rules, tool batching, workflow, sandbox, execution modes, output voice.
+`internal/prompt/system.go` renders `identity` and the templates in `internal/prompt/templates/` using `renderTemplate` in `internal/prompt/templates.go`. `delegationInstructions` renders the roster from `specialists` in `internal/prompt/specialists.go`. `renderSections` trims sections and drops empty ones. `buildSystemPreamble` and `buildOverridePreamble` join the returned sections with two newlines. The default order is identity, delegation, advisor, LSP, code child, documentor child, core rules, tool batching, workflow, sandbox, execution modes, output voice.
 
 The example uses defaults from `internal/config/defaults.go`: delegation enabled, orchestration level `standard`, advisor disabled, LSP disabled, sandbox enabled, and no extra writable mounts. It uses parent workflow, no system override or suffix, and async sub-agents as in interactive mode. Async is a run-mode property, not a config default: `cliRunner.asyncSubAgents` in `cmd/steiner/runner_run.go` selects blocking calls for exec mode. Sandbox availability can depend on runtime setup.
 
@@ -286,6 +286,8 @@ An empty result means the server found nothing, not that the tool is broken.
 
 ## Compactor
 
+`buildCompactionRequestWithMode` in `internal/agent/compaction_escalation.go` appends the instruction as a final user message, not a system message, after cloned assembled parent messages including the system preamble. The request uses the parent's tools and parameters.
+
 `RenderConversationCompactionInstruction` in `internal/prompt/compaction.go` joins `internal/prompt/templates/compaction_system.md.tmpl` and `internal/prompt/templates/compaction_default_body.md.tmpl` for the normal instruction:
 
 ```text
@@ -343,6 +345,53 @@ The emergency addendum is appended even when an override is supplied.
 
 `internal/advisor/prompt.go` sends the fixed system text followed by a flattened conversation snapshot. Its final user message contains optional in-flight assistant text, rendered files, the caller's question, and the fixed user text, in that order.
 
+The following fixed labels and format strings in `internal/advisor/prompt.go` appear when their corresponding content is present. `%s` and `%d` are format placeholders.
+
+`inFlightLabel`:
+
+```text
+The agent's latest message, still in progress (it issued this advisor call):
+```
+
+`writeAdvisorFiles`, file format:
+
+````text
+File: %s
+```
+%s
+```
+````
+
+`writeAdvisorFiles`, deduplicated file:
+
+```text
+File: %s (already fully present above from an earlier read in this conversation; content unchanged)
+```
+
+`flattenToolMessages`, tool result:
+
+```text
+[tool_result: %s]
+```
+
+`flattenToolMessages`, earlier advisor result:
+
+```text
+Your earlier note (update if circumstances have changed):
+```
+
+`flattenToolMessages`, tool call:
+
+```text
+[tool_call: %s %s]
+```
+
+`elideKnownTotal`, elision marker:
+
+```text
+…[elided, %d bytes total]
+```
+
 Advisor system prompt, `advisorSystemPrompt` in `internal/advisor/prompt.go` (audience: advisor model):
 
 ```text
@@ -363,7 +412,7 @@ Orchestrator guidance, `internal/prompt/templates/advisor.md.tmpl` (audience: or
 The `advisor` is a special sub-agent that has your full context which you can use for strategic guidance. Use sparingly for ambiguity, risk, or a final sanity check. The advisor sees the conversation but cannot read files itself. Use `files` only for artifacts whose contents are not already present in your context; re-passing visible contents duplicates them. State what you want judged via `question`. You must heed its guidance.
 ```
 
-Sub-agent suffix, `internal/delegation/templates/advisor_suffix.txt` (audience: eligible sub-agents when advisor is enabled):
+Sub-agent suffix, `internal/delegation/templates/advisor_suffix.txt` (audience: eligible sub-agents when the advisor tool is in the child's allowlist and an advisor is wired for children):
 
 ```text
 ## Advisor guidance (one call only)
@@ -378,7 +427,7 @@ The advisor has your full conversation context but cannot read files or call too
 
 ## Sub-agents
 
-`BuildChildRun` in `internal/delegation/bootstrap.go` selects a workflow mode and assembles a shared preamble. Identity, workflow and delegated-task text, tool batching, and output voice combine with either the per-type body from `AgentSystemPrompt` in `internal/delegation/agent_type.go` or the code/documentor template tree in `internal/prompt/templates/`. `AgentSystemSuffix` adds advisor and LSP suffixes for eligible types when enabled. Per-type reproductions are listed below.
+`BuildChildRun` in `internal/delegation/bootstrap.go` selects a workflow mode and assembles a shared preamble. Identity, workflow and delegated-task text, tool batching, and output voice combine with either the per-type body from `AgentSystemPrompt` in `internal/delegation/agent_type.go` or the code/documentor template tree in `internal/prompt/templates/`. `AgentSystemSuffix` adds advisor guidance for eligible types when the advisor tool is in the child's allowlist and an advisor is wired for children. It adds LSP guidance for eligible types when LSP is enabled and `lsp_definitions` is in the child's allowlist. Per-type reproductions are listed below.
 
 ### `explore`
 
@@ -450,7 +499,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 
 #### Suffixes
 
-When LSP is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt`:
+When LSP is enabled and `lsp_definitions` is in the child's allowlist, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt`:
 
 ```text
 ## Code intelligence (LSP)
@@ -584,7 +633,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 
 #### Suffixes
 
-When advisor is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
+When the advisor tool is in the child's allowlist and an advisor is wired for children, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
 
 ```text
 ## Advisor guidance (one call only)
@@ -597,7 +646,7 @@ You have exactly ONE advisor call for your entire lifetime. Use it strategically
 The advisor has your full conversation context but cannot read files or call tools itself—it advises only.
 ```
 
-When LSP is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, when present:
+When LSP is enabled and `lsp_definitions` is in the child's allowlist, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, when present:
 
 ```text
 ## Code intelligence (LSP)
@@ -729,7 +778,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 
 #### Suffixes
 
-When advisor is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
+When the advisor tool is in the child's allowlist and an advisor is wired for children, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
 
 ```text
 ## Advisor guidance (one call only)
@@ -742,7 +791,7 @@ You have exactly ONE advisor call for your entire lifetime. Use it strategically
 The advisor has your full conversation context but cannot read files or call tools itself—it advises only.
 ```
 
-When LSP is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, when present:
+When LSP is enabled and `lsp_definitions` is in the child's allowlist, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, when present:
 
 ```text
 ## Code intelligence (LSP)
@@ -929,7 +978,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 
 #### Suffixes
 
-When advisor is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
+When the advisor tool is in the child's allowlist and an advisor is wired for children, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
 
 ```text
 ## Advisor guidance (one call only)
@@ -942,7 +991,7 @@ You have exactly ONE advisor call for your entire lifetime. Use it strategically
 The advisor has your full conversation context but cannot read files or call tools itself—it advises only.
 ```
 
-When LSP is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, if present:
+When LSP is enabled and `lsp_definitions` is in the child's allowlist, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, if present:
 
 ```text
 ## Code intelligence (LSP)
@@ -1089,7 +1138,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 
 #### Suffixes
 
-When advisor is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
+When the advisor tool is in the child's allowlist and an advisor is wired for children, `AgentSystemSuffix` appends `internal/delegation/templates/advisor_suffix.txt`:
 
 ```text
 ## Advisor guidance (one call only)
@@ -1102,7 +1151,7 @@ You have exactly ONE advisor call for your entire lifetime. Use it strategically
 The advisor has your full conversation context but cannot read files or call tools itself—it advises only.
 ```
 
-When LSP is enabled, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, if present:
+When LSP is enabled and `lsp_definitions` is in the child's allowlist, `AgentSystemSuffix` appends `internal/delegation/templates/lsp_suffix.txt` after the advisor suffix, if present:
 
 ```text
 ## Code intelligence (LSP)
