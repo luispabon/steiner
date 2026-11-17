@@ -632,16 +632,25 @@ func TestPathPolicyError_NotPromptable_WritableAllowlist(t *testing.T) {
 	}
 }
 
-func TestPathPolicy_WithoutRoot(t *testing.T) {
+func TestPathPolicy_WithoutRootContainment(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
-	relaxed := policy.WithoutRoot()
-	if relaxed.Root() != "" {
-		t.Fatalf("WithoutRoot().Root() = %q, want ''", relaxed.Root())
+	relaxed := policy.WithoutRootContainment()
+	// The root stays set: approved calls still resolve relative paths against
+	// the project root instead of the process working directory.
+	if relaxed.Root() != "/project" {
+		t.Fatalf("WithoutRootContainment().Root() = %q, want '/project'", relaxed.Root())
 	}
-	// After removing root, outside paths should be allowed.
-	_, err := relaxed.ResolvePath("/etc/passwd", false)
-	if err != nil {
+	// Root containment is off, so an outside absolute path is allowed.
+	if _, err := relaxed.ResolvePath("/etc/passwd", false); err != nil {
 		t.Fatalf("relaxed.ResolvePath(/etc/passwd) error = %v, want nil", err)
+	}
+	// A relative path still resolves under the retained root.
+	resolved, err := relaxed.ResolvePath("sub/file.txt", false)
+	if err != nil {
+		t.Fatalf("relaxed.ResolvePath(sub/file.txt) error = %v, want nil", err)
+	}
+	if want := "/project/sub/file.txt"; resolved != want {
+		t.Fatalf("relaxed.ResolvePath(sub/file.txt) = %q, want %q", resolved, want)
 	}
 }
 

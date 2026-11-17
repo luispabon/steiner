@@ -21,7 +21,7 @@ func TestMutate_EffectivePolicy_AllowsPathOutsideRoot(t *testing.T) {
 	env := Env{WorkDir: root, PathPolicy: &policy}
 	toolDef := NewMutateTool(env)
 
-	effectivePolicy := policy.WithoutRoot()
+	effectivePolicy := policy.WithoutRootContainment()
 
 	ctx := context.WithValue(context.Background(), tool.EffectivePolicyKey{}, &effectivePolicy)
 	result, err := toolDef.Handler(ctx, map[string]any{

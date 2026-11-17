@@ -36,7 +36,7 @@ From an interactive session:
 
 - **Worktree and branch.** The run works in `.steiner/worktrees/oneshot-<run-id>` on branch `oneshot/<slug>-<run-id>`. It starts from `origin/main` when that ref exists, otherwise from the repository's local `HEAD`. Your working tree is not touched.
 - **Run state.** The manifest and lock live in `.steiner/oneshot/<run-id>/`. Planning artifacts and the final report (`final-report.json`) are written inside the worktree under `.steiner/plans/oneshot-<run-id>/`.
-- **Approvals.** Oneshot does not prompt. `mutate` path approvals inside the run worktree are allowed; every other approval request is denied.
+- **Approvals.** Oneshot never prompts and never approves. Edits inside the run worktree need no approval, and every approval request is denied: a `mutate` or `bash` path outside the worktree is refused instead of approved, and a sandbox denial is returned to the model without an unsandboxed retry. Because `paths.project_root_only` defaults to `true`, this refusal is what keeps a run inside its worktree. Setting it to `false` explicitly turns the refusal off, and then a run can write outside the worktree; keep the default for autonomous runs. MCP tools that require approval are denied.
 - **Advisor.** The advisor is always available to oneshot phases, using the profile's `advisor` model or `default_model`.
 - **Sub-agents.** Children run in the background while the phase continues. A phase finishes only after every child it started has finished and its result is recorded.
 - **Budget.** Each phase has the same completion-token budget as a normal run (`limits.max_tokens`), counted across all its turns. If it runs out with children still running, they are cancelled and the phase fails.

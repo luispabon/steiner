@@ -50,7 +50,7 @@ Phases run in order: plan, implement, review. `runPhase` builds a fresh runner f
 
 - A new `PhaseRunner` and `prompt.StaticContextCache`, in workflow mode `prompt.DelegatedChildWorkflowMode()`.
 - `WorkDir` is the worktree. `ProjectRoot` stays the main checkout, which holds the manifest. `ProjectAgentsPath` is `<worktree>/AGENTS.md`.
-- Approvals: `worktreeAutoApprover` approves only `mutate` path requests inside the worktree (`tool.PathWithinRoot`). Every other approval is denied.
+- Approvals: the phase runner gets a nil `tool.ApprovalResponder`. The executor treats that as a denial: a promptable path violation becomes `policy_denied` in `normalizeExecutionInput` and `handleBashDenial` never runs, so no unsandboxed retry is granted. Edits inside the worktree need no approval. An explicit `paths.project_root_only: false` still disables the containment check, so the denial does not apply.
 - Advisor: enabled, with `MaxUsesPerRun` per phase: plan 4, implement 3, review 4.
 - Cache identity: `SessionID` and `PromptCacheKey` are the run ID. One `agent.NewCacheBaselineStore()` per `Run` or `Resume` call is shared by all phases.
 - Seed: one user message from `phaseSeedConversation` with the task, phase, run ID, branch, worktree, and the paths `overview.md` and `plan.yaml` in the planning dir.

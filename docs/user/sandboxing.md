@@ -122,7 +122,7 @@ Denying a sandbox denial returns the original result to the model with a hint to
 
 ### Choices and their scope
 
-The interactive prompt offers **Allow once**, **Allowed for session**, and **Deny**. Approving a path request relaxes the project-root policy, not the sandbox's writable mounts.
+The interactive prompt offers **Allow once**, **Allowed for session**, and **Deny**. Approving a path request relaxes the project-root policy, not the sandbox's writable mounts. Relative paths in the approved call still resolve against the project root, and `paths.blocked_paths`, `paths.writable_paths`, and plan-mode write limits still apply.
 
 - **Allow once** approves this call only.
 - **Allowed for session** approves this call and every later prompt of the same kind until Steiner exits. For `bash` and `mutate` the grant covers the whole tool: after allowing a sandbox denial for the session, later `bash` denials retry unsandboxed without asking. For MCP the grant covers one server's tool.
@@ -131,7 +131,7 @@ The interactive prompt offers **Allow once**, **Allowed for session**, and **Den
 ### Non-interactive runs
 
 - `steiner --exec` reads the answer from the terminal (`/dev/tty`) when one is available, otherwise from stdin. `y` or `yes` approves; anything else, or no input, denies. Each prompt is answered separately.
-- [Oneshot](oneshot.md) runs approve `mutate` path prompts inside the run's worktree automatically and deny every other prompt.
+- [Oneshot](oneshot.md) runs have nobody to ask, so every prompt is denied. Edits inside the run worktree need no approval; a path outside it is refused rather than approved, and a sandbox denial is returned without an unsandboxed retry. The refusal depends on `paths.project_root_only`, which defaults to `true`: setting it to `false` turns it off, and oneshot runs can then write outside the worktree.
 - MCP `ask` tools use the same approval input in `--exec`. Oneshot denies calls that require approval. See [MCP](mcp.md).
 
 ### Avoiding prompts

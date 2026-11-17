@@ -64,7 +64,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 		}
 		resp := <-req.Response
 		if resp.Allow {
-			relaxed := policy.WithoutRoot()
+			relaxed := policy.WithoutRootContainment()
 			relaxedInput, relaxedErr := relaxed.ValidateToolInput(def.Name, input)
 			if relaxedErr != nil {
 				return nil, nil, policyDeniedError(def.Name, relaxedErr)

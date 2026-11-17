@@ -310,6 +310,9 @@ func TestOrchestratorRunsAllPhasesAndPersistsSessions(t *testing.T) {
 		t.Fatalf("review advisor cfg = %#v, want enabled with budget %d", reviewCall.advisorCfg, advisorReviewBudget)
 	}
 
+	if planCall.approver != nil || implementCall.approver != nil || reviewCall.approver != nil {
+		t.Fatal("phase runner received an approval responder, want none so every prompt is denied")
+	}
 	if got := len(events); got == 0 {
 		t.Fatal("expected phase events to be emitted")
 	}

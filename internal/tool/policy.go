@@ -48,7 +48,8 @@ type PathPolicy struct {
 	writeAllowlist  []string
 	// writeScope, when active, further restricts writable paths by final file
 	// name. writeScopeRoot is the root the scope was installed with; it is
-	// retained so clearing root via WithoutRoot cannot relax the scope.
+	// retained so lifting root containment via WithoutRootContainment cannot
+	// relax the scope.
 	writeScope     WriteScope
 	writeScopeRoot string
 }
@@ -85,13 +86,16 @@ func (p PathPolicy) Root() string {
 	return p.root
 }
 
-// WithoutRoot returns a copy of p with the root and projectRootOnly constraints
-// cleared. Used when the user has approved access to a path outside the project root.
-// The write scope is retained together with the root it was installed with, so
-// approval cannot relax it.
-func (p PathPolicy) WithoutRoot() PathPolicy {
+// WithoutRootContainment returns a copy of p that no longer enforces the
+// project-root containment check. Used when the user has approved access to a
+// path outside the project root. The root itself is retained, so relative paths
+// in the approved call still resolve against the project root instead of the
+// process working directory, and the write scope keeps checking against the
+// root it was installed with, so approval cannot relax it. Every other
+// restriction, including blocked paths, writable paths, and plan-mode write
+// limits, is retained.
+func (p PathPolicy) WithoutRootContainment() PathPolicy {
 	relaxed := p
-	relaxed.root = ""
 	relaxed.projectRootOnly = false
 	return relaxed
 }

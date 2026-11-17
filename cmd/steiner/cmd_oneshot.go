@@ -39,6 +39,9 @@ type phaseRunner struct {
 	steers *agent.SteerQueue
 }
 
+// phaseRunnerParams holds what a phase runtime is built from. Approver is
+// always nil: a oneshot phase has no user to answer an approval prompt, and the
+// executor denies every prompt when its responder is nil.
 type phaseRunnerParams struct {
 	ProjectRoot        string
 	WorkDir            string
