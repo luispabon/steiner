@@ -76,23 +76,40 @@ func startWindowsHolder(t *testing.T, path string) (*exec.Cmd, io.WriteCloser, <
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestWindowsLockHelper$")
 	cmd.Env = append(os.Environ(), helperEnv+"="+path)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
 	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd.Stdout = stdoutWriter
-	if err := cmd.Start(); err != nil {
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
 		_ = stdout.Close()
 		_ = stdoutWriter.Close()
 		t.Fatal(err)
 	}
-	if err := stdoutWriter.Close(); err != nil {
-		_ = cmd.Process.Kill()
+	cmd.Stdout = stdoutWriter
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
 		_ = stdout.Close()
+		_ = stdoutWriter.Close()
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = stdin.Close()
+		_ = stdoutWriter.Close()
+		_ = stdout.Close()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("holder process did not exit")
+		}
+	})
+	if err := stdoutWriter.Close(); err != nil {
 		t.Fatal(err)
 	}
 	lines := make(chan string, 4)
@@ -106,21 +123,6 @@ func startWindowsHolder(t *testing.T, path string) (*exec.Cmd, io.WriteCloser, <
 			lines <- line
 		}
 	}()
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-		close(done)
-	}()
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = stdin.Close()
-		_ = stdout.Close()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Error("holder process did not exit")
-		}
-	})
 	select {
 	case line := <-lines:
 		if strings.TrimSpace(line) != "locked" {
