@@ -1073,18 +1073,51 @@ func TestWorkflowGeneralRulesAndAmbiguityByMode(t *testing.T) {
 }
 
 // TestWorkflowRulesAllowBoundedMoveAndCopy pins the bounded move and copy
-// escape hatch in the shared editing rules.
+// escape hatch in the shared editing rules for the roles that may write with
+// bash.
 func TestWorkflowRulesAllowBoundedMoveAndCopy(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content
-
 	want := "- Use the `mutate` tool for content edits; its `move` op handles single-file moves. Where a copy or move cannot be expressed by `mutate` (for example a directory tree), bash `cp` or `mv` may be used only where your role, mode, and sandbox allow bash writes, both paths are inside your assigned write scope, and the destination does not exist. Do not use bash, sed, cat, or shell redirection for content edits."
+	for _, tc := range []struct {
+		name string
+		mode workflowMode
+	}{
+		{name: "parent", mode: workflowModeParent},
+		{name: "code child", mode: workflowModeDelegatedCodeSubAgent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: tc.mode}).Content
+			if !strings.Contains(content, want) {
+				t.Fatalf("workflow editing rules missing %q in %q", want, content)
+			}
+
+			if old := "do not use bash, sed, cat, or shell redirection for edits."; strings.Contains(content, old) {
+				t.Fatalf("workflow editing rules still contain %q in %q", old, content)
+			}
+		})
+	}
+}
+
+// TestWorkflowRulesForbidDocumentorBashWrites pins the documentor editing rule:
+// bash writes are forbidden, so a copy or move that `mutate` cannot express is
+// left undone and reported instead.
+func TestWorkflowRulesForbidDocumentorBashWrites(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: DelegatedDocumentorWorkflowMode()}).Content
+
+	want := "- Use the `mutate` tool for content edits; its `move` op handles single-file moves. Your role forbids bash writes: never use bash, including `cp` or `mv`, to create or change files. Leave a copy or move that `mutate` cannot express (for example a directory tree) undone and report it."
 	if !strings.Contains(content, want) {
-		t.Fatalf("workflow editing rules missing %q in %q", want, content)
+		t.Fatalf("documentor editing rules missing %q in %q", want, content)
 	}
 
-	if old := "do not use bash, sed, cat, or shell redirection for edits."; strings.Contains(content, old) {
-		t.Fatalf("workflow editing rules still contain %q in %q", old, content)
+	for _, forbidden := range []string{
+		"bash `cp` or `mv` may be used",
+		"Do not use bash, sed, cat, or shell redirection for content edits.",
+	} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("documentor editing rules contain %q in %q", forbidden, content)
+		}
 	}
 }
