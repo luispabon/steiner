@@ -139,13 +139,17 @@ func mutateApprovalRequest(requestID string, deniedPaths []string, count int) ou
 	})
 }
 
+// approvalCardWidth is the terminal width the approval card tests render the
+// transcript at when they check the rendered line widths.
+const approvalCardWidth = 80
+
 // requireRenderedWidths fails when any rendered line is wider than the terminal
 // width the transcript was rendered at.
-func requireRenderedWidths(t *testing.T, label, rendered string, width int) {
+func requireRenderedWidths(t *testing.T, label, rendered string) {
 	t.Helper()
 	for _, line := range strings.Split(rendered, "\n") {
-		if got := lipgloss.Width(line); got > width {
-			t.Errorf("%s line width = %d, want <= %d for %q", label, got, width, stripANSI(line))
+		if got := lipgloss.Width(line); got > approvalCardWidth {
+			t.Errorf("%s line width = %d, want <= %d for %q", label, got, approvalCardWidth, stripANSI(line))
 		}
 	}
 }
@@ -171,7 +175,7 @@ func TestApprovalEmbeddedBlockListsOutsidePaths(t *testing.T) {
 		}
 	}
 	requireOnlySGR(t, "embedded approval card", rendered)
-	requireRenderedWidths(t, "embedded approval card", rendered, width)
+	requireRenderedWidths(t, "embedded approval card", rendered)
 }
 
 // TestApprovalPillListsOutsidePaths covers the standalone pill: a request with
@@ -190,7 +194,7 @@ func TestApprovalPillListsOutsidePaths(t *testing.T) {
 		}
 	}
 	requireOnlySGR(t, "approval pill", rendered)
-	requireRenderedWidths(t, "approval pill", rendered, width)
+	requireRenderedWidths(t, "approval pill", rendered)
 }
 
 // TestApprovalGroupedEntryListsOutsidePaths covers an approval embedded in one
@@ -219,7 +223,7 @@ func TestApprovalGroupedEntryListsOutsidePaths(t *testing.T) {
 		t.Errorf("rendered group kept an OSC payload:\n%s", plain)
 	}
 	requireOnlySGR(t, "grouped approval card", rendered)
-	requireRenderedWidths(t, "grouped approval card", rendered, width)
+	requireRenderedWidths(t, "grouped approval card", rendered)
 }
 
 // TestApprovalWithoutOutsidePathsRendersNoBlock pins that approvals without a
@@ -564,7 +568,7 @@ func TestApprovalCardsOrderOutsidePaths(t *testing.T) {
 
 		rendered := m.content.String(width)
 		requireTextOrder(t, "embedded approval card", stripANSI(rendered), "preview-anchor", "outside paths:", "Allow once")
-		requireRenderedWidths(t, "embedded approval card", rendered, width)
+		requireRenderedWidths(t, "embedded approval card", rendered)
 	})
 
 	t.Run("standalone pill", func(t *testing.T) {
@@ -578,6 +582,6 @@ func TestApprovalCardsOrderOutsidePaths(t *testing.T) {
 
 		rendered := m.content.String(width)
 		requireTextOrder(t, "approval pill", stripANSI(rendered), "One-time retry", "outside paths:")
-		requireRenderedWidths(t, "approval pill", rendered, width)
+		requireRenderedWidths(t, "approval pill", rendered)
 	})
 }

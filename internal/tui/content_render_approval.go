@@ -133,12 +133,21 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 		return row + b.renderApprovalPreview(ad.preview, innerWidth)
 	}
 	// A path approval lists the outside paths the request would authorize.
+	return row + b.renderApprovalOutsidePaths(ad, indent, innerWidth)
+}
+
+// renderApprovalOutsidePaths renders the outside-paths block of a path
+// approval, one path line under an "outside paths:" heading, and returns an
+// empty string when there is nothing to list.
+func (b *contentBuffer) renderApprovalOutsidePaths(ad *approvalPillData, indent string, innerWidth int) string {
 	outsideWidth := max(1, innerWidth-2)
-	if lines := approvalOutsidePaths(ad.deniedPaths, ad.deniedPathCount, outsideWidth, b.styles.FgMute); len(lines) > 0 {
-		row += indent + b.styles.FgMute.Render(truncateRunes("outside paths:", outsideWidth)) + "\n"
-		for _, line := range lines {
-			row += indent + "  " + line + "\n"
-		}
+	lines := approvalOutsidePaths(ad.deniedPaths, ad.deniedPathCount, outsideWidth, b.styles.FgMute)
+	if len(lines) == 0 {
+		return ""
 	}
-	return row
+	block := indent + b.styles.FgMute.Render(truncateRunes("outside paths:", outsideWidth)) + "\n"
+	for _, line := range lines {
+		block += indent + "  " + line + "\n"
+	}
+	return block
 }

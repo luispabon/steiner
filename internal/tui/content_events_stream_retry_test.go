@@ -113,7 +113,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 	}{
 		{
 			name: "retry reset drops the abandoned answer and thinking",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "par")
 				appendThinkingChunk(b, 1, "abandoned reasoning")
@@ -140,7 +140,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "notice mid-attempt survives a gap rewrite",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "par")
 				appendThinkingChunk(b, 1, "first reasoning")
@@ -170,7 +170,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "child scoped reset leaves root stream untouched",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "par")
 				appendThinkingChunk(b, 1, "root reasoning")
@@ -197,7 +197,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "retry diagnostic without reset keeps streamed content",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "par")
 				appendThinkingChunk(b, 1, "reasoning")
@@ -224,7 +224,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "earlier completed call survives a later reset",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "first answer")
 				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
@@ -252,7 +252,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "successful retry without chunks renders the final message once",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "par")
 				b.AppendEvent(retryDiagnostic(true, ""))
@@ -275,7 +275,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "reset before the first flush clears pending stream state",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendAssistantChunk(b, 1, "par")
 				b.AppendEvent(retryDiagnostic(true, ""))
@@ -300,7 +300,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "interleaved thinking across attempts stays separated",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendThinkingChunk(b, 1, "attempt one thinking")
 				appendAssistantChunk(b, 1, "attempt one answer")
@@ -354,7 +354,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 		},
 		{
 			name: "thinking chunk does not merge into a block from an earlier attempt",
-			build: func(t *testing.T, b *contentBuffer) {
+			build: func(_ *testing.T, b *contentBuffer) {
 				appendThinkingChunk(b, 1, "earlier attempt reasoning")
 				startRootModelCall(b, 1)
 				appendThinkingChunk(b, 1, "current attempt reasoning")
