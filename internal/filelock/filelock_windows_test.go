@@ -184,6 +184,7 @@ func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.
 	if _, err := io.WriteString(stdin, "exit\n"); err != nil {
 		t.Fatal(err)
 	}
+	_ = stdin.Close()
 	select {
 	case line := <-lines:
 		if strings.TrimSpace(line) != "exited" {
@@ -192,7 +193,6 @@ func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.
 	case <-time.After(5 * time.Second):
 		t.Fatal("holder did not acknowledge exit")
 	}
-	_ = stdin.Close()
 	select {
 	case err := <-done:
 		if err != nil {
