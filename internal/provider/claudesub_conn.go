@@ -380,5 +380,8 @@ func writeClaudeSubUser(conn claudeSubConn, blocks []map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("encode user message: %w", err)
 	}
-	return conn.Send(line)
+	if err := conn.Send(line); err != nil {
+		return claudeSubConnError(err)
+	}
+	return nil
 }

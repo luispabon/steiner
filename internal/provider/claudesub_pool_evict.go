@@ -76,6 +76,69 @@ func (p *ClaudeSubscriptionPool) retire(key string, s *claudeSubSession) {
 	p.finishEviction(st, s, p.closeSession(s))
 }
 
+// retireConfirmed retires the process under key and reports whether its teardown
+// completed within the pool's teardown deadline. The caller keeps and must
+// release its own lease. Completion is the confirmation a resume needs: the
+// close path's process wait has returned and the session's router is done
+// (teardown fails when either deadline expires). Any exit status, including a
+// failure status or a signal, counts as confirmed; only a teardown that hit its
+// deadline or failed does not, and then the CLI process may still be running.
+func (p *ClaudeSubscriptionPool) retireConfirmed(key string, s *claudeSubSession) bool {
+	p.mu.Lock()
+	st := p.evictLocked(key, s)
+	p.mu.Unlock()
+	err := p.closeSession(s)
+	p.finishEviction(st, s, err)
+	if p.confirmRetire != nil {
+		return p.confirmRetire(s)
+	}
+	return err == nil
+}
+
+// noteReseedKey records that the process under key could not be proven gone, so
+// the next attach for it must reseed with a new session instead of resuming the
+// stored one. Resuming is the conservative choice to give up here: the process
+// the retire could not settle may still hold the session file, its cache and its
+// other resources, and a fresh session cannot collide with any of them.
+// reseedPending reports whether that record is set for key, and clearReseedKey
+// drops it.
+func (p *ClaudeSubscriptionPool) noteReseedKey(key string) {
+	p.mu.Lock()
+	p.reseedKeys[key] = struct{}{}
+	p.mu.Unlock()
+}
+
+func (p *ClaudeSubscriptionPool) reseedPending(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.reseedKeys[key]
+	return ok
+}
+
+func (p *ClaudeSubscriptionPool) clearReseedKey(key string) {
+	p.mu.Lock()
+	delete(p.reseedKeys, key)
+	p.mu.Unlock()
+}
+
+// retirePooled retires a pooled process for key when one exists and no call now
+// holds its lease, so the next acquire spawns a new one. It reports whether it
+// retired one. It is the reseed record's step before a fresh spawn: a process
+// already retired by the caller leaves nothing to do, and a leased one is left
+// to its own call.
+func (p *ClaudeSubscriptionPool) retirePooled(key string) bool {
+	p.mu.Lock()
+	s, ok := p.sessions[key]
+	if p.state != claudeSubPoolRunning || !ok || s.active > 0 {
+		p.mu.Unlock()
+		return false
+	}
+	st := p.evictLocked(key, s)
+	p.mu.Unlock()
+	p.finishEviction(st, s, p.closeSession(s))
+	return true
+}
+
 // retireAndRelease retires the process under key, then releases the caller's
 // whole-call lock on it. It is retire followed by release for callers that
 // always do both, in that order.
@@ -86,18 +149,46 @@ func (p *ClaudeSubscriptionPool) retireAndRelease(key string, s *claudeSubSessio
 
 // evictDead retires the process under key when it has exited, so the next
 // acquire under key starts a fresh one. It reports whether a dead process was
-// evicted. The check and the removal happen under one mutex hold.
-func (p *ClaudeSubscriptionPool) evictDead(key string) bool {
+// evicted, and whether its teardown was confirmed (see retireConfirmed). The
+// check and the removal happen under one mutex hold.
+func (p *ClaudeSubscriptionPool) evictDead(key string) (evicted, confirmed bool) {
 	p.mu.Lock()
 	s, ok := p.sessions[key]
 	if p.state != claudeSubPoolRunning || !ok || !s.exited() {
 		p.mu.Unlock()
-		return false
+		return false, false
 	}
 	st := p.evictLocked(key, s)
 	p.mu.Unlock()
-	p.finishEviction(st, s, p.closeSession(s))
-	return true
+	err := p.closeSession(s)
+	p.finishEviction(st, s, err)
+	return true, err == nil
+}
+
+// noteReplacement records that a cancelled delivery abandoned the process for
+// key, so a later call reports the replacement. The notice outlives the session
+// it describes: an eviction, an idle reap, or a failed replacement startup must
+// not lose it, because the recovery would then be silent.
+func (p *ClaudeSubscriptionPool) noteReplacement(key string) {
+	p.mu.Lock()
+	p.replacements[key] = struct{}{}
+	p.mu.Unlock()
+}
+
+// replacementPending reports whether key still has an unreported replacement
+// notice.
+func (p *ClaudeSubscriptionPool) replacementPending(key string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.replacements[key]
+	return ok
+}
+
+// clearReplacement drops key's notice once a call has reported it to the user.
+func (p *ClaudeSubscriptionPool) clearReplacement(key string) {
+	p.mu.Lock()
+	delete(p.replacements, key)
+	p.mu.Unlock()
 }
 
 // settleRetiredLocked records a failed teardown of a session the pool already

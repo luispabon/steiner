@@ -79,6 +79,19 @@ func (q *claudeSubQueue) popInterruptible(ctx context.Context, interrupt <-chan 
 	}
 }
 
+// tryPop returns the oldest buffered event without waiting. It reports false
+// when none is queued.
+func (q *claudeSubQueue) tryPop() (claudeSubEvent, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return claudeSubEvent{}, false
+	}
+	ev := q.items[0]
+	q.items = q.items[1:]
+	return ev, true
+}
+
 // close marks the queue closed and wakes every waiter. Buffered events stay
 // readable until drained.
 func (q *claudeSubQueue) close() {

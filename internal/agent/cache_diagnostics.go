@@ -66,6 +66,7 @@ type cachePayload struct {
 	// claude_subscription-only measurements.
 	ClaudeSubProcess           string `json:"claudesub_process,omitempty"`
 	ClaudeSubReseedReason      string `json:"claudesub_reseed_reason,omitempty"`
+	ClaudeSubRecovery          string `json:"claudesub_recovery,omitempty"`
 	ClaudeSubUsageGateMillis   int64  `json:"claudesub_usage_gate_ms,omitempty"`
 	ClaudeSubUsageGatePolls    int    `json:"claudesub_usage_gate_polls,omitempty"`
 	ClaudeSubUsageProbeSpawned bool   `json:"claudesub_usage_probe_spawned,omitempty"`
@@ -131,6 +132,7 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 		if claudeSub := callDiagnostics.ClaudeSub; claudeSub != nil {
 			payload.ClaudeSubProcess = claudeSub.Process
 			payload.ClaudeSubReseedReason = claudeSub.ReseedReason
+			payload.ClaudeSubRecovery = claudeSub.Recovery
 			payload.ClaudeSubUsageGateMillis = claudeSub.UsageGateMillis
 			payload.ClaudeSubUsageGatePolls = claudeSub.UsageGatePolls
 			payload.ClaudeSubUsageProbeSpawned = claudeSub.UsageProbeSpawned

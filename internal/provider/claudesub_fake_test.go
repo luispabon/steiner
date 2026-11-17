@@ -27,6 +27,9 @@ type claudeSubFakeConn struct {
 	closeDelay time.Duration // models a bounded Close; Events closes afterwards
 	closeErr   error         // when set, Close reports local shutdown did not complete
 	responder  func(line []byte) []claudeSubEvent
+	// exitAfterSend makes Send close the process right after it pushes the
+	// responder's events. It models a CLI that exits just after it answered.
+	exitAfterSend bool
 
 	releaseOnce sync.Once
 	releaseSend chan struct{} // closed by Close/ForceClose to release a blocked Send
@@ -73,6 +76,13 @@ func (f *claudeSubFakeConn) Send(line []byte) error {
 		for _, ev := range responder(cp) {
 			f.push(ev)
 		}
+	}
+	f.mu.Lock()
+	exit := f.exitAfterSend
+	f.exitAfterSend = false
+	f.mu.Unlock()
+	if exit {
+		return f.shutdown(context.Background())
 	}
 	return nil
 }
@@ -173,6 +183,14 @@ func (f *claudeSubFakeConn) sentLines() []string {
 		out[i] = string(line)
 	}
 	return out
+}
+
+// exitAfterNextSend makes the fake process exit right after the next Send has
+// pushed its responder's events, so a closing event channel never races a push.
+func (f *claudeSubFakeConn) exitAfterNextSend() {
+	f.mu.Lock()
+	f.exitAfterSend = true
+	f.mu.Unlock()
 }
 
 // waitSent blocks until at least n lines have been sent and returns them all.

@@ -8,6 +8,8 @@ import (
 )
 
 func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatChunk) error) error {
+	// The per-delivery facts were reset by claudeSubDeliver before it wrote the
+	// delta, so they describe this delivery only.
 	decoder := newClaudeSubDecoder(claudeSubDecodeHooks{
 		ToolName: func(name string) string {
 			if s.host == nil {
@@ -46,14 +48,20 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				return err
 			}
 			if err := s.conn.Err(); err != nil {
-				return err
+				// Typed closed-connection evidence: the queue ended without a terminal
+				// result, and the connection reported why. The inner error keeps its
+				// own type for display and for errors.Is.
+				return claudeSubConnError(err)
 			}
-			return errors.New("claude CLI connection closed")
+			return errClaudeSubConnClosed
 		}
 		if err := s.overage(); err != nil {
 			return err
 		}
 		if limit := claudeSubEventUsageLimit(ev); limit != nil {
+			// The limit stops this delivery, but the CLI may still emit the rest of
+			// the turn, so the process cannot serve a later call.
+			s.abandon()
 			return limit
 		}
 		if ev.SessionID != "" {
@@ -77,12 +85,22 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				if err := emit(ChatChunk{Usage: item.Usage}); err != nil {
 					return err
 				}
+			case claudeSubDecodeAPIRetry:
+				// The CLI retried its own API request before producing output, so
+				// nothing was discarded and the chunk carries no content.
+				if item.Retry == nil {
+					continue
+				}
+				if err := emit(claudeSubAPIRetryChunk(*item.Retry)); err != nil {
+					return err
+				}
 			case claudeSubDecodeToolUse:
 				// The observation hook registers the opaque MCP handle before the
 				// later assistant message exposes the complete call.
 			case claudeSubDecodeMessage:
 				if len(item.Message.ToolCalls) > 0 {
 					s.sync.commitAssistant(*item.Message, item.UUID)
+					s.delivery.assistant = true
 					if s.host != nil {
 						s.host.settle()
 					}
@@ -94,6 +112,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				copy := item
 				ordinary = &copy
 			case claudeSubDecodeResult:
+				s.delivery.terminal = true
 				if s.host != nil {
 					// The turn has no tool calls left to wait for.
 					s.host.settle()
@@ -106,6 +125,7 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 				// message's own usage, or none when that message has no usage.
 				if ordinary != nil {
 					s.sync.commitAssistant(*ordinary.Message, ordinary.UUID)
+					s.delivery.assistant = true
 					if err := emitFinal(ChatChunk{Delta: *ordinary.Message, ContentSnapshot: true, Done: true, FinishReason: normalizeAnthropicFinishReason(item.Result.StopReason), Usage: ordinary.Usage}); err != nil {
 						return err
 					}
@@ -118,8 +138,81 @@ func claudeSubConsume(ctx context.Context, s *claudeSubSession, emit func(ChatCh
 	}
 }
 
+// claudeSubAPIRetryChunk reports the CLI's own API retry as a warning the user
+// sees. It carries no assistant content and is not a stream reset: the CLI
+// retries before it produces output, so nothing already delivered is discarded.
+func claudeSubAPIRetryChunk(retry claudeSubAPIRetry) ChatChunk {
+	return ChatChunk{
+		Diagnostic:       claudeSubAPIRetryMessage(retry),
+		Severity:         "warning",
+		RetryAttempt:     retry.Attempt,
+		RetryMaxAttempts: retry.MaxRetries,
+		RetryDelay:       retry.RetryDelay,
+		cliRetry:         &retry,
+	}
+}
+
+// claudeSubAPIRetryNotice reports a chunk that only reports the CLI's own API
+// retry. It produced no output, so it must not close the pre-output retry
+// window and it must not trigger the pending replacement warning.
+func claudeSubAPIRetryNotice(chunk ChatChunk) bool {
+	return chunk.cliRetry != nil
+}
+
+// claudeSubAPIRetrySummary reports the CLI's own API retries of one folded call
+// as a single warning. A non-streaming call has no activity row to show them on.
+func claudeSubAPIRetrySummary(count int, last *claudeSubAPIRetry) string {
+	category := last.Error
+	if category == "" {
+		category = "unknown"
+	}
+	summary := fmt.Sprintf("claude CLI retried the API request %d time(s) (last: %s", count, category)
+	if last.ErrorStatus != 0 {
+		summary += fmt.Sprintf(", status %d", last.ErrorStatus)
+	}
+	return summary + ")"
+}
+
+// claudeSubAPIRetryMessage describes one CLI API retry. It never claims content
+// was discarded, because the CLI retries before it produces any.
+func claudeSubAPIRetryMessage(retry claudeSubAPIRetry) string {
+	category := retry.Error
+	if category == "" {
+		category = "unknown"
+	}
+	message := "claude CLI retrying API request after " + category
+	if retry.ErrorStatus != 0 {
+		message += fmt.Sprintf(" (status %d)", retry.ErrorStatus)
+	}
+	// The CLI does not always report a limit, so an unknown one is left out
+	// rather than shown as zero.
+	attempt := fmt.Sprintf("attempt %d", retry.Attempt)
+	if retry.MaxRetries > 0 {
+		attempt = fmt.Sprintf("attempt %d/%d", retry.Attempt, retry.MaxRetries)
+	}
+	return fmt.Sprintf("%s, %s, next try in %s", message, attempt, retry.RetryDelay)
+}
+
 // claudeSubFailureTextMax bounds the result text quoted in a turn failure.
 const claudeSubFailureTextMax = 300
+
+// errClaudeSubConnClosed reports that the CLI connection ended before the turn
+// reported its terminal result.
+var errClaudeSubConnClosed = errors.New("claude CLI connection closed")
+
+// claudeSubFailedTurnError is a turn the CLI ended with an error result. It keeps
+// the result facts the recovery decision reads; its message is the failure the
+// caller sees, unchanged.
+type claudeSubFailedTurnError struct {
+	subtype        string
+	terminalReason string
+	text           string
+	err            error
+}
+
+func (e *claudeSubFailedTurnError) Error() string { return e.err.Error() }
+
+func (e *claudeSubFailedTurnError) Unwrap() error { return e.err }
 
 // claudeSubTurnFailure reports a failed turn, quoting the result text when the
 // CLI supplied one. Long text is cut at a rune boundary and marked with "...".
@@ -132,11 +225,14 @@ func claudeSubTurnFailure(r *claudeSubResult) error {
 		}
 		text = text[:cut] + "..."
 	}
+	var err error
 	if text == "" {
-		return fmt.Errorf("claude_subscription turn failed: %s", r.Subtype)
+		err = fmt.Errorf("claude_subscription turn failed: %s", r.Subtype)
+	} else {
+		err = &claudeSubDetailError{
+			detail: fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text),
+			safe:   fmt.Errorf("claude_subscription turn failed: %s", r.Subtype),
+		}
 	}
-	return &claudeSubDetailError{
-		detail: fmt.Errorf("claude_subscription turn failed: %s: %s", r.Subtype, text),
-		safe:   fmt.Errorf("claude_subscription turn failed: %s", r.Subtype),
-	}
+	return &claudeSubFailedTurnError{subtype: r.Subtype, terminalReason: r.TerminalReason, text: r.Text, err: err}
 }

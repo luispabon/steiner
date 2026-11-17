@@ -131,11 +131,21 @@ func handleDiagnosticChunk(sink output.EventSink, turn int, chunk provider.ChatC
 	if chunk.Diagnostic == "" {
 		return false
 	}
-	emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+	event := output.ProviderDiagnosticEvent{
 		Turn:     turn,
 		Severity: chunk.Severity,
 		Message:  chunk.Diagnostic,
-	}))
+	}
+	if chunk.RetryAttempt > 0 {
+		// A provider that retries before producing output, such as the claude
+		// CLI retrying an API request, keeps everything it already delivered and
+		// reports the retry without a stream reset.
+		event.Kind = output.DiagnosticKindRetry
+		event.Attempt = chunk.RetryAttempt
+		event.MaxAttempts = chunk.RetryMaxAttempts
+		event.Delay = chunk.RetryDelay.String()
+	}
+	emitEvent(sink, output.NewProviderDiagnosticEvent(event))
 	return true
 }
 

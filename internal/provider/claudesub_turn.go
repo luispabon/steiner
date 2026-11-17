@@ -50,14 +50,144 @@ func claudeSubTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRe
 	return claudeSubNormalTurn(ctx, pool, req, key, spec, emit)
 }
 
+// claudeSubWarningChunk returns a provider diagnostic the user sees: a warning
+// that does not end the turn and carries no assistant content.
+func claudeSubWarningChunk(message string) ChatChunk {
+	return ChatChunk{Diagnostic: message, Severity: "warning"}
+}
+
+// claudeSubReplacedProcessWarning is the warning a call reports when a cancelled
+// or limited turn left a process steiner cannot reuse. It claims only what is
+// certain: the discarded process served a turn that did not finish. Whether this
+// request resumed a saved session, rebuilt the transcript, reused another
+// process or started fresh is not reported, so a retried attempt or a reused
+// process can never make the wording wrong.
+const claudeSubReplacedProcessWarning = "claude_subscription discarded the CLI process behind an earlier turn that did not finish"
+
+// claudeSubAdvisorReplacementWarning is the advisor form of the same warning.
+const claudeSubAdvisorReplacementWarning = "claude_subscription discarded the advisor CLI process behind an earlier turn that did not finish"
+
+// claudeSubFlattenedReseedWarning is the warning a call reports when a reseed
+// replays the prior conversation to the CLI as one flattened user message, for
+// any reseed branch. Summary requests and advisor snapshots render a transcript
+// by design and report no warning.
+const claudeSubFlattenedReseedWarning = "claude_subscription replayed the prior conversation as one flattened user message"
+
+// claudeSubReplacedAndFlattenedWarning is the single warning a call reports when
+// it discarded the process behind an earlier unfinished turn and also replayed
+// the conversation flattened. It keeps the replacement wording intact so the
+// two events stay identifiable in one message.
+const claudeSubReplacedAndFlattenedWarning = claudeSubReplacedProcessWarning + " and replayed the prior conversation as one flattened user message"
+
+// claudeSubReplacementWarning reports that a call discarded the process an
+// earlier turn left behind. Advisor keys get the advisor wording.
+func claudeSubReplacementWarning(key string) ChatChunk {
+	if claudeSubSessionIsAdvisor(key) {
+		return claudeSubWarningChunk(claudeSubAdvisorReplacementWarning)
+	}
+	return claudeSubWarningChunk(claudeSubReplacedProcessWarning)
+}
+
+// claudeSubReplacementReport reports a pending replacement notice for one
+// delivery attempt. It emits the warning before that attempt's first streamed
+// chunk, so an attempt that produces nothing reports nothing, and it does not
+// clear the notice itself: the notice is cleared only by confirm after the call
+// succeeded, because a warning buffered by a non-streaming fold is discarded
+// when that call fails and must then stay pending for the next request.
+type claudeSubReplacementReport struct {
+	pool *ClaudeSubscriptionPool
+	key  string
+	emit func(ChatChunk) error
+	// flattened marks an attempt that delivers the whole history as one rendered
+	// reseed transcript. Unlike the replacement notice it is not stored on the
+	// pool: it describes this request and nothing else, so the call that delivered
+	// the flattened transcript reports it and no later call repeats it.
+	flattened bool
+	// checked is set once the notice was looked up for this attempt.
+	checked bool
+	// emitted is set once the warning reached the caller for this attempt.
+	emitted bool
+	// replaced is set when the emitted warning covered a pending replacement
+	// notice, so only a notice this attempt reported can be cleared.
+	replaced bool
+}
+
+// before emits the recovery warnings that apply to this attempt and returns its
+// emit error. It is called before each chunk of the attempt and reports at most
+// once. A pending replacement and a flattened reseed are reported as one
+// combined warning, never as two.
+func (r *claudeSubReplacementReport) before() error {
+	if r.checked {
+		return nil
+	}
+	r.checked = true
+	replaced := r.pool.replacementPending(r.key)
+	if !replaced && !r.flattened {
+		return nil
+	}
+	if err := r.emit(r.warning(replaced)); err != nil {
+		return fmt.Errorf("emit claude_subscription replacement warning: %w", err)
+	}
+	r.emitted = true
+	r.replaced = replaced
+	return nil
+}
+
+// warning returns the one warning an attempt reports for what happened to it.
+func (r *claudeSubReplacementReport) warning(replaced bool) ChatChunk {
+	switch {
+	case replaced && r.flattened:
+		return claudeSubWarningChunk(claudeSubReplacedAndFlattenedWarning)
+	case r.flattened:
+		return claudeSubWarningChunk(claudeSubFlattenedReseedWarning)
+	default:
+		return claudeSubReplacementWarning(r.key)
+	}
+}
+
+// confirm clears the replacement notice this attempt reported, after the call
+// succeeded. A failed call leaves the notice pending, so the replacement warning
+// is either delivered on success or reported by the next request, never lost. An
+// attempt that reported only the flattened replay clears nothing: that notice is
+// not stored, and this call never owned a replacement notice to drop.
+func (r *claudeSubReplacementReport) confirm() {
+	if r == nil || !r.emitted || !r.replaced {
+		return
+	}
+	r.pool.clearReplacement(r.key)
+}
+
+// claudeSubReportedEmit wraps emit so the attempt reports a pending replacement
+// before its first chunk that carries output. An api_retry notice carries none, so
+// it passes through without reporting the warning.
+func claudeSubReportedEmit(report *claudeSubReplacementReport) func(ChatChunk) error {
+	return func(chunk ChatChunk) error {
+		if claudeSubAPIRetryNotice(chunk) {
+			return report.emit(chunk)
+		}
+		if err := report.before(); err != nil {
+			return err
+		}
+		return report.emit(chunk)
+	}
+}
+
 // claudeSubAdvisorTurn runs an advisor request on the advisor process of its
 // parent. When the parent snapshot no longer matches what the advisor holds, the
 // advisor process is retired and the snapshot is rendered again on a fresh one
-// (D19).
+// (D19). A process a cancelled delivery left behind is replaced first, and the
+// replacement delivery reports it.
 func claudeSubAdvisorTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
 	s, err := pool.acquire(ctx, key, spec)
 	if err != nil {
 		return err
+	}
+	if s.retireIfUnsafe() {
+		// The cancelled delivery may still be producing events on this process,
+		// so it is replaced and the replacement renders the snapshot again.
+		if s, err = pool.acquire(ctx, key, spec); err != nil {
+			return err
+		}
 	}
 	delta, err := claudeSubAdvisorPlan(ctx, s, req)
 	if errors.Is(err, errClaudeSubHistoryChanged) {
@@ -75,9 +205,13 @@ func claudeSubAdvisorTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 		return err
 	}
 	defer pool.release(s)
-	err = claudeSubDeliver(ctx, s, req, delta, emit)
+	report := &claudeSubReplacementReport{pool: pool, key: key, emit: emit}
+	err = claudeSubDeliver(ctx, s, req, delta, claudeSubReportedEmit(report))
 	if errors.Is(err, errClaudeSubDecodeStream) {
 		pool.retire(key, s)
+	}
+	if err == nil {
+		report.confirm()
 	}
 	return err
 }
@@ -90,74 +224,6 @@ func claudeSubAdvisorPlan(ctx context.Context, s *claudeSubSession, req ChatRequ
 	return s.sync.planAdvisor(req)
 }
 
-// claudeSubAttach is the per-call input to the attach state machine.
-type claudeSubAttach struct {
-	key         string
-	spec        claudeSubStartSpec // spawn spec for a new process, without resume
-	fingerprint string             // prompt and tools fingerprint of this request
-	msgs        []Message          // non-system request messages
-	stored      claudeSubBackendState
-	hasState    bool
-	// resume is the restore target for a new process; it is valid only when
-	// restorable is true.
-	resume     claudeSubResume
-	restorable bool
-}
-
-// claudeSubNormalTurn runs a parent or sub-agent request. A process is reused
-// only while its record matches the request (see claudeSubAttachSession). A
-// resumed process that fails before producing any output is treated as dead:
-// it is retired and the request is reseeded on a fresh process, once (D3).
-func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
-	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
-	if err != nil {
-		return err
-	}
-	a := claudeSubAttach{key: key, spec: spec, fingerprint: fingerprint, msgs: claudeSubMessages(req.Messages)}
-	a.stored, a.hasState = claudeSubParseState(req.BackendState)
-	var restoreReason string
-	a.resume, a.restorable, restoreReason, err = claudeSubRestoreFor(a.msgs, a.stored, a.hasState, key, fingerprint)
-	if err != nil {
-		return err
-	}
-	if !a.restorable {
-		claudeSubMetricsFrom(ctx).noteReseed(restoreReason)
-	}
-	forceReseed := false
-	for {
-		s, reseed, err := claudeSubAttachSession(ctx, pool, req, a, forceReseed)
-		if err != nil {
-			return err
-		}
-		if !reseed {
-			claudeSubMetricsFrom(ctx).clearReseed()
-		}
-		emitted := false
-		err = claudeSubDeliverNormal(ctx, s, req, reseed, func(chunk ChatChunk) error {
-			emitted = true
-			return emit(chunk)
-		})
-		// A decode error means the process may hold stale events from the failed
-		// turn, so it is retired even after output and is never retried inline.
-		decodeFailure := errors.Is(err, errClaudeSubDecodeStream)
-		retry := !decodeFailure && claudeSubShouldRetryTurn(err, emitted, ctx.Err(), s.resume.SessionID)
-		if decodeFailure || retry {
-			pool.retire(key, s)
-		}
-		pool.release(s)
-		if !retry {
-			return err
-		}
-		// The failed attempt left no usable record, so the retry reseeds. The
-		// reset is defensive: the retry's attach sets the process again and the
-		// noteReseed below overwrites the reason, while the gate's accumulated
-		// time and polls stay.
-		claudeSubMetricsFrom(ctx).resetDelivery()
-		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
-		forceReseed = true
-	}
-}
-
 // claudeSubUsageGateError marks a usage-gate refusal produced after the poll
 // budget, and possibly the fresh-process confirmation, was spent. The generic
 // pre-output retry must not repeat that wait.
@@ -166,25 +232,6 @@ type claudeSubUsageGateError struct{ err error }
 func (e *claudeSubUsageGateError) Error() string { return e.err.Error() }
 
 func (e *claudeSubUsageGateError) Unwrap() error { return e.err }
-
-// claudeSubShouldRetryTurn reports whether a failed delivery is retried once on
-// a fresh process. Only a failure before any output, on a request with a resume
-// target, and while the caller still waits qualifies. It excludes every refusal
-// produced after the usage poll and the fresh confirmation, because retrying
-// would repeat that wait. A usage limit is a refusal, so it is never retried on
-// a fresh process. A live get_usage transport error stays retryable: it can mean
-// the process is dead.
-func claudeSubShouldRetryTurn(err error, emitted bool, ctxErr error, resumeSessionID string) bool {
-	if err == nil || emitted || ctxErr != nil || resumeSessionID == "" {
-		return false
-	}
-	var gateErr *claudeSubUsageGateError
-	if errors.As(err, &gateErr) {
-		return false
-	}
-	_, limited := AsUsageLimit(err)
-	return !limited
-}
 
 // claudeSubSummarySuffix keys the ephemeral helper processes that answer a
 // compaction summary. A helper never uses the parent's key, so the parent's
@@ -223,124 +270,43 @@ func claudeSubClearOnDone(emit func(ChatChunk) error) func(ChatChunk) error {
 	}
 }
 
-// claudeSubAttachSession returns the process req runs on, locked (the caller
-// releases it), and whether req must be delivered as a reseed transcript.
-//
-//   - A live process is reused only when it accepts req as an append (see
-//     claudeSubLiveAccepts). Otherwise it is retired: a changed owner resumes
-//     with a fork when the stored state is restorable, and any other mismatch
-//     reseeds.
-//   - A new process resumes the stored state when that state is restorable for
-//     req. Otherwise it starts fresh, and a request with history is reseeded.
-//   - A process that exited is evicted and never resumed: its successor reseeds
-//     (D3).
-func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed bool) (*claudeSubSession, bool, error) {
-	if pool.evictDead(a.key) {
-		forceReseed = true
-		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedExited)
+// claudeSubReseedSendError names the payload an oversized stdin line belonged
+// to. Only the CLI's limit refusal, recognised by type, gains the context, so
+// every other error from the delivery passes through unchanged and errors.As
+// still reaches the limit error.
+func claudeSubReseedSendError(err error) error {
+	var tooLarge *claudeSubLineTooLargeError
+	if errors.As(err, &tooLarge) {
+		return fmt.Errorf("send flattened reseed transcript: %w", err)
 	}
-	spawn := a.spec
-	if a.restorable && !forceReseed {
-		spawn.Resume = a.resume
-	}
-	s, err := pool.acquire(ctx, a.key, spawn)
-	if err != nil {
-		return nil, false, err
-	}
-	if s.primed {
-		if err := claudeSubFinishPending(ctx, s, req); err != nil {
-			pool.release(s)
-			return nil, false, err
-		}
-		accepted, rejectReason, err := claudeSubLiveAccepts(s, req, a)
-		if err != nil {
-			pool.release(s)
-			return nil, false, err
-		}
-		if accepted {
-			claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessReuse)
-			return s, false, nil
-		}
-		owner := a.hasState && a.stored.TransportSession != a.key
-		claudeSubMetricsFrom(ctx).noteReseed(rejectReason)
-		pool.retireAndRelease(a.key, s)
-		return claudeSubAttachSession(ctx, pool, req, a, !owner)
-	}
-	if s.resume != spawn.Resume || (s.sync.fingerprint != "" && s.sync.fingerprint != a.fingerprint) {
-		// An unprimed process left by an earlier attempt was started with a
-		// different resume target or prompt, so it cannot serve this request.
-		// Persist is not compared: a key always maps to one process kind.
-		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
-		pool.retireAndRelease(a.key, s)
-		return claudeSubAttachSession(ctx, pool, req, a, true)
-	}
-	s.sync.fingerprint = a.fingerprint
-	if spawn.Resume.SessionID == "" {
-		claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessSpawn)
-		return s, claudeSubHasHistory(a.msgs), nil
-	}
-	entries, ok := claudeSubResumeEntries(a.msgs, a.stored)
-	if !ok {
-		pool.release(s)
-		return nil, false, errors.New("claude_subscription resume record does not match the stored state")
-	}
-	// The resumed process holds the stored history; the request appends to it.
-	s.sync.entries = entries
-	s.sync.started = true
-	s.sync.interruptible = -1
-	s.primed = true
-	claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessResume)
-	return s, false, nil
-}
-
-// claudeSubLiveAccepts reports whether a live process can take req as an
-// append, and the branch that refused it. When a state is given, the process
-// record must equal its checkpoint and the state must be owned by this key. The
-// request must also be a valid append to the record (D8, D22). A history the
-// record cannot take is a reseed trigger, not an error, so it reports false with
-// a nil error.
-func claudeSubLiveAccepts(s *claudeSubSession, req ChatRequest, a claudeSubAttach) (bool, string, error) {
-	if a.hasState {
-		if a.stored.TransportSession != a.key {
-			return false, claudeSubReseedOwnerFork, nil
-		}
-		live, ok, err := s.sync.checkpoint(a.key)
-		if err != nil {
-			return false, "", err
-		}
-		if !ok || !claudeSubStateMatches(live, a.stored) {
-			return false, claudeSubReseedCheckpoint, nil
-		}
-	}
-	if _, err := s.sync.plan(req); err != nil {
-		return false, claudeSubReseedPlan, nil
-	}
-	return true, "", nil
-}
-
-// claudeSubDeliverNormal plans the request against a locked parent or
-// sub-agent process and delivers it. A reseeded process receives the rendered
-// transcript instead of a delta.
-func claudeSubDeliverNormal(ctx context.Context, s *claudeSubSession, req ChatRequest, reseed bool, emit func(ChatChunk) error) error {
-	var delta claudeSubDelta
-	if reseed {
-		delta = claudeSubReseedDelta(claudeSubMessages(req.Messages))
-	} else {
-		var err error
-		if delta, err = s.sync.plan(req); err != nil {
-			return err
-		}
-	}
-	return claudeSubDeliver(ctx, s, req, delta, emit)
+	return err
 }
 
 // claudeSubDeliver writes a planned delta to the claude CLI and streams the
 // turn. Tool results are resolved and recorded as each is delivered, and the
 // user line is recorded right after it is written, so a cancelled call never
-// re-sends user content (D22).
+// re-sends user content (D22). A process a cancelled delivery left unsafe is
+// retired here instead, and the call fails: it can never prove which call the
+// events it may still produce belong to.
 func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest, delta claudeSubDelta, emit func(ChatChunk) error) error {
+	if s.unsafeForReuse() {
+		// A cancelled turn may still be producing events here, so nothing may be
+		// written to this process. It is retired rather than reused; the caller's
+		// release still follows.
+		if !s.pool.retireConfirmed(s.key, s) {
+			s.pool.noteReseedKey(s.key)
+		}
+		return errClaudeSubSessionUnsafe
+	}
 	metrics := claudeSubMetricsFrom(ctx)
 	metrics.noteProcess(s)
+	if len(delta.User) == 0 && len(delta.ToolResults) == 0 {
+		// Nothing would be written, so the delivery would wait on an idle CLI for
+		// events that never come. A plan that appends nothing is a request that
+		// adds nothing to the record the process holds; it fails here instead of
+		// parking the call and leaving a cancellation to drain an idle process.
+		return errClaudeSubEmptyDelivery
+	}
 	if len(delta.User) > 0 {
 		getUsage := claudeSubQuotaObservedGetUsage(s.pool, s.control.getUsage)
 		polls := 0
@@ -369,7 +335,9 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 						// logout. Retire it under the active lease; the caller must issue
 						// an explicit retry after logging in, never an automatic replay.
 						s.pool.retryCLILookup()
-						s.pool.retire(s.key, s)
+						if !s.pool.retireConfirmed(s.key, s) {
+							s.pool.noteReseedKey(s.key)
+						}
 						return &claudeSubUsageGateError{err: authErr}
 					} else if errors.Is(authErr, context.Canceled) || errors.Is(authErr, context.DeadlineExceeded) || errors.Is(authErr, errClaudeSubPoolClosed) {
 						return authErr
@@ -411,6 +379,10 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	if !req.AdvisorCacheProfile {
 		s.sync.adopt(delta)
 	}
+	// Everything this delivery appends from here on is its own user or tool
+	// entry; a drain needs that boundary to prove nothing else touched the
+	// record while the turn streamed.
+	s.delivery = claudeSubDelivery{entries: len(s.sync.entries)}
 	for _, result := range delta.ToolResults {
 		call := claudeSubPendingByID(s, result.ToolCallID)
 		if call == nil {
@@ -422,6 +394,14 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	}
 	if len(delta.User) > 0 {
 		if err := writeClaudeSubUser(s.conn, claudeSubUserBlocks(delta.User)); err != nil {
+			if len(delta.ToolResults) > 0 {
+				// The CLI already received this delivery's tool results, so it may
+				// have started the turn the failed write was meant to continue.
+				// Nothing may be replayed on it: the process is abandoned, which
+				// makes the next request retire it and follow the mismatch rules.
+				s.abandon()
+				return fmt.Errorf("%w: %w", errClaudeSubUnconsumedTurn, err)
+			}
 			return err
 		}
 	}
@@ -436,61 +416,17 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	}
 	s.parentCall = claudeSubPersists(req)
 	if err := claudeSubConsume(ctx, s, emit); err != nil {
+		if ctx.Err() != nil {
+			// The caller stopped reading a turn the CLI keeps producing. When the
+			// CLI can be interrupted and driven to its own aborted result the
+			// process stays reusable, which keeps its prompt cache warm; every
+			// other outcome abandons it, so the next request for this key replaces
+			// it and reports the replacement.
+			claudeSubRecoverInterrupted(ctx, s)
+		}
 		return err
 	}
 	return nil
-}
-
-func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRequest) error {
-	if len(s.pending) == 0 {
-		return nil
-	}
-	provided := make(map[string]struct{})
-	for _, msg := range req.Messages {
-		if msg.Role == MessageRoleTool {
-			provided[msg.ToolCallID] = struct{}{}
-		}
-	}
-	var stale []claudeSubPendingCall
-	for _, pending := range s.pending {
-		if _, ok := provided[pending.ID]; !ok {
-			stale = append(stale, pending)
-		}
-	}
-	if len(stale) == 0 {
-		return nil
-	}
-	if _, err := s.control.interrupt(ctx); err != nil {
-		return err
-	}
-	s.sync.markInterrupted()
-	for _, pending := range stale {
-		s.host.resolve(pending.Handle, claudeSubToolResult{Text: "tool call interrupted", IsError: true})
-		claudeSubRemovePending(s, pending.ID)
-	}
-	return nil
-}
-
-func claudeSubPendingByID(s *claudeSubSession, id string) *claudeSubPendingCall {
-	for i := range s.pending {
-		if s.pending[i].ID == id {
-			return &s.pending[i]
-		}
-	}
-	return nil
-}
-
-func claudeSubRemovePending(s *claudeSubSession, id string) {
-	for i := range s.pending {
-		if s.pending[i].ID == id {
-			s.pending = append(s.pending[:i], s.pending[i+1:]...)
-			return
-		}
-	}
-}
-
-func claudeSubToolResultFromMessage(msg Message) claudeSubToolResult {
-	return claudeSubToolResult{Text: msg.Content, Images: msg.Images, IsError: false}
 }
 
 var _ Provider = (*ClaudeSubscriptionProvider)(nil)

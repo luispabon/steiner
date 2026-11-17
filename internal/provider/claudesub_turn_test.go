@@ -222,12 +222,27 @@ func TestClaudeSubConsumeUsageCountsEachMessageOnce(t *testing.T) {
 // claudeSubScript answers control requests and, on each user line, pushes the
 // next scripted batch of stream events. setModelErr makes set_model fail.
 // usage replaces the get_usage reply and usageErr makes get_usage fail.
+// interrupt scripts the reply to an interrupt control request; nil answers with a
+// bare acknowledgement and no further events.
 type claudeSubScript struct {
 	batches     [][]claudeSubEvent
 	users       int
 	setModelErr bool
 	usage       json.RawMessage
 	usageErr    string
+	interrupt   *claudeSubInterruptReply
+}
+
+// claudeSubInterruptReply is how a scripted fake CLI answers an interrupt: an
+// error instead of the acknowledgement when err is set, nothing at all when
+// silent is set, otherwise the acknowledgement followed by the events a stopping
+// CLI emits. beforeAck queues events before the acknowledgement, modelling a CLI
+// whose terminal result was already read before its control response was.
+type claudeSubInterruptReply struct {
+	beforeAck []claudeSubEvent
+	events    []claudeSubEvent
+	err       string
+	silent    bool
 }
 
 func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
@@ -256,6 +271,18 @@ func (sc *claudeSubScript) respond(line []byte) []claudeSubEvent {
 			if sc.setModelErr {
 				return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, "model unavailable")}
 			}
+		case "interrupt":
+			if sc.interrupt == nil {
+				break
+			}
+			if sc.interrupt.silent {
+				return nil
+			}
+			if sc.interrupt.err != "" {
+				return []claudeSubEvent{claudeSubErrorEvent(envelope.RequestID, sc.interrupt.err)}
+			}
+			out := []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, json.RawMessage(`{"still_queued":[]}`))}
+			return append(append(sc.interrupt.beforeAck, out...), sc.interrupt.events...)
 		}
 		return []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
 	case "user":
@@ -346,10 +373,15 @@ func TestClaudeSubTurnPreConsumeFailureRetryKeepsMessageUsage(t *testing.T) {
 // TestClaudeSubTurnInterruptFollowUpUsage checks that the follow-up turn after
 // an interrupt reports its own message's usage.
 func TestClaudeSubTurnInterruptFollowUpUsage(t *testing.T) {
-	sc := &claudeSubScript{batches: [][]claudeSubEvent{
-		claudeSubDecodeEvents(t, "turn_tool_text_extra_usage.jsonl")[:8],
-		claudeSubDecodeEvents(t, "turn_text.jsonl"),
-	}}
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_text_extra_usage.jsonl")[:8],
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		// The stale tool call is interrupted, so the CLI reports its own aborted
+		// result for that turn.
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
 	pool, _ := claudeSubScriptedPool(t, "interrupt", sc)
 	model := claudeSubTestSpec().Model
 	noop := func(ChatChunk) error { return nil }
@@ -563,11 +595,14 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 		fault claudeSubRetryFault
 		// delivered is true when the tool result is resolved before the failure.
 		delivered bool
+		// abandoned is true when the failure leaves the session unusable: the CLI
+		// may already hold a turn steiner never reads.
+		abandoned bool
 	}{
 		{name: "set model fails", model: "claude-sonnet-5-5", fault: claudeSubRetryFault{modelErr: true}},
 		{name: "usage lookup fails", fault: claudeSubRetryFault{usageErr: true}},
 		{name: "usage gate refuses", fault: claudeSubRetryFault{refuse: true}},
-		{name: "user write fails after tool result", fault: claudeSubRetryFault{writeErr: true}, delivered: true},
+		{name: "user write fails after tool result", fault: claudeSubRetryFault{writeErr: true}, delivered: true, abandoned: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -674,6 +709,23 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 			conn.mu.Lock()
 			conn.sendErr = nil
 			conn.mu.Unlock()
+			if tc.abandoned {
+				// The CLI already had the tool result when the user write failed, so
+				// it may hold an unconsumed turn: nothing is replayed on that process.
+				s, err := pool.acquire(ctx, "retry", spec)
+				if err != nil {
+					t.Fatalf("acquire abandoned session: %v", err)
+				}
+				unsafe := s.unsafeForReuse()
+				pool.release(s)
+				if !unsafe {
+					t.Error("the session stayed reusable with a possibly active turn")
+				}
+				if !pool.replacementPending("retry") {
+					t.Error("the abandoned session recorded no replacement notice")
+				}
+				return
+			}
 
 			wantFailed := before
 			if tc.delivered {
@@ -783,10 +835,10 @@ func TestClaudeSubDecodeErrorRetiresProcess(t *testing.T) {
 	}
 }
 
-// TestClaudeSubUsageGateTransportErrorRetriesResumedProcess proves the generic
-// one-reseed retry still covers a resumed process whose get_usage transport-fails:
-// only the post-confirmation unconfirmable refusal is exempt from the retry.
-func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
+// TestClaudeSubUsageGateTransportErrorIsNotRecovered proves a resumed process
+// whose get_usage transport-fails is not recovered: the failure is the usage
+// gate, not a crash, so a second attempt would only repeat the wait.
+func TestClaudeSubUsageGateTransportErrorIsNotRecovered(t *testing.T) {
 	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubPoolWithScripts(t,
 		&claudeSubScript{usageErr: "usage unavailable"},
@@ -798,24 +850,18 @@ func TestClaudeSubUsageGateTransportErrorRetriesResumedProcess(t *testing.T) {
 		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
 		BackendState:     claudeSubEncodeState(t, st),
 	}
-	if err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil }); err != nil {
-		t.Fatalf("turn: %v", err)
+	err := claudeSubTurn(context.Background(), pool, req, func(ChatChunk) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "usage unavailable") {
+		t.Fatalf("turn error = %v, want the get_usage transport error", err)
 	}
-	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (resumed process, then one reseed retry)", n)
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (a usage gate failure is not recovered)", n)
 	}
 	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
-		t.Errorf("first spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
+		t.Errorf("spawn --resume = %q, want %q (resumed process)", resume, st.CLISessionID)
 	}
-	if resume, ok := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); ok {
-		t.Errorf("retry spawn --resume = %q, want a fresh reseed process", resume)
-	}
-	retry := spawner.call(t, 1).Conn
-	if got := claudeSubUsageProbeCount(retry, `"subtype":"get_usage"`); got != 1 {
-		t.Errorf("retry get_usage requests = %d, want 1", got)
-	}
-	if got := claudeSubUsageProbeCount(retry, `"type":"user"`); got != 1 {
-		t.Errorf("retry user writes = %d, want 1", got)
+	if got := claudeSubUsageProbeCount(spawner.call(t, 0).Conn, `"type":"user"`); got != 0 {
+		t.Errorf("user writes = %d, want none before the gate passes", got)
 	}
 }
 
@@ -871,8 +917,8 @@ func TestClaudeSubSignedOutUsageRefusalIsNotRetried(t *testing.T) {
 	if !errors.As(err, &gateErr) {
 		t.Fatalf("claudeSubTurn() = %T, want claudeSubUsageGateError wrapper", err)
 	}
-	if claudeSubShouldRetryTurn(err, false, nil, "stored-session") {
-		t.Fatal("confirmed logout would be automatically retried")
+	if got := claudeSubRetryDecision(err, claudeSubRetryFacts{CallKind: claudeSubCallKindNormal}); got != claudeSubRetryNone {
+		t.Fatalf("confirmed logout would be automatically recovered: %v", got)
 	}
 	if spawns != 3 {
 		t.Fatalf("spawn count = %d, want unrelated session, advisor session, and fresh usage probe", spawns)
@@ -1454,13 +1500,23 @@ func TestClaudeSubPendingCleanupInterruptsAndResolvesOpaqueHandle(t *testing.T) 
 	conn := spawner.call(t, 0).Conn
 	conn.mu.Lock()
 	conn.responder = func(line []byte) []claudeSubEvent {
-		var req struct {
+		var envelope struct {
+			Type      string `json:"type"`
 			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
 		}
-		if json.Unmarshal(line, &req) != nil {
+		if json.Unmarshal(line, &envelope) != nil {
 			return nil
 		}
-		return []claudeSubEvent{claudeSubSuccessEvent(req.RequestID, nil)}
+		ack := []claudeSubEvent{claudeSubSuccessEvent(envelope.RequestID, nil)}
+		if envelope.Type == "control_request" && envelope.Request.Subtype == "interrupt" {
+			// The interrupted turn reports its own aborted result, which the
+			// stale-pending drain reads.
+			return append(ack, claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")...)
+		}
+		return ack
 	}
 	conn.mu.Unlock()
 	call := s.beginPendingCall("toolu-stale")
@@ -1754,7 +1810,7 @@ func TestClaudeSubRestoreSelection(t *testing.T) {
 		wantFork       bool
 		wantTranscript bool
 	}{
-		{name: "restart resumes the stored session", wantResume: true},
+		{name: "restart resumes the stored session", wantResume: true, wantFork: true},
 		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantResume: true, wantFork: true},
 		{name: "stale prompt and tools fingerprint reseeds", mutate: func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }, wantTranscript: true},
 		{name: "changed system prompt reseeds", system: "a new prompt", wantTranscript: true},
@@ -1824,12 +1880,16 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 		wantResume     bool
 		wantFork       bool
 		wantTranscript bool
+		// wantWarning is the warning the call must report. wantSilent asserts it
+		// reports none.
+		wantWarning string
+		wantSilent  bool
 	}{
-		{name: "matching state appends", wantSpawns: 1},
-		{name: "changed system prompt still appends", system: "a new prompt", wantSpawns: 1},
-		{name: "chain mismatch reseeds", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, wantSpawns: 2, wantTranscript: true},
-		{name: "dead process reseeds", dead: true, wantSpawns: 2, wantTranscript: true},
-		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantSpawns: 2, wantResume: true, wantFork: true},
+		{name: "matching state appends", wantSpawns: 1, wantSilent: true},
+		{name: "changed system prompt still appends", system: "a new prompt", wantSpawns: 1, wantSilent: true},
+		{name: "chain mismatch resumes a fork", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, wantSpawns: 2, wantResume: true, wantFork: true, wantWarning: claudeSubReplacedProcessWarning},
+		{name: "dead process resumes", dead: true, wantSpawns: 2, wantResume: true, wantFork: true, wantSilent: true},
+		{name: "owner mismatch forks", mutate: func(st *claudeSubBackendState) { st.TransportSession = "previous-owner" }, wantSpawns: 2, wantResume: true, wantFork: true, wantSilent: true},
 		{name: "rewritten history reseeds", rewrite: true, wantSpawns: 2, wantTranscript: true},
 	}
 	for _, tt := range tests {
@@ -1853,7 +1913,18 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 			if tt.system != "" {
 				msgs = append([]Message{{Role: MessageRoleSystem, Content: tt.system}}, msgs...)
 			}
-			claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+			got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+			if got.err != nil {
+				t.Fatalf("turn error = %v", got.err)
+			}
+			if tt.wantWarning != "" {
+				claudeSubWantOneWarning(t, got, tt.wantWarning)
+			}
+			if tt.wantSilent {
+				if warnings := got.warnings(); len(warnings) != 0 {
+					t.Errorf("warnings = %q, want none", warnings)
+				}
+			}
 			if n := spawner.callCount(); n != tt.wantSpawns {
 				t.Fatalf("spawn count = %d, want %d", n, tt.wantSpawns)
 			}
@@ -1875,9 +1946,10 @@ func TestClaudeSubLiveAppendSelection(t *testing.T) {
 	}
 }
 
-// TestClaudeSubResumeFailureReseeds proves a resumed process that fails before
-// producing output is retired, and the request reseeds one fresh process.
-func TestClaudeSubResumeFailureReseeds(t *testing.T) {
+// TestClaudeSubResumeFailureResumes proves a resumed process that fails before
+// producing output is retired, and the retry resumes the stored checkpoint in a
+// fork instead of replaying the conversation flattened.
+func TestClaudeSubResumeFailureResumes(t *testing.T) {
 	model := claudeSubTestSpec().Model
 	errEvent := claudeSubEvent{
 		Type:      "result",
@@ -1889,23 +1961,41 @@ func TestClaudeSubResumeFailureReseeds(t *testing.T) {
 	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubPoolWithScripts(t, failing, claudeSubTextTurns(t, 1))
 	msgs := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
-	final := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: msgs, BackendState: claudeSubEncodeState(t, st)})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
+		t.Fatalf("spawn count = %d, want 2 (failed resume, then the retry)", n)
 	}
 	if resume, _ := claudeSubArgValue(spawner.call(t, 0).Args, "--resume"); resume != st.CLISessionID {
 		t.Errorf("first spawn --resume = %q, want %q", resume, st.CLISessionID)
 	}
-	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume != "" {
-		t.Errorf("reseed spawn --resume = %q, want none", resume)
+	serving := spawner.call(t, 1)
+	resume, _ := claudeSubArgValue(serving.Args, "--resume")
+	at, _ := claudeSubArgValue(serving.Args, "--resume-session-at")
+	if resume != st.CLISessionID || at != st.FinalUUID {
+		t.Errorf("retry resume = %q at %q, want %q at %q", resume, at, st.CLISessionID, st.FinalUUID)
 	}
-	lines := claudeSubUserLines(spawner.call(t, 1).Conn)
-	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
-		t.Errorf("reseed user lines = %q, want one transcript", lines)
+	if !claudeSubHasArg(serving.Args, "--fork-session") {
+		t.Errorf("retry args %q, want --fork-session", serving.Args)
 	}
+	lines := claudeSubUserLines(serving.Conn)
+	if len(lines) != 1 {
+		t.Fatalf("retry user lines = %q, want one", lines)
+	}
+	if strings.Contains(lines[0], "Conversation so far") {
+		t.Errorf("retry user line = %s, want a resume, not a rendered transcript", lines[0])
+	}
+	final := got.final(t)
 	if final.BackendState == nil {
-		t.Error("reseeded parent turn returned no backend state")
+		t.Error("retried parent turn returned no backend state")
 	}
+	if label := claudeSubRecoveryLabel(final); label != claudeSubRecoveryRetryPreOutput {
+		t.Errorf("recovery = %q, want %q", label, claudeSubRecoveryRetryPreOutput)
+	}
+	want := "claude_subscription turn failed (error_during_execution); retrying, attempt 1/2"
+	claudeSubWantRetryNotice(t, got, want, 1)
 }
 
 // TestClaudeSubPersistenceByCallKind proves only a parent call starts a persisted

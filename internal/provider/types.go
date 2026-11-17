@@ -98,6 +98,12 @@ type Message struct {
 	Images           []ImageBlock             `json:"images,omitempty"`
 	Turn             int                      `json:"turn,omitempty"`
 	ProviderMetadata *MessageProviderMetadata `json:"provider_metadata,omitempty"`
+	// IncompleteText, when non-empty, is the text of an assistant message that
+	// ended before it was complete, exactly as it streamed and without the
+	// interrupted note Content carries. It is local provenance for rendering a
+	// transcript, so no provider sends it, it is not part of any digest, and no
+	// persisted format stores it.
+	IncompleteText string `json:"-"`
 }
 
 // UsageStats carries token accounting returned by a provider.
@@ -169,6 +175,12 @@ type ChatResponse struct {
 	// Diagnostics carries per-call measurement metadata. Nil when the provider
 	// measured nothing.
 	Diagnostics *CallDiagnostics `json:"-"`
+	// Warnings holds non-fatal diagnostic messages a non-streaming call could not
+	// deliver as stream chunks. A caller reports them after a successful call; a
+	// failed call returns no response, because the provider keeps its replacement
+	// notice pending for the next request. A streaming caller reads warnings from
+	// ChatChunk.Diagnostic instead.
+	Warnings []string `json:"-"`
 }
 
 // CallDiagnostics carries per-call measurement metadata about how a model call
@@ -199,6 +211,12 @@ type ClaudeSubCallDiagnostics struct {
 	// ReseedReason names the branch that reseeded the transcript. Empty unless
 	// the call reseeded.
 	ReseedReason string
+	// Recovery names how the call recovered a turn that stopped before it
+	// finished: "drained_reuse" when it reused the drained process one stopped
+	// delivery ahead of the stored checkpoint, and "resume_after_stop" when it
+	// retired that process and resumed the stored session at its final uuid.
+	// Empty for every other call.
+	Recovery string
 	// UsageGateMillis is the wall time the extra-usage gate spent on the call,
 	// truncated to whole milliseconds.
 	UsageGateMillis int64
@@ -237,11 +255,19 @@ type ChatChunk struct {
 	Severity        string      `json:"severity,omitempty"`
 	RetryReset      bool        `json:"retry_reset,omitempty"`
 	OriginalError   error       `json:"-"` // preserves the original error type (not serialized)
-	// RetryAttempt, RetryMaxAttempts and RetryDelay describe the retry that a
-	// RetryReset chunk reports.
+	// RetryAttempt, RetryMaxAttempts and RetryDelay describe a retry the
+	// provider reports. RetryReset marks a retry that discarded the partial
+	// stream; a provider that retries before producing output, such as the
+	// claude CLI retrying an API request, reports it without a reset.
 	RetryAttempt     int           `json:"retry_attempt,omitempty"`
 	RetryMaxAttempts int           `json:"retry_max_attempts,omitempty"`
 	RetryDelay       time.Duration `json:"retry_delay,omitempty"`
+	// cliRetry holds the notice details when this chunk only reports the claude
+	// CLI retrying an API request itself. It carries no output and does not reset
+	// the stream, so the claude_subscription turn keeps it out of the pre-output
+	// retry window and out of the replacement-warning trigger, and a folded call
+	// collapses the notices into one summary warning.
+	cliRetry *claudeSubAPIRetry
 	// UpstreamEndpoint is the upstream endpoint id reported by compatible gateways.
 	UpstreamEndpoint string `json:"-"`
 	// BackendState, when non-nil, is the opaque state the final chunk hands to

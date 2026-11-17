@@ -241,6 +241,20 @@ type ClaudeSubscriptionPool struct {
 	// post-admission cancellation deterministically.
 	afterAdmission func()
 
+	// replacements holds one pending replacement notice per session key whose
+	// process a cancelled delivery abandoned. A notice outlives the session it
+	// describes (eviction, idle reaping, a failed replacement startup) and is
+	// cleared only when a call reports the replacement to the user. Guarded by
+	// mu.
+	replacements map[string]struct{}
+	// reseedKeys holds one record per session key whose process could not be
+	// proven gone: the next attach for that key reseeds with a new session.
+	reseedKeys map[string]struct{}
+	// confirmRetire, when set, decides whether a retire confirmed the process
+	// left. It is a test seam: production confirmation is the close path's own
+	// result.
+	confirmRetire func(*claudeSubSession) bool
+
 	// unresolved holds sessions the pool still owns because their teardown did
 	// not finish cleanly: a partial-start cleanup failure, a caller-cancelled or
 	// duplicate startup's failed teardown, or a directory removal that did not
@@ -281,20 +295,22 @@ func NewClaudeSubscriptionPool(opts ClaudeSubscriptionPoolOptions) *ClaudeSubscr
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &ClaudeSubscriptionPool{
-		sessions:   map[string]*claudeSubSession{},
-		startups:   map[*claudeSubStartup]struct{}{},
-		opts:       opts,
-		ctx:        ctx,
-		cancel:     cancel,
-		lookPath:   exec.LookPath,
-		run:        claudeSubExecRunner,
-		spawn:      spawnClaudeSubProcess,
-		chmod:      os.Chmod,
-		removeAll:  os.RemoveAll,
-		closeHost:  func(h *claudeSubMCPHost) error { return h.Close() },
-		done:       make(chan struct{}),
-		stopReaper: make(chan struct{}),
-		reaperDone: make(chan struct{}),
+		sessions:     map[string]*claudeSubSession{},
+		startups:     map[*claudeSubStartup]struct{}{},
+		replacements: map[string]struct{}{},
+		reseedKeys:   map[string]struct{}{},
+		opts:         opts,
+		ctx:          ctx,
+		cancel:       cancel,
+		lookPath:     exec.LookPath,
+		run:          claudeSubExecRunner,
+		spawn:        spawnClaudeSubProcess,
+		chmod:        os.Chmod,
+		removeAll:    os.RemoveAll,
+		closeHost:    func(h *claudeSubMCPHost) error { return h.Close() },
+		done:         make(chan struct{}),
+		stopReaper:   make(chan struct{}),
+		reaperDone:   make(chan struct{}),
 	}
 	p.usageProbe.sem = make(chan struct{}, 1)
 	p.cliJob = p.newTrackedJob()

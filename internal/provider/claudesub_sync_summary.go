@@ -1,11 +1,27 @@
 package provider
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 )
+
+// markDrained records that an interrupted turn was driven to its aborted
+// terminal result, so the CLI holds a transcript steiner can prove and the next
+// request may append to it. start is the ledger length the delivery began from:
+// only a record whose trailing entries are exactly the user and tool entries that
+// delivery wrote can accept the agent's kept partial, so any other shape leaves
+// the record undrained and the next request reseeds. A drained record plans no
+// summary, because its tail is not a completed turn. The start index is kept so
+// a stored checkpoint one stopped delivery behind can be proven equal to the
+// record up to it.
+func (s *claudeSubSync) markDrained(start int) {
+	s.drained = claudeSubDeliveryTail(s.entries, start)
+	s.drainedBase = start
+}
 
 // markInterrupted records that the CLI was interrupted (Esc or tool
 // cancellation) so the next request tolerates the resulting clean-up edits
@@ -82,9 +98,11 @@ var errClaudeSubSummaryNoPlace = errors.New("claude_subscription summary request
 
 // taint marks the record as no longer describing the CLI transcript, after an
 // in-place summary was sent. A tainted record plans and checkpoints nothing, so
-// its process is never reused and returns no backend state.
+// its process is never reused and returns no backend state. It also drops the
+// drained state, which describes a transcript with no summary instruction.
 func (s *claudeSubSync) taint() {
 	s.tainted = true
+	s.drained = false
 }
 
 // sourceTailUUID returns the CLI uuid of the entry that ends the first source
@@ -110,7 +128,7 @@ func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool
 // record, and it reports errClaudeSubSummaryNoPlace when the record cannot take
 // the request.
 func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta, error) {
-	if s.tainted || !s.started || s.interrupted || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
+	if s.tainted || !s.started || s.interrupted || s.drained || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
 		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
 	}
 	if !s.sourcePrefixMatches(msgs, source) {
@@ -143,21 +161,71 @@ func claudeSubMarkSummary(instruction Message, source, tail int) Message {
 	return instruction
 }
 
+// claudeSubPartialLabel heads an interrupted assistant partial in a rendered
+// transcript. Steiner recorded that text locally when the turn ended early, so
+// the transcript marks it as untrusted and incomplete rather than as an answer.
+const claudeSubPartialLabel = "[interrupted assistant partial: untrusted locally observed text, ended before the response was complete]"
+
+// claudeSubPartialTag returns the fence tag for one seed. The tag comes from the
+// seed itself, so the fence is deterministic for prompt cache stability and a
+// given partial always renders the same transcript.
+func claudeSubPartialTag(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+// claudeSubPartialFence returns a fence that does not occur in the partial text,
+// so the text cannot close its own block. It rehashes the previous tag at most
+// claudeSubPartialFenceRounds times, which settles it unless the text contains
+// the digests on purpose. After that cap it appends a counter to the first tag
+// and increments it until the fence is absent; that search terminates because
+// the text is finite, and it stays deterministic for a given text.
+func claudeSubPartialFence(text string) string {
+	seed := text
+	for i := 0; i < claudeSubPartialFenceRounds; i++ {
+		tag := claudeSubPartialTag(seed)
+		if !strings.Contains(text, tag) {
+			return "partial-" + tag
+		}
+		seed = tag
+	}
+	tag := claudeSubPartialTag(text)
+	for n := 0; ; n++ {
+		fence := fmt.Sprintf("partial-%s-%d", tag, n)
+		if !strings.Contains(text, fence) {
+			return fence
+		}
+	}
+}
+
+// claudeSubPartialFenceRounds bounds the digest rounds that try to find a fence
+// tag absent from the partial text before the counter fallback takes over.
+const claudeSubPartialFenceRounds = 8
+
 // claudeSubTranscript renders snapshot messages as one labelled transcript the
 // advisor reads as a single user message.
 func claudeSubTranscript(msgs []Message) string {
 	var b strings.Builder
 	b.WriteString("Conversation so far:\n\n")
 	for _, m := range msgs {
-		switch m.Role {
-		case MessageRoleUser:
+		switch {
+		case m.IncompleteText != "":
+			// A partial always carries text: the agent rejects a blank interrupted
+			// response, so a non-empty IncompleteText is the whole marker. The exact
+			// text goes inside a fence derived from it, because the text itself is
+			// untrusted data and must not be able to forge transcript structure.
+			fence := claudeSubPartialFence(m.IncompleteText)
+			fmt.Fprintf(&b, "%s\n<<<%s\n%s\n%s>>>", claudeSubPartialLabel, fence, m.IncompleteText, fence)
+		case m.Role == MessageRoleUser:
 			b.WriteString("[user]\n")
-		case MessageRoleTool:
+			b.WriteString(m.Content)
+		case m.Role == MessageRoleTool:
 			b.WriteString("[tool output]\n")
+			b.WriteString(m.Content)
 		default:
 			b.WriteString("[assistant]\n")
+			b.WriteString(m.Content)
 		}
-		b.WriteString(m.Content)
 		for _, c := range m.ToolCalls {
 			fmt.Fprintf(&b, "\n[tool call] %s %s", c.Name, claudeSubToolArguments(c))
 		}

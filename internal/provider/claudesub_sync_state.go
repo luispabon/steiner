@@ -32,14 +32,23 @@ type claudeSubBackendState struct {
 // sessions) or the CLI has reported no session ID, because such a state cannot
 // resume anything.
 func (s *claudeSubSync) checkpoint(transportSession string) (state claudeSubBackendState, ok bool, err error) {
-	if s.fingerprint == "" || s.cliSessionID == "" || s.tainted {
+	return s.checkpointAt(transportSession, len(s.entries))
+}
+
+// checkpointAt describes the record as of its first n entries. It lets a caller
+// compare the live record against a stored state one or more committed entries
+// behind it (see drainedMatches). ok is false for an out-of-range n as well as
+// for the reasons checkpoint gives.
+func (s *claudeSubSync) checkpointAt(transportSession string, n int) (state claudeSubBackendState, ok bool, err error) {
+	if s.fingerprint == "" || s.cliSessionID == "" || s.tainted || n < 0 || n > len(s.entries) {
 		return claudeSubBackendState{}, false, nil
 	}
-	chain, err := claudeSubChainDigest(s.entries)
+	entries := s.entries[:n]
+	chain, err := claudeSubChainDigest(entries)
 	if err != nil {
 		return claudeSubBackendState{}, false, err
 	}
-	prefix, err := claudeSubPrefixDigest(s.entries)
+	prefix, err := claudeSubPrefixDigest(entries)
 	if err != nil {
 		return claudeSubBackendState{}, false, err
 	}
@@ -48,17 +57,42 @@ func (s *claudeSubSync) checkpoint(transportSession string) (state claudeSubBack
 		Version:                claudeSubBackendStateVersion,
 		CLISessionID:           s.cliSessionID,
 		TransportSession:       transportSession,
-		SyncEntries:            len(s.entries),
+		SyncEntries:            n,
 		SyncChainDigest:        chain,
 		SyncPrefixDigest:       prefix,
 		PromptToolsFingerprint: s.fingerprint,
 	}
-	if n := len(s.entries); n > 0 {
-		last := s.entries[n-1]
+	if n > 0 {
+		last := entries[n-1]
 		state.FinalMessageDigest = last.Digest
 		state.FinalUUID = last.UUID
 	}
 	return state, true, nil
+}
+
+// drainedMatches reports whether the live record is exactly one stopped
+// delivery ahead of stored: the record's first stored.SyncEntries entries equal
+// the stored checkpoint, every entry after them is a user or tool entry the
+// stopped delivery wrote itself, and the drained state accepts the agent's kept
+// partial. Only a proven drain sets that state, so this accepts the one shape a
+// parent stop leaves without weakening the checkpoint rule. key is the owner the
+// caller has already matched, and it must still equal the stored owner here, so
+// a foreign state never matches on this path.
+func (s *claudeSubSync) drainedMatches(stored claudeSubBackendState, key string) bool {
+	if !s.drained || s.tainted || !s.started || stored.TransportSession != key {
+		return false
+	}
+	if s.drainedBase != stored.SyncEntries {
+		return false
+	}
+	if len(s.entries) <= s.drainedBase || !claudeSubDeliveryTail(s.entries, s.drainedBase) {
+		return false
+	}
+	live, ok, err := s.checkpointAt(stored.TransportSession, stored.SyncEntries)
+	if err != nil || !ok {
+		return false
+	}
+	return claudeSubStateMatches(live, stored)
 }
 
 // backendState encodes the checkpoint as the opaque state a final chunk hands
@@ -160,11 +194,59 @@ func claudeSubRestoreFor(msgs []Message, stored claudeSubBackendState, hasState 
 	if prefix != stored.SyncPrefixDigest {
 		return claudeSubResume{}, false, claudeSubReseedPrefix, nil
 	}
-	dry := claudeSubSync{entries: entries, started: true, interruptible: -1}
-	if _, err := dry.plan(ChatRequest{Messages: msgs}); err != nil {
+	// A stored tool result cannot be delivered on a resumed process: the resume
+	// registers no pending call for it, and claudeSubDeliver refuses a result
+	// with no pending call. Replaying the transcript instead carries the result
+	// inline.
+	if claudeSubTailHasTool(msgs, stored.SyncEntries) {
 		return claudeSubResume{}, false, claudeSubReseedPlan, nil
 	}
-	return claudeSubResume{SessionID: stored.CLISessionID, AtUUID: stored.FinalUUID, Fork: stored.TransportSession != key}, true, "", nil
+	// A stored final assistant whose tool calls the request suffix never answers
+	// would leave a dangling tool_use at the resume point, so the successor user
+	// line would follow an unanswered call. The transcript replay carries the
+	// calls as text instead.
+	if last := entries[len(entries)-1]; len(last.ToolCallIDs) > 0 && !claudeSubTailAnswers(msgs, stored.SyncEntries, last.ToolCallIDs) {
+		return claudeSubResume{}, false, claudeSubReseedPlan, nil
+	}
+	// The kept partial of a stopped turn is not part of the CLI transcript, so
+	// the dry plan runs without it: the resume sends the stopped user messages
+	// and the new ones, and the partial travels as a quoted note.
+	shaped := msgs
+	if partial, ok := claudeSubInterruptedTail(msgs, stored.SyncEntries); ok && partial >= 0 {
+		shaped = claudeSubMessagesWithout(msgs, partial)
+	}
+	dry := claudeSubSync{entries: entries, started: true, interruptible: -1}
+	if _, err := dry.plan(ChatRequest{Messages: shaped}); err != nil {
+		return claudeSubResume{}, false, claudeSubReseedPlan, nil
+	}
+	return claudeSubResume{SessionID: stored.CLISessionID, AtUUID: stored.FinalUUID, Fork: true}, true, "", nil
+}
+
+// claudeSubTailAnswers reports whether the suffix answers every tool call id in
+// ids with a tool message.
+func claudeSubTailAnswers(msgs []Message, n int, ids []string) bool {
+	if n < 0 || n > len(msgs) {
+		return false
+	}
+	provided := make(map[string]struct{})
+	for _, m := range msgs[n:] {
+		if m.Role == MessageRoleTool {
+			provided[m.ToolCallID] = struct{}{}
+		}
+	}
+	for _, id := range ids {
+		if _, ok := provided[id]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// claudeSubMessagesWithout returns msgs without the message at index i.
+func claudeSubMessagesWithout(msgs []Message, i int) []Message {
+	out := make([]Message, 0, len(msgs)-1)
+	out = append(out, msgs[:i]...)
+	return append(out, msgs[i+1:]...)
 }
 
 // claudeSubHasHistory reports whether msgs carry assistant or tool messages,

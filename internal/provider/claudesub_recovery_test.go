@@ -1,0 +1,616 @@
+package provider
+
+// Characterization tests for claude_subscription turn recovery. Every assertion
+// in this file describes the provider's CURRENT behaviour, verified against the
+// code as it stands. A live failure after delivery and a restart after an
+// interrupted turn both resume the stored CLI session, and the tool-result
+// divergence is the one case that still reseeds. Treat these as a regression
+// baseline for the recovery design, not as desired behaviour. Each affected
+// test says so in its own doc comment.
+// Cancellation recovery is covered by the regression tests in
+// claudesub_cancel_test.go.
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+// claudeSubRecoveryNoteText is the interruption notice the agent appends to the
+// provider projection of an incomplete assistant message
+// (internal/agent/message_convert.go). A request history built after an
+// interrupted turn carries it.
+const claudeSubRecoveryNoteText = "[response interrupted: this assistant message ended before it was complete]"
+
+// claudeSubRecoveryNote is that notice as the projection appends it.
+const claudeSubRecoveryNote = "\n\n" + claudeSubRecoveryNoteText
+
+// claudeSubRecoveryTurnFailure is the error a turn whose CLI result reports
+// error_during_execution carries for the result_error.jsonl fixture.
+const claudeSubRecoveryTurnFailure = "claude_subscription turn failed: error_during_execution: [Request interrupted by user for tool use]"
+
+// claudeSubRecoveryPartial returns the provider projection of the partial
+// assistant message steiner keeps at an interrupt: the text streamed so far,
+// the interruption notice, the nonzero turn the agent recorded, and the raw text
+// carried as local provenance.
+func claudeSubRecoveryPartial(text string) Message {
+	return Message{Role: MessageRoleAssistant, Content: text + claudeSubRecoveryNote, IncompleteText: text, Turn: 1}
+}
+
+func claudeSubRecoveryNoop(ChatChunk) error { return nil }
+
+// claudeSubRecoveryRunStream runs one request through the streaming wrapper and
+// returns its terminal chunk.
+func claudeSubRecoveryRunStream(t *testing.T, pool *ClaudeSubscriptionPool, req ChatRequest) ChatChunk {
+	t.Helper()
+	stream, err := claudeSubStream(context.Background(), pool, req, nil)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	var final ChatChunk
+	for chunk := range stream {
+		if chunk.Done {
+			final = chunk
+		}
+	}
+	if !final.Done {
+		t.Fatal("stream emitted no Done chunk")
+	}
+	return final
+}
+
+// claudeSubRecoveryReseedReason returns the reseed reason the terminal chunk's
+// diagnostics recorded, or the empty string when the stream carried none.
+func claudeSubRecoveryReseedReason(final ChatChunk) string {
+	if final.Diagnostics == nil || final.Diagnostics.ClaudeSub == nil {
+		return ""
+	}
+	return final.Diagnostics.ClaudeSub.ReseedReason
+}
+
+// claudeSubRecoveryLabel returns the recovery label the terminal chunk's
+// diagnostics recorded, or the empty string when the stream carried none.
+func claudeSubRecoveryLabel(final ChatChunk) string {
+	if final.Diagnostics == nil || final.Diagnostics.ClaudeSub == nil {
+		return ""
+	}
+	return final.Diagnostics.ClaudeSub.Recovery
+}
+
+// claudeSubRecoveryRecordLen returns how many entries the live process record
+// for key holds. It reads the pool's session map instead of acquiring, so it can
+// never start a process; turns run synchronously in the test goroutine, so the
+// record is not being written when it is read.
+func claudeSubRecoveryRecordLen(t *testing.T, pool *ClaudeSubscriptionPool, key string) int {
+	t.Helper()
+	pool.mu.Lock()
+	s := pool.sessions[key]
+	pool.mu.Unlock()
+	if s == nil {
+		t.Fatalf("no live session for %q", key)
+	}
+	return len(s.sync.entries)
+}
+
+// TestClaudeSubRecoveryLiveFailureResumes proves a failure
+// streamed after the user line was committed leaves the live record ahead of the
+// stored checkpoint, so the next request retires that process and resumes the
+// stored session at its final uuid, which hides the failed turn.
+func TestClaudeSubRecoveryLiveFailureResumes(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	tests := []struct {
+		name         string
+		withPartial  bool
+		wantRecovery string
+	}{
+		{name: "user line delivered", wantRecovery: claudeSubRecoveryResumeAfterMismatch},
+		{name: "real partial projection in the next request", withPartial: true, wantRecovery: claudeSubRecoveryResumeAfterStop},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			script := &claudeSubScript{batches: [][]claudeSubEvent{
+				claudeSubDecodeEvents(t, "turn_text.jsonl"),
+				claudeSubDecodeEvents(t, "result_error.jsonl"),
+			}}
+			// The second spawn answers the resumed request.
+			pool, spawner := claudeSubPoolWithScripts(t, script, claudeSubTextTurns(t, 1))
+			first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+			stored := claudeSubDecodeState(t, first.BackendState)
+
+			history := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+			var streamed []ChatChunk
+			err := claudeSubTurn(context.Background(), pool, ChatRequest{
+				TransportSession: "parent",
+				Model:            model,
+				BackendState:     claudeSubEncodeState(t, stored),
+				Messages:         history,
+			}, func(chunk ChatChunk) error {
+				streamed = append(streamed, chunk)
+				return nil
+			})
+			if err == nil || err.Error() != claudeSubRecoveryTurnFailure {
+				t.Fatalf("failure turn error = %v, want %q", err, claudeSubRecoveryTurnFailure)
+			}
+			for _, chunk := range streamed {
+				if chunk.BackendState != nil {
+					t.Fatalf("failed turn emitted backend state %s", chunk.BackendState)
+				}
+			}
+
+			live := claudeSubRecoveryRecordLen(t, pool, "parent")
+			if live != stored.SyncEntries+1 {
+				t.Fatalf("live record entries = %d, want %d (the delivered user line)", live, stored.SyncEntries+1)
+			}
+
+			next := append([]Message(nil), history...)
+			if tt.withPartial {
+				next = append(next, claudeSubRecoveryPartial("half a report"))
+			}
+			next = append(next, claudeSubUserText("again"))
+			final := claudeSubRecoveryRunStream(t, pool, ChatRequest{
+				TransportSession: "parent",
+				Model:            model,
+				BackendState:     claudeSubEncodeState(t, stored),
+				Messages:         next,
+			})
+			if final.Error != "" {
+				t.Fatalf("next turn error = %s", final.Error)
+			}
+			if got := spawner.callCount(); got != 2 {
+				t.Fatalf("spawn count = %d, want 2 (retired live process plus its resume)", got)
+			}
+			serving := spawner.call(t, 1)
+			resume, _ := claudeSubArgValue(serving.Args, "--resume")
+			at, _ := claudeSubArgValue(serving.Args, "--resume-session-at")
+			if resume != stored.CLISessionID || at != stored.FinalUUID {
+				t.Errorf("resume = %q at %q, want %q at %q", resume, at, stored.CLISessionID, stored.FinalUUID)
+			}
+			if !claudeSubHasArg(serving.Args, "--fork-session") {
+				t.Errorf("args %q, want --fork-session for the retired live process", serving.Args)
+			}
+			lines := claudeSubUserLines(serving.Conn)
+			if len(lines) != 1 {
+				t.Fatalf("resumed user lines = %q, want one", lines)
+			}
+			if strings.Contains(lines[0], "Conversation so far") {
+				t.Errorf("resumed user line = %s, want a resume, not a rendered transcript", lines[0])
+			}
+			blocks := claudeSubUserTextBlocks(t, lines[0])
+			wantBlocks := 2
+			if tt.withPartial {
+				wantBlocks = 3
+			}
+			if len(blocks) != wantBlocks {
+				t.Fatalf("user blocks = %q, want %d", blocks, wantBlocks)
+			}
+			if blocks[0] != "more" || blocks[len(blocks)-1] != "again" {
+				t.Errorf("user blocks = %q, want the stopped user content first and the new message last", blocks)
+			}
+			if tt.withPartial && (!strings.Contains(blocks[1], "half a report") || !strings.Contains(blocks[1], claudeSubStoppedReplyNoteOpening)) {
+				t.Errorf("note block = %q, want the stopped reply quoted", blocks[1])
+			}
+			if got := claudeSubRecoveryReseedReason(final); got != "" {
+				t.Errorf("reseed reason = %q, want none", got)
+			}
+			if got := claudeSubRecoveryLabel(final); got != tt.wantRecovery {
+				t.Errorf("recovery = %q, want %q", got, tt.wantRecovery)
+			}
+		})
+	}
+}
+
+// TestClaudeSubRecoveryToolResultLiveFailureReseedsCharacterization covers the
+// same live-record divergence when the delivered message is a tool result
+// instead of a user line: the result is committed as it is resolved, so the
+// streamed failure after it makes the stored checkpoint stale.
+//
+// CHARACTERIZATION OF A CURRENT LIMIT: a stored tool result cannot be delivered
+// on a resumed process, so the restore refuses and the request reseeds.
+// The next request below asserts that reseed.
+func TestClaudeSubRecoveryToolResultLiveFailureReseedsCharacterization(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	// Truncated at the assistant message that carries the tool call: the fixture's
+	// trailing user tool-result echo and result event stay out of the queue so the
+	// first turn ends at the call with no pending output.
+	script := &claudeSubScript{batches: [][]claudeSubEvent{
+		claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8],
+	}}
+	pool, spawner := claudeSubPoolWithScripts(t, script, claudeSubTextTurns(t, 1))
+	first := claudeSubRunTurn(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		Messages:         []Message{claudeSubUserText("read notes")},
+	})
+	stored := claudeSubDecodeState(t, first.BackendState)
+	if len(first.Delta.ToolCalls) != 1 {
+		t.Fatalf("first turn tool calls = %+v, want one", first.Delta.ToolCalls)
+	}
+	result := Message{Role: MessageRoleTool, ToolCallID: first.Delta.ToolCalls[0].ID, Content: "notes body"}
+	history := []Message{claudeSubUserText("read notes"), first.Delta, result}
+
+	// The CLI continues on its own after the MCP host resolves the call, so the
+	// turn's events are queued before the tool-result turn reads them.
+	conn := spawner.call(t, 0).Conn
+	for _, ev := range claudeSubDecodeEvents(t, "result_error.jsonl") {
+		conn.push(ev)
+	}
+	var streamed []ChatChunk
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		BackendState:     claudeSubEncodeState(t, stored),
+		Messages:         history,
+	}, func(chunk ChatChunk) error {
+		streamed = append(streamed, chunk)
+		return nil
+	})
+	if err == nil || err.Error() != claudeSubRecoveryTurnFailure {
+		t.Fatalf("tool-result turn error = %v, want %q", err, claudeSubRecoveryTurnFailure)
+	}
+	for _, chunk := range streamed {
+		if chunk.BackendState != nil {
+			t.Fatalf("failed turn emitted backend state %s", chunk.BackendState)
+		}
+	}
+
+	live := claudeSubRecoveryRecordLen(t, pool, "parent")
+	if live != stored.SyncEntries+1 {
+		t.Fatalf("live record entries = %d, want %d (the delivered tool result)", live, stored.SyncEntries+1)
+	}
+
+	next := append(append([]Message(nil), history...), claudeSubUserText("again"))
+	final := claudeSubRecoveryRunStream(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Tools:            tools,
+		BackendState:     claudeSubEncodeState(t, stored),
+		Messages:         next,
+	})
+	if final.Error != "" {
+		t.Fatalf("next turn error = %s", final.Error)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawn count = %d, want 2 (retired live process plus fresh reseed)", got)
+	}
+	serving := spawner.call(t, 1)
+	if resume, _ := claudeSubArgValue(serving.Args, "--resume"); resume != "" {
+		t.Errorf("reseed spawn --resume = %q, want none", resume)
+	}
+	lines := claudeSubUserLines(serving.Conn)
+	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
+		t.Fatalf("reseed user lines = %q, want one rendered transcript", lines)
+	}
+	if got := claudeSubRecoveryReseedReason(final); got != claudeSubReseedCheckpoint {
+		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedCheckpoint)
+	}
+}
+
+// TestClaudeSubRecoveryPreDeliveryFailureReusesProcess proves a failure before
+// the user line is written leaves the live record equal to the stored
+// checkpoint, so the retry reuses the process and sends only the undelivered
+// suffix.
+func TestClaudeSubRecoveryPreDeliveryFailureReusesProcess(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	other := "claude-other-model"
+	script := claudeSubTextTurns(t, 2)
+	script.setModelErr = true
+	pool, spawner := claudeSubPoolWithScripts(t, script)
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+	stored := claudeSubDecodeState(t, first.BackendState)
+
+	history := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            other,
+		BackendState:     claudeSubEncodeState(t, stored),
+		Messages:         history,
+	}, claudeSubRecoveryNoop)
+	if err == nil || err.Error() != "claude CLI set_model: model unavailable" {
+		t.Fatalf("set_model turn error = %v, want the fixture's control failure", err)
+	}
+	conn := spawner.call(t, 0).Conn
+	for _, line := range claudeSubUserLines(conn) {
+		if strings.Contains(line, "more") {
+			t.Fatalf("pre-delivery failure still wrote the user line: %s", line)
+		}
+	}
+	if live := claudeSubRecoveryRecordLen(t, pool, "parent"); live != stored.SyncEntries {
+		t.Fatalf("live record entries = %d, want the stored %d (nothing delivered)", live, stored.SyncEntries)
+	}
+
+	script.setModelErr = false
+	next := append(append([]Message(nil), history...), claudeSubUserText("again"))
+	final := claudeSubRecoveryRunStream(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            other,
+		BackendState:     claudeSubEncodeState(t, stored),
+		Messages:         next,
+	})
+	if final.Error != "" {
+		t.Fatalf("retry turn error = %s", final.Error)
+	}
+	if got := spawner.callCount(); got != 1 {
+		t.Fatalf("spawn count = %d, want 1 (live process reused, no reseed)", got)
+	}
+	lines := claudeSubUserLines(conn)
+	if len(lines) != 2 {
+		t.Fatalf("user lines = %q, want the first turn plus the retried suffix", lines)
+	}
+	last := lines[1]
+	if strings.Contains(last, "Conversation so far") {
+		t.Errorf("reused process received a reseed transcript: %s", last)
+	}
+	if !strings.Contains(last, "more") || !strings.Contains(last, "again") {
+		t.Errorf("retried user line = %s, want the undelivered suffix and the new message", last)
+	}
+	if got := claudeSubRecoveryReseedReason(final); got != "" {
+		t.Errorf("reseed reason = %q, want none", got)
+	}
+	if live := claudeSubRecoveryRecordLen(t, pool, "parent"); live != stored.SyncEntries+3 {
+		t.Errorf("live record entries = %d, want %d (both retried user messages and the reply)", live, stored.SyncEntries+3)
+	}
+}
+
+// TestClaudeSubRecoveryRestartAfterInterruptedTurn proves the restore path
+// independently of any live process: a restart resumes the stored checkpoint at
+// its saved uuid whether or not the agent kept a partial. A kept partial is not
+// in the CLI transcript, so the resume sends it as a quoted note between the
+// stopped user content and the new message.
+func TestClaudeSubRecoveryRestartAfterInterruptedTurn(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	tests := []struct {
+		name    string
+		partial bool
+	}{
+		{name: "absent partial resumes at the saved uuid"},
+		{name: "committed partial resumes with the note", partial: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			firstPool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+			first := claudeSubRunTurn(t, firstPool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+			stored := claudeSubDecodeState(t, first.BackendState)
+
+			// Restart: a new pool has no live process for the key.
+			pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+			msgs := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+			if tt.partial {
+				msgs = append(msgs, claudeSubRecoveryPartial("half a report"))
+			}
+			msgs = append(msgs, claudeSubUserText("again"))
+			final := claudeSubRecoveryRunStream(t, pool, ChatRequest{
+				TransportSession: "parent",
+				Model:            model,
+				BackendState:     claudeSubEncodeState(t, stored),
+				Messages:         msgs,
+			})
+			if final.Error != "" {
+				t.Fatalf("turn error = %s", final.Error)
+			}
+			if got := spawner.callCount(); got != 1 {
+				t.Fatalf("spawn count = %d, want 1", got)
+			}
+			serving := spawner.call(t, 0)
+			resume, _ := claudeSubArgValue(serving.Args, "--resume")
+			at, _ := claudeSubArgValue(serving.Args, "--resume-session-at")
+			if resume != stored.CLISessionID || at != stored.FinalUUID {
+				t.Errorf("resume target = %q at %q, want %q at %q", resume, at, stored.CLISessionID, stored.FinalUUID)
+			}
+			if !claudeSubHasArg(serving.Args, "--fork-session") {
+				t.Errorf("restart args %q, want --fork-session for every resume", serving.Args)
+			}
+			if got := claudeSubRecoveryReseedReason(final); got != "" {
+				t.Errorf("reseed reason = %q, want none", got)
+			}
+			lines := claudeSubUserLines(serving.Conn)
+			if len(lines) != 1 {
+				t.Fatalf("user lines = %q, want one", lines)
+			}
+			if strings.Contains(lines[0], "Conversation so far") {
+				t.Errorf("user line = %s, want a resume, not a reseeded transcript", lines[0])
+			}
+			if !strings.Contains(lines[0], "again") || !strings.Contains(lines[0], "more") {
+				t.Errorf("user line = %s, want the stopped and new user content", lines[0])
+			}
+			if tt.partial {
+				if !strings.Contains(lines[0], "half a report") || !strings.Contains(lines[0], claudeSubStoppedReplyNoteOpening) {
+					t.Errorf("user line = %s, want the kept partial quoted in the stopped-reply note", lines[0])
+				}
+				if strings.Contains(lines[0], claudeSubPartialLabel) {
+					t.Errorf("user line = %s, want the note, not the flattened transcript label", lines[0])
+				}
+				blocks := claudeSubUserTextBlocks(t, lines[0])
+				if len(blocks) != 3 {
+					t.Errorf("user blocks = %d, want the stopped content, the note and the new message: %s", len(blocks), lines[0])
+				}
+			}
+		})
+	}
+}
+
+// TestClaudeSubReseedWarnsFlattenedReplay proves a conversation reseed tells the
+// user that the prior context was replayed as one flattened user message, and
+// that the delivered transcript labels the interrupted partial.
+func TestClaudeSubReseedWarnsFlattenedReplay(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages: []Message{
+			claudeSubUserText("read notes"),
+			{Role: MessageRoleAssistant, Content: "answer"},
+			claudeSubRecoveryPartial("half a report"),
+			claudeSubUserText("again"),
+		},
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	lines := claudeSubUserLines(spawner.call(t, 0).Conn)
+	if len(lines) != 1 || !strings.Contains(lines[0], claudeSubPartialLabel) {
+		t.Fatalf("reseed user lines = %q, want one transcript labelling the partial", lines)
+	}
+	if strings.Contains(lines[0], claudeSubRecoveryNoteText) {
+		t.Errorf("reseed transcript = %s, want the label instead of the interruption note", lines[0])
+	}
+	claudeSubWantOneWarning(t, got, claudeSubFlattenedReseedWarning)
+	if want := claudeSubWarningChunk(claudeSubFlattenedReseedWarning).Diagnostic; got.warnings()[0] != want {
+		t.Errorf("warning = %q, want %q", got.warnings()[0], want)
+	}
+}
+
+// TestClaudeSubReseedCombinesWarnings proves a call that discards the process
+// behind an earlier unfinished turn and replays the flattened transcript reports
+// one combined warning instead of two.
+func TestClaudeSubReseedCombinesWarnings(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, _, _ := claudeSubAbandonedParent(t,
+		&claudeSubScript{batches: [][]claudeSubEvent{nil}},
+		claudeSubTextTurns(t, 1),
+	)
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages: []Message{
+			claudeSubUserText("first"),
+			{Role: MessageRoleAssistant, Content: "answer"},
+			claudeSubUserText("second"),
+		},
+	})
+	if got.err != nil {
+		t.Fatalf("turn error = %v", got.err)
+	}
+	warnings := got.warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %q, want exactly one combined warning", warnings)
+	}
+	if want := claudeSubWarningChunk(claudeSubReplacedAndFlattenedWarning).Diagnostic; warnings[0] != want {
+		t.Errorf("warning = %q, want %q", warnings[0], want)
+	}
+	if pool.replacementPending("parent") {
+		t.Error("the replacement notice survived being reported")
+	}
+}
+
+// claudeSubWantFlattenedWarning asserts the turn reported exactly the flattened
+// replay warning.
+func claudeSubWantFlattenedWarning(t *testing.T, got claudeSubCollected) {
+	t.Helper()
+	claudeSubWantOneWarning(t, got, claudeSubFlattenedReseedWarning)
+	if want := claudeSubWarningChunk(claudeSubFlattenedReseedWarning).Diagnostic; got.warnings()[0] != want {
+		t.Errorf("warning = %q, want exactly %q", got.warnings()[0], want)
+	}
+}
+
+// TestClaudeSubReseedWarningBranches proves every reseed branch of a
+// conversation reports the flattened replay once, and that a first turn with no
+// prior conversation reports nothing. The retry branch is covered by
+// TestClaudeSubCancelWarningReportsRetriedOutcome, where a pending replacement
+// applies too.
+func TestClaudeSubReseedWarningBranches(t *testing.T) {
+	model := claudeSubTestSpec().Model
+
+	t.Run("first turn reports nothing", func(t *testing.T) {
+		pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+		got := claudeSubRunCollected(t, pool, ChatRequest{
+			TransportSession: "parent",
+			Model:            model,
+			Messages:         []Message{claudeSubUserText("read notes")},
+		})
+		if got.err != nil {
+			t.Fatalf("turn error = %v", got.err)
+		}
+		if warnings := got.warnings(); len(warnings) != 0 {
+			t.Errorf("warnings = %q, want none for a first turn", warnings)
+		}
+		if lines := claudeSubUserLines(spawner.call(t, 0).Conn); len(lines) != 1 || strings.Contains(lines[0], "Conversation so far") {
+			t.Errorf("first turn user lines = %q, want the plain message", lines)
+		}
+	})
+
+	// A process that cannot restore the stored state starts fresh and reseeds.
+	t.Run("restore branches", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			noState bool
+			mutate  func(*claudeSubBackendState)
+		}{
+			{name: "no_state", noState: true},
+			{name: "fingerprint", mutate: func(st *claudeSubBackendState) { st.PromptToolsFingerprint = "stale" }},
+			{name: "prefix", mutate: func(st *claudeSubBackendState) { st.SyncPrefixDigest = "bad" }},
+			{name: "final_uuid", mutate: func(st *claudeSubBackendState) { st.FinalUUID = "" }},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				assistant, st := claudeSubOpeningTurn(t)
+				var raw json.RawMessage
+				if !tt.noState {
+					if tt.mutate != nil {
+						tt.mutate(&st)
+					}
+					raw = claudeSubEncodeState(t, st)
+				}
+				pool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+				got := claudeSubRunCollected(t, pool, ChatRequest{
+					TransportSession: "parent",
+					Model:            model,
+					Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+					BackendState:     raw,
+				})
+				if got.err != nil {
+					t.Fatalf("turn error = %v", got.err)
+				}
+				claudeSubWantFlattenedWarning(t, got)
+			})
+		}
+	})
+
+	// A live process that cannot take the request is retired and the request
+	// reseeds on a fresh one.
+	t.Run("live branches", func(t *testing.T) {
+		// A restorable checkpoint mismatch and an exited process both resume the
+		// stored session now, which reports no reseed reason; the warning they
+		// report is covered by TestClaudeSubRecoveryLiveFailureResumes and
+		// TestClaudeSubLiveAppendSelection.
+		tests := []struct {
+			name    string
+			mutate  func(*claudeSubBackendState)
+			rewrite bool
+		}{
+			{name: "plan", rewrite: true},
+			{name: "owner_fork", mutate: func(st *claudeSubBackendState) {
+				st.TransportSession = "previous-owner"
+				st.SyncPrefixDigest = "bad"
+			}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				pool, _ := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+				first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{claudeSubUserText("read notes")}})
+				st := claudeSubDecodeState(t, first.BackendState)
+				if tt.mutate != nil {
+					tt.mutate(&st)
+				}
+				msgs := []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("more")}
+				if tt.rewrite {
+					msgs[0] = claudeSubUserText("rewritten")
+				}
+				got := claudeSubRunCollected(t, pool, ChatRequest{
+					TransportSession: "parent",
+					Model:            model,
+					Messages:         msgs,
+					BackendState:     claudeSubEncodeState(t, st),
+				})
+				if got.err != nil {
+					t.Fatalf("turn error = %v", got.err)
+				}
+				claudeSubWantFlattenedWarning(t, got)
+			})
+		}
+	})
+}

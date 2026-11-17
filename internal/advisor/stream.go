@@ -8,6 +8,32 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+// emitAdvisorChunkDiagnostic reports one provider diagnostic chunk as an event.
+// The chunk carries no assistant content, so it never contributes to the answer.
+func emitAdvisorChunkDiagnostic(sink output.EventSink, chunk provider.ChatChunk) {
+	severity := chunk.Severity
+	if severity == "" {
+		severity = "warning"
+	}
+	event := output.ProviderDiagnosticEvent{Severity: severity, Message: chunk.Diagnostic}
+	if chunk.RetryAttempt > 0 || chunk.RetryReset {
+		event.Kind = output.DiagnosticKindRetry
+		event.Attempt = chunk.RetryAttempt
+		event.MaxAttempts = chunk.RetryMaxAttempts
+		event.Delay = chunk.RetryDelay.String()
+	}
+	emitEvent(sink, output.NewProviderDiagnosticEvent(event))
+}
+
+// emitAdvisorRetryDiagnostic reports a provider retry. A chunk with no message
+// reports nothing.
+func emitAdvisorRetryDiagnostic(sink output.EventSink, chunk provider.ChatChunk) {
+	if chunk.Diagnostic == "" {
+		return
+	}
+	emitAdvisorChunkDiagnostic(sink, chunk)
+}
+
 // streamWithEvents reads all chunks from a streaming response, assembles them
 // into a single ChatResponse, and emits thinking chunks to the event sink.
 // It emits event output for thinking content when sink is non-nil.
@@ -18,6 +44,10 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (
 
 	for chunk := range chunks {
 		if chunk.RetryReset {
+			// The provider discarded its partial stream and retries. The retry is
+			// reported like any other, so the advisor shows the same indicator the
+			// main turn does.
+			emitAdvisorRetryDiagnostic(sink, chunk)
 			response = provider.ChatResponse{}
 			message = provider.Message{Role: provider.MessageRoleAssistant}
 			sawFinal = false
@@ -28,6 +58,11 @@ func streamWithEvents(chunks <-chan provider.ChatChunk, sink output.EventSink) (
 				return provider.ChatResponse{}, chunk.OriginalError
 			}
 			return provider.ChatResponse{}, fmt.Errorf("%s", errText)
+		}
+		if chunk.Diagnostic != "" {
+			// A provider diagnostic carries no assistant content; surface it as an
+			// event instead of folding it into the advisor's answer.
+			emitAdvisorChunkDiagnostic(sink, chunk)
 		}
 		if role := chunk.Delta.Role; role != "" {
 			message.Role = role

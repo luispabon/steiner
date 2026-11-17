@@ -120,10 +120,15 @@ func TestClaudeSubCallDiagnosticsLiveReseedReason(t *testing.T) {
 		rewrite bool
 		dead    bool
 		want    string
+		// wantRecovery is the recovery label the call must report.
+		wantRecovery string
+		// wantProcess is the process disposition the call reports. Empty means
+		// spawn.
+		wantProcess string
 	}{
-		{name: "checkpoint mismatch", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, want: claudeSubReseedCheckpoint},
+		{name: "checkpoint mismatch resumes", mutate: func(st *claudeSubBackendState) { st.SyncChainDigest = "bad" }, want: "", wantRecovery: claudeSubRecoveryResumeAfterMismatch, wantProcess: claudeSubProcessResume},
 		{name: "rewritten history", rewrite: true, want: claudeSubReseedPlan},
-		{name: "exited process", dead: true, want: claudeSubReseedExited},
+		{name: "exited process resumes", dead: true, want: "", wantProcess: claudeSubProcessResume},
 		// The state belongs to another transport session and no longer
 		// reproduces the request prefix, so the fork cannot resume and the call
 		// reseeds on a fresh process.
@@ -161,8 +166,15 @@ func TestClaudeSubCallDiagnosticsLiveReseedReason(t *testing.T) {
 				Messages:         msgs,
 				BackendState:     claudeSubEncodeState(t, st),
 			})
-			if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
-				t.Errorf("process = %q, want %q", got, claudeSubProcessSpawn)
+			want := tt.wantProcess
+			if want == "" {
+				want = claudeSubProcessSpawn
+			}
+			if got := final.Diagnostics.ClaudeSub.Process; got != want {
+				t.Errorf("process = %q, want %q", got, want)
+			}
+			if got := final.Diagnostics.ClaudeSub.Recovery; got != tt.wantRecovery {
+				t.Errorf("recovery = %q, want %q", got, tt.wantRecovery)
 			}
 			if got := final.Diagnostics.ClaudeSub.ReseedReason; got != tt.want {
 				t.Errorf("reseed reason = %q, want %q", got, tt.want)
@@ -424,10 +436,11 @@ func TestClaudeSubChatCompletionReturnsCallDiagnostics(t *testing.T) {
 	}
 }
 
-// TestClaudeSubCallDiagnosticsRetryReseed proves a resumed process that fails
-// before output reports the retry reseed, and the retry's own process, on the
-// terminal chunk.
-func TestClaudeSubCallDiagnosticsRetryReseed(t *testing.T) {
+// TestClaudeSubCallDiagnosticsRetryResume proves a resumed process that fails
+// before output reports the recovery and the retry's own process on the terminal
+// chunk: the retry resumes the stored checkpoint in a fork, so it is not a
+// reseed.
+func TestClaudeSubCallDiagnosticsRetryResume(t *testing.T) {
 	errEvent := claudeSubEvent{
 		Type:      "result",
 		Subtype:   "error_during_execution",
@@ -443,13 +456,16 @@ func TestClaudeSubCallDiagnosticsRetryReseed(t *testing.T) {
 		BackendState:     claudeSubEncodeState(t, st),
 	})
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (failed resume, then reseed)", n)
+		t.Fatalf("spawn count = %d, want 2 (failed resume, then the retry)", n)
 	}
-	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessSpawn {
-		t.Errorf("process = %q, want %q for the reseeding retry", got, claudeSubProcessSpawn)
+	if got := final.Diagnostics.ClaudeSub.Process; got != claudeSubProcessResume {
+		t.Errorf("process = %q, want %q for the retried resume", got, claudeSubProcessResume)
 	}
-	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedRetry {
-		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedRetry)
+	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != "" {
+		t.Errorf("reseed reason = %q, want none for a resumed retry", got)
+	}
+	if got := final.Diagnostics.ClaudeSub.Recovery; got != claudeSubRecoveryRetryPreOutput {
+		t.Errorf("recovery = %q, want %q", got, claudeSubRecoveryRetryPreOutput)
 	}
 }
 

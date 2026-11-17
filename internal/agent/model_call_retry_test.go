@@ -122,3 +122,86 @@ func TestConsumeModelChunkResetsFirstChunkTimeOnRetryReset(t *testing.T) {
 		t.Fatal("firstChunkTime not set after post-retry content chunk")
 	}
 }
+
+// TestConsumeModelStreamReportsNonResetRetry proves a provider retry that
+// discarded nothing, such as the claude CLI retrying its own API request,
+// reaches the sink as one retry diagnostic and keeps the streamed content,
+// unlike a RetryReset chunk.
+func TestConsumeModelStreamReportsNonResetRetry(t *testing.T) {
+	chunks := make(chan provider.ChatChunk, 4)
+	chunks <- provider.ChatChunk{
+		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
+	}
+	chunks <- provider.ChatChunk{
+		Diagnostic:       "claude CLI retrying API request after overloaded, attempt 1/10, next try in 2s",
+		Severity:         "warning",
+		RetryAttempt:     1,
+		RetryMaxAttempts: 10,
+		RetryDelay:       2 * time.Second,
+	}
+	chunks <- provider.ChatChunk{
+		Done:            true,
+		FinishReason:    "stop",
+		Delta:           provider.Message{Role: provider.MessageRoleAssistant, Content: "first second"},
+		ContentSnapshot: true,
+	}
+	close(chunks)
+
+	var events []output.Event
+	resp, err := consumeModelStream(context.Background(), output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}), 1, chunks, output.ChunkSourceAssistant, nil)
+	if err != nil {
+		t.Fatalf("consumeModelStream() error = %v", err)
+	}
+	// The pre-retry content survives: the CLI retried before it produced any
+	// output, so nothing was discarded.
+	if got, want := resp.Message.Content, "first second"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	var retries []output.ProviderDiagnosticEvent
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ProviderDiagnosticEvent)
+		if !ok {
+			continue
+		}
+		retries = append(retries, payload)
+	}
+	if len(retries) != 1 {
+		t.Fatalf("diagnostics = %+v, want exactly one retry event", retries)
+	}
+	if got := retries[0]; got.Kind != output.DiagnosticKindRetry || got.Attempt != 1 || got.MaxAttempts != 10 || got.Delay != "2s" {
+		t.Fatalf("retry diagnostic = %+v, want kind retry, attempt 1, max attempts 10, delay 2s", got)
+	}
+	if got, want := retries[0].Message, "claude CLI retrying API request after overloaded, attempt 1/10, next try in 2s"; got != want {
+		t.Fatalf("retry diagnostic message = %q, want %q", got, want)
+	}
+}
+
+// TestTryNonStreamFirstReportsOneAPIRetrySummary proves a non-streaming call
+// surfaces the CLI's own API retries as the single folded summary warning, not
+// as one warning per notice.
+func TestTryNonStreamFirstReportsOneAPIRetrySummary(t *testing.T) {
+	summary := "claude CLI retried the API request 3 time(s) (last: rate_limit, status 529)"
+	prov := &fakeProvider{responses: []provider.ChatResponse{{
+		Message:  provider.Message{Role: provider.MessageRoleAssistant, Content: "answer"},
+		Warnings: []string{summary},
+	}}}
+	var events []output.Event
+	sink := output.SinkFunc(func(event output.Event) { events = append(events, event) })
+	if _, done, err := tryNonStreamFirst(context.Background(), prov, 1, provider.ChatRequest{Model: "test-model"}, "request-1", sink, nil); err != nil || !done {
+		t.Fatalf("tryNonStreamFirst() = done %v, err %v, want the non-streaming answer", done, err)
+	}
+	var diagnostics []output.ProviderDiagnosticEvent
+	for _, event := range events {
+		if payload, ok := event.Payload.(output.ProviderDiagnosticEvent); ok {
+			diagnostics = append(diagnostics, payload)
+		}
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %+v, want exactly one summary warning", diagnostics)
+	}
+	if diagnostics[0].Severity != "warning" || diagnostics[0].Message != summary {
+		t.Errorf("diagnostic = %+v, want the summary warning", diagnostics[0])
+	}
+}

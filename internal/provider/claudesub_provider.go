@@ -42,7 +42,9 @@ func (p *ClaudeSubscriptionProvider) ChatCompletion(ctx context.Context, req Cha
 }
 
 // claudeSubFoldStream drains a provider stream and folds it. A cancelled
-// context owns the failure when the stream ended without a terminal chunk.
+// context owns the failure when the stream ended without a terminal chunk. A
+// failed call returns no response, so its warning never reaches this caller; the
+// provider keeps the replacement notice pending and the next request reports it.
 func claudeSubFoldStream(ctx context.Context, stream <-chan ChatChunk) (ChatResponse, error) {
 	var chunks []ChatChunk
 	for chunk := range stream {
@@ -69,6 +71,11 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 		response  ChatResponse
 		content   strings.Builder
 		reasoning strings.Builder
+		// retries counts the CLI's own API retries of this call, and lastRetry
+		// keeps the newest notice: a folded call has no activity row, so they
+		// become one summary warning instead of one warning per notice.
+		retries   int
+		lastRetry *claudeSubAPIRetry
 	)
 	terminal := false
 	for _, chunk := range chunks {
@@ -80,6 +87,16 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 		}
 		if chunk.Done {
 			terminal = true
+		}
+		if chunk.Diagnostic != "" {
+			if notice := chunk.cliRetry; notice != nil {
+				retries++
+				lastRetry = notice
+			} else {
+				// A folded call has no stream for the warning to travel on, so the
+				// response carries it for the caller to surface.
+				response.Warnings = append(response.Warnings, chunk.Diagnostic)
+			}
 		}
 		if chunk.Delta.Role == MessageRoleAssistant {
 			response.Message.Role = MessageRoleAssistant
@@ -113,6 +130,9 @@ func foldClaudeSubChunks(chunks []ChatChunk) (ChatResponse, error) {
 	}
 	if !terminal {
 		return ChatResponse{}, errors.New("claude_subscription stream closed without a terminal chunk")
+	}
+	if retries > 0 {
+		response.Warnings = append(response.Warnings, claudeSubAPIRetrySummary(retries, lastRetry))
 	}
 	response.Message.Content = content.String()
 	response.Message.ReasoningContent = reasoning.String()

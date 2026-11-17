@@ -80,6 +80,9 @@ const (
 	claudeSubDecodeMessage
 	// claudeSubDecodeResult is one CLI turn's terminal result envelope.
 	claudeSubDecodeResult
+	// claudeSubDecodeAPIRetry is one CLI `system/api_retry` notice: the CLI is
+	// retrying an API request itself, before it produced assistant output.
+	claudeSubDecodeAPIRetry
 )
 
 // claudeSubDecoded is one decoded stream-json event. Only the fields relevant
@@ -106,6 +109,8 @@ type claudeSubDecoded struct {
 	UUID string
 	// Result carries terminal turn metadata.
 	Result *claudeSubResult
+	// Retry carries the CLI's own API retry notice.
+	Retry *claudeSubAPIRetry
 }
 
 // claudeSubResult is the terminal metadata of one CLI turn's result envelope.
@@ -118,6 +123,10 @@ type claudeSubResult struct {
 	// Text is the result envelope's final assistant text. It is metadata only:
 	// the decoder never re-emits it as a text delta.
 	Text string
+	// TerminalReason is the CLI's own label for why the turn ended (for example
+	// "completed", "aborted_streaming" or "aborted_tools"). Older CLI versions
+	// omit it. An interrupted turn's drain accepts only an aborted label.
+	TerminalReason string
 	// NumTurns, StopReason and TotalCostUSD mirror the envelope fields.
 	NumTurns     int
 	StopReason   string
@@ -232,16 +241,19 @@ type claudeSubDecodePhase int
 
 const (
 	// claudeSubPhaseStreaming accepts streamed content, deltas and tool uses
-	// for the message the stream is currently delivering. It is the zero value
-	// so a decoder accepts the envelopes a caller forwards from mid-stream.
+	// for the message the stream is currently delivering, plus the CLI's own
+	// `system/api_retry` notices. It is the zero value so a decoder accepts the
+	// envelopes a caller forwards from mid-stream. A retry notice in any later
+	// phase is dropped.
 	claudeSubPhaseStreaming claudeSubDecodePhase = iota
 	// claudeSubPhaseStopped follows message_stop: the streamed message is
 	// closed and only the assistant echo may still add a fallback tool use
-	// before the terminal result. Every other known stream event is rejected.
+	// before the terminal result. Every other known stream event is rejected,
+	// and an api_retry notice is dropped.
 	claudeSubPhaseStopped
 	// claudeSubPhaseTerminal follows the terminal result: nothing may mutate
 	// state or invoke a hook after it, so every known stream event and every
-	// assistant echo is rejected.
+	// assistant echo is rejected, and an api_retry notice is dropped.
 	claudeSubPhaseTerminal
 )
 
@@ -280,6 +292,8 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 			return nil, fmt.Errorf("%w: duplicate terminal result", errClaudeSubResultEnvelope)
 		}
 		return d.decodeResult(ev.Raw)
+	case "system":
+		return d.decodeSystem(ev), nil
 	default:
 		// Unrelated top-level, control and system envelopes carry nothing the
 		// decoder needs and are ignored in every phase.

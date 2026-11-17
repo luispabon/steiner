@@ -82,6 +82,14 @@ type claudeSubSync struct {
 
 	// interrupted is set by markInterrupted and cleared by the next commitSent.
 	interrupted bool
+	// drained is set by markDrained and cleared by the next commitSent. While it
+	// is set, plan accepts one relaxed text-only assistant message at the suffix
+	// head: the partial the agent kept from a turn the drain recovered.
+	drained bool
+	// drainedBase is the record length the drained delivery started from. A
+	// stored checkpoint one stopped delivery behind must equal it, so the live
+	// record can be proven to be exactly that delivery ahead (see drainedMatches).
+	drainedBase int
 	// interruptible is the index of the assistant entry produced by the call
 	// that was just interrupted, or -1 when no such assistant exists. Only that
 	// one entry may be subset-matched or omitted. markInterrupted derives it
@@ -207,6 +215,11 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 
 	var delta claudeSubDelta
 	var recorded []claudeSubEntry
+	// drainedPartial is set when the suffix head was the kept partial of a
+	// drained turn. The request must go on with a user message, otherwise
+	// nothing would be sent and the kept text would never be answered.
+	drainedPartial := false
+	suffixUser := false
 	// A tool result whose call id already exists in the record must never be
 	// appended again. This closes the reorder hole left by omitting an
 	// interrupted assistant: dropping its recorded tool entries must not let a
@@ -234,6 +247,7 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			suffixToolIDs[m.ToolCallID] = struct{}{}
 			delta.ToolResults = append(delta.ToolResults, m)
 		case MessageRoleUser:
+			suffixUser = true
 			delta.User = append(delta.User, m)
 		case MessageRoleAssistant:
 			// D22: right after an interrupt, one text-only assistant message may
@@ -244,22 +258,59 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 				recorded = append(recorded, claudeSubEntryFromMessage(m))
 				continue
 			}
+			// A drained turn accepts the kept partial under the same rules, plus
+			// the turn number the agent stamps on the message it streamed.
+			if s.drained && si == 0 && claudeSubDrainedPartial(m) {
+				recorded = append(recorded, claudeSubEntryFromMessage(m))
+				drainedPartial = true
+				continue
+			}
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
 		default:
 			return claudeSubDelta{}, errClaudeSubHistoryChanged
 		}
+	}
+	if drainedPartial && !suffixUser {
+		return claudeSubDelta{}, errClaudeSubHistoryChanged
 	}
 	delta.keep = append(out, recorded...)
 	delta.keepInterruptible = keepInterruptible
 	return delta, nil
 }
 
+// claudeSubDeliveryTail reports whether entries[start:] are exactly the user and
+// tool entries one delivery writes itself, and whether start bounds the record.
+// A cancelled delivery may claim its process is clean only when nothing else
+// touched the record after it, because the record is what the next request is
+// matched against.
+//
+// An empty tail is safe. It is what a reseed delivery leaves (commitSent appends
+// nothing for a rendered transcript), and the freshly spawned process holds
+// exactly the history steiner just sent as that one message, so accepting one
+// relaxed assistant at the suffix head accepts only text the CLI itself streamed
+// after it. A delivery that would write nothing at all is refused before it
+// starts (claudeSubDeliver), so a delivery that reached the CLI always wrote at
+// least one entry and never leaves the record untouched behind a drain.
+func claudeSubDeliveryTail(entries []claudeSubEntry, start int) bool {
+	if start < 0 || start > len(entries) {
+		return false
+	}
+	for _, e := range entries[start:] {
+		if e.Role != MessageRoleUser && e.Role != MessageRoleTool {
+			return false
+		}
+	}
+	return true
+}
+
 // adopt replaces the record with the state plan computed for a normal-mode
 // request. Call it only after every check that can fail before delivery has
-// passed.
+// passed. It drops the drained state: a delivery that appends to the record
+// supersedes the one delivery that state describes.
 func (s *claudeSubSync) adopt(delta claudeSubDelta) {
 	s.entries = delta.keep
 	s.interruptible = delta.keepInterruptible
+	s.drained = false
 }
 
 // commitToolResult records one tool result as delivered to the CLI. It is
@@ -281,6 +332,7 @@ func (s *claudeSubSync) commitSent(delta claudeSubDelta) {
 	}
 	s.started = true
 	s.interrupted = false
+	s.drained = false
 	s.interruptible = -1
 }
 

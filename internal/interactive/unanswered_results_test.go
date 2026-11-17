@@ -57,6 +57,37 @@ func TestUnansweredResultEnvelopes(t *testing.T) {
 	}
 }
 
+// TestUnansweredBoundaryTreatsRestoredPartialAsInterrupted proves the shape a
+// provider round trip restores (raw text, no interruption note, nonzero turn,
+// Incomplete set) is not mistaken for an answer, exactly like a partial the run
+// committed itself.
+func TestUnansweredBoundaryTreatsRestoredPartialAsInterrupted(t *testing.T) {
+	t.Parallel()
+	committed := []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "hi"},
+		{Role: agent.MessageRoleAssistant, Content: "ok"},
+		{Role: agent.MessageRoleUser, Content: envelopeFor("a")},
+		{Role: agent.MessageRoleAssistant, Content: "I looked at", Incomplete: true},
+	}
+	restored := append([]agent.Message(nil), committed...)
+	restored[3].Turn = 2
+
+	want := unansweredBoundary(committed)
+	if got := unansweredBoundary(restored); got != want {
+		t.Fatalf("boundary of the restored partial = %d, want %d", got, want)
+	}
+	var ids []string
+	for _, e := range unansweredResultEnvelopes(restored) {
+		ids = append(ids, e.result.AgentID)
+	}
+	if !reflect.DeepEqual(ids, []string{"a"}) {
+		t.Errorf("unanswered ids = %v, want the envelope the partial did not answer", ids)
+	}
+	if got := unansweredResultsReason(restored, "run failed"); got != interruptedUnansweredReason {
+		t.Errorf("reason = %q, want %q", got, interruptedUnansweredReason)
+	}
+}
+
 func TestUnansweredResultsReason(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
