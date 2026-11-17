@@ -7,8 +7,8 @@
 // files are rewritten by rename, so the lock must live on a path whose inode
 // does not change.
 //
-// Only unix targets other than aix take a real lock. Elsewhere, and on
-// filesystems that report locking as unsupported, Acquire degrades to an
+// Unix targets other than aix use flock, and Windows uses LockFileEx. Elsewhere,
+// and on filesystems that report locking as unsupported, Acquire degrades to an
 // unlocked Lock instead of failing, and the caller inspects Lock.Unsupported to
 // decide whether continuing without cross-process exclusion is acceptable.
 //
@@ -38,6 +38,7 @@ import (
 // from the goroutine that acquired it, when the lock protects shared state.
 type Lock struct {
 	file        *os.File
+	unlock      func() error
 	unsupported bool
 	warning     string
 }
@@ -54,8 +55,8 @@ func (l *Lock) Unsupported() bool { return l.unsupported }
 // one. Callers that surface it own any deduplication.
 func (l *Lock) Warning() string { return l.warning }
 
-// Release drops the lock and closes its file descriptor. Closing the last
-// descriptor releases the kernel lock, so no explicit unlock call is needed.
+// Release unlocks when needed and closes its file descriptor. Closing the last
+// descriptor also releases the kernel lock.
 // Release is a no-op after the first call, and an unsupported Lock has nothing
 // to release. Concurrent Release calls are not supported.
 func (l *Lock) Release() error {
@@ -64,8 +65,16 @@ func (l *Lock) Release() error {
 	}
 	file := l.file
 	l.file = nil
+	var unlockErr error
+	if l.unlock != nil {
+		unlockErr = l.unlock()
+		l.unlock = nil
+	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close lock file: %w", err)
+	}
+	if unlockErr != nil {
+		return fmt.Errorf("unlock lock file: %w", unlockErr)
 	}
 	return nil
 }
