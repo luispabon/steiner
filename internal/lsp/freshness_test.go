@@ -57,6 +57,9 @@ func countMethod(fs *fakeServer, method string) int {
 // TestDefinitionsReachesServerAfterRelatedFileEdit checks that repeating a
 // query after an external edit to a related file reaches the language server
 // again instead of serving an answer derived from the pre-edit package state.
+// The fake server does not read files: the test changes fs.definitionResult to
+// stand in for a server that re-reads the edited related file and answers
+// differently for the unchanged queried file.
 func TestDefinitionsReachesServerAfterRelatedFileEdit(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
@@ -111,10 +114,57 @@ func TestDefinitionsReachesServerAfterRelatedFileEdit(t *testing.T) {
 	}
 }
 
-// TestDefinitionsEditDuringRequestReturnsFreshResult checks the request-time
+// TestReferencesRepeatedCallReachesServer checks that repeated references
+// queries reach the server for both includeDecl values, so a query whose only
+// difference from an earlier one is the includeDecl flag still gets a fresh
+// answer.
+func TestReferencesRepeatedCallReachesServer(t *testing.T) {
+	t.Parallel()
+	fs := newFakeServer()
+	fs.referencesResult = []protocol.Location{{
+		URI:   "file:///ref.go",
+		Range: protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 5}},
+	}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	sess, _, err := startFakeSession(ctx, t, fs, nil)
+	if err != nil {
+		t.Fatalf("startFakeSession: %v", err)
+	}
+
+	tmpdir := t.TempDir()
+	testFile := filepath.Join(tmpdir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main\n\nfunc Use() { target() }\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	m := symbolTestManager(t, sess, tmpdir, testFile)
+
+	wantCalls := 0
+	for _, includeDecl := range []bool{true, false} {
+		for call := 1; call <= 2; call++ {
+			res, err := m.References(ctx, testFile, 3, 15, includeDecl)
+			if err != nil {
+				t.Fatalf("References (includeDecl=%t, call %d): %v", includeDecl, call, err)
+			}
+			if len(res.Locations) != 1 || res.Locations[0].File != "/ref.go" {
+				t.Fatalf("References (includeDecl=%t, call %d): got %+v, want the server answer", includeDecl, call, res.Locations)
+			}
+			wantCalls++
+		}
+	}
+
+	if calls := countMethod(fs, "textDocument/references"); calls != wantCalls {
+		t.Errorf("textDocument/references called %d times, want %d (every query must reach the server)", calls, wantCalls)
+	}
+}
+
+// TestDefinitionsNextQueryAfterEditDuringRequestIsFresh checks the request-time
 // edit race: an edit made while a query is in flight must not leave an answer
 // behind that a later identical query would serve.
-func TestDefinitionsEditDuringRequestReturnsFreshResult(t *testing.T) {
+func TestDefinitionsNextQueryAfterEditDuringRequestIsFresh(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	fs.definitionResult = singleLocation("file:///before.go")
