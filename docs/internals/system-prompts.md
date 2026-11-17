@@ -172,7 +172,7 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 - Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
-- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, ask the user.
+- Do not guess silently. If ambiguity materially changes implementation, ask the user. Otherwise state the assumption and continue.
 - Push back on overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
 - The codebase root is the current folder.
 
@@ -436,10 +436,10 @@ The advisor has your full conversation context but cannot read files or call too
 #### Assembly
 
 - `identity` in `internal/prompt/system.go`.
-- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section, after output voice.
 - `internal/delegation/templates/explore.txt` as the system override, selected by `AgentSystemPrompt`.
 - `internal/prompt/templates/tool_batching.md.tmpl`.
 - `internal/prompt/templates/output_voice.md.tmpl`.
+- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section.
 - `childContextSkips` in `internal/delegation/bootstrap.go` skips project context, not `AGENTS.md`.
 - `assembleTaskContent` in `internal/delegation/structured_brief.go` renders the brief into the first user message, not the system prompt.
 
@@ -514,10 +514,10 @@ A language server is available to you. Prefer `lsp_references`/`lsp_implementati
 #### Assembly
 
 - `identity` in `internal/prompt/system.go`.
-- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section, after output voice.
 - `internal/delegation/templates/research.txt` as the system override, selected by `AgentSystemPrompt`.
 - `internal/prompt/templates/tool_batching.md.tmpl`.
 - `internal/prompt/templates/output_voice.md.tmpl`.
+- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section.
 - `childContextSkips` in `internal/delegation/bootstrap.go` skips project context, not `AGENTS.md`.
 - `assembleTaskContent` in `internal/delegation/structured_brief.go` renders the brief into the first user message, not the system prompt.
 
@@ -575,10 +575,10 @@ This delegated brief authorizes the work. Do not ask the user for approval, conf
 #### Assembly
 
 - `identity` in `internal/prompt/system.go`.
-- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section, after output voice.
 - `internal/delegation/templates/evaluate.txt` as the system override, selected by `AgentSystemPrompt`.
 - `internal/prompt/templates/tool_batching.md.tmpl`.
 - `internal/prompt/templates/output_voice.md.tmpl`.
+- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section.
 - `childContextSkips` in `internal/delegation/bootstrap.go` retains project context and `AGENTS.md`.
 - `assembleTaskContent` in `internal/delegation/structured_brief.go` renders the brief into the first user message, not the system prompt.
 
@@ -661,10 +661,10 @@ A language server is available to you. Prefer `lsp_references`/`lsp_implementati
 #### Assembly
 
 - `identity` in `internal/prompt/system.go`.
-- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section, after output voice.
 - `internal/delegation/templates/sanity_check.txt` as the system override, selected by `AgentSystemPrompt`.
 - `internal/prompt/templates/tool_batching.md.tmpl`.
 - `internal/prompt/templates/output_voice.md.tmpl`.
+- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section.
 - `childContextSkips` in `internal/delegation/bootstrap.go` skips project context, not `AGENTS.md`.
 - `assembleTaskContent` in `internal/delegation/structured_brief.go` renders the brief into the first user message, not the system prompt.
 
@@ -721,10 +721,10 @@ This delegated brief authorizes the work. Do not ask the user for approval, conf
 #### Assembly
 
 - `identity` in `internal/prompt/system.go`.
-- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section, after output voice.
 - `internal/delegation/templates/review.txt` as the system override, selected by `AgentSystemPrompt`.
 - `internal/prompt/templates/tool_batching.md.tmpl`.
 - `internal/prompt/templates/output_voice.md.tmpl`.
+- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section.
 - `childContextSkips` in `internal/delegation/bootstrap.go` retains project context and `AGENTS.md`.
 - `assembleTaskContent` in `internal/delegation/structured_brief.go` renders the brief into the first user message, not the system prompt.
 
@@ -806,10 +806,10 @@ A language server is available to you. Prefer `lsp_references`/`lsp_implementati
 #### Assembly
 
 - `identity` in `internal/prompt/system.go`.
-- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section, after output voice.
 - `internal/delegation/templates/vision.txt` as the system override, selected by `AgentSystemPrompt`.
 - `internal/prompt/templates/tool_batching.md.tmpl`.
 - `internal/prompt/templates/output_voice.md.tmpl`.
+- `internal/prompt/templates/delegated_task.md.tmpl`, rendered last by the `delegated_task` section.
 - `childContextSkips` in `internal/delegation/bootstrap.go` skips project context and `AGENTS.md`.
 - `assembleTaskContent` in `internal/delegation/structured_brief.go` renders the brief into the first user message, not the system prompt.
 
@@ -914,7 +914,7 @@ Do not:
 - Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
-- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, stop and report the blocker.
+- Do not guess silently. If ambiguity materially changes implementation, stop and report the blocker. Otherwise state the assumption and continue.
 - Report overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
 - The codebase root is the current folder. Work in the assigned worktree.
 
@@ -1072,7 +1072,7 @@ Do not:
 - Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
-- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, stop and report the blocker.
+- Do not guess silently. If ambiguity materially changes implementation, stop and report the blocker. Otherwise state the assumption and continue.
 - Report overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
 - The codebase root is the current folder. Work in the assigned worktree.
 

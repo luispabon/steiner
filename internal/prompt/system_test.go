@@ -1058,6 +1058,9 @@ func TestWorkflowGeneralRulesAndAmbiguityByMode(t *testing.T) {
 			if got := strings.Count(content, wantLine); got != 1 {
 				t.Fatalf("ambiguity instruction %q count = %d, want 1 in %q", wantLine, got, content)
 			}
+			if got := strings.Count(content, wantLine+" Otherwise state the assumption and continue."); got != 1 {
+				t.Fatalf("ambiguity fallback count = %d, want 1 in %q", got, content)
+			}
 			other := "stop and report the blocker"
 			if tc.wantAmbiguity == other {
 				other = "ask the user"
