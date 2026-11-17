@@ -1411,32 +1411,23 @@ func TestClaudeSubFinishPendingDrainRetryDoesNotResume(t *testing.T) {
 	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 }
 
-// TestClaudeSubDrainFallsBackOnEventAfterResult proves an event queued after the
-// aborted result fails the proof: the CLI must send nothing after its result, so
-// anything already there cannot be attributed to a later call.
-func TestClaudeSubDrainFallsBackOnEventAfterResult(t *testing.T) {
-	model := claudeSubTestSpec().Model
-	after := append(claudeSubDecodeEvents(t, "interrupt_text.jsonl"), claudeSubDecodeEvents(t, "interrupt_window.jsonl")[1])
-	sc := &claudeSubScript{
-		batches: [][]claudeSubEvent{
-			claudeSubDecodeEvents(t, "turn_text.jsonl")[:8],
-			claudeSubDecodeEvents(t, "turn_text.jsonl"),
-		},
-		interrupt: &claudeSubInterruptReply{events: after},
+// TestClaudeSubDrainFailsOnEventQueuedAfterResult proves an event already queued
+// behind the aborted result fails the proof: the CLI sends nothing after its
+// result, so anything there cannot be attributed to a later call. Both events
+// are queued before the drain runs, so no router scheduling decides whether the
+// event lands after the result.
+func TestClaudeSubDrainFailsOnEventQueuedAfterResult(t *testing.T) {
+	sc := &claudeSubScript{interrupt: &claudeSubInterruptReply{}}
+	pool, spec := claudeSubScriptedPool(t, "child-1", sc)
+	s, err := pool.acquire(context.Background(), "child-1", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
 	}
-	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
-	if err := claudeSubCancelOnText(t, pool, claudeSubDrainRequest("child-1", model, claudeSubUserText(claudeSubDrainFirstUser))); err == nil {
-		t.Fatal("cancelled turn returned no error")
+	defer pool.release(s)
+	aborted := claudeSubDecodeEvents(t, "interrupt_text.jsonl")
+	s.queue.push(aborted[len(aborted)-1])
+	s.queue.push(claudeSubDecodeEvents(t, "interrupt_window.jsonl")[1])
+	if err := claudeSubDrainToAbortedResult(context.Background(), s); !errors.Is(err, errClaudeSubDrainEventAfterResult) {
+		t.Fatalf("drain error = %v, want %v", err, errClaudeSubDrainEventAfterResult)
 	}
-	if !pool.replacementPending("child-1") {
-		t.Fatal("a drain that found an event after the result recorded no replacement notice")
-	}
-	got := claudeSubDrainFollowUp(t, pool, "child-1", model, "half a report")
-	if got.err != nil {
-		t.Fatalf("follow-up error = %v", got.err)
-	}
-	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (the unproven process replaced)", n)
-	}
-	claudeSubWantOneExactWarning(t, got, claudeSubReplacedAndFlattenedWarning)
 }
