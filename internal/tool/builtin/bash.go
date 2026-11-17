@@ -62,10 +62,12 @@ func NewBashTool(env Env) tool.ToolDef {
 				}
 			}
 
-			// Build the command string, optionally prefixed with a cd.
+			// Build the command string, optionally prefixed with a cd. The cwd is
+			// single-quoted so bash treats it as one literal word; %q would emit
+			// double quotes, letting $VAR, $(...) and backticks run.
 			command := in.Command
 			if cwd != "" {
-				command = fmt.Sprintf("cd %q && %s", cwd, in.Command)
+				command = "cd -- " + shellQuote(cwd) + " && " + in.Command
 			}
 
 			// Apply timeout via context.
@@ -142,6 +144,14 @@ func NewBashTool(env Env) tool.ToolDef {
 			return res, nil
 		},
 	}
+}
+
+// shellQuote returns s as a single POSIX shell word. Wrapping s in single
+// quotes stops every expansion ($VAR, $(...), backticks) and word splitting; an
+// embedded single quote closes the quoting, contributes an escaped quote, and
+// reopens it.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // bashResultTruncated reports whether a bash result is incomplete: the preview
