@@ -1,0 +1,69 @@
+steps:
+  - id: step-1
+    title: Persist interactive oneshot tasks in history
+    scope: Fix issue 1054 for new interactive oneshot launches and prove resume does not record an ID as a prompt.
+    decisions: [D1, D5]
+    delegate_profile: code
+    approach: >-
+      In Model.executeLaunchOneshotAction in internal/tui/model_input_oneshot.go, after successful preparation and run identity creation, dispatch interactive.RecordPromptHistory with "/oneshot " plus strings.TrimSpace(task) through the existing session controller. Follow existing dispatch error handling and leave executeResumeOneshotAction and the headless command unchanged. Add TUI tests that observe exactly one action for launch, none for resume or failed preparation, and verify history recall restores the relaunchable slash command; preserve existing interactive history persistence tests.
+    files: [internal/tui/model_input_oneshot.go, internal/tui/model_input_oneshot_test.go]
+    constraints: [Reuse existing history action and warning behavior, Do not record the resume ID]
+    acceptance: [A new interactive task is recallable through the existing history path, Resume and rejected launches add no history entry]
+    verification: [go test ./internal/tui, go test ./internal/interactive]
+  - id: step-2
+    title: Add Windows cross-process file locking
+    scope: Give the existing stable-sibling filelock abstraction real process exclusion on Windows for diagnostics and its other consumers.
+    decisions: [D2, D5]
+    delegate_profile: code
+    approach: >-
+      Implement internal/filelock/filelock_windows.go using LockFileEx on a fixed byte of the persistent 0600 sibling file and UnlockFileEx on release, matching the existing Acquire, Unsupported and Close contract. Implement context-aware contention retry and ensure handles close on every error; update filelock_other.go build tags and filelock.go platform documentation. Add Windows subprocess tests for exclusion, cancellation, process termination release and a persistent lock path, and retain existing Unix behavior and unsupported filesystem semantics.
+    files: [internal/filelock/filelock.go, internal/filelock/filelock_other.go, internal/filelock/filelock_windows.go, internal/filelock/filelock_windows_test.go]
+    constraints: [Do not delete or replace the lock file, Preserve existing public API and other consumer behavior, Do not add unrelated configuration]
+    acceptance: [Windows processes exclude each other and can acquire after holder exit, Cancellation and failure close handles, Other platform implementations remain unchanged]
+    verification: [go test ./internal/filelock, GOOS=windows GOARCH=amd64 go build ./..., Run Windows filelock subprocess tests on a Windows runner if available]
+  - id: step-3
+    title: Coordinate and recover diagnostics mutations
+    scope: Fix issue 1051 across cooperating diagnostics processes including interruption during rotation and retention.
+    decisions: [D2, D5]
+    depends_on: [step-2]
+    delegate_profile: code
+    approach: >-
+      In internal/diagnostics/writer.go acquire a stable per-stream sibling filelock around startup recovery and retention and around the entire refresh, rotation decision, rotation and record append; retain the local mutex and release locks on all paths. Use a 100ms context deadline for each acquisition; on timeout, unsupported or failed locking warn through the existing bounded warning path and skip the protected operation, never write unlocked. Refresh active size and age from disk under the lock even when file identity matches. Close data handles before Windows renames and reopen under the lock so handle sharing permits rotation. Make rotation restartable under the lock using a persistent transaction marker and distinct staged generation paths: write the marker before moving any source to its stage, stage each extant active and numbered generation without overwriting another, persist a phase marker only after staging completes, then move staged generations to their shifted destinations and create the active file; recovery repeats the appropriate stage or installation operations idempotently, recognizes already moved files, and removes marker only when complete. The marker records the original generation set and the phase before each sequence: during staging, a missing source with its stage present is complete, while both present or both missing is an error; after the staging-complete marker, stage present and destination absent means install, while stage absent and destination present means already installed. Treat all other combinations as errors and leave the transaction for the next attempt. Discard only the staged oldest generation after all other installations complete. If a process dies mid-append, truncate the incomplete trailing JSONL fragment under the lock before the next append, without removing complete lines. Serialize retention for all generations with this protocol and clean up only transaction artifacts created by this implementation. Add subprocess contention, failure-injection and process-kill tests covering each rename boundary, restart, retention versus append and rotation versus append, exact-once preservation of non-expired records within configured retention limits, unsupported locks and warnings. Update diagnostics docs to state lock scopes, failure behavior, restart guarantees and filesystem limits.
+    files: [internal/diagnostics/writer.go, internal/diagnostics/retention.go, internal/diagnostics/recovery_test.go, internal/diagnostics/writer_test.go, internal/diagnostics/retention_test.go, docs/internals/diagnostics.md, docs/user/configuration.md]
+    constraints: [Keep streams independent, Do not silently discard a generation except under existing configured rotation retention policy, No power-loss guarantee, Do not delete stable lock files, Avoid unbounded lock waits in normal execution]
+    acceptance: [No cooperating process appends to a replaced generation, Restart completes each interrupted rotation without losing surviving generations, Lock failures never trigger unlocked mutations and are warned, Runtime behavior is tested on release platforms where available]
+    verification: [go test ./internal/diagnostics, go test -race ./internal/diagnostics, Run subprocess tests on Linux macOS and Windows where available]
+  - id: step-4
+    title: Recover finalization without duplicate closeout
+    scope: Fix issue 1023 for report errors, manifest failures, interruptions and ambiguous external outcomes while preserving existing manifest decoding.
+    decisions: [D3, D5]
+    delegate_profile: code
+    approach: >-
+      Add optional versioned finalization progress fields in internal/oneshot/manifest.go, persist report_pending at new run creation before any phases, and update finalizeRun in orchestrator.go to return errors: persist the generated report path before any closeout, persist an outcome-unknown intent before calling Closeout, and persist the result only after it returns. If report generation or its manifest write fails, return the error and leave finalization safely resumable; if intent persistence fails do not call Closeout. Treat every closeout error and any persisted intent without a result as ambiguous, not automatically retryable; legacy failed and completed-phase manifests with missing markers are likewise ambiguous. Update resume.go and list.go to expose report-pending runs for safe finalization and ambiguous runs for manual resolution, without rerunning completed phases. Add `steiner oneshot resolve <run-id> --url <url>` and `steiner oneshot resolve <run-id> --retry` as mutually exclusive explicit resolutions, wired through cmd/steiner to internal/oneshot. Under the same exclusive run lock as resume, accept only ambiguous outcomes: URL marks the outcome created and records it, while retry transitions to a safe closeout-pending state only after the operator verifies no external request exists; the next resume may invoke closeout. Reject other states, invalid URLs, missing flags and concurrent lock acquisition; never infer nonexistence or retry automatically. Preserve successful old manifests as complete, JSON compatibility and existing phase status meanings. Extend recovery, manifest, resume and list tests with report and persistence failures, interruption before and after side effects, persisted intent after success with result-write failure, legacy manifests, concurrent resolution versus resume, manual resolution and zero additional create calls across repeated resumes after provider success and result-write failure; update both oneshot docs.
+    files: [internal/oneshot/manifest.go, internal/oneshot/orchestrator.go, internal/oneshot/resume.go, internal/oneshot/list.go, internal/oneshot/recovery_test.go, internal/oneshot/finalize_closeout_test.go, internal/oneshot/manifest_test.go, internal/oneshot/list_test.go, cmd/steiner, docs/user/oneshot.md, docs/internals/oneshot.md]
+    constraints: [Do not automatically retry ambiguous outcomes, Preserve phase statuses and old manifest decoding, Never call external closeout before intent is persisted, Use existing run lock for manual resolution]
+    acceptance: [Failed reports remain discoverable and resumable without rerunning phases, Unknown or legacy failed closeout cannot duplicate external creation, Explicit manual resolution can record an existing outcome or authorize a retry, All persistence failures surface as errors]
+    verification: [go test ./internal/oneshot, go test -race ./internal/oneshot]
+  - id: step-5
+    title: Forecast usage from the elapsed window
+    scope: Fix issue 1046 by making timed-window trend reflect usage accumulated in the current window.
+    decisions: [D4, D5]
+    delegate_profile: code
+    approach: >-
+      In internal/quota/projection.go ProjectWindow, for ProviderType claude_subscription and the five-hour window only, when Duration is five hours and FetchedAt is strictly after ResetsAt minus Duration and strictly before ResetsAt, estimate linearly from an inferred zero at that start to the current UsedPercent, applying existing minimum span and rise thresholds and existing BeforeReset comparison. At or after reset return no forecast. For missing or invalid timing and all other providers or windows fall back to the existing same-account, same-label and same-reset history projection; leave budget projections unchanged. Add table-driven projection tests for 27 percent in 40 minutes of a five-hour window (about 108 minutes remaining), no history, nonzero first sample, thresholds, invalid duration, reset boundaries and fallback, plus a service or renderer regression where appropriate. Update docs/user/usage.md and docs/internals/usage-dashboard.md to explain the average-window estimate, fallback and uncertainty rather than implying it predicts future behavior.
+    files: [internal/quota/projection.go, internal/quota/projection_test.go, internal/quota/service_views_test.go, internal/tui/usage_overlay_render_test.go, docs/user/usage.md, docs/internals/usage-dashboard.md]
+    constraints: [Do not change budget projection, Do not assume observed usage history confirms the issue cause, Preserve existing display contract]
+    acceptance: [The stated five-hour example forecasts exhaustion in about 108 minutes and before reset, Invalid timing retains history fallback except expired windows which have no forecast, Other providers and threshold and reset boundaries are tested]
+    verification: [go test ./internal/quota, go test ./internal/tui]
+  - id: step-6
+    title: Review and verify the integrated changes
+    scope: Check the combined changes against the four issues and repository invariants, fix task-related findings, and run the required verification suite.
+    decisions: [D5]
+    depends_on: [step-1, step-3, step-4, step-5]
+    delegate_profile: review
+    approach: >-
+      Review the changed paths for race and crash safety, irreversible external side effects, compatibility, missing tests and documentation accuracy, with particular attention to rotation recovery and manual closeout resolution. Return actionable findings to the responsible implementation worker for correction, then run the affected package tests and mandatory make check. Cross-build release targets and run platform subprocess tests where actual runners exist; record exact failures and unavailable runtime platforms without claiming cross-compilation proves runtime behavior.
+    files: [internal/filelock, internal/diagnostics, internal/oneshot, internal/quota, internal/tui, docs/user, docs/internals]
+    constraints: [Fix only task-related findings, Do not hide failed checks, Do not alter unrelated changes]
+    acceptance: [All material review findings are fixed or explicitly reported, Required checks pass or exact blockers are reported, Platform coverage limits are explicit]
+    verification: [make check, GOOS=darwin GOARCH=amd64 go build ./..., GOOS=windows GOARCH=amd64 go build ./...]
