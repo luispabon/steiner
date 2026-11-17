@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,6 +21,15 @@ const maxStreamBytes = 20 * 1024 * 1024 // 20MB
 // maxStreamGenerations bounds how many rotated generations
 // (<file>.1 .. <file>.N) are kept alongside the active file.
 const maxStreamGenerations = 3
+
+// stallRetryInterval bounds how long a stalled stream waits before retrying a
+// failed rotation, so recovery does not depend on how many records were dropped
+// while the obstruction lasted.
+const stallRetryInterval = 5 * time.Second
+
+// timeNow is time.Now, replaced in tests so the stall retry interval is
+// exercised without waiting.
+var timeNow = time.Now
 
 // seq is the process-wide record counter. It is global rather than per-stream
 // so records from different files can be ordered against each other.
@@ -40,9 +50,9 @@ type stream struct {
 	// rotateStalled reports that the deferred retry failed as well. Records are
 	// then dropped, which keeps the file within one cap of the cap.
 	rotateStalled bool
-	// dropped counts the bytes dropped since the last rotation attempt, so a
-	// stalled stream retries once per cap worth of records, not once per record.
-	dropped int64
+	// retryAt is the earliest time a stalled stream attempts another rotation,
+	// so neither retries happen once per record nor wait for dropped volume.
+	retryAt time.Time
 }
 
 // Writer appends diagnostics records to one JSONL file per enabled stream.
@@ -219,10 +229,10 @@ func (w *Writer) append(kind Kind, data []byte) {
 		return
 	}
 	if err := s.reopenIfNeeded(); err != nil {
-		w.warn("reopen diagnostics stream", err)
+		w.warn("refresh diagnostics stream", err)
 		return
 	}
-	if s.written+int64(len(data)) > maxStreamBytes && s.rotationDue() {
+	if next := int64(len(data)); s.rotationDue(timeNow(), next) {
 		if err := rotate(s); err != nil {
 			w.warn("rotate diagnostics stream", err)
 		}
@@ -231,7 +241,6 @@ func (w *Writer) append(kind Kind, data []byte) {
 		return
 	}
 	if s.rotateStalled {
-		s.dropped += int64(len(data))
 		return
 	}
 	n, err := s.file.Write(data)
@@ -257,7 +266,9 @@ func (w *Writer) warn(action string, err error) {
 // descriptor on a file no reader will find, so the path and the open file are
 // compared with os.SameFile and the stream reopened when they differ. The
 // tracked size is refreshed from the active file so rotation counts records
-// other writers appended. Caller must hold the writer's mutex.
+// other writers appended. A stat error that is neither a replacement nor a
+// missing file is returned unchanged, because it says nothing about the stream.
+// Caller must hold the writer's mutex.
 func (s *stream) reopenIfNeeded() error {
 	if s.file == nil {
 		return s.reopen()
@@ -267,7 +278,14 @@ func (s *stream) reopenIfNeeded() error {
 		return s.reopen()
 	}
 	active, err := os.Stat(s.path)
-	if err != nil || !os.SameFile(open, active) {
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat diagnostics stream: %w", err)
+		}
+		s.resetRotation()
+		return s.reopen()
+	}
+	if !os.SameFile(open, active) {
 		// Another process replaced the active file, so a deferral or stall
 		// recorded against the old one says nothing about this file.
 		s.resetRotation()
@@ -277,24 +295,25 @@ func (s *stream) reopenIfNeeded() error {
 	return nil
 }
 
-// rotationDue reports whether the next record should attempt a rotation. After
-// a failed rotation the attempt waits for one cap worth of appended records; a
-// stalled stream waits for one cap worth of dropped records, so neither retries
-// once per record. Caller must hold the writer's mutex.
-func (s *stream) rotationDue() bool {
+// rotationDue reports whether the next record of size next should attempt a
+// rotation. After a failed rotation the attempt waits for one cap worth of
+// appended records; a stalled stream retries every stallRetryInterval whatever
+// its size, so neither retries once per record and recovery does not depend on
+// dropped volume. Caller must hold the writer's mutex.
+func (s *stream) rotationDue(now time.Time, next int64) bool {
 	if s.rotateStalled {
-		return s.dropped >= maxStreamBytes
+		return !now.Before(s.retryAt)
 	}
-	return s.written >= s.rotateAfter
+	return s.written+next > maxStreamBytes && s.written >= s.rotateAfter
 }
 
 // resetRotation clears the deferred rotation state. It runs after a successful
-// rotation and when another process replaces the active file. Caller must hold
-// the writer's mutex.
+// rotation and when another process replaces or removes the active file. Caller
+// must hold the writer's mutex.
 func (s *stream) resetRotation() {
 	s.rotateAfter = 0
 	s.rotateStalled = false
-	s.dropped = 0
+	s.retryAt = time.Time{}
 }
 
 // reopen closes the current descriptor and opens the active path, taking the
@@ -350,15 +369,15 @@ func rotate(s *stream) error {
 // deferRotation keeps a failed rotation from disabling the stream or growing the
 // file without bound. The first failure allows appends past the cap for one more
 // cap worth of records; when the deferred retry fails too, the stream stalls and
-// drops records, retrying once per cap worth of drops until a rotation succeeds.
+// drops records, retrying every stallRetryInterval until a rotation succeeds.
 // Caller must hold the writer's mutex.
 func (s *stream) deferRotation(err error) error {
 	if s.rotateAfter == 0 {
 		s.rotateAfter = s.written + maxStreamBytes
 	} else {
 		s.rotateStalled = true
+		s.retryAt = timeNow().Add(stallRetryInterval)
 	}
-	s.dropped = 0
 	if reopenErr := s.reopen(); reopenErr != nil {
 		return fmt.Errorf("%w; reopen diagnostics stream: %w", err, reopenErr)
 	}

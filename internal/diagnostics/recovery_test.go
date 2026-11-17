@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,6 +80,21 @@ func padToCap(t *testing.T, path string) {
 	if err := os.WriteFile(path, []byte(strings.Repeat("\n", maxStreamBytes)), 0o600); err != nil {
 		t.Fatalf("pad %s: %v", path, err)
 	}
+}
+
+// fakeClock is a fixed clock the stall retry tests advance by hand.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.t }
+
+func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+// useClock drives the rotation retry interval from c for the rest of the test.
+func useClock(t *testing.T, c *fakeClock) {
+	t.Helper()
+	restore := timeNow
+	timeNow = c.Now
+	t.Cleanup(func() { timeNow = restore })
 }
 
 // blockRotation makes every generation name a non-empty directory, so a
@@ -251,9 +267,12 @@ func TestWriterRecoversFromFailedRotation(t *testing.T) {
 	}
 }
 
-func TestPersistentRotationFailureCapsGrowth(t *testing.T) {
+func TestStalledRotationRetriesAfterInterval(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tool.jsonl")
+	clock := &fakeClock{t: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)}
+	useClock(t, clock)
+
 	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -292,21 +311,24 @@ func TestPersistentRotationFailureCapsGrowth(t *testing.T) {
 		t.Errorf("size = %d after dropped records, want it unchanged at %d", got, size)
 	}
 
-	// Recovery still happens once the obstruction clears.
+	// Recovery waits for the retry interval, not for dropped volume.
 	unblockRotation(t, path)
-	for i := 0; i < maxStreamBytes/len(payload)+40; i++ {
-		w.Write(Record{Kind: KindTool, Payload: payload})
+	w.Write(Record{Kind: KindTool, AgentID: "before-interval"})
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Fatalf("generation 1 stat error = %v, want no rotation before the retry interval", err)
 	}
+	clock.advance(stallRetryInterval)
+	w.Write(Record{Kind: KindTool, AgentID: "after-interval"})
+
 	if _, err := os.Stat(path + ".1"); err != nil {
-		t.Fatalf("stat generation 1: %v, want a rotation once the obstruction cleared", err)
+		t.Fatalf("stat generation 1: %v, want a rotation once the retry interval elapsed", err)
 	}
 	if s := w.files[KindTool]; s.rotateStalled {
 		t.Error("stream still stalled after a successful rotation")
 	}
-	w.Write(Record{Kind: KindTool, AgentID: "recovered"})
 	records := readTailRecords(t, path)
-	if len(records) == 0 || records[len(records)-1].AgentID != "recovered" {
-		t.Fatalf("last record = %+v, want the record written after recovery", records)
+	if len(records) != 1 || records[0].AgentID != "after-interval" {
+		t.Fatalf("records = %+v, want only the record written after the retry", records)
 	}
 }
 
@@ -340,12 +362,51 @@ func TestReplacementClearsRotationDeferral(t *testing.T) {
 
 	w.Write(Record{Kind: KindTool, AgentID: "after-replacement"})
 
-	if s := w.files[KindTool]; s.rotateStalled || s.rotateAfter != 0 || s.dropped != 0 {
-		t.Errorf("deferral = %d/%v/%d after replacement, want it cleared", s.rotateAfter, s.rotateStalled, s.dropped)
+	if s := w.files[KindTool]; s.rotateStalled || s.rotateAfter != 0 || !s.retryAt.IsZero() {
+		t.Errorf("deferral = %d/%v/%v after replacement, want it cleared", s.rotateAfter, s.rotateStalled, s.retryAt)
 	}
 	records := readRecords(t, path)
 	if len(records) != 1 || records[0].AgentID != "after-replacement" {
 		t.Fatalf("records = %+v, want the record written after the replacement", records)
+	}
+}
+
+func TestStatErrorKeepsRotationState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	clock := &fakeClock{t: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)}
+	useClock(t, clock)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	s := w.files[KindTool]
+	s.rotateAfter = maxStreamBytes
+	s.rotateStalled = true
+	s.retryAt = clock.Now().Add(stallRetryInterval)
+
+	// A self-referential symlink makes the path stat fail with an error that is
+	// neither a replacement nor a missing file.
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove active stream: %v", err)
+	}
+	if err := os.Symlink(filepath.Base(path), path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stat %s = %v, want a stat error that is not a missing file", path, err)
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "stat-error"})
+
+	if !w.warned {
+		t.Error("warned = false, want the stat error reported")
+	}
+	if !s.rotateStalled || s.rotateAfter != maxStreamBytes || !s.retryAt.Equal(clock.Now().Add(stallRetryInterval)) {
+		t.Errorf("state = %d/%v/%v after a stat error, want the stall preserved", s.rotateAfter, s.rotateStalled, s.retryAt)
 	}
 }
 
