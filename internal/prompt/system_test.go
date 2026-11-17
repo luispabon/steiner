@@ -1079,15 +1079,9 @@ func TestWorkflowRulesAllowBoundedMoveAndCopy(t *testing.T) {
 
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content
 
-	for _, want := range []string{
-		"its `move` op handles single-file moves",
-		"bash `cp` or `mv` may be used",
-		"cannot be expressed by `mutate`",
-		"for example a directory tree",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("workflow editing rules missing %q in %q", want, content)
-		}
+	want := "- Use the `mutate` tool for content edits; its `move` op handles single-file moves. Where a copy or move cannot be expressed by `mutate` (for example a directory tree), bash `cp` or `mv` may be used only where your role, mode, and sandbox allow bash writes, both paths are inside your assigned write scope, and the destination does not exist. Do not use bash, sed, cat, or shell redirection for content edits."
+	if !strings.Contains(content, want) {
+		t.Fatalf("workflow editing rules missing %q in %q", want, content)
 	}
 
 	if old := "do not use bash, sed, cat, or shell redirection for edits."; strings.Contains(content, old) {

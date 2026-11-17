@@ -692,8 +692,11 @@ func TestMutateGolden_ModelFacingUnchanged(t *testing.T) {
 	}
 }
 
-// mutateGoldenDescription is the model-facing mutate description copied from
-// main before the instrumentation landed. One deliberate change: "read/grep" wording corrected to "read" because grep returns no file_hash. Any other edit fails this test.
+// mutateGoldenDescription pins the current model-facing mutate description
+// returned by NewMutateTool, including the bounded move and copy guidance. It is
+// not a frozen copy: update this constant in the same change that rewords the
+// tool description. The "read" wording is deliberate, because grep returns no
+// file_hash.
 const mutateGoldenDescription = "Apply structured file edits via op types: create, write (create or overwrite), replace, delete_file, move. Supports file_hash for staleness detection on existing targets — pass the hash from read to fail fast if the file changed. replace against an existing file is rejected unless you read it earlier this session or pass file_hash — read the file first, or supply the hash from a read result. move rejects destination collisions instead of overwriting. For create, write, and move: parent directories must exist for workspace paths (steiner auto-creates only within its own sandbox tmpdir); create it first (e.g. with bash mkdir -p), then retry. Use assert_present/assert_absent on any operation whose effect cannot otherwise be verified — assertions abort the full batch if they fail, confirming the edit landed where intended. If a batch has multiple failing operations, every failure is reported together in one result and nothing is applied — fix all of them before resending. Use mutate for content edits; its move op handles single-file moves. Where a copy or move cannot be expressed by mutate (for example a directory tree), bash cp or mv may be used only where your role, mode, sandbox, and assigned write scope already allow bash writes, both paths are inside that scope, and the destination does not exist; never use bash for content edits."
 
 // mutateGoldenSchemaJSON is the model-facing mutate schema copied from main
