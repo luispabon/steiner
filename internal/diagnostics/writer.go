@@ -51,7 +51,8 @@ type stream struct {
 	// then dropped, which keeps the file within one cap of the cap.
 	rotateStalled bool
 	// retryAt is the earliest time a stalled stream attempts another rotation,
-	// so neither retries happen once per record nor wait for dropped volume.
+	// so attempts happen at most once per stallRetryInterval rather than per
+	// record, and recovery does not wait for dropped volume.
 	retryAt time.Time
 }
 
@@ -297,9 +298,9 @@ func (s *stream) reopenIfNeeded() error {
 
 // rotationDue reports whether the next record of size next should attempt a
 // rotation. After a failed rotation the attempt waits for one cap worth of
-// appended records; a stalled stream retries every stallRetryInterval whatever
-// its size, so neither retries once per record and recovery does not depend on
-// dropped volume. Caller must hold the writer's mutex.
+// appended records; a stalled stream attempts at most one rotation per
+// stallRetryInterval whatever its size, and recovery does not depend on dropped
+// volume. Caller must hold the writer's mutex.
 func (s *stream) rotationDue(now time.Time, next int64) bool {
 	if s.rotateStalled {
 		return !now.Before(s.retryAt)
