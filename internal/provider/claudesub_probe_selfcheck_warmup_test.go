@@ -174,8 +174,8 @@ func TestClaudeSubProbeInitWarmup(t *testing.T) {
 		if process.rep.InitPath != claudeSubProbeInitPathWarmup {
 			t.Fatalf("init path = %q, want %q", process.rep.InitPath, claudeSubProbeInitPathWarmup)
 		}
-		sent := claudeSubProbeSentLines(conn)
-		if len(sent) != 1 || !strings.Contains(string(sent[0]), "PROBE-WARMUP") {
+		sent := conn.sentLines()
+		if len(sent) != 1 || !strings.Contains(sent[0], "PROBE-WARMUP") {
 			t.Fatalf("sent lines = %q, want exactly the warmup prompt", sent)
 		}
 		if err := process.sendPrompt("PROBE-T2 after a failed warmup"); err == nil {
@@ -230,11 +230,11 @@ func TestClaudeSubProbePersistedGateUsesFirstPrompt(t *testing.T) {
 	if !process.gateConsumed {
 		t.Fatal("the gate did not record that it consumed the experiment's first prompt")
 	}
-	sent := claudeSubProbeSentLines(conn)
-	if len(sent) != 1 || !strings.Contains(string(sent[0]), "PROBE-T1E5") {
+	sent := conn.sentLines()
+	if len(sent) != 1 || !strings.Contains(sent[0], "PROBE-T1E5") {
 		t.Fatalf("sent lines = %q, want exactly the experiment's first prompt", sent)
 	}
-	if strings.Contains(string(sent[0]), "PROBE-WARMUP") {
+	if strings.Contains(sent[0], "PROBE-WARMUP") {
 		t.Fatal("a persisted process was sent the separate warmup prompt")
 	}
 	if err := process.sendPrompt("PROBE-T2 after the gate"); err != nil {
@@ -422,8 +422,8 @@ func claudeSubProbeWaitForSentLine(t *testing.T, conn *claudeSubFakeConn, want s
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
-		for _, line := range claudeSubProbeSentLines(conn) {
-			if strings.Contains(string(line), want) {
+		for _, line := range conn.sentLines() {
+			if strings.Contains(line, want) {
 				return
 			}
 		}

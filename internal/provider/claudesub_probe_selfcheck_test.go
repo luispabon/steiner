@@ -133,7 +133,7 @@ func TestClaudeSubProbeInitGate(t *testing.T) {
 			} else if err != nil {
 				t.Fatalf("sendPrompt() error = %v, want nil", err)
 			}
-			if got := len(claudeSubProbeSentLines(conn)); got != tc.wantSent {
+			if got := len(conn.sentLines()); got != tc.wantSent {
 				t.Fatalf("sent lines = %d, want %d", got, tc.wantSent)
 			}
 		})
@@ -431,13 +431,4 @@ func claudeSubProbeMustJSON(t *testing.T, value map[string]any) []byte {
 		t.Fatalf("encode scripted line: %v", err)
 	}
 	return data
-}
-
-// claudeSubProbeSentLines copies the fake connection's recorded outbound lines.
-func claudeSubProbeSentLines(conn *claudeSubFakeConn) [][]byte {
-	conn.mu.Lock()
-	defer conn.mu.Unlock()
-	out := make([][]byte, len(conn.sent))
-	copy(out, conn.sent)
-	return out
 }
