@@ -76,14 +76,56 @@ func TestWindowsSubprocessExclusionCancellationAndTermination(t *testing.T) {
 	} else if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Acquire() error = %v, want deadline exceeded", err)
 	}
-	if err := cmd.Process.Kill(); err != nil {
+	waiting := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		lock, err := Acquire(ctx, path)
+		if err == nil {
+			err = lock.Release()
+		}
+		waiting <- err
+	}()
+	if err := stdin.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_ = stdin.Close()
 	if err := cmd.Wait(); err != nil {
-		// Termination is expected. The OS releases the kernel lock with the handle.
+		t.Fatalf("holder exit after stdin close: %v", err)
 	}
-	after, err := Acquire(context.Background(), path)
+	select {
+	case err := <-waiting:
+		if err != nil {
+			t.Fatalf("Acquire() after live holder release: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Acquire() did not proceed after live holder release")
+	}
+
+	terminated := exec.Command(os.Args[0], "-test.run=^TestWindowsLockHelper$")
+	terminated.Env = append(os.Environ(), helperEnv+"="+path)
+	termIn, err := terminated.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	termOut, err := terminated.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := terminated.Start(); err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(termOut).ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != "locked" {
+		t.Fatalf("terminated holder readiness = %q, %v", line, err)
+	}
+	if err := terminated.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = termIn.Close()
+	_ = terminated.Wait()
+	reacquireCtx, reacquireCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer reacquireCancel()
+	after, err := Acquire(reacquireCtx, path)
 	if err != nil {
 		t.Fatalf("Acquire() after holder termination: %v", err)
 	}

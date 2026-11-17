@@ -24,11 +24,19 @@ func Acquire(ctx context.Context, path string) (*Lock, error) {
 	}
 	overlapped := &windows.Overlapped{}
 	for {
+		if err := ctx.Err(); err != nil {
+			_ = file.Close() // best-effort close after cancellation
+			return nil, fmt.Errorf("wait for lock file: %w", err)
+		}
 		err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, overlapped)
 		if err == nil {
 			return &Lock{file: file, unlock: func() error {
 				return windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, overlapped)
 			}}, nil
+		}
+		if errors.Is(err, windows.ERROR_NOT_SUPPORTED) {
+			_ = file.Close() // best-effort close when locking is unsupported
+			return unsupportedLock(path, err), nil
 		}
 		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
 			select {

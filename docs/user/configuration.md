@@ -79,7 +79,7 @@ Choices:
 
 There is no revoke command: edit or delete `trusted_projects.json`. A corrupt or unrecognised-version file is deleted with a one-time notice; a read, lock, or permission error is fatal and leaves the file untouched. Inspecting the store (including `steiner config`) creates `~/.config/steiner` and the sibling `trusted_projects.json.lock` lock file when they are missing, and fails when either cannot be created.
 
-Steiner holds that lock file while it reads and rewrites the store, so concurrent processes keep each other's trust decisions. Windows, AIX, and filesystems that do not support advisory file locking are the exception: Steiner continues without the lock and does not report it, so trust decisions written by separate processes at the same moment can be lost.
+Steiner holds that lock file while it reads and rewrites the store, so concurrent processes keep each other's trust decisions. Windows uses `LockFileEx` for cross-process locking. AIX and filesystems that do not support advisory file locking are exceptions: Steiner continues without the lock and does not report it, so trust decisions written by separate processes at the same moment can be lost.
 
 The dialog needs an interactive terminal. With `--exec` or without a TTY, an untrusted project makes Steiner exit non-zero unless you pass `--trust-project-config` or set `STEINER_TRUST_PROJECT_CONFIG=1` (or `true`). Both trust the project for that run only. `steiner oneshot` follows the same rule.
 
