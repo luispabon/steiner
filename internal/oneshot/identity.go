@@ -3,7 +3,6 @@ package oneshot
 import (
 	"crypto/rand"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -123,23 +122,4 @@ func generateRunID() (string, error) {
 		return "", fmt.Errorf("generate run id: %w", err)
 	}
 	return fmt.Sprintf("%x", buf[:]), nil
-}
-
-func ensureSteinerProjectDir(workDir string) error {
-	steinerDir := filepath.Join(workDir, steinerDirName)
-	if err := os.MkdirAll(steinerDir, 0o755); err != nil {
-		return fmt.Errorf("create .steiner directory: %w", err)
-	}
-
-	gitignorePath := filepath.Join(steinerDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("stat .steiner/.gitignore: %w", err)
-		}
-		if err := os.WriteFile(gitignorePath, []byte("*\n"), 0o644); err != nil {
-			return fmt.Errorf("create .steiner/.gitignore: %w", err)
-		}
-	}
-
-	return nil
 }

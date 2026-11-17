@@ -212,7 +212,7 @@ func ensureResumeWorktree(ctx context.Context, projectRoot string, identity RunI
 		if err := verifyWorktree(ctx, worktreePath, branch); err != nil {
 			return Worktree{}, err
 		}
-		if err := ensureSteinerProjectDir(worktreePath); err != nil {
+		if err := session.EnsureSteinerProjectDir(worktreePath); err != nil {
 			return Worktree{}, err
 		}
 		return Worktree{

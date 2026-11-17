@@ -28,7 +28,7 @@ The run ID is 8 random bytes, hex-encoded (`generateRunID`). The slug comes from
 - The start point is the `origin/main` commit when it resolves, otherwise `HEAD`. Its SHA is stored as `worktree_base`.
 - An existing `refs/heads/<branch>` is checked out. Otherwise the branch is created with `-b`.
 - A stale worktree path is pruned and removed first.
-- `ensureSteinerProjectDir` writes `.steiner/.gitignore` containing `*`.
+- `session.EnsureSteinerProjectDir`, shared with the CLI runtime, writes `.steiner/.gitignore` containing `*` in the project root and the worktree, and resume setup reuses it. Symlink rules: [Sessions and persistence](architecture.md#sessions-and-persistence).
 
 `Orchestrator.Run` order: provision the worktree, acquire the run lock (`Release` runs on return, via `defer`), derive the interrupt context, create the planning dir, write the manifest with every phase `pending`, run each phase, then `finalizeRun`. Concurrent runs never share a branch, worktree, manifest, or lock because run IDs are unique.
 
