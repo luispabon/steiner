@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/luispabon/steiner/internal/filelock"
 	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
@@ -25,6 +27,37 @@ type trustedProjectRec struct {
 
 func trustStorePath(homeDir string) string {
 	return filepath.Join(homeDir, ".config", "steiner", "trusted_projects.json")
+}
+
+// acquireTrustStoreLock takes the trust store's sibling lock file. Tests replace
+// it to exercise lock failures.
+var acquireTrustStoreLock = filelock.Acquire
+
+// withTrustStoreLock runs fn while holding the trust store's stable sibling lock
+// file, so concurrent processes serialize their whole read-modify-write and the
+// corrupt-store deletion a read can perform.
+//
+// The parent directory is created first because the lock file lives beside the
+// store. Ordinary lock errors fail the call. filelock reports a platform or
+// filesystem without advisory locking as an unsupported Lock, which still runs
+// fn unlocked: this package has no warning sink, and losing a concurrent trust
+// write is preferable to refusing the trust decision.
+func withTrustStoreLock(path string, fn func() error) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("lock trust store %q: create dir: %w", path, err)
+	}
+
+	lock, err := acquireTrustStoreLock(context.Background(), path+".lock")
+	if err != nil {
+		return fmt.Errorf("lock trust store %q: %w", path, err)
+	}
+
+	err = fn()
+	// A release failure must not mask the callback's own error.
+	if releaseErr := lock.Release(); releaseErr != nil && err == nil {
+		return fmt.Errorf("unlock trust store %q: %w", path, releaseErr)
+	}
+	return err
 }
 
 // readTrustStore returns the store, a non-empty user-facing notice when a corrupt
@@ -101,13 +134,15 @@ func TrustProject(opts LoadOptions, root string, now time.Time) error {
 
 	path := trustStorePath(homeDir)
 
-	// The notice is ignored here: callers run InspectProject first, which
-	// surfaces corruption notices to the user.
-	store, _, err := readTrustStore(path)
-	if err != nil {
-		return err
-	}
+	return withTrustStoreLock(path, func() error {
+		// The notice is ignored here: callers run InspectProject first, which
+		// surfaces corruption notices to the user.
+		store, _, err := readTrustStore(path)
+		if err != nil {
+			return err
+		}
 
-	store.trust(root, now)
-	return writeTrustStore(path, store)
+		store.trust(root, now)
+		return writeTrustStore(path, store)
+	})
 }

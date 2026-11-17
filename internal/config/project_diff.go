@@ -48,8 +48,14 @@ func InspectProject(opts LoadOptions) (ProjectInspection, error) {
 	paths := resolveConfigPaths(opts, homeDir, workingDir)
 	global, project := paths[0], paths[1]
 
-	store, notice, err := readTrustStore(trustStorePath(homeDir))
-	if err != nil {
+	storePath := trustStorePath(homeDir)
+	var store trustStoreFile
+	var notice string
+	if err := withTrustStoreLock(storePath, func() error {
+		var readErr error
+		store, notice, readErr = readTrustStore(storePath)
+		return readErr
+	}); err != nil {
 		return ProjectInspection{}, err
 	}
 

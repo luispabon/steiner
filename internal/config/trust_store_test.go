@@ -1,11 +1,17 @@
 package config
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/filelock"
 )
 
 func TestReadTrustStore(t *testing.T) {
@@ -138,6 +144,137 @@ func TestWriteTrustStorePermissions(t *testing.T) {
 	if mode := fileInfo.Mode().Perm(); mode != 0o600 {
 		t.Errorf("file perm = %o, want %o", mode, 0o600)
 	}
+}
+
+// trustConcurrently runs one TrustProject writer per root, independently of the
+// others, and reports every error they returned.
+func trustConcurrently(t *testing.T, opts LoadOptions, roots []string) []error {
+	t.Helper()
+
+	errCh := make(chan error, len(roots))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, root := range roots {
+		wg.Add(1)
+		go func(root string) {
+			defer wg.Done()
+			<-start
+			if err := TrustProject(opts, root, time.Now()); err != nil {
+				errCh <- err
+			}
+		}(root)
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+func TestTrustProjectConcurrentWriters(t *testing.T) {
+	const writers = 12
+	roots := make([]string, writers)
+	for i := range roots {
+		roots[i] = fmt.Sprintf("/repo/concurrent-%d", i)
+	}
+
+	t.Run("fresh store", func(t *testing.T) {
+		home := t.TempDir()
+		opts := LoadOptions{HomeDir: home}
+
+		for _, err := range trustConcurrently(t, opts, roots) {
+			t.Errorf("TrustProject: %v", err)
+		}
+
+		assertTrustStoreRoots(t, trustStorePath(home), roots)
+	})
+
+	t.Run("corrupt store", func(t *testing.T) {
+		home := t.TempDir()
+		path := trustStorePath(home)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		opts := LoadOptions{HomeDir: home}
+		for _, err := range trustConcurrently(t, opts, roots) {
+			t.Errorf("TrustProject: %v", err)
+		}
+
+		assertTrustStoreRoots(t, path, roots)
+	})
+}
+
+// assertTrustStoreRoots fails unless the store holds exactly the given roots.
+func assertTrustStoreRoots(t *testing.T, path string, roots []string) {
+	t.Helper()
+
+	store, notice, err := readTrustStore(path)
+	if err != nil {
+		t.Fatalf("readTrustStore: %v", err)
+	}
+	if notice != "" {
+		t.Fatalf("notice = %q, want empty", notice)
+	}
+	for _, root := range roots {
+		if !store.isTrusted(root) {
+			t.Errorf("isTrusted(%q) = false, want true", root)
+		}
+	}
+	if len(store.Projects) != len(roots) {
+		t.Errorf("Projects = %v, want exactly %d entries", store.Projects, len(roots))
+	}
+}
+
+// failTrustStoreLock replaces the lock seam with a failing acquire.
+func failTrustStoreLock(t *testing.T) {
+	t.Helper()
+
+	orig := acquireTrustStoreLock
+	acquireTrustStoreLock = func(context.Context, string) (*filelock.Lock, error) {
+		return nil, errors.New("flock failed")
+	}
+	t.Cleanup(func() { acquireTrustStoreLock = orig })
+}
+
+func TestTrustStoreLockErrors(t *testing.T) {
+	t.Run("trust project", func(t *testing.T) {
+		home := t.TempDir()
+		failTrustStoreLock(t)
+
+		err := TrustProject(LoadOptions{HomeDir: home}, "/repo/one", time.Now())
+		if err == nil {
+			t.Fatal("TrustProject err = nil, want lock error")
+		}
+		for _, want := range []string{"lock trust store", "flock failed"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("err = %q, want to contain %q", err, want)
+			}
+		}
+		if _, statErr := os.Stat(trustStorePath(home)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Errorf("Stat(store) err = %v, want not-exist", statErr)
+		}
+	})
+
+	t.Run("inspect project", func(t *testing.T) {
+		home, work := t.TempDir(), t.TempDir()
+		failTrustStoreLock(t)
+
+		_, err := InspectProject(inspectOptions(home, work))
+		if err == nil {
+			t.Fatal("InspectProject err = nil, want lock error")
+		}
+		if !strings.Contains(err.Error(), "flock failed") {
+			t.Errorf("err = %q, want to contain %q", err, "flock failed")
+		}
+	})
 }
 
 func TestTrustProject(t *testing.T) {

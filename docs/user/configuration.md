@@ -77,7 +77,7 @@ Choices:
 - `s` This session only: nothing is written.
 - `d` Deny and exit: the default; `Esc` and `Ctrl-C` choose it. The process exits non-zero.
 
-There is no revoke command: edit or delete `trusted_projects.json`. A corrupt or unrecognised-version file is deleted with a one-time notice; a read or permission error is fatal and leaves the file untouched.
+There is no revoke command: edit or delete `trusted_projects.json`. A corrupt or unrecognised-version file is deleted with a one-time notice; a read, lock, or permission error is fatal and leaves the file untouched. Concurrent Steiner processes serialize their updates, so trust decisions written at the same time are all kept.
 
 The dialog needs an interactive terminal. With `--exec` or without a TTY, an untrusted project makes Steiner exit non-zero unless you pass `--trust-project-config` or set `STEINER_TRUST_PROJECT_CONFIG=1` (or `true`). Both trust the project for that run only. `steiner oneshot` follows the same rule.
 
