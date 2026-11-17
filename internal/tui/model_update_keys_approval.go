@@ -29,6 +29,11 @@ func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			return m.executeApprovalDecision(ApprovalDecisionAllowOnce)
 		case "a":
+			// A no-persist request cannot be granted for the session, so the
+			// key is inert and the session-wide action is never offered.
+			if m.approval.noPersist {
+				return m, nil
+			}
 			return m.executeApprovalDecision(ApprovalDecisionAlwaysAllow)
 		case "n":
 			return m.executeApprovalDecision(ApprovalDecisionDeny)

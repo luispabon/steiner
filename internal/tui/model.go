@@ -46,6 +46,9 @@ type approvalState struct {
 	mcpToolName    string // MCP tool name (empty for path)
 	identity       string
 	selectedAction int
+	// noPersist marks a request decided for this call only. The tray drops the
+	// session-wide grant action and treats a submitted one as allow once.
+	noPersist bool
 }
 
 type workflowHandoffLaunch struct {

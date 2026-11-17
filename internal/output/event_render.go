@@ -369,6 +369,10 @@ func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {
 	parts = appendField(parts, "mode", payload.Mode)
 	parts = appendField(parts, "args", payload.Preview)
 	parts = appendField(parts, "message", payload.Message)
+	if payload.NoPersist {
+		// The prompt offers no session grant; the command runs again on approval.
+		parts = append(parts, "one_time=true (command runs again)")
+	}
 	return Segment{Channel: ChannelApproval, Label: "approval", Text: strings.Join(parts, " ")}
 }
 

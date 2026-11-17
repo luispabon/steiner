@@ -29,6 +29,18 @@ func (b *contentBuffer) renderApprovalPillButtons(ad *approvalPillData) string {
 		{label: "Allowed for session", key: "a", idx: 1},
 		{label: "deny", key: "n", idx: 2},
 	}
+	if ad.noPersist {
+		// A one-time retry cannot be granted for the session, so the action
+		// is neither offered nor reachable.
+		specs = []struct {
+			label string
+			key   string
+			idx   int
+		}{
+			{label: "approve", key: "y", idx: 0},
+			{label: "deny", key: "n", idx: 2},
+		}
+	}
 	bgElev2C := lipgloss.Color(theme.BgElev2)
 	fgMuteC := lipgloss.Color(theme.FgMute)
 	fgDimC := lipgloss.Color(theme.FgDim)
@@ -110,10 +122,15 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	bgContent := " " + question + " " + buttons
 	bgRow := lipgloss.NewStyle().Background(lipgloss.Color(b.styles.Palette.ContentBG)).Width(bgW).Render(bgContent)
 
+	row := indent + bar + bgRow + "\n"
+	if ad.noPersist {
+		row += indent + b.styles.FgMute.Render(truncateRunes(approvalNoPersistWarning, innerWidth)) + "\n"
+	}
+
 	// MCP approvals render the handler-formatted ArgumentsPreview below the bar
 	// as key:value lines.
 	if ad.kind == "mcp" {
-		return indent + bar + bgRow + "\n" + b.renderApprovalPreview(ad.preview, innerWidth)
+		return row + b.renderApprovalPreview(ad.preview, innerWidth)
 	}
-	return indent + bar + bgRow + "\n"
+	return row
 }

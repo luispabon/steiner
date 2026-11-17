@@ -125,8 +125,10 @@ Denying a sandbox denial returns the original result to the model with a hint to
 The interactive prompt offers **Allow once**, **Allowed for session**, and **Deny**. Approving a path request relaxes the project-root policy, not the sandbox's writable mounts. Relative paths in the approved call still resolve against the project root, and `paths.blocked_paths`, `paths.writable_paths`, and plan-mode write limits still apply.
 
 - **Allow once** approves this call only.
-- **Allowed for session** approves this call and every later prompt of the same kind until Steiner exits. For `bash` and `mutate` the grant covers the whole tool: after allowing a sandbox denial for the session, later `bash` denials retry unsandboxed without asking. For MCP the grant covers one server's tool.
+- **Allowed for session** approves this call and every later prompt of the same kind until Steiner exits. For `mutate` and `bash` path prompts this grants the whole tool; for MCP the grant covers one server's tool.
 - Grants live in memory only. They are never written to disk and end when Steiner exits.
+
+A sandbox denial or SSH-config denial prompts with **Allow once** or **Deny** only. Approving reruns the whole command, so the prompt offers no session-wide grant: an earlier **Allowed for session** for `bash` does not answer it, and the `a` key does nothing while it is shown. The prompt warns that the command runs again and side effects may repeat. The same one-time rule applies in `--exec`, where every prompt is answered separately anyway.
 
 ### Non-interactive runs
 

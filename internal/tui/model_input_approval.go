@@ -9,21 +9,50 @@ import (
 )
 
 func (m *Model) selectedApprovalDecision() ApprovalDecision {
-	if m.approval.selectedAction < 0 || m.approval.selectedAction >= len(approvalDecisions) {
+	if !m.approvalOffersAction(m.approval.selectedAction) {
 		return ApprovalDecisionAllowOnce
 	}
 	return approvalDecisions[m.approval.selectedAction]
 }
 
+// approvalOffersAction reports whether this request offers the decision at idx.
+// A no-persist request, such as a sandbox retry, offers only allow once and
+// deny: no session-wide grant is available.
+func (m *Model) approvalOffersAction(idx int) bool {
+	if idx < 0 || idx >= len(approvalDecisions) {
+		return false
+	}
+	return !(m.approval.noPersist && approvalDecisions[idx] == ApprovalDecisionAlwaysAllow)
+}
+
+// approvalDecisionIndexes lists the offered decision indexes in decision order.
+func approvalDecisionIndexes(noPersist bool) []int {
+	indexes := make([]int, 0, len(approvalDecisions))
+	for idx, decision := range approvalDecisions {
+		if noPersist && decision == ApprovalDecisionAlwaysAllow {
+			continue
+		}
+		indexes = append(indexes, idx)
+	}
+	return indexes
+}
+
 func (m *Model) moveApprovalSelection(delta int) *Model {
-	if !m.approval.active || len(approvalDecisions) == 0 {
+	if !m.approval.active {
 		return m
 	}
-	count := len(approvalDecisions)
-	next := (m.approval.selectedAction + delta) % count
-	if next < 0 {
-		next += count
+	indexes := approvalDecisionIndexes(m.approval.noPersist)
+	if len(indexes) == 0 {
+		return m
 	}
+	pos := 0
+	for i, idx := range indexes {
+		if idx == m.approval.selectedAction {
+			pos = i
+			break
+		}
+	}
+	next := indexes[(pos+delta)%len(indexes)]
 	m.approval.selectedAction = next
 	m.syncApprovalSelection(next)
 	return m
@@ -91,6 +120,11 @@ func (m *Model) approvalTargets(identity string) bool {
 }
 
 func (m *Model) executeApprovalDecision(decision ApprovalDecision) (tea.Model, tea.Cmd) {
+	// A no-persist request never becomes a session-wide grant, however the
+	// decision was produced.
+	if m.approval.noPersist && decision == ApprovalDecisionAlwaysAllow {
+		decision = ApprovalDecisionAllowOnce
+	}
 	if m.controller != nil {
 		if err := m.controller.Handle(context.Background(), interactive.SubmitApproval{
 			Identity: m.approval.identity,

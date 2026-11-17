@@ -56,6 +56,12 @@ type ApprovalRequest struct {
 
 	Reason            string // human-readable reason for the prompt
 	GrantInstructions string // how to permanently allow this
+	// NoPersist marks a request that must be decided for this call only. A
+	// responder must neither answer it from a cached session grant nor cache a
+	// grant from its decision, and a session-wide decision is downgraded to a
+	// one-time allowance. Sandbox denials set it because approving one reruns
+	// the command outside the sandbox.
+	NoPersist bool
 
 	Path *PathApprovalDetails // non-nil when Kind == ApprovalKindPath
 	MCP  *MCPApprovalDetails  // non-nil when Kind == ApprovalKindMCP

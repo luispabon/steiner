@@ -395,6 +395,11 @@ func TestExecuteTool_BashDenialDetection_ApproverCalled(t *testing.T) {
 	if approver.lastReq.Path.DeniedPath != "/host/path" {
 		t.Fatalf("req.DeniedPath = %q, want '/host/path'", approver.lastReq.Path.DeniedPath)
 	}
+	// A sandbox retry runs the whole command outside the sandbox, so its
+	// approval must never become a session-wide grant.
+	if !approver.lastReq.NoPersist {
+		t.Fatal("req.NoPersist = false, want true for a sandbox retry")
+	}
 	br, ok := result.(*mockBashResult)
 	if !ok {
 		t.Fatalf("result type = %T, want *mockBashResult", result)
@@ -548,6 +553,10 @@ func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T
 	if approver.lastReq.GrantInstructions != "Re-run outside the sandbox with --unsafe" {
 		t.Fatalf("req.GrantInstructions = %q, want SSH rerun instructions", approver.lastReq.GrantInstructions)
 	}
+	// The SSH rerun approval is also a one-time escape from the sandbox.
+	if !approver.lastReq.NoPersist {
+		t.Fatal("req.NoPersist = false, want true for an SSH rerun approval")
+	}
 	if len(callContexts) != 2 {
 		t.Fatalf("handler call count = %d, want 2 (initial + retry)", len(callContexts))
 	}
@@ -682,6 +691,10 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 	}
 	if approver.lastReq.Path.DeniedPath != "/etc/passwd" {
 		t.Fatalf("req.DeniedPath = %q, want '/etc/passwd'", approver.lastReq.Path.DeniedPath)
+	}
+	// A path approval relaxes the project root only, so it may persist.
+	if approver.lastReq.NoPersist {
+		t.Fatal("req.NoPersist = true, want false for a path policy approval")
 	}
 	var toolErr *ToolExecutionError
 	if !errors.As(err, &toolErr) {
