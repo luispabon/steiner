@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -209,15 +210,18 @@ func TestOneshotModelPreflightFailureDoesNotRecordHistory(t *testing.T) {
 	if updated.(*Model).oneshotRunning {
 		t.Fatal("oneshotRunning = true, want false after model preflight rejection")
 	}
+	if !strings.Contains(updated.(*Model).content.String(80), "oneshot failed: oneshot plan phase model:") {
+		t.Fatalf("preflight status = %q, want model validation rejection", updated.(*Model).content.String(80))
+	}
+	if !sess.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns() = false, want true")
+	}
 	prompts, err := history.Load()
 	if err != nil {
 		t.Fatalf("history.Load() error = %v", err)
 	}
 	if len(prompts) != 0 {
 		t.Fatalf("history prompts = %q, want none", prompts)
-	}
-	if !sess.WaitRuns(context.Background()) {
-		t.Fatal("WaitRuns() = false, want true")
 	}
 }
 
@@ -257,7 +261,7 @@ func setupOneshotProject(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("test\n"), 0o600); err != nil {
 		t.Fatalf("write project file: %v", err)
 	}
-	for _, args := range [][]string{{"add", "README.md"}, {"commit", "-m", "initial"}} {
+	for _, args := range [][]string{{"add", "README.md"}, {"-c", "commit.gpgsign=false", "commit", "-m", "initial"}} {
 		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = root
 		if output, err := cmd.CombinedOutput(); err != nil {
