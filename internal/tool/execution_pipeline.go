@@ -45,6 +45,7 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 	// Check if this is a promptable path policy violation (outside project root).
 	var policyErr *PathPolicyError
 	if errors.As(err, &policyErr) && policyErr.Promptable && e.approver != nil {
+		deniedPaths, deniedPathCount := policyErr.outsidePaths()
 		req := ApprovalRequest{
 			Tool:              def,
 			CallID:            callID,
@@ -54,9 +55,11 @@ func (e *Executor) normalizeExecutionInput(ctx context.Context, def ToolDef, cal
 			GrantInstructions: "Add a sandbox.host_mount in .steiner/config.yaml or re-run with --unsafe",
 			Response:          make(chan ApprovalResponse, 1),
 			Path: &PathApprovalDetails{
-				WorkDir:    policy.Root(),
-				Preview:    buildApprovalPreview(def.Name, input, policy),
-				DeniedPath: policyErr.Path,
+				WorkDir:         policy.Root(),
+				Preview:         buildApprovalPreview(def.Name, input, policy),
+				DeniedPath:      policyErr.Path,
+				DeniedPaths:     deniedPaths,
+				DeniedPathCount: deniedPathCount,
 			},
 		}
 		if approvalErr := e.approver.RequestApproval(ctx, req); approvalErr != nil {

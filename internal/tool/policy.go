@@ -24,7 +24,15 @@ func planModeWriteDenial() string {
 
 // PathPolicyError is returned when a path is rejected by policy.
 type PathPolicyError struct {
-	Path       string
+	Path string
+	// Paths holds every distinct promptable outside path found while
+	// validating the whole call, capped at maxCollectedOutsidePaths. It is
+	// empty for violations raised outside that collection, in which case Path
+	// is the only path.
+	Paths []string
+	// PathCount is the number of distinct outside paths found, including any
+	// beyond the Paths cap.
+	PathCount  int
 	Reason     string
 	Promptable bool // true when the violation is "outside project root" (can be overridden by user)
 }
@@ -32,6 +40,24 @@ type PathPolicyError struct {
 // Error implements the error interface.
 func (e *PathPolicyError) Error() string {
 	return fmt.Sprintf("tool path policy denied: %s", e.Reason)
+}
+
+// outsidePaths returns the distinct outside paths an approval prompt should
+// list and their total count, falling back to Path for a violation raised
+// without a collection.
+func (e *PathPolicyError) outsidePaths() ([]string, int) {
+	if e == nil {
+		return nil, 0
+	}
+	paths := e.Paths
+	if len(paths) == 0 && e.Path != "" {
+		paths = []string{e.Path}
+	}
+	count := e.PathCount
+	if count < len(paths) {
+		count = len(paths)
+	}
+	return paths, count
 }
 
 // PathPolicy constrains tool paths relative to the active project root.
@@ -231,11 +257,7 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return p.policyResolutionError(path, err)
 	}
 	if !allowed {
-		return &PathPolicyError{
-			Path:       path,
-			Reason:     fmt.Sprintf("path %q is outside project root %q", path, p.root),
-			Promptable: true,
-		}
+		return p.outsideRootError([]string{path}, 1)
 	}
 	if blocked, err := p.blocked(path); err != nil {
 		return p.policyResolutionError(path, err)
@@ -297,6 +319,27 @@ func (p PathPolicy) writePathAllowed(path string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// outsideRootError builds the promptable violation for one or more paths
+// outside the project root.
+func (p PathPolicy) outsideRootError(paths []string, count int) *PathPolicyError {
+	reason := fmt.Sprintf("path is outside project root %q", p.root)
+	if count == 1 && len(paths) == 1 {
+		reason = fmt.Sprintf("path %q is outside project root %q", paths[0], p.root)
+	} else if count > 1 {
+		reason = fmt.Sprintf("%d paths are outside project root %q", count, p.root)
+	}
+	err := &PathPolicyError{
+		Reason:     reason,
+		Promptable: true,
+	}
+	if len(paths) > 0 {
+		err.Path = paths[0]
+		err.Paths = paths
+		err.PathCount = count
+	}
+	return err
 }
 
 func (p PathPolicy) blocked(path string) (bool, error) {

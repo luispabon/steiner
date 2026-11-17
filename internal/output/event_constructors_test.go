@@ -3,6 +3,7 @@ package output
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,9 @@ func TestApprovalConstructorsMapParams(t *testing.T) {
 		ToolName: "tool",
 		// Every constructor must carry the one-time marker through.
 		NoPersist: true,
+
+		DeniedPaths:     []string{"/outside/one", "/outside/two"},
+		DeniedPathCount: 3,
 	}
 	tests := []struct {
 		name      string
@@ -78,8 +82,11 @@ func TestApprovalConstructorsMapParams(t *testing.T) {
 				Server:    "srv",
 				ToolName:  "tool",
 				NoPersist: true,
+
+				DeniedPaths:     []string{"/outside/one", "/outside/two"},
+				DeniedPathCount: 3,
 			}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("payload = %#v, want %#v", got, want)
 			}
 		})

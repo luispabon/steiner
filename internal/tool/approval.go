@@ -69,9 +69,15 @@ type ApprovalRequest struct {
 
 // PathApprovalDetails carries a sandbox boundary violation for user decision.
 type PathApprovalDetails struct {
-	WorkDir    string
-	Preview    ApprovalPreview
-	DeniedPath string // path that caused the violation (may be empty for bash)
+	WorkDir string
+	Preview ApprovalPreview
+	// DeniedPath is the path that caused the violation (may be empty for
+	// bash). DeniedPaths is the full set the prompt lists, capped at
+	// maxCollectedOutsidePaths, and DeniedPathCount is how many distinct
+	// outside paths the call touches.
+	DeniedPath      string
+	DeniedPaths     []string
+	DeniedPathCount int
 }
 
 // MCPApprovalDetails carries the details of an MCP tool call approval prompt.

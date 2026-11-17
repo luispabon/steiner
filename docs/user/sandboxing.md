@@ -120,6 +120,8 @@ If OpenSSH rejects a config file inside the sandbox (`Bad owner or permissions o
 
 Denying a sandbox denial returns the original result to the model with a hint to add a `sandbox.host_mounts` entry or use `--unsafe`. Path violations that are not about the project root, such as `paths.blocked_paths`, `paths.writable_paths`, or plan-mode write limits, are denied without a prompt.
 
+A `mutate` batch is approved or denied as a whole, so Steiner collects the paths outside the project root across every operation before asking. The `--exec` prompt lists each distinct path on its own line, up to 20, then `and N more outside the project`, and never truncates a path. The interactive approval card still shows the truncated arguments preview and does not list the paths separately. If any operation in the batch breaks a rule you cannot approve, the whole call is denied without a prompt.
+
 ### Choices and their scope
 
 The interactive prompt offers **Allow once**, **Allowed for session**, and **Deny**. Approving a path request relaxes the project-root policy, not the sandbox's writable mounts. Relative paths in the approved call still resolve against the project root, and `paths.blocked_paths`, `paths.writable_paths`, and plan-mode write limits still apply.

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -702,6 +704,77 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 	}
 	if toolErr.Kind != "policy_denied" {
 		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+}
+
+func TestNormalizeExecutionInput_PathViolation_ListsEveryOutsidePath(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: false}}
+	reg := NewRegistry(ToolDef{
+		Name:    "mutate",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	workDir := t.TempDir()
+	executor := NewExecutor(reg, rootOnlyConfig(), approver, workDir, "", &testSandbox{})
+	outsideCreated := filepath.Join(t.TempDir(), "created.txt")
+	outsideMoved := filepath.Join(t.TempDir(), "moved.txt")
+	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "inside.txt", "content": "inside\n"},
+			map[string]any{"type": "create", "path": outsideCreated, "content": "outside\n"},
+			map[string]any{"type": "move", "from": outsideMoved, "to": "moved.txt"},
+		},
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy_denied")
+	}
+	if !approver.called {
+		t.Fatal("approver.RequestApproval() was not called, want called")
+	}
+	if want := []string{outsideCreated, outsideMoved}; !slices.Equal(approver.lastReq.Path.DeniedPaths, want) {
+		t.Fatalf("req.DeniedPaths = %v, want %v", approver.lastReq.Path.DeniedPaths, want)
+	}
+	if got, want := approver.lastReq.Path.DeniedPathCount, 2; got != want {
+		t.Fatalf("req.DeniedPathCount = %d, want %d", got, want)
+	}
+	if got, want := approver.lastReq.Path.DeniedPath, outsideCreated; got != want {
+		t.Fatalf("req.DeniedPath = %q, want %q", got, want)
+	}
+}
+
+// TestNormalizeExecutionInput_NonPromptableViolationSkipsApproval pins that a
+// batch holding both an outside path and a rule the user cannot approve is
+// denied without prompting, so no part of it can run.
+func TestNormalizeExecutionInput_NonPromptableViolationSkipsApproval(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+	reg := NewRegistry(ToolDef{
+		Name:    "mutate",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	workDir := t.TempDir()
+	cfg := rootOnlyConfig()
+	cfg.Paths.BlockedPaths = []string{filepath.Join(workDir, "blocked")}
+	executor := NewExecutor(reg, cfg, approver, workDir, "", &testSandbox{})
+	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "/etc/passwd", "content": "x"},
+			map[string]any{"type": "create", "path": "blocked/secret.txt", "content": "x"},
+		},
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy_denied")
+	}
+	if approver.called {
+		t.Fatal("approver.RequestApproval() was called, want no prompt for a nonpromptable violation")
+	}
+	var toolErr *ToolExecutionError
+	if !errors.As(err, &toolErr) {
+		t.Fatalf("error type = %T, want *ToolExecutionError", err)
+	}
+	if toolErr.Kind != "policy_denied" {
+		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+	if !strings.Contains(toolErr.Message, "blocked by policy") {
+		t.Fatalf("error message = %q, want 'blocked by policy'", toolErr.Message)
 	}
 }
 
