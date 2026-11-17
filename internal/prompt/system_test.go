@@ -1071,3 +1071,26 @@ func TestWorkflowGeneralRulesAndAmbiguityByMode(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkflowRulesAllowBoundedMoveAndCopy pins the bounded move and copy
+// escape hatch in the shared editing rules.
+func TestWorkflowRulesAllowBoundedMoveAndCopy(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeParent}).Content
+
+	for _, want := range []string{
+		"its `move` op handles single-file moves",
+		"bash `cp` or `mv` may be used",
+		"cannot be expressed by `mutate`",
+		"for example a directory tree",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("workflow editing rules missing %q in %q", want, content)
+		}
+	}
+
+	if old := "do not use bash, sed, cat, or shell redirection for edits."; strings.Contains(content, old) {
+		t.Fatalf("workflow editing rules still contain %q in %q", old, content)
+	}
+}

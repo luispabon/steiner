@@ -53,6 +53,7 @@ Sub-agents get a per-type subset of these tools. MCP tools reach children only t
 - `read` has no enforced deadline; a `limits.tool_timeouts.read` entry has no effect. A slow or blocked filesystem operation can delay the call until it is cancelled.
 - A file with a NUL byte in its first 8192 bytes is treated as binary: `read` rejects it and `grep` skips it.
 - `mutate` applies all operations in a call as one batch. `replace` on an existing file requires that the file was read earlier in the session, or that the call passes the `file_hash` from a `read` result. This catches edits to a file that changed since it was read.
+- `move` is a `mutate` op for single files. Bash `cp` or `mv` is the bounded escape hatch for copies and moves `mutate` cannot express, such as directory trees: either may run only where the mode, sandbox, and sub-agent role already allow bash writes, both paths are inside the writable paths, and the destination does not exist. Content edits stay `mutate`-only.
 - After a successful `mutate`, Steiner may append diagnostics for the changed files from a language server that is already running. See [LSP](lsp.md).
 
 ## Grep paging
