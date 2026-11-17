@@ -39,14 +39,26 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 
 ## Working rules
 
+### General
+
+- Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
+- Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
+- Match existing project style. Keep code and documentation simple; no overengineering.
+- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, {{ if or .DelegatedCode .DelegatedDocumentor }}stop and report the blocker{{ else }}ask the user{{ end }}.
+- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+
 ### While editing
 
-- Touch only required files and lines.
 - Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
+- Keep each `mutate` call to a small, coherent unit of edits: single digits.
+- For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
+- Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure.
-- Keep code simple. No overengineering.
+- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
 
