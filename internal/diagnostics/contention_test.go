@@ -68,8 +68,9 @@ func TestHeldLockStartupAndAppendsStayBestEffort(t *testing.T) {
 	if err := lock.Release(); err != nil {
 		t.Fatalf("release stream lock: %v", err)
 	}
-	time.Sleep(lockBackoff + 50*time.Millisecond)
 
+	// The next append retries the lock immediately; it must not sit out a
+	// backoff window while the stream is free.
 	w.Write(Record{Kind: KindCache, AgentID: "recovered"})
 	records := readRecords(t, path)
 	if len(records) != 2 || records[1].AgentID != "recovered" {
@@ -104,7 +105,7 @@ func TestContendedAppendsStayBounded(t *testing.T) {
 	elapsed := time.Since(started)
 
 	if limit := 2 * time.Second; elapsed > limit {
-		t.Errorf("%d contended writes took %v, want the lock wait charged once per backoff window", writers*perWriter, elapsed)
+		t.Errorf("%d contended writes took %v, want a nonblocking attempt per record", writers*perWriter, elapsed)
 	}
 	if records := readRecords(t, path); len(records) != 0 {
 		t.Fatalf("records = %d, want every contended record dropped", len(records))
@@ -113,7 +114,6 @@ func TestContendedAppendsStayBounded(t *testing.T) {
 	if err := lock.Release(); err != nil {
 		t.Fatalf("release stream lock: %v", err)
 	}
-	time.Sleep(lockBackoff + 50*time.Millisecond)
 
 	w.Write(Record{Kind: KindTool, AgentID: "released"})
 	records := readRecords(t, path)

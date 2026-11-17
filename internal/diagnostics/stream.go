@@ -21,15 +21,15 @@ const lockSuffix = ".lock"
 // never fails it: retention is skipped when the lock cannot be taken.
 const openLockTimeout = 250 * time.Millisecond
 
-// appendLockTimeout bounds one stream lock attempt on the append path. Each
-// record is best effort, so a stream held by another process drops the record
-// instead of charging the caller a longer wait.
-const appendLockTimeout = 20 * time.Millisecond
-
-// lockBackoff is how long a stream skips the lock after a failed attempt, so a
-// burst of queued records costs one bounded wait instead of one wait per
-// record.
-const lockBackoff = 250 * time.Millisecond
+// appendLockAttempts and appendLockPause bound one append's lock attempts. Each
+// attempt is nonblocking, so the first append after the lock is released takes
+// it, and the tiny total keeps a burst of queued records cheap; a stream held
+// for longer drops the record. The pause is enough to ride out a concurrent
+// append holding the lock for one write syscall.
+const (
+	appendLockAttempts = 3
+	appendLockPause    = 250 * time.Microsecond
+)
 
 // renameFile is os.Rename, replaced in tests to exercise a rotation whose
 // generation shift succeeds but whose active rename fails.
@@ -40,12 +40,14 @@ type stream struct {
 	file    *os.File
 	path    string
 	written int64
-	// shifted records that the generation shift already ran for the pending
-	// rotation. Repeating it while only the active rename keeps failing would
-	// discard another generation on every attempt.
-	shifted bool
-	// lockSkipUntil ends the backoff window after a failed lock attempt.
-	lockSkipUntil time.Time
+	// lastFile identifies the inode this writer last saw at path, so a
+	// replacement by another process is detected even while the descriptor is
+	// closed after a failed rotation.
+	lastFile os.FileInfo
+	// droppedOldest records that the current rotation episode already removed
+	// the oldest generation, so retries do not discard the generation that
+	// shifted into its place.
+	droppedOldest bool
 }
 
 func openStreamFile(path string) (*os.File, error) {
@@ -60,36 +62,59 @@ func openStreamFile(path string) (*os.File, error) {
 	return file, nil
 }
 
-// lockStream takes the stream's cross-process lock for at most timeout. A nil
-// result means the lock could not be taken: the caller must skip the locked
-// work rather than write without exclusion, because lockStream already reported
-// the problem once through warnLock. A lock the platform or filesystem cannot
-// provide is a real Lock value reporting Unsupported, so appends proceed
-// unlocked with the same one-time warning.
-func (w *Writer) lockStream(s *stream, timeout time.Duration) *filelock.Lock {
-	now := time.Now()
-	if now.Before(s.lockSkipUntil) {
-		return nil
-	}
+// tryLock makes one lock attempt that waits at most timeout for the lock. A
+// timeout of zero makes the attempt nonblocking. An unsupported lock is
+// returned as a placeholder, so appends proceed without cross-process exclusion
+// under the one-time warning.
+func (w *Writer) tryLock(s *stream, timeout time.Duration) (*filelock.Lock, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	lock, err := filelock.Acquire(ctx, s.path+lockSuffix)
 	if err != nil {
-		s.lockSkipUntil = now.Add(lockBackoff)
-		w.warnLock("lock diagnostics stream", err.Error())
-		return nil
+		return nil, err
 	}
-	s.lockSkipUntil = time.Time{}
 	if lock.Unsupported() {
 		if msg := lock.Warning(); msg != "" {
 			w.warnLock("lock diagnostics stream", msg)
 		}
 	}
+	return lock, nil
+}
+
+// lockForOpen waits briefly for the stream lock, so a short contention window
+// still lets retention run. A nil result skips retention: opening must not fail
+// or stall on a busy diagnostics directory.
+func (w *Writer) lockForOpen(s *stream) *filelock.Lock {
+	lock, err := w.tryLock(s, openLockTimeout)
+	if err != nil {
+		w.warnLock("lock diagnostics stream", err.Error())
+		return nil
+	}
 	return lock
 }
 
-// reopen opens the active path and records its current size, so the rotation
-// decision accounts for bytes other processes appended.
+// lockForAppend makes a few nonblocking attempts to ride out a concurrent
+// append, then gives up. There is no backoff window, so the first append after
+// the lock is released takes it. A nil result means the record is dropped
+// rather than written without exclusion; the problem is reported once.
+func (w *Writer) lockForAppend(s *stream) *filelock.Lock {
+	var err error
+	for attempt := 0; attempt < appendLockAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(appendLockPause)
+		}
+		var lock *filelock.Lock
+		if lock, err = w.tryLock(s, 0); err == nil {
+			return lock
+		}
+	}
+	w.warnLock("lock diagnostics stream", err.Error())
+	return nil
+}
+
+// reopen opens the active path and records its current size and inode, so the
+// rotation decision accounts for bytes other processes appended and a later
+// replacement is detectable.
 func (s *stream) reopen() error {
 	file, err := openStreamFile(s.path)
 	if err != nil {
@@ -102,6 +127,7 @@ func (s *stream) reopen() error {
 	}
 	s.file = file
 	s.written = info.Size()
+	s.lastFile = info
 	return nil
 }
 
@@ -124,22 +150,27 @@ func (s *stream) closeFile() error {
 // tracked size. Another process can replace the active file through retention
 // or rotation, which leaves the open descriptor on an unlinked inode; that
 // descriptor is closed and a fresh one opened, so records never land in a file
-// no reader can see. A nil descriptor, as left behind by a failed rotation, is
-// reopened here too, so the next write recovers with the staged generation
-// shift intact.
+// no reader can see. The comparison uses the inode recorded by the last open,
+// not the live descriptor, so a rotation staged by this writer survives its own
+// failed attempt but is discarded once another process replaces the file. A nil
+// descriptor, as left behind by a failed rotation, is reopened here too, so the
+// next write recovers.
 func (s *stream) revalidate() error {
 	pathInfo, err := os.Stat(s.path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat diagnostics stream: %w", err)
 	}
+	if err != nil || s.lastFile == nil || !os.SameFile(pathInfo, s.lastFile) {
+		// The active file is gone or was replaced by another process, so any
+		// staged rotation state describes a file that is no longer active.
+		s.droppedOldest = false
+	}
 	if s.file != nil && err == nil {
 		if fdInfo, fdErr := s.file.Stat(); fdErr == nil && os.SameFile(pathInfo, fdInfo) {
 			s.written = fdInfo.Size()
+			s.lastFile = fdInfo
 			return nil
 		}
-		// Another process replaced the active file, so its rotation already
-		// shifted the generations this writer had staged.
-		s.shifted = false
 	}
 	if err := s.closeFile(); err != nil {
 		return err
@@ -150,33 +181,45 @@ func (s *stream) revalidate() error {
 // rotateStream shifts existing generations, renames the active file to
 // <file>.1 and opens a fresh one. The descriptor is closed before the rename
 // because a descriptor to the renamed file would keep writing into generation
-// 1. The shift runs once per pending rotation: when only the active rename
-// fails, a retry repeats just that rename, so repeated failures cannot discard
-// a generation each time. On failure the stream is left closed, so the next
-// write revalidates and reopens the active path instead of dropping records for
-// the rest of the run.
+// 1. A move is only attempted onto a free generation name and the active rename
+// only once generation 1 is free, so a partially completed shift never
+// overwrites a generation; the oldest generation is dropped at most once per
+// rotation episode (droppedOldest), so retries cannot discard another one. On
+// failure the stream is left closed, so the next write revalidates and reopens
+// the active path instead of dropping records for the rest of the run.
 func rotateStream(s *stream) error {
 	if err := s.closeFile(); err != nil {
 		return fmt.Errorf("rotate diagnostics stream: %w", err)
 	}
-	if !s.shifted {
-		for i := maxStreamGenerations; i >= 1; i-- {
-			src := fmt.Sprintf("%s.%d", s.path, i)
-			if i == maxStreamGenerations {
-				_ = os.Remove(src) // best-effort: the oldest generation is dropped
-				continue
-			}
-			if _, err := os.Stat(src); err == nil {
-				_ = renameFile(src, fmt.Sprintf("%s.%d", s.path, i+1)) // best-effort: a stuck generation must not block rotation
-			}
+	if !s.droppedOldest {
+		oldest := fmt.Sprintf("%s.%d", s.path, maxStreamGenerations)
+		if err := os.Remove(oldest); err == nil || errors.Is(err, os.ErrNotExist) {
+			s.droppedOldest = true
 		}
-		// Record the shift even when a step failed: repeating it on every retry
-		// would discard another generation each time the active rename fails.
-		s.shifted = true
 	}
-	if err := renameFile(s.path, s.path+".1"); err != nil && !errors.Is(err, os.ErrNotExist) {
+	for i := maxStreamGenerations - 1; i >= 1; i-- {
+		src := fmt.Sprintf("%s.%d", s.path, i)
+		dst := fmt.Sprintf("%s.%d", s.path, i+1)
+		if !fileExists(src) || fileExists(dst) {
+			// Nothing to move, or the target still holds a generation that could
+			// not move. Either way the shift is incomplete and retried later.
+			continue
+		}
+		_ = renameFile(src, dst) // best-effort: an unexpected failure is retried on the next attempt
+	}
+	genOne := s.path + ".1"
+	if fileExists(genOne) {
+		// Renaming the active file now would overwrite generation 1.
+		return fmt.Errorf("rotate diagnostics stream: %s is still in place", genOne)
+	}
+	if err := renameFile(s.path, genOne); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("rotate diagnostics stream: %w", err)
 	}
-	s.shifted = false
+	s.droppedOldest = false
 	return s.reopen()
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

@@ -94,7 +94,7 @@ func New(opts Options) (*Writer, error) {
 // without the lock only creates the file, and appends still take the lock.
 func (w *Writer) openStream(kind Kind, cutoff time.Time) error {
 	s := &stream{path: filepath.Join(w.dir, kind.fileName())}
-	lock := w.lockStream(s, openLockTimeout)
+	lock := w.lockForOpen(s)
 	if lock != nil {
 		defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
 		if !cutoff.IsZero() {
@@ -198,7 +198,7 @@ func (w *Writer) Write(rec Record) {
 // rather than appended without exclusion; the lock problem is already reported
 // once, so no error is returned. Caller must hold the writer's mutex.
 func (w *Writer) appendRecord(s *stream, data []byte) error {
-	lock := w.lockStream(s, appendLockTimeout)
+	lock := w.lockForAppend(s)
 	if lock == nil {
 		return nil
 	}

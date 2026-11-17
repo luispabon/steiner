@@ -246,6 +246,130 @@ func TestRepeatedRotationFailurePreservesGenerations(t *testing.T) {
 	}
 }
 
+func TestPartialRotationFailureKeepsGenerationOne(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	seedStream(t, path+".1", 24*time.Hour)
+	seedStream(t, path+".2", 2*24*time.Hour)
+	seedStream(t, path+".3", 3*24*time.Hour)
+
+	// Fail only the move of generation 1, so the older generations shift while
+	// generation 1 stays in place.
+	renameFile = func(oldpath, newpath string) error {
+		if oldpath == path+".1" {
+			return errors.New("injected generation 1 move failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	t.Cleanup(func() { renameFile = os.Rename })
+
+	if err := os.Truncate(path, maxStreamBytes); err != nil {
+		t.Fatalf("truncate active stream: %v", err)
+	}
+	w.Write(Record{Kind: KindTool, AgentID: "failed"})
+
+	if s := w.files[KindTool]; s.file != nil {
+		t.Fatal("stream is open after a refused rotation, want it left closed")
+	}
+	// Generation 1 still holds its record, so renaming the active file now would
+	// overwrite it. The older generation did shift into .3.
+	records := readRecords(t, path+".1")
+	if len(records) != 1 || records[0].AgentID != ageLabel(24*time.Hour) {
+		t.Fatalf(".1 records = %+v, want the generation left in place", records)
+	}
+	records = readRecords(t, path+".3")
+	if len(records) != 1 || records[0].AgentID != ageLabel(2*24*time.Hour) {
+		t.Fatalf(".3 records = %+v, want the older generation shifted into .3", records)
+	}
+
+	renameFile = os.Rename
+	w.Write(Record{Kind: KindTool, AgentID: "recovered"})
+
+	if !sameOpenFile(t, w, KindTool) {
+		t.Error("writer kept a stale descriptor after recovering, want it reopened")
+	}
+	for _, gen := range []struct {
+		path string
+		want string
+	}{
+		{path: path + ".2", want: ageLabel(24 * time.Hour)},
+		{path: path + ".3", want: ageLabel(2 * 24 * time.Hour)},
+	} {
+		records := readRecords(t, gen.path)
+		if len(records) != 1 || records[0].AgentID != gen.want {
+			t.Errorf("%s records = %+v, want the %s generation", gen.path, records, gen.want)
+		}
+	}
+	records = readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "recovered" {
+		t.Fatalf("records = %+v, want the record written after recovery", records)
+	}
+}
+
+func TestExternalRotationClearsStagedRotationState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	// Stage a rotation: the shift runs and only the active rename fails, leaving
+	// this writer with staged state and no open descriptor.
+	renameFile = func(oldpath, newpath string) error {
+		if newpath == path+".1" {
+			return errors.New("injected active rename failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	t.Cleanup(func() { renameFile = os.Rename })
+	if err := os.Truncate(path, maxStreamBytes); err != nil {
+		t.Fatalf("truncate active stream: %v", err)
+	}
+	w.Write(Record{Kind: KindTool, AgentID: "failed"})
+	renameFile = os.Rename
+
+	if s := w.files[KindTool]; s.file != nil {
+		t.Fatal("setup: want the stream closed after the failed rotation")
+	}
+
+	// Another writer rotates the stream: the active file becomes generation 1 and
+	// a fresh active file takes its place.
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatalf("rotate externally: %v", err)
+	}
+	seedStream(t, path+".1", time.Hour)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create fresh active stream: %v", err)
+	}
+	if err := os.Truncate(path, maxStreamBytes); err != nil {
+		t.Fatalf("grow fresh active stream: %v", err)
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "recovered"})
+
+	if !sameOpenFile(t, w, KindTool) {
+		t.Error("writer kept a stale descriptor after recovering, want it reopened")
+	}
+	// The staged shift belonged to the file another writer rotated, so it must be
+	// retried: the external generation moves to .2 instead of being overwritten.
+	records := readRecords(t, path+".2")
+	if len(records) != 1 || records[0].AgentID != ageLabel(time.Hour) {
+		t.Fatalf(".2 records = %+v, want the generation another writer rotated", records)
+	}
+	records = readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "recovered" {
+		t.Fatalf("records = %+v, want the record written after recovery", records)
+	}
+}
+
 func TestConcurrentRotateAndAppend(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tool.jsonl")
