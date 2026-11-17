@@ -17,7 +17,6 @@ import (
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
-	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -101,14 +100,6 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	}
 	phaseAdvisor.Enabled = true
 	runtime.cfg.Advisor = phaseAdvisor
-	if providerFactory := runtime.providerFactory; providerFactory != nil {
-		runtime.providerFactory = func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
-			if effectiveProviderType(rm) == config.ProviderTypeClaudeSubscription {
-				return nil, oneshot.ErrClaudeSubscription
-			}
-			return providerFactory(rm, sessionID)
-		}
-	}
 
 	runner := cliRunner{
 		runtime:              runtime,
@@ -195,9 +186,6 @@ func runOneshotTask(cmd *cobra.Command, flags *cliFlags, task string) error {
 	if err := oneshot.RequireSubAgents(rt.cfg); err != nil {
 		return err
 	}
-	if err := oneshot.RequireProviders(rt.cfg); err != nil {
-		return err
-	}
 
 	identity, err := oneshot.NewRunIdentity(task)
 	if err != nil {
@@ -245,9 +233,6 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 	}
 	defer closeRuntime(&rt)
 	if err := oneshot.RequireSubAgents(rt.cfg); err != nil {
-		return err
-	}
-	if err := oneshot.RequireProviders(rt.cfg); err != nil {
 		return err
 	}
 

@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -212,13 +212,20 @@ func TestOneshotCommandResume(t *testing.T) {
 	}
 }
 
-func TestNewPhaseRunnerRejectsClaudeSubscriptionEffectiveProvider(t *testing.T) {
+func TestNewPhaseRunnerRoutesClaudeSubscriptionToProviderFactory(t *testing.T) {
 	oldBuildPhaseRuntime := buildPhaseRuntime
 	t.Cleanup(func() { buildPhaseRuntime = oldBuildPhaseRuntime })
+	var (
+		gotModels   []provider.ResolvedModel
+		gotSessions []string
+	)
+	built := &fakeProvider{}
 	buildPhaseRuntime = func(context.Context, *cobra.Command, *cliFlags, string, string, string) (cliRuntime, error) {
 		return cliRuntime{
-			providerFactory: func(provider.ResolvedModel, string) (provider.Provider, error) {
-				return &fakeProvider{}, nil
+			providerFactory: func(rm provider.ResolvedModel, sessionID string) (provider.Provider, error) {
+				gotModels = append(gotModels, rm)
+				gotSessions = append(gotSessions, sessionID)
+				return built, nil
 			},
 		}, nil
 	}
@@ -227,17 +234,38 @@ func TestNewPhaseRunnerRejectsClaudeSubscriptionEffectiveProvider(t *testing.T) 
 		t.Fatalf("newPhaseRunner() error = %v", err)
 	}
 	phase := runner.(phaseRunner)
-	for _, rm := range []provider.ResolvedModel{
-		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}},
-		{ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeOpenAICompat}, EffectiveProviderType: config.ProviderTypeClaudeSubscription},
-	} {
-		if _, err := phase.runner.runtime.providerFactory(rm, "session"); !errors.Is(err, oneshot.ErrClaudeSubscription) {
-			t.Fatalf("providerFactory(%#v) error = %v, want %v", rm, err, oneshot.ErrClaudeSubscription)
+	models := []provider.ResolvedModel{
+		{
+			Alias:                 "claude",
+			ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription},
+			BackendModelID:        "claude-sonnet",
+			EffectiveProviderType: config.ProviderTypeClaudeSubscription,
+		},
+		{
+			Alias:                 "effective-claude",
+			ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeOpenAICompat},
+			BackendModelID:        "claude-opus",
+			EffectiveProviderType: config.ProviderTypeClaudeSubscription,
+		},
+	}
+	for i, rm := range models {
+		got, err := phase.runner.runtime.providerFactory(rm, "session")
+		if err != nil {
+			t.Fatalf("providerFactory(%#v) error = %v, want nil", rm, err)
+		}
+		if got != provider.Provider(built) {
+			t.Fatalf("providerFactory(%#v) provider = %v, want the runtime provider", rm, got)
+		}
+		if !reflect.DeepEqual(gotModels[i], rm) {
+			t.Fatalf("factory model = %#v, want %#v (effective provider type unchanged)", gotModels[i], rm)
+		}
+		if gotSessions[i] != "session" {
+			t.Fatalf("factory session ID = %q, want session", gotSessions[i])
 		}
 	}
 }
 
-func TestNewPhaseRunnerRejectsClaudeSubscriptionThroughDelegatedChildFactory(t *testing.T) {
+func TestNewPhaseRunnerRoutesClaudeSubscriptionThroughDelegatedChild(t *testing.T) {
 	oldBuildPhaseRuntime := buildPhaseRuntime
 	t.Cleanup(func() { buildPhaseRuntime = oldBuildPhaseRuntime })
 
@@ -252,15 +280,19 @@ func TestNewPhaseRunnerRejectsClaudeSubscriptionThroughDelegatedChildFactory(t *
 	cfg.Models.Effective.Advisor = "test-model"
 	cfg.SubAgent.Enabled = true
 	workDir := t.TempDir()
-	underlyingCalls := 0
+	stopChild := errors.New("child provider requested")
+	var models []provider.ResolvedModel
 	buildPhaseRuntime = func(context.Context, *cobra.Command, *cliFlags, string, string, string) (cliRuntime, error) {
 		return cliRuntime{
 			cfg:      cfg,
 			workDir:  workDir,
 			events:   output.NoopSink{},
 			registry: tool.NewRegistry(),
-			providerFactory: func(provider.ResolvedModel, string) (provider.Provider, error) {
-				underlyingCalls++
+			providerFactory: func(rm provider.ResolvedModel, _ string) (provider.Provider, error) {
+				models = append(models, rm)
+				if effectiveProviderType(rm) == config.ProviderTypeClaudeSubscription {
+					return nil, stopChild
+				}
 				return &fakeProvider{}, nil
 			},
 		}, nil
@@ -281,11 +313,25 @@ func TestNewPhaseRunnerRejectsClaudeSubscriptionThroughDelegatedChildFactory(t *
 		t.Fatal("delegated sub_agent tool missing")
 	}
 	_, err = def.Handler(context.Background(), subAgentTask("explore", "inspect", "context", "findings"))
-	if !errors.Is(err, oneshot.ErrClaudeSubscription) && !strings.Contains(err.Error(), oneshot.ErrClaudeSubscription.Error()) {
-		t.Fatalf("delegated child error = %v, want %v", err, oneshot.ErrClaudeSubscription)
+	if !errors.Is(err, stopChild) && !strings.Contains(err.Error(), stopChild.Error()) {
+		t.Fatalf("delegated child error = %v, want %v", err, stopChild)
 	}
-	if underlyingCalls != 1 {
-		t.Fatalf("underlying provider factory calls = %d, want 1 for the advisor only", underlyingCalls)
+	var advisorRouted, childRouted bool
+	for _, rm := range models {
+		switch rm.Alias {
+		case "test-model":
+			advisorRouted = rm.EffectiveProviderType == config.ProviderTypeOpenAICompat && rm.BackendModelID == "test-model"
+		case "claude":
+			childRouted = rm.EffectiveProviderType == config.ProviderTypeClaudeSubscription &&
+				rm.ProviderConfig.Type == config.ProviderTypeClaudeSubscription &&
+				rm.BackendModelID == "claude-sonnet"
+		}
+	}
+	if !advisorRouted {
+		t.Fatalf("advisor model never reached the provider factory; factory models = %#v", models)
+	}
+	if !childRouted {
+		t.Fatalf("claude_subscription child model never reached the provider factory; factory models = %#v", models)
 	}
 }
 
@@ -303,7 +349,7 @@ func claudeOneshotConfig() config.Config {
 	return cfg
 }
 
-func TestOneshotEntryPointsRefuseClaudeSubscriptionBeforeRunState(t *testing.T) {
+func TestOneshotEntryPointsAcceptClaudeSubscription(t *testing.T) {
 	oldBuildRuntime := buildRuntime
 	oldNewOrchestrator := newOneshotOrchestrator
 	t.Cleanup(func() {
@@ -314,40 +360,52 @@ func TestOneshotEntryPointsRefuseClaudeSubscriptionBeforeRunState(t *testing.T) 
 	tests := []struct {
 		name string
 		run  func(*cobra.Command, *cliFlags) error
+		prep func(*testing.T, string)
 	}{
 		{name: "run", run: func(cmd *cobra.Command, flags *cliFlags) error {
 			return runOneshotTask(cmd, flags, "Build parser")
 		}},
 		{name: "resume", run: func(cmd *cobra.Command, flags *cliFlags) error {
 			return runOneshotResume(cmd, flags, "run-abc")
+		}, prep: func(t *testing.T, projectRoot string) {
+			t.Helper()
+			path := oneshot.RunIdentity{ID: "run-abc"}.ManifestPath(projectRoot)
+			mustMkdirAll(t, filepath.Dir(path))
+			data, err := json.MarshalIndent(oneshot.Manifest{RunID: "run-abc", Slug: "build-parser", Task: "Build parser"}, "", "  ")
+			if err != nil {
+				t.Fatalf("marshal manifest: %v", err)
+			}
+			writeFile(t, path, string(data))
 		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			projectRoot := t.TempDir()
+			if tt.prep != nil {
+				tt.prep(t, projectRoot)
+			}
 			buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
 				cfg := claudeOneshotConfig()
 				cfg.Models.Effective.DefaultModel = "claude"
 				return cliRuntime{cfg: cfg, projectRoot: projectRoot, events: output.NoopSink{}}, nil
 			}
+			constructed := false
 			newOneshotOrchestrator = func(oneshot.Dependencies) (oneshotOrchestrator, error) {
-				t.Fatal("newOneshotOrchestrator called; want refusal before any run setup")
-				return nil, nil
+				constructed = true
+				return &fakeOneshotOrchestrator{
+					runManifest:    oneshot.Manifest{RunID: "run-abc"},
+					resumeManifest: oneshot.Manifest{RunID: "run-abc"},
+				}, nil
 			}
 
 			cmd := &cobra.Command{}
 			cmd.SetContext(context.Background())
 			cmd.SetOut(&bytes.Buffer{})
-			err := tt.run(cmd, &cliFlags{})
-			if !errors.Is(err, oneshot.ErrClaudeSubscription) {
-				t.Fatalf("error = %v, want %v", err, oneshot.ErrClaudeSubscription)
+			if err := tt.run(cmd, &cliFlags{}); err != nil {
+				t.Fatalf("error = %v, want a claude_subscription run to reach the orchestrator", err)
 			}
-			entries, err := os.ReadDir(projectRoot)
-			if err != nil {
-				t.Fatalf("ReadDir() error = %v", err)
-			}
-			if len(entries) != 0 {
-				t.Fatalf("project root has %d entries after refusal, want none (no lock, manifest or worktree)", len(entries))
+			if !constructed {
+				t.Fatal("newOneshotOrchestrator was not called; want the run to start")
 			}
 		})
 	}

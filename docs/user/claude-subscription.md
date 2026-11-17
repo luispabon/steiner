@@ -44,7 +44,7 @@ If the CLI reports that it is signed out, Steiner tells you to run `claude auth 
 
 Claude accounts can turn on extra usage (also called usage credits), which bills usage beyond the subscription. Steiner refuses to use an account that could incur those charges:
 
-- Before each turn, Steiner checks the account's usage state through the CLI. The turn goes ahead only when the CLI confirms that extra usage is turned off.
+- Before a new user message is sent, Steiner checks the account's usage state through the CLI. The turn goes ahead only when the CLI confirms that extra usage is turned off.
 - If extra usage is turned on, Steiner refuses the turn at once.
 - If Steiner cannot confirm the state, it waits briefly and checks again, then refuses (fails closed). The error names what could not be confirmed.
 - If the CLI reports during a turn that paid extra usage has started, Steiner stops the response.
@@ -81,7 +81,7 @@ Automatic continuation of a cut-off reply was tested against the live CLI and re
 
 ## Limitations
 
-- Oneshot runs refuse this provider. Assign another provider to oneshot roles; see [Oneshot](oneshot.md).
+- Oneshot runs and resumes support this provider in every role: phases, the advisor, sub-agents, and the compaction fallback. The CLI version and sign-in checks run lazily when a phase runtime first needs the CLI, so a missing or signed-out CLI fails that phase instead of blocking the run before it starts; resume retries the phase after you fix the login. See [Oneshot](oneshot.md).
 - Steiner cannot rewrite history the CLI has already received. When the CLI session cannot continue from Steiner's conversation, for example after a changed system prompt or tool set, or a request the stored session cannot extend, Steiner starts a new CLI session and sends the earlier conversation as one transcript message, and warns you that prior context was replayed flattened. Prompt cache reuse is not expected for that turn, and earlier tool calls appear as text.
 - Stopping a response does not throw the CLI session away. When the CLI confirms it stopped the turn, the next request continues on the same process, which keeps its prompt cache warm and produces no warning. When the process cannot be used (it exited, the stop could not be confirmed, or Steiner was restarted), the next request resumes the saved CLI session at its last completed step instead of replaying the conversation. A resumed request that carries the text you saw before stopping sends it to the model as a quoted note labelled untrusted and possibly incomplete, marked off so it cannot be mistaken for a complete answer; the note keeps the first and last parts of a very long cut response. A restart before that request resumes without any warning.
 - A response you interrupted, or that a usage limit or error ended part-way, is kept as untrusted incomplete assistant text. A resumed request quotes it in the stopped-reply note, and a flattened transcript labels it as an interrupted partial, so it is not mistaken for a complete answer.

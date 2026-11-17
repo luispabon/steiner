@@ -10,7 +10,8 @@ Code: `internal/oneshot` (orchestration), `cmd/steiner` (`cmd_oneshot.go`, `phas
 
 - `NewOrchestrator` calls `RequireModels` (`preflight.go`) before any run state exists. Each phase needs a model reference from its `oneshot` assignment, falling back to `default_model`. The advisor uses its own assignment, falling back to `default_model`. A blank reference returns `config.ErrNoModelConfigured`. Nothing falls back to the active orchestrator model.
 - `buildRuntimeWithRoots` runs the same check through `preflightRuntimeModels`, so an empty config fails before the worktree, lock, or manifest exists. Errors wrap as `oneshot <phase> phase model: %w` or `oneshot advisor model: %w`.
-- `runOneshotTask` and `runOneshotResume` then call `RequireSubAgents` (fails when sub-agents are disabled) and `RequireProviders` (rejects `claude_subscription` in the default, advisor, oneshot, and sub-agent aliases). `newPhaseRunner` also rejects `claude_subscription` in its provider factory with `ErrClaudeSubscription`.
+- `runOneshotTask` and `runOneshotResume` then call `RequireSubAgents` (fails when sub-agents are disabled). There is no provider-type gate: `claude_subscription` is accepted in every role. `newPhaseRunner` passes the runtime `providerFactory` through unchanged, so each phase, its advisor and sub-agents, and its compaction fallback build the same way.
+- `buildRuntimeWithRoots` creates a `ClaudeSubscriptionPool` per phase runtime (`newClaudeSubscriptionPool`) with the phase worktree as the child `WorkDir`. The pool locates and version-checks the CLI lazily on its first acquire, so a missing CLI, an old version, or a signed-out login fails the phase when it first uses the CLI instead of blocking the run before state exists. `closeRuntime` (called when the phase runner finishes) closes the pool and terminates its CLI processes.
 
 ## Run identity and provisioning
 
@@ -76,7 +77,7 @@ Each phase creates its own driver. The driver's input is the phase's fresh seed 
 - Success: the driver snapshot's conversation and lineage, the last assistant reply, the token total and stop reason from the phase's run record, and `LastMainRequest`.
 - Failure: a `RunResult` with only `LastMainRequest` set. Conversation, reply, lineage, token count, and stop reason are empty. The returned error is chosen in this order: `ErrEpisodeBudgetExhausted` (wrapped as `run phase`), the run record's error, `ctx.Err()`, then the wait error.
 
-Phase runners build compaction fallback providers through the wrapped `providerFactory` set in `newPhaseRunner` (`cmd/steiner/cmd_oneshot.go`). A `claude_subscription` fallback model therefore fails to build with `oneshot.ErrClaudeSubscription`. That attempt reruns on main with status `skipped` ([context management internals](context-management.md#compaction-fallback)). `RequireProviders` does not check the compaction fallback reference, so this wrapper is the only check on that path.
+Phase runners build compaction fallback providers through the runtime `providerFactory` carried on `cliRunner` (`cmd/steiner/cmd_oneshot.go`). A `claude_subscription` fallback model builds through the phase runtime's Claude subscription pool, the same path as the phase's main model. A fallback build failure reruns on main with status `skipped` ([context management internals](context-management.md#compaction-fallback)).
 
 ## Sessions
 
