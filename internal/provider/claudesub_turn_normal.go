@@ -125,7 +125,6 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			// Clear the notice while this call still owns the lease: after the
 			// release another call for the same key could abandon its own turn and
 			// record a newer notice this call must not clear.
-			report.confirm()
 			if noticeReported {
 				pool.clearReplacement(key)
 			}
