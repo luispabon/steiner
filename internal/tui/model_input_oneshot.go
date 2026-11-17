@@ -107,8 +107,9 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	}
-	oneshotSessionStore, ok := oneshotSessionStoreOrEmit(sessionStore, sess.EventSink(), runIdentity.ID)
+	oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
 	if !ok {
+		m.content.AppendLine("status: oneshot unavailable: session store does not implement required oneshot interface")
 		m.oneshotRunning = false
 		m.syncViewport()
 		return m, nil
@@ -128,8 +129,7 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 	orchestrator, err := oneshot.NewOrchestrator(deps)
 	if err != nil {
 		releaseControl()
-		sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot failed: %v", err)))
-		sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
+		m.content.AppendLine(fmt.Sprintf("status: oneshot failed: %v", err))
 		m.oneshotRunning = false
 		m.syncInputChrome()
 		m.syncSidebar()

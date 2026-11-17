@@ -176,10 +176,12 @@ func TestRejectedOneshotLaunchDoesNotRecordHistory(t *testing.T) {
 func TestOneshotModelPreflightFailureDoesNotRecordHistory(t *testing.T) {
 	t.Parallel()
 	history := &oneshotPromptHistory{}
+	projectRoot := t.TempDir()
 	sess, err := interactive.NewSession(interactive.Dependencies{
 		BaseEvents:    output.NoopSink{},
 		HistoryWriter: history,
 		SessionStore:  tuiTestSessionStore{},
+		WorkDir:       projectRoot,
 	})
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
@@ -196,6 +198,12 @@ func TestOneshotModelPreflightFailureDoesNotRecordHistory(t *testing.T) {
 			collapseState: make(map[int]bool),
 			styles:        styles,
 		},
+	}
+	m.oneshotRunnerFactory = func(oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
+		return oneshot.PhaseRunnerFactoryFunc(func(context.Context, oneshot.Phase, string, tool.ApprovalResponder, config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+			t.Fatal("phase runner factory called before model config validation")
+			return nil, nil
+		})
 	}
 	updated, _ := m.executeLaunchOneshotAction("missing model config")
 	if updated.(*Model).oneshotRunning {
@@ -233,12 +241,14 @@ func oneshotTestConfig() config.Config {
 func setupOneshotProject(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	ctx := context.Background()
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
 		{"config", "user.email", "test@example.com"},
 		{"config", "user.name", "Test"},
+		{"config", "commit.gpgsign", "false"},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = root
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
@@ -248,7 +258,7 @@ func setupOneshotProject(t *testing.T) string {
 		t.Fatalf("write project file: %v", err)
 	}
 	for _, args := range [][]string{{"add", "README.md"}, {"commit", "-m", "initial"}} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = root
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
