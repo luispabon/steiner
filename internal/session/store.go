@@ -345,9 +345,10 @@ func (s *Store) acquireIndex(ctx context.Context) (*filelock.Lock, error) {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("acquire index lock: %w", err)
 	}
-	if warning := lock.Warning(); warning != "" {
-		slog.Warn("session store: index lock unavailable, continuing without cross-process exclusion", "dir", s.dir, "warning", warning)
-	}
+	// An unsupported lock means another process can modify the index
+	// concurrently. This package has no warning sink, and stderr output is
+	// forbidden while the TUI owns the terminal, so degraded locking is not
+	// reported here.
 	if err := s.loadIndex(); err != nil {
 		s.releaseIndex(lock)
 		return nil, fmt.Errorf("load index: %w", err)
@@ -357,12 +358,11 @@ func (s *Store) acquireIndex(ctx context.Context) (*filelock.Lock, error) {
 
 // releaseIndex drops the index lock and the store mutex. A close failure only
 // leaks the lock file descriptor for the rest of the process lifetime, and the
-// kernel releases the lock with that descriptor, so it is logged rather than
-// returned.
+// kernel still releases the lock with that descriptor, so the error is not
+// surfaced: this package has no warning sink and must not write to stderr while
+// the TUI owns the terminal.
 func (s *Store) releaseIndex(lock *filelock.Lock) {
-	if err := lock.Release(); err != nil {
-		slog.Warn("session store: cannot close index lock file", "dir", s.dir, "error", err)
-	}
+	_ = lock.Release() // intentional: a close failure cannot leave the index locked
 	s.mu.Unlock()
 }
 

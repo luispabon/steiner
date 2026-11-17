@@ -383,3 +383,39 @@ func TestCrossProcessSavesRetainBothEntries(t *testing.T) {
 		}
 	}
 }
+
+func TestFailedIndexReloadReleasesStoreLock(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	saveTaggedSessions(t, store, "s", 1, time.Now().UTC())
+
+	indexPath := filepath.Join(dir, indexFile)
+	if err := os.WriteFile(indexPath, []byte("{"), 0o600); err != nil {
+		t.Fatalf("corrupt index: %v", err)
+	}
+	if _, err := store.List(); err == nil {
+		t.Fatal("List with a corrupt index returned no error")
+	}
+
+	// Repairing the index and listing again proves the failed reload released the
+	// store mutex and the index lock instead of deadlocking the next call.
+	if err := os.WriteFile(indexPath, []byte("[]"), 0o600); err != nil {
+		t.Fatalf("repair index: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.List()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("List after repair failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("List blocked: failed reload did not release the store mutex or index lock")
+	}
+}
