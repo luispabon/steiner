@@ -30,7 +30,6 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		{name: templateCodeChild},
 		{name: templateDocumentorChild},
 		{name: "child_worktree.md.tmpl"},
-		{name: templateCoreRules},
 		{name: templateWorkflow, data: struct {
 			DelegatedCode       bool
 			DelegatedDocumentor bool

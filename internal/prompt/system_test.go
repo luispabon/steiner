@@ -11,7 +11,6 @@ const (
 	testIdentityMarker     = "You are steiner, a lean coding agent."
 	testDelegationMarker   = "## Your role"
 	testSandboxMarker      = "## Sandbox\n\nThe sandbox is enabled. The filesystem is read-only except the current\nworkdir."
-	testCoreRulesMarker    = "Core rules:"
 	testToolBatchingMarker = "## Tool batching"
 	testWorkflowMarker     = "## Work methodology"
 	testOutputVoiceMarker  = "## Output voice"
@@ -58,53 +57,47 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 		wantAbsent      []string
 		wantOrder       []string
 		wantSuffixLast  bool
-		wantCoreAbsent  []string
 		wantIdentityCnt int
 	}{
 		{
 			name:            "delegation enabled",
 			delegation:      true,
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
-			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "A cold initial sub-agent brief is six-part and MUST use every section of this template:", "## Your workflow"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantIdentityCnt: 1,
 		},
 		{
 			name:            "sandbox enabled between workflow and execution modes",
 			delegation:      true,
 			sandbox:         true,
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testSandboxMarker},
-			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "A cold initial sub-agent brief is six-part and MUST use every section of this template:", "## Your workflow"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, testSandboxMarker},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, testSandboxMarker},
 			wantIdentityCnt: 1,
 		},
 		{
 			name:            "sandbox disabled",
 			delegation:      true,
 			sandbox:         false,
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantAbsent:      []string{testSandboxMarker},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
-			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide.", "A cold initial sub-agent brief is six-part and MUST use every section of this template:", "## Your workflow"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantIdentityCnt: 1,
 		},
 		{
 			name:            "delegation disabled",
 			delegation:      false,
-			wantPresent:     []string{testIdentityMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantAbsent:      []string{testDelegationMarker},
-			wantOrder:       []string{testIdentityMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
-			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide."},
+			wantOrder:       []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker},
 			wantIdentityCnt: 1,
 		},
 		{
 			name:            "output voice append after base sections",
 			delegation:      true,
 			suffix:          "system suffix",
-			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testOutputVoiceMarker, "system suffix"},
-			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker, testOutputVoiceMarker, "system suffix"},
+			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, testOutputVoiceMarker, "system suffix"},
+			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, testOutputVoiceMarker, "system suffix"},
 			wantSuffixLast:  true,
-			wantCoreAbsent:  []string{"Delegate by default. Work locally only on a genuinely self-contained action that will not lead to others:", "Sub-agents receive only the task you provide."},
 			wantIdentityCnt: 1,
 		},
 		{
@@ -113,7 +106,6 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      true,
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
-			wantAbsent:      []string{testCoreRulesMarker},
 			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
@@ -126,7 +118,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			mounts:          []string{"/host/rw"},
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", "suffix"},
-			wantAbsent:      []string{testCoreRulesMarker, testSandboxMarker},
+			wantAbsent:      []string{testSandboxMarker},
 			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
@@ -136,7 +128,7 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			override:        "Custom override content",
 			delegation:      false,
 			wantPresent:     []string{testIdentityMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content"},
-			wantAbsent:      []string{testDelegationMarker, testCoreRulesMarker},
+			wantAbsent:      []string{testDelegationMarker},
 			wantOrder:       []string{testIdentityMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker},
 			wantIdentityCnt: 1,
 		},
@@ -146,7 +138,6 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 			delegation:      true,
 			suffix:          "suffix",
 			wantPresent:     []string{testIdentityMarker, testDelegationMarker, testToolBatchingMarker, testWorkflowMarker, "Custom override content", testOutputVoiceMarker, "suffix"},
-			wantAbsent:      []string{testCoreRulesMarker},
 			wantOrder:       []string{testIdentityMarker, testDelegationMarker, testWorkflowMarker, "Custom override content", testToolBatchingMarker, testOutputVoiceMarker, "suffix"},
 			wantSuffixLast:  true,
 			wantIdentityCnt: 1,
@@ -154,8 +145,8 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 		{
 			name:            "advisor enabled",
 			advisor:         true,
-			wantPresent:     []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
-			wantOrder:       []string{testIdentityMarker, "## Advisor", testCoreRulesMarker, testToolBatchingMarker, testWorkflowMarker},
+			wantPresent:     []string{testIdentityMarker, "## Advisor", testToolBatchingMarker, testWorkflowMarker},
+			wantOrder:       []string{testIdentityMarker, "## Advisor", testToolBatchingMarker, testWorkflowMarker},
 			wantIdentityCnt: 1,
 		},
 	}
@@ -201,15 +192,8 @@ func TestSystemPreambleSectionsAndOrdering(t *testing.T) {
 				t.Fatalf("suffix %q not at end of preamble in %q", tc.suffix, content)
 			}
 
-			coreStart := strings.Index(content, testCoreRulesMarker)
-			workflowStart := strings.Index(content, testWorkflowMarker)
-			if coreStart != -1 && workflowStart != -1 && coreStart < workflowStart {
-				coreSection := content[coreStart:workflowStart]
-				for _, forbidden := range tc.wantCoreAbsent {
-					if strings.Contains(coreSection, forbidden) {
-						t.Fatalf("core rules section unexpectedly contains %q in %q", forbidden, coreSection)
-					}
-				}
+			if strings.Contains(content, "## Core rules:") {
+				t.Fatalf("preamble renders a separate core rules section in %q", content)
 			}
 		})
 	}
@@ -768,8 +752,17 @@ func TestDelegatedWorkflowProfilesExcludeOrchestratorContent(t *testing.T) {
 					t.Fatalf("child contains orchestrator-only marker %q", marker)
 				}
 			}
-			if !strings.Contains(content, "## Delegated task") {
-				t.Fatal("child missing delegated-task authorization")
+			if got := strings.Count(content, "## Delegated task"); got != 1 {
+				t.Fatalf("delegated-task authorization count = %d, want 1 in %q", got, content)
+			}
+			batching := strings.Index(content, testToolBatchingMarker)
+			outputVoice := strings.Index(content, testOutputVoiceMarker)
+			delegatedTask := strings.Index(content, "## Delegated task")
+			if batching < 0 || outputVoice < 0 || delegatedTask < 0 {
+				t.Fatalf("missing ordering marker in %q", content)
+			}
+			if batching >= outputVoice || outputVoice >= delegatedTask {
+				t.Fatalf("child preamble must order tool batching, output voice, then the delegated-task authorization in %q", content)
 			}
 			switch tc.mode {
 			case workflowModeDelegatedCodeSubAgent:
@@ -816,7 +809,7 @@ func TestCodeChildApprovedOpeningOrder(t *testing.T) {
 
 	content := systemPreambleWithAdvisor(SystemPreambleParams{Mode: workflowModeDelegatedCodeSubAgent}).Content
 	const roleSentence = "You are steiner's code sub-agent. Complete the task in your brief within its stated scope."
-	markers := []string{testIdentityMarker, roleSentence, "## Code agent duties", "## Delegated task", testCoreRulesMarker}
+	markers := []string{testIdentityMarker, roleSentence, "## Code agent duties", testToolBatchingMarker, "## Working rules", testOutputVoiceMarker, "## Delegated task"}
 	last := -1
 	for _, marker := range markers {
 		idx := strings.Index(content, marker)
@@ -866,15 +859,126 @@ func TestSystemPreambleRoleProsePosition(t *testing.T) {
 
 	roleIdx := strings.Index(content, testRoleProseMarker)
 	advisorIdx := strings.Index(content, "## Advisor")
-	coreIdx := strings.Index(content, testCoreRulesMarker)
+	workflowIdx := strings.Index(content, "## Work methodology")
 
-	if roleIdx < 0 || advisorIdx < 0 || coreIdx < 0 {
-		t.Fatalf("missing marker: roleIdx=%d advisorIdx=%d coreIdx=%d in %q", roleIdx, advisorIdx, coreIdx, content)
+	if roleIdx < 0 || advisorIdx < 0 || workflowIdx < 0 {
+		t.Fatalf("missing marker: roleIdx=%d advisorIdx=%d workflowIdx=%d in %q", roleIdx, advisorIdx, workflowIdx, content)
 	}
 	if roleIdx >= advisorIdx {
 		t.Fatalf("role prose (index %d) should appear before advisor section (index %d) in %q", roleIdx, advisorIdx, content)
 	}
-	if roleIdx >= coreIdx {
-		t.Fatalf("role prose (index %d) should appear before core rules (index %d) in %q", roleIdx, coreIdx, content)
+	if roleIdx >= workflowIdx {
+		t.Fatalf("role prose (index %d) should appear before the workflow section (index %d) in %q", roleIdx, workflowIdx, content)
+	}
+}
+
+// TestCoreRulesNotRenderedSeparately pins the removal of the standalone core
+// rules section: the shared workflow template owns those rules for every mode,
+// with and without a system override.
+func TestCoreRulesNotRenderedSeparately(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		mode     workflowMode
+		override string
+	}{
+		{name: "parent", mode: workflowModeParent},
+		{name: "parent override", mode: workflowModeParent, override: "custom override"},
+		{name: "legacy delegated child", mode: workflowModeDelegatedChild},
+		{name: "legacy delegated child override", mode: workflowModeDelegatedChild, override: "custom override"},
+		{name: "code sub-agent", mode: workflowModeDelegatedCodeSubAgent},
+		{name: "documentor", mode: workflowModeDelegatedDocumentor},
+		{name: "non-code child", mode: workflowModeDelegatedNonCodeChild},
+		{name: "non-code override", mode: workflowModeDelegatedNonCodeChild, override: "custom override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, Mode: tc.mode}).Content
+			if strings.Contains(content, "## Core rules:") {
+				t.Fatalf("%s preamble renders a separate core rules section in %q", tc.name, content)
+			}
+		})
+	}
+}
+
+// TestDelegatedTaskAuthorizationOrderedBeforeSuffix pins the delegated-task
+// authorization as the last built-in preamble section for every delegated
+// child mode, with and without an override, so it lands after the output voice
+// and before any caller suffix.
+func TestDelegatedTaskAuthorizationOrderedBeforeSuffix(t *testing.T) {
+	t.Parallel()
+
+	modes := []struct {
+		name string
+		mode workflowMode
+	}{
+		{name: "legacy delegated child", mode: workflowModeDelegatedChild},
+		{name: "code sub-agent", mode: workflowModeDelegatedCodeSubAgent},
+		{name: "documentor", mode: workflowModeDelegatedDocumentor},
+		{name: "non-code child", mode: workflowModeDelegatedNonCodeChild},
+	}
+
+	for _, mode := range modes {
+		for _, tc := range []struct {
+			name     string
+			override string
+		}{
+			{name: "default"},
+			{name: "override", override: "custom override"},
+		} {
+			t.Run(mode.name+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				const suffix = "caller suffix"
+				content := systemPreambleWithAdvisor(SystemPreambleParams{
+					Override:     tc.override,
+					Mode:         mode.mode,
+					SystemSuffix: suffix,
+				}).Content
+
+				if got := strings.Count(content, "## Delegated task"); got != 1 {
+					t.Fatalf("delegated-task authorization count = %d, want 1 in %q", got, content)
+				}
+				batching := strings.Index(content, testToolBatchingMarker)
+				outputVoice := strings.Index(content, testOutputVoiceMarker)
+				delegatedTask := strings.Index(content, "## Delegated task")
+				if batching < 0 || outputVoice < 0 {
+					t.Fatalf("missing ordering marker in %q", content)
+				}
+				if batching >= outputVoice || outputVoice >= delegatedTask {
+					t.Fatalf("want tool batching, output voice, then delegated task order in %q", content)
+				}
+				if !strings.HasSuffix(strings.TrimSpace(content), suffix) {
+					t.Fatalf("suffix %q not at end of preamble in %q", suffix, content)
+				}
+			})
+		}
+	}
+}
+
+// TestParentOverrideRetainsWorkflowWorkingRules pins the override behaviour for
+// orchestrators: the shared workflow working rules still render around override
+// text, and no delegated-task authorization is added for the parent.
+func TestParentOverrideRetainsWorkflowWorkingRules(t *testing.T) {
+	t.Parallel()
+
+	content := systemPreambleWithAdvisor(SystemPreambleParams{
+		Override:          "custom override",
+		DelegationEnabled: true,
+		Mode:              workflowModeParent,
+	}).Content
+
+	for _, want := range []string{testWorkflowMarker, "## Working rules", "### While editing", "### Verification", "## Final response"} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("parent override preamble missing %q in %q", want, content)
+		}
+	}
+	if strings.Contains(content, "## Delegated task") {
+		t.Fatalf("parent override preamble contains delegated-task authorization in %q", content)
+	}
+	workflow := strings.Index(content, testWorkflowMarker)
+	override := strings.Index(content, "custom override")
+	if workflow < 0 || override < 0 || workflow >= override {
+		t.Fatalf("workflow methodology should precede the override text in %q", content)
 	}
 }

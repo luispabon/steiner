@@ -53,8 +53,6 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 
 	for _, want := range []string{
 		"You are steiner, a lean coding agent.",
-		"Core rules:",
-		"Prefer smallest correct change.",
 		"### While editing",
 		"### Verification",
 		"## Final response",
@@ -73,6 +71,9 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("shared child system prompt unexpectedly contains delegation instructions: %q", content)
 		}
+	}
+	if outputVoice, delegatedTask := strings.Index(content, "## Output voice"), strings.Index(content, "## Delegated task"); outputVoice < 0 || delegatedTask < outputVoice {
+		t.Fatalf("shared child system prompt must place the delegated-task authorization after the output voice in %q", content)
 	}
 	if strings.Contains(content, "Ask the user for confirmation before editing.") {
 		t.Fatalf("shared child system prompt unexpectedly contains parent approval guidance: %q", content)

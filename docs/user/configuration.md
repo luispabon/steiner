@@ -169,7 +169,7 @@ No profile is required. Every declared profile must set `default_model`, and pro
 | `models.definitions.<alias>.retry.initial_backoff` | duration | `250ms` | Wait before the first retry; greater than zero. |
 | `models.definitions.<alias>.retry.max_backoff` | duration | `5s` | Cap on exponential backoff; at least `initial_backoff`. |
 | `models.definitions.<alias>.retry.retry_after_max` | duration | `60s` | Longest `Retry-After` wait honoured; at least `initial_backoff`. |
-| `models.definitions.<alias>.prompts.system` | string | none | Replaces the default system prompt for this model. |
+| `models.definitions.<alias>.prompts.system` | string | none | Replaces the default system prompt for this model. Identity, delegation, advisor and LSP guidance, the workflow section including its working rules, tool batching, and output voice still render around the override; sandbox and execution modes are replaced. |
 | `models.definitions.<alias>.prompts.system_suffix` | string | none | Appended after the default preamble. |
 | `models.definitions.<alias>.prompts.compaction` | string | none | Replaces the compaction prompt for this model. |
 | `models.definitions.<alias>.advanced.limits.context_window` | int | resolved from metadata | Context window in tokens. An explicit value wins over discovered metadata. If nothing resolves, `32768` is used. |
