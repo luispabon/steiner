@@ -49,9 +49,15 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 	warned := false
 	noticeReported := false
 	recoveries := 0
+	// recoveryErr is the failure a scheduled retry is recovering from. A retry
+	// that would have to reseed ends the call with it.
+	var recoveryErr error
 	for {
-		attached, err := claudeSubAttachSession(ctx, pool, req, a, false)
+		attached, err := claudeSubAttachSession(ctx, pool, req, a, false, recoveries > 0)
 		if err != nil {
+			if recoveries > 0 && errors.Is(err, errClaudeSubRetryNeedsReseed) {
+				return recoveryErr
+			}
 			return err
 		}
 		s := attached.session
@@ -136,6 +142,7 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			return err
 		}
 		pool.release(s)
+		recoveryErr = err
 		recoveries++
 		metrics := claudeSubMetricsFrom(ctx)
 		metrics.resetDelivery()

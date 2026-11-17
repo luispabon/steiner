@@ -1237,3 +1237,32 @@ func TestClaudeSubCrashResultWithAPIFailureTextFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// TestClaudeSubRetryForkOnlyWhenMarkerSetDuringBackoff proves a retry enforces
+// the fork-only rule at attach: when another same-key call records a reseed
+// requirement while this call waits to retry, the retry fails with the original
+// error, starts no process, and leaves the marker for the next user request.
+func TestClaudeSubRetryForkOnlyWhenMarkerSetDuringBackoff(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{}, claudeSubTextTurns(t, 1))
+	pool.confirmRetire = func(*claudeSubSession) bool {
+		// Another call records the requirement between this attempt and its retry.
+		pool.noteReseedKey("parent")
+		return true
+	}
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err == nil || !strings.Contains(got.err.Error(), "claude CLI connection closed") {
+		t.Fatalf("turn error = %v, want the original connection-closed failure", got.err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (a retry never reseeds)", n)
+	}
+	if !pool.reseedPending("parent") {
+		t.Error("the retry cleared the reseed marker another call recorded")
+	}
+}

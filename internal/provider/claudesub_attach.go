@@ -10,6 +10,12 @@ import (
 // delivery would wait on an idle CLI for a turn that was never started.
 var errClaudeSubEmptyDelivery = errors.New("claude_subscription request adds nothing to the conversation")
 
+// errClaudeSubRetryNeedsReseed reports that a retry attempt would have to reseed
+// instead of fork-resuming the stored checkpoint. A retry never reseeds, so the
+// caller ends the call with its original failure and keeps the reseed marker for
+// the next user request.
+var errClaudeSubRetryNeedsReseed = errors.New("claude_subscription retry would need a reseed")
+
 // claudeSubAttach is the per-call input to the attach state machine.
 type claudeSubAttach struct {
 	key         string
@@ -46,7 +52,11 @@ type claudeSubAttachResult struct {
 }
 
 // claudeSubAttachSession returns the process req runs on, locked (the caller
-// releases it) and how req must be delivered.
+// releases it) and how req must be delivered. forkOnly forbids every reseed
+// branch: it is set for a retry attempt, which must resume the stored checkpoint
+// or fail with errClaudeSubRetryNeedsReseed. The check is made again once the
+// process is leased, so a reseed marker another call recorded while this attempt
+// waited cannot slip through.
 //
 //   - A process a cancelled delivery left unsafe is retired before anything is
 //     planned on it, because the CLI may still produce that turn's events (see
@@ -61,9 +71,14 @@ type claudeSubAttachResult struct {
 //     req. Otherwise it starts fresh, and a request with history is reseeded.
 //   - A process that exited is evicted, and its successor resumes the stored
 //     state when that state is restorable (D3).
-func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed bool) (claudeSubAttachResult, error) {
+func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, a claudeSubAttach, forceReseed, forkOnly bool) (claudeSubAttachResult, error) {
 	reseedPending := pool.reseedPending(a.key)
 	if reseedPending {
+		if forkOnly {
+			// A retry never reseeds, so the requirement recorded by another call
+			// ends this attempt instead of being satisfied silently.
+			return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+		}
 		// An earlier call could not prove its process gone. Retire whatever is
 		// still pooled (usually nothing, because that call already evicted it),
 		// then reseed on a new session instead of resuming the stored one.
@@ -76,6 +91,9 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		// The stored session resumes on a new process, which is safe only once
 		// the dead one was provably taken down.
 		if !confirmed {
+			if forkOnly {
+				return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+			}
 			claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
 			forceReseed = true
 		}
@@ -91,6 +109,14 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		// The record stays: a failed spawn has not reseeded anything yet.
 		return claudeSubAttachResult{}, err
 	}
+	if forkOnly && pool.reseedPending(a.key) {
+		// Another call recorded a reseed requirement while this attempt waited for
+		// the process. The lease makes this the deciding read: a retry never
+		// reseeds, so it fails instead. The lease is released with the marker left
+		// for the next user request.
+		pool.release(s)
+		return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+	}
 	if reseedPending {
 		pool.clearReseedKey(a.key)
 	}
@@ -103,17 +129,20 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		confirmed := pool.retireConfirmed(a.key, s)
 		pool.release(s)
 		if !resume {
-			return claudeSubAttachSession(ctx, pool, req, a, forceReseed)
+			return claudeSubAttachSession(ctx, pool, req, a, forceReseed, forkOnly)
 		}
 		if !confirmed {
 			claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
 			pool.noteReseedKey(a.key)
-			return claudeSubAttachSession(ctx, pool, req, a, true)
+			if forkOnly {
+				return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+			}
+			return claudeSubAttachSession(ctx, pool, req, a, true, forkOnly)
 		}
 		next := a
 		next.retired = true
 		next.stopped = true
-		return claudeSubAttachSession(ctx, pool, req, next, forceReseed)
+		return claudeSubAttachSession(ctx, pool, req, next, forceReseed, forkOnly)
 	}
 	if s.primed {
 		if err := claudeSubFinishPending(ctx, s, req); err != nil {
@@ -126,7 +155,10 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 				// straight after a dangling tool_use is not a transcript steiner has
 				// proven. The replacement notice reports it to the user.
 				pool.retireAndRelease(a.key, s)
-				return claudeSubAttachSession(ctx, pool, req, a, true)
+				if forkOnly {
+					return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+				}
+				return claudeSubAttachSession(ctx, pool, req, a, true, forkOnly)
 			}
 			pool.release(s)
 			return claudeSubAttachResult{}, err
@@ -152,7 +184,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 				pool.noteReseedKey(a.key)
 			}
 			pool.release(s)
-			return claudeSubAttachSession(ctx, pool, req, a, false)
+			return claudeSubAttachSession(ctx, pool, req, a, false, forkOnly)
 		}
 		if a.restorable {
 			// The request can restore the stored checkpoint, so the process is
@@ -164,15 +196,21 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 				claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedUnconfirmed)
 				pool.noteReseedKey(a.key)
 				pool.release(s)
-				return claudeSubAttachSession(ctx, pool, req, a, true)
+				if forkOnly {
+					return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+				}
+				return claudeSubAttachSession(ctx, pool, req, a, true, forkOnly)
 			}
 			pool.release(s)
 			next := a
 			next.retired = true
-			return claudeSubAttachSession(ctx, pool, req, next, false)
+			return claudeSubAttachSession(ctx, pool, req, next, false, forkOnly)
 		}
 		pool.retireAndRelease(a.key, s)
-		return claudeSubAttachSession(ctx, pool, req, a, true)
+		if forkOnly {
+			return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+		}
+		return claudeSubAttachSession(ctx, pool, req, a, true, forkOnly)
 	}
 	if s.resume != spawn.Resume || (s.sync.fingerprint != "" && s.sync.fingerprint != a.fingerprint) {
 		// An unprimed process left by an earlier attempt was started with a
@@ -180,7 +218,10 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		// Persist is not compared: a key always maps to one process kind.
 		claudeSubMetricsFrom(ctx).noteReseed(claudeSubReseedRetry)
 		pool.retireAndRelease(a.key, s)
-		return claudeSubAttachSession(ctx, pool, req, a, true)
+		if forkOnly {
+			return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+		}
+		return claudeSubAttachSession(ctx, pool, req, a, true, forkOnly)
 	}
 	s.sync.fingerprint = a.fingerprint
 	if spawn.Resume.SessionID == "" {

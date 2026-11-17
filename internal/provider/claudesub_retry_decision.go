@@ -244,13 +244,13 @@ func claudeSubPermanentFailureTextMatch(err error) bool {
 	return false
 }
 
-// claudeSubAPIFailureText lists the CLI's own API failure wording. A turn that
+// claudeSubAPIFailureMarkers lists the CLI's own API failure wording. A turn that
 // reports it without a terminal reason may have exhausted the CLI's own retries,
 // so it is never sent again.
 var claudeSubAPIFailureMarkers = []string{"api error", "server error mid-response"}
 
-// claudeSubAPIFailureText reports whether text carries the CLI's API failure
-// wording. The match is case-insensitive.
+// claudeSubAPIFailureTextMatch reports whether text carries the CLI's API
+// failure wording. The match is case-insensitive.
 func claudeSubAPIFailureTextMatch(text string) bool {
 	lower := strings.ToLower(text)
 	for _, want := range claudeSubAPIFailureMarkers {
@@ -259,6 +259,21 @@ func claudeSubAPIFailureTextMatch(text string) bool {
 		}
 	}
 	return false
+}
+
+// claudeSubConnError types a connection failure exactly once: an error that
+// already carries errClaudeSubConnClosed is returned unchanged, a line the CLI
+// refused keeps its own type, and anything else is wrapped as a closed
+// connection.
+func claudeSubConnError(err error) error {
+	if errors.Is(err, errClaudeSubConnClosed) {
+		return err
+	}
+	var tooLarge *claudeSubLineTooLargeError
+	if errors.As(err, &tooLarge) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errClaudeSubConnClosed, err)
 }
 
 // claudeSubFailedTurnResult returns the CLI result facts of a failed turn.
