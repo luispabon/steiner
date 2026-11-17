@@ -85,7 +85,7 @@ func (a eventingApprover) RequestApproval(ctx context.Context, req tool.Approval
 			if message == "" {
 				message = "tool execution denied"
 			}
-			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Message: message, Kind: string(req.Kind), Server: server, ToolName: toolName}), agentID))
+			emitEvent(a.sink, output.WithAgentScope(output.NewApprovalDeniedEvent(output.ApprovalEventParams{Tool: req.Tool.Name, CallID: req.CallID, RequestID: req.RequestID, Mode: req.Reason, Preview: preview, Message: message, Kind: string(req.Kind), Server: server, ToolName: toolName, NoPersist: req.NoPersist}), agentID))
 		}
 		req.Response <- response
 	}()

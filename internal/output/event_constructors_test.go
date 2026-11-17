@@ -11,6 +11,26 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
+func TestApprovalEventNoPersistJSON(t *testing.T) {
+	event := NewApprovalRequestedEvent(ApprovalEventParams{Tool: "bash", RequestID: "req-once", Kind: "path", NoPersist: true})
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"no_persist":true`) {
+		t.Fatalf("event JSON = %s, want no_persist true", data)
+	}
+
+	persisted := NewApprovalRequestedEvent(ApprovalEventParams{Tool: "write", RequestID: "req-session", Kind: "path"})
+	data, err = json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "no_persist") {
+		t.Fatalf("event JSON = %s, want no_persist omitted", data)
+	}
+}
+
 func TestApprovalConstructorsMapParams(t *testing.T) {
 	p := ApprovalEventParams{
 		Turn:     7,
@@ -22,6 +42,8 @@ func TestApprovalConstructorsMapParams(t *testing.T) {
 		Kind:     "mcp",
 		Server:   "srv",
 		ToolName: "tool",
+		// Every constructor must carry the one-time marker through.
+		NoPersist: true,
 	}
 	tests := []struct {
 		name      string
@@ -45,16 +67,17 @@ func TestApprovalConstructorsMapParams(t *testing.T) {
 				t.Fatalf("payload = %T, want ApprovalEvent", event.Payload)
 			}
 			want := ApprovalEvent{
-				Turn:     7,
-				Tool:     "mcp__srv__tool",
-				CallID:   "call-9",
-				Mode:     "MCP tool call",
-				Preview:  `{"message":"hi"}`,
-				Allowed:  tt.allowed,
-				Message:  tt.message,
-				Kind:     "mcp",
-				Server:   "srv",
-				ToolName: "tool",
+				Turn:      7,
+				Tool:      "mcp__srv__tool",
+				CallID:    "call-9",
+				Mode:      "MCP tool call",
+				Preview:   `{"message":"hi"}`,
+				Allowed:   tt.allowed,
+				Message:   tt.message,
+				Kind:      "mcp",
+				Server:    "srv",
+				ToolName:  "tool",
+				NoPersist: true,
 			}
 			if got != want {
 				t.Fatalf("payload = %#v, want %#v", got, want)

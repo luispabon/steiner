@@ -52,10 +52,18 @@ func (m *Model) moveApprovalSelection(delta int) *Model {
 			break
 		}
 	}
-	next := indexes[(pos+delta)%len(indexes)]
+	// Go's % keeps the dividend's sign, so wrap a negative step (left/up) back
+	// into range instead of indexing -1.
+	next := indexes[wrapIndex(pos+delta, len(indexes))]
 	m.approval.selectedAction = next
 	m.syncApprovalSelection(next)
 	return m
+}
+
+// wrapIndex maps an index into [0, n). It handles negative values, which Go's
+// remainder operator preserves.
+func wrapIndex(i, n int) int {
+	return ((i % n) + n) % n
 }
 
 // syncApprovalSelection syncs the highlighted action to the segment that

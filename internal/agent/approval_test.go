@@ -263,3 +263,51 @@ func TestEventingApproverContextCancelledDeniesWithoutHanging(t *testing.T) {
 		t.Fatalf("event types = %v, want %v", got, want)
 	}
 }
+
+// TestEventingApproverPropagatesNoPersist proves a one-time request marks every
+// lifecycle event, including the user-denied event.
+func TestEventingApproverPropagatesNoPersist(t *testing.T) {
+	tests := []struct {
+		name  string
+		allow bool
+		want  []string
+	}{
+		{name: "accepted", allow: true, want: []string{output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted}},
+		{name: "denied", allow: false, want: []string{output.EventTypeApprovalRequested, output.EventTypeApprovalDenied}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+				req.Response <- tool.ApprovalResponse{Allow: tt.allow, Message: "user decision"}
+				return nil
+			}))
+
+			response := make(chan tool.ApprovalResponse, 1)
+			err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+				Tool:      tool.ToolDef{Name: "bash"},
+				Reason:    "command blocked by sandbox",
+				Response:  response,
+				Kind:      tool.ApprovalKindPath,
+				NoPersist: true,
+			})
+			if err != nil {
+				t.Fatalf("RequestApproval() error = %v", err)
+			}
+			<-response
+
+			if got := eventTypes(events); !equalStrings(got, tt.want) {
+				t.Fatalf("event types = %v, want %v", got, tt.want)
+			}
+			for _, event := range events {
+				payload, ok := event.Payload.(output.ApprovalEvent)
+				if !ok {
+					t.Fatalf("payload = %T, want output.ApprovalEvent", event.Payload)
+				}
+				if !payload.NoPersist {
+					t.Fatalf("%s payload.NoPersist = false, want true", event.Type)
+				}
+			}
+		})
+	}
+}
