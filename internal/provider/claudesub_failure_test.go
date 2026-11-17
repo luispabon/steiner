@@ -1465,3 +1465,42 @@ func TestClaudeSubRetryDeniedAttachKeepsFailure(t *testing.T) {
 		t.Error("the refused retry cleared the reseed marker another call recorded")
 	}
 }
+
+// TestClaudeSubRetryNoticeEmitFailureReleasesLease proves a retry whose notice
+// cannot be emitted ends the call without keeping the process lease: the attempt
+// never wrote to the CLI, so the forked process stays reusable and the same key
+// can be acquired again immediately.
+func TestClaudeSubRetryNoticeEmitFailureReleasesLease(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{}, claudeSubTextTurns(t, 1))
+	noticeErr := errors.New("stream closed")
+	err := claudeSubTurn(context.Background(), pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	}, func(chunk ChatChunk) error {
+		if claudeSubRecoveryNoticeChunk(chunk) {
+			return noticeErr
+		}
+		return nil
+	})
+	if !errors.Is(err, noticeErr) {
+		t.Fatalf("turn error = %v, want the notice emit failure", err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the crash and its forked retry)", n)
+	}
+	// The lease is free, so a later call on the same key acquires it instead of
+	// parking on a lease the failed call never released.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	s, err := pool.acquireLive(ctx, "parent")
+	if err != nil {
+		t.Fatalf("acquireLive after the failed notice = %v, want the released process", err)
+	}
+	if s == nil {
+		t.Fatal("acquireLive after the failed notice = nil, want the released process")
+	}
+	pool.release(s)
+}

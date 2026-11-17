@@ -68,6 +68,7 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			}
 			return err
 		}
+		s := attached.session
 		if pendingAction != claudeSubRetryNone {
 			// The retry forked the stored checkpoint, so it is reported now: the
 			// action in the call diagnostics, the log line, and the notice that
@@ -77,11 +78,14 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			metrics.noteRecovery(claudeSubActionLabel(pendingAction))
 			claudeSubLogRecovery(recoveryErr, pendingAction, recoveries)
 			if noticeErr := emit(claudeSubRecoveryNotice(recoveryErr, recoveries, pendingDelay)); noticeErr != nil {
+				// The attempt never wrote to the CLI, so the forked process stays
+				// reusable. The lease is released before the error ends the call: a
+				// held lease would block every later call on this key.
+				pool.release(s)
 				return fmt.Errorf("emit claude_subscription recovery notice: %w", noticeErr)
 			}
 			pendingAction = claudeSubRetryNone
 		}
-		s := attached.session
 		if !attached.reseed {
 			claudeSubMetricsFrom(ctx).clearReseed()
 		}
