@@ -179,12 +179,13 @@ func claudeSubRetryRefused(err error) bool {
 	if _, limited := AsUsageLimit(err); limited {
 		return true
 	}
-	if failure, ok := claudeSubFailedTurnResult(err); ok && strings.Contains(failure.text, claudeSubInterruptedResultText) {
+	failure, failed := claudeSubFailedTurnResult(err)
+	if failed && strings.Contains(failure.text, claudeSubInterruptedResultText) {
 		// The CLI reported a turn someone interrupted. A user stop is never
 		// recovered, even on a CLI version that names no terminal reason for it.
 		return true
 	}
-	if failure, ok := claudeSubFailedTurnResult(err); ok && failure.terminalReason == "" && claudeSubAPIFailureTextMatch(failure.text) {
+	if failed && failure.terminalReason == "" && claudeSubAPIFailureTextMatch(failure.text) {
 		// A result with no terminal reason can be a crash or an API failure the
 		// CLI reported without naming it. Its own API failure wording is ambiguous,
 		// so the turn fails closed instead of being sent again.
@@ -212,7 +213,13 @@ func claudeSubRetryRefused(err error) bool {
 	if errors.As(err, &tooLarge) {
 		return true
 	}
-	return claudeSubPermanentFailureTextMatch(err)
+	if failed {
+		return claudeSubPermanentFailureTextMatch(failure.text)
+	}
+	// Every other error contributes only its safe form, which excludes the
+	// stderr tail and control-response text, so an incidental word there never
+	// blocks a legitimate retry.
+	return claudeSubPermanentFailureTextMatch(claudeSubDiagnosticError(err).Error())
 }
 
 // claudeSubPermanentFailureText lists the failure text of a permanent refusal.
@@ -222,19 +229,10 @@ var claudeSubPermanentFailureText = []string{
 	"401", "403", "authentication", "billing", "credit", "permission", "invalid_request",
 }
 
-// claudeSubPermanentFailureTextMatch reports whether err's structured text names
-// a permanent refusal. A failed turn contributes only its result text, which the
-// CLI wrote into the result envelope; every other error contributes only its safe
-// form, which excludes the stderr tail and control-response text. An incidental
-// word in stderr therefore never blocks a legitimate retry. The match is
-// case-insensitive and only ever stops a recovery.
-func claudeSubPermanentFailureTextMatch(err error) bool {
-	var text string
-	if failure, ok := claudeSubFailedTurnResult(err); ok {
-		text = failure.text
-	} else {
-		text = claudeSubDiagnosticError(err).Error()
-	}
+// claudeSubPermanentFailureTextMatch reports whether a failure's text names a
+// permanent refusal. The caller picks the text a failed turn or another error
+// contributes. The match is case-insensitive and only ever stops a recovery.
+func claudeSubPermanentFailureTextMatch(text string) bool {
 	text = strings.ToLower(text)
 	for _, want := range claudeSubPermanentFailureText {
 		if strings.Contains(text, want) {
