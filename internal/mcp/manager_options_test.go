@@ -48,8 +48,8 @@ func TestConnectOptionsZeroValueDefaults(t *testing.T) {
 			defer m.Close() //nolint:errcheck
 			waitInit(t, m)
 
-			if m.planMode != tt.wantPlanMode {
-				t.Errorf("planMode = %v, want %v", m.planMode, tt.wantPlanMode)
+			if got := m.currentPlanMode(); got != tt.wantPlanMode {
+				t.Errorf("plan mode = %v, want %v", got, tt.wantPlanMode)
 			}
 			if got := len(m.ToolDefs()); got != 6 {
 				t.Errorf("ToolDefs() has %d tools, want 6", got)
