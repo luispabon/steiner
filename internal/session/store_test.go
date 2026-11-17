@@ -896,6 +896,108 @@ func TestDeleteRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
+func TestReservedSessionIDsRejected(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+
+	for _, id := range []string{"index", indexFile, indexLockFile, "Index.JSON"} {
+		if _, err := safeSessionPath(dir, id); err == nil {
+			t.Errorf("safeSessionPath(%q) accepted a reserved id", id)
+		}
+		if _, err := safeSessionDir(dir, id); err == nil {
+			t.Errorf("safeSessionDir(%q) accepted a reserved id", id)
+		}
+		if err := store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now}); err == nil || !strings.Contains(err.Error(), "reserved session id") {
+			t.Errorf("Save(%q) error = %v, want reserved session id", id, err)
+		}
+		if _, err := store.Load(id); err == nil {
+			t.Errorf("Load(%q) accepted a reserved id", id)
+		}
+		if err := store.Delete(id); err == nil {
+			t.Errorf("Delete(%q) accepted a reserved id", id)
+		}
+		if _, err := store.HistoryPath(id); err == nil {
+			t.Errorf("HistoryPath(%q) accepted a reserved id", id)
+		}
+		if _, err := store.AppendHistory(id, "h\n", "c\n"); err == nil {
+			t.Errorf("AppendHistory(%q) accepted a reserved id", id)
+		}
+		if _, err := store.ReadHistory(id); err == nil {
+			t.Errorf("ReadHistory(%q) accepted a reserved id", id)
+		}
+	}
+}
+
+func TestReservedSessionIDsCannotRemoveStoreFiles(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Save(Session{ID: "keep", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	for _, id := range []string{"index", indexFile, indexLockFile} {
+		if err := store.Delete(id); err == nil {
+			t.Errorf("Delete(%q) succeeded", id)
+		}
+	}
+	for _, name := range []string{indexFile, indexLockFile} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("Delete removed %s: %v", name, err)
+		}
+	}
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if got := indexIDs(entries); !slices.Equal(got, []string{"keep"}) {
+		t.Errorf("List IDs = %v, want [keep]", got)
+	}
+
+	// The stable lock file still serialises a second store on the same directory.
+	second, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("second NewStore failed: %v", err)
+	}
+	if err := second.Save(Session{ID: "keep-2", CreatedAt: now, UpdatedAt: now.Add(time.Minute)}); err != nil {
+		t.Fatalf("second Save failed: %v", err)
+	}
+	checkIndexIDs(t, dir, store, []string{"keep-2", "keep"})
+}
+
+func TestSessionIDsSharingReservedPrefixesAllowed(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+
+	ids := []string{"indexes", "index-json", "index.json.bak", "index.json.lock.bak", "my.index.json", "my.index", "session.json"}
+	for i, id := range ids {
+		if err := store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now.Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatalf("Save(%q) failed: %v", id, err)
+		}
+		if _, err := store.Load(id); err != nil {
+			t.Errorf("Load(%q) failed: %v", id, err)
+		}
+	}
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != len(ids) {
+		t.Errorf("List returned %d entries, want %d", len(entries), len(ids))
+	}
+}
+
 func TestSaveLoadDeleteWithValidHexID(t *testing.T) {
 	t.Parallel()
 
@@ -1031,7 +1133,7 @@ func TestSaveTightensStaleTmpFile(t *testing.T) {
 
 func TestLoadIndexDropsInvalidIDs(t *testing.T) {
 	dir := t.TempDir()
-	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"good"}]`
+	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"index.json"},{"id":"index.json.lock"},{"id":"good"}]`
 	if err := os.WriteFile(filepath.Join(dir, indexFile), []byte(idx), 0o600); err != nil {
 		t.Fatal(err)
 	}

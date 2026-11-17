@@ -73,6 +73,12 @@ type Store struct {
 }
 
 // NewStore creates a store for the given directory, creating it if absent.
+//
+// Opening the store takes the index lock, so the directory must be writable
+// until index.json.lock exists. A read-only directory that earlier versions
+// could open now fails with an index lock error: ordinary lock errors are
+// reported rather than skipped. Load, which only reads a session file, does not
+// take the index lock.
 func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return nil, fmt.Errorf("create store directory: %w", err)
@@ -90,15 +96,30 @@ func NewStore(dir string) (*Store, error) {
 	return store, nil
 }
 
+// reservedSessionIDs are store file names a session id must not reuse. An id
+// maps to dir/<id> as its history directory and dir/<id>.json as its session
+// file, so the ids below would collide with the index file or its lock. The
+// comparison is case-insensitive because the store directory can live on a
+// case-insensitive filesystem.
+var reservedSessionIDs = map[string]bool{
+	strings.ToLower(strings.TrimSuffix(indexFile, sessionExt)): true,
+	strings.ToLower(indexFile):                                 true,
+	strings.ToLower(indexLockFile):                             true,
+}
+
 func safeSessionPath(dir, id string) (string, error) {
 	if id == "" || id == "." || id == ".." || filepath.Base(id) != id || strings.ContainsAny(id, `/\`) {
 		return "", fmt.Errorf("invalid session id %q", id)
+	}
+	if reservedSessionIDs[strings.ToLower(id)] {
+		return "", fmt.Errorf("reserved session id %q", id)
 	}
 	return filepath.Join(dir, id+sessionExt), nil
 }
 
 // safeSessionDir returns the per-session directory that holds the session's
-// history archive. It applies the same id validation as safeSessionPath.
+// history archive. It applies the same id validation as safeSessionPath,
+// including the reserved index and index lock file names.
 func safeSessionDir(dir, id string) (string, error) {
 	if _, err := safeSessionPath(dir, id); err != nil {
 		return "", err
@@ -196,7 +217,8 @@ func restoreLegacyLineage(session Session, data []byte) Session {
 }
 
 // List returns all sessions sorted newest-first. It reloads the index from disk
-// so entries written by another store process are visible.
+// under the index lock, so entries written by another store process are visible
+// and the directory must allow creating index.json.lock.
 func (s *Store) List() ([]IndexEntry, error) {
 	lock, err := s.acquireIndex(context.Background())
 	if err != nil {
