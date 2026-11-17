@@ -74,6 +74,10 @@ type toolCallSegment struct {
 	approvalQueueDepth     int
 	approvalSelectedAction int  // 0=allow once, 1=always allow, 2=deny
 	approvalNoPersist      bool // request decides this call only; no session grant
+	// approvalDeniedPaths lists the outside paths a path approval covers, capped
+	// at the collector's limit; approvalDeniedPathCount is how many it touches.
+	approvalDeniedPaths     []string
+	approvalDeniedPathCount int
 }
 
 type toolCallGroupSegment struct {
@@ -109,6 +113,10 @@ type approvalPillData struct {
 	// noPersist marks a request decided for this call only; it offers no
 	// session-wide grant.
 	noPersist bool
+	// deniedPaths lists the outside paths a path approval covers, capped at the
+	// collector's limit; deniedPathCount is how many distinct paths it touches.
+	deniedPaths     []string
+	deniedPathCount int
 	// cleared marks a pending pill dropped by terminal cleanup. It renders
 	// nothing, unlike a resolved pill which reports its outcome.
 	cleared  bool

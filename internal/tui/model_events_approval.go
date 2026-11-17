@@ -25,16 +25,18 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 		// so cached grants that never registered stay silent.
 		if !m.approval.active && m.approvalRequestPromptable(identity) {
 			m.approval = approvalState{
-				active:         true,
-				identity:       identity,
-				tool:           payload.Tool,
-				mode:           payload.Mode,
-				preview:        payload.Preview,
-				kind:           payload.Kind,
-				server:         payload.Server,
-				mcpToolName:    payload.ToolName,
-				noPersist:      payload.NoPersist,
-				selectedAction: 0,
+				active:          true,
+				identity:        identity,
+				tool:            payload.Tool,
+				mode:            payload.Mode,
+				preview:         payload.Preview,
+				kind:            payload.Kind,
+				server:          payload.Server,
+				mcpToolName:     payload.ToolName,
+				noPersist:       payload.NoPersist,
+				selectedAction:  0,
+				deniedPaths:     payload.DeniedPaths,
+				deniedPathCount: payload.DeniedPathCount,
 			}
 			m.status.mode = "approval"
 			m.activity = m.activity.static("approval required", approvalDetail(payload))
@@ -44,6 +46,9 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 			m.notifyBlocking(fmt.Sprintf("Tool approval required: %s", payload.Tool))
 		}
 	case output.EventTypeApprovalAccepted, output.EventTypeApprovalDenied:
+		// The decision can be the first event carrying the outside paths, so
+		// they land on the card before any early return.
+		applyApprovalDecisionPaths(&m.content, identity, payload.DeniedPaths, payload.DeniedPathCount)
 		if m.decisionPreservesActiveApproval(identity) {
 			return
 		}
@@ -151,7 +156,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		seg := &m.content.segments[i]
 		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && (identity == "" || seg.toolData.approvalIdentity == identity) {
 			tc := seg.toolData
-			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool, noPersist: tc.approvalNoPersist}
+			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool, noPersist: tc.approvalNoPersist, deniedPaths: tc.approvalDeniedPaths, deniedPathCount: tc.approvalDeniedPathCount}
 			m.status.mode = "approval"
 			m.input.Blur()
 			m.syncApprovalSelection(m.approval.selectedAction)
@@ -160,7 +165,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
 			for _, tc := range seg.toolGroupData.entries {
 				if tc != nil && tc.approvalPending && !tc.approvalResolved && (identity == "" || tc.approvalIdentity == identity) {
-					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool, noPersist: tc.approvalNoPersist}
+					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool, noPersist: tc.approvalNoPersist, deniedPaths: tc.approvalDeniedPaths, deniedPathCount: tc.approvalDeniedPathCount}
 					m.status.mode = "approval"
 					m.input.Blur()
 					m.syncApprovalSelection(m.approval.selectedAction)
@@ -170,7 +175,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		}
 		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && !seg.approvalData.cleared && (identity == "" || seg.approvalData.identity == identity) {
 			ad := seg.approvalData
-			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName, noPersist: ad.noPersist}
+			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName, noPersist: ad.noPersist, deniedPaths: ad.deniedPaths, deniedPathCount: ad.deniedPathCount}
 			m.status.mode = "approval"
 			m.input.Blur()
 			m.syncApprovalSelection(m.approval.selectedAction)
@@ -178,4 +183,43 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		}
 	}
 	return false
+}
+
+// applyApprovalDecisionPaths copies the outside paths a decision event carries
+// onto the tool-call control that raised the request, so an embedded card keeps
+// them when the decision is the first event to report them. A decision without
+// paths leaves what the request recorded in place.
+func applyApprovalDecisionPaths(buffer *contentBuffer, identity string, paths []string, count int) {
+	if len(paths) == 0 && count <= 0 {
+		return
+	}
+	changed := false
+	for i := range buffer.segments {
+		seg := &buffer.segments[i]
+		switch seg.kind {
+		case segmentToolCall:
+			if seg.toolData != nil && seg.toolData.approvalIdentity == identity {
+				seg.toolData.approvalDeniedPaths = paths
+				seg.toolData.approvalDeniedPathCount = count
+				seg.renderDirty = true
+				changed = true
+			}
+		case segmentToolCallGroup:
+			if seg.toolGroupData == nil {
+				continue
+			}
+			for _, entry := range seg.toolGroupData.entries {
+				if entry == nil || entry.approvalIdentity != identity {
+					continue
+				}
+				entry.approvalDeniedPaths = paths
+				entry.approvalDeniedPathCount = count
+				seg.renderDirty = true
+				changed = true
+			}
+		}
+	}
+	if changed {
+		buffer.gen++
+	}
 }

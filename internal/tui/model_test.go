@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -6003,7 +6004,7 @@ func TestClearConversationStateResetsSessionChrome(t *testing.T) {
 	if m.status.mode != "" || m.status.streaming || m.status.approvalActive {
 		t.Errorf("status = %#v, want cleared", m.status)
 	}
-	if m.approval != (approvalState{}) {
+	if !reflect.DeepEqual(m.approval, approvalState{}) {
 		t.Errorf("approval = %#v, want zero value", m.approval)
 	}
 	if m.sidebar.perfDurationMs != 0 || m.sidebar.perfTTFTMs != 0 || m.sidebar.perfOutputTPS != 0 {

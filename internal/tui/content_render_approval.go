@@ -132,5 +132,13 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 	if ad.kind == "mcp" {
 		return row + b.renderApprovalPreview(ad.preview, innerWidth)
 	}
+	// A path approval lists the outside paths the request would authorize.
+	outsideWidth := max(1, innerWidth-2)
+	if lines := approvalOutsidePaths(ad.deniedPaths, ad.deniedPathCount, outsideWidth, b.styles.FgMute); len(lines) > 0 {
+		row += indent + b.styles.FgMute.Render(truncateRunes("outside paths:", outsideWidth)) + "\n"
+		for _, line := range lines {
+			row += indent + "  " + line + "\n"
+		}
+	}
 	return row
 }
