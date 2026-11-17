@@ -25,27 +25,6 @@ func (m *Manager) Diagnostics(ctx context.Context, file string) (DiagResult, err
 		return DiagResult{}, err
 	}
 
-	// Build cache key and check for cached result.
-	// If key resolution fails (best-effort), skip cache and proceed.
-	if sessionKey, ok := m.resolveSessionKey(file); ok {
-		fileHash := hashFileContent(file)
-		if fileHash != "" {
-			key := cacheKey{
-				server:      sessionKey.server,
-				root:        sessionKey.root,
-				method:      "diagnostics",
-				file:        file,
-				line:        0,
-				column:      0,
-				fileHash:    fileHash,
-				includeDecl: false,
-			}
-			if cached, hit := m.resultCache.get(key); hit {
-				return *cached.(*DiagResult), nil
-			}
-		}
-	}
-
 	// Get the entry so we can lock the cycle.
 	ent, sess, lease, err := m.acquireEntry(ctx, file)
 	if err != nil {
@@ -57,32 +36,7 @@ func (m *Manager) Diagnostics(ctx context.Context, file string) (DiagResult, err
 	ent.cycleMu.Lock()
 	defer ent.cycleMu.Unlock()
 
-	result, err := m.collectDiagnostics(ctx, ent, sess, file)
-
-	// Store in cache only if the result is not provisional.
-	// WindowExpired=true means collection window closed (timer fired) — provisional.
-	// ctx.Err() != nil means caller's context was cancelled — also provisional.
-	// Both indicate the result is incomplete or interrupted.
-	if !result.WindowExpired && ctx.Err() == nil {
-		if sessionKey, ok := m.resolveSessionKey(file); ok {
-			fileHash := hashFileContent(file)
-			if fileHash != "" {
-				key := cacheKey{
-					server:      sessionKey.server,
-					root:        sessionKey.root,
-					method:      "diagnostics",
-					file:        file,
-					line:        0,
-					column:      0,
-					fileHash:    fileHash,
-					includeDecl: false,
-				}
-				m.resultCache.put(key, &result)
-			}
-		}
-	}
-
-	return result, err
+	return m.collectDiagnostics(ctx, ent, sess, file)
 }
 
 // collectDiagnostics holds entry.cycleMu and implements the drain-then-collect cycle.

@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/session"
 )
 
 // Worktree describes the provisioned checkout for a oneshot run.
@@ -29,7 +31,7 @@ func ProvisionWorktree(ctx context.Context, projectRoot string, identity RunIden
 }
 
 func provisionWorktreeAt(ctx context.Context, projectRoot string, identity RunIdentity, startPoint string) (Worktree, error) {
-	if err := ensureSteinerProjectDir(projectRoot); err != nil {
+	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return Worktree{}, err
 	}
 
@@ -53,7 +55,7 @@ func provisionWorktreeAt(ctx context.Context, projectRoot string, identity RunId
 		return Worktree{}, err
 	}
 
-	if err := ensureSteinerProjectDir(worktreePath); err != nil {
+	if err := session.EnsureSteinerProjectDir(worktreePath); err != nil {
 		return Worktree{}, err
 	}
 

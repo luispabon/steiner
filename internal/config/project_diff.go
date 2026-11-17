@@ -28,7 +28,10 @@ type ProjectInspection struct {
 
 // InspectProject reads the project config layer without expanding environment
 // variables or validating it, and reports how it would change the global config.
-// It deletes a corrupt trust store (see StoreNotice). It never writes trust.
+// It reads the trust store under its cross-process lock, creating the store
+// directory and lock file when missing, so an unwritable home is an error even
+// when no store exists yet. It deletes a corrupt trust store (see StoreNotice).
+// It never writes trust.
 func InspectProject(opts LoadOptions) (ProjectInspection, error) {
 	env := loadEnvironment(opts.Env)
 	homeDir, err := resolveHomeDir(opts.HomeDir, env)
@@ -48,8 +51,14 @@ func InspectProject(opts LoadOptions) (ProjectInspection, error) {
 	paths := resolveConfigPaths(opts, homeDir, workingDir)
 	global, project := paths[0], paths[1]
 
-	store, notice, err := readTrustStore(trustStorePath(homeDir))
-	if err != nil {
+	storePath := trustStorePath(homeDir)
+	var store trustStoreFile
+	var notice string
+	if err := withTrustStoreLock(storePath, func() error {
+		var readErr error
+		store, notice, readErr = readTrustStore(storePath)
+		return readErr
+	}); err != nil {
 		return ProjectInspection{}, err
 	}
 

@@ -360,7 +360,7 @@ func TestPathPolicyWriteScopeDeniesDirectories(t *testing.T) {
 	}
 }
 
-func TestPathPolicyWriteScopeSurvivesWithoutRoot(t *testing.T) {
+func TestPathPolicyWriteScopeSurvivesWithoutRootContainment(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true}).WithWriteScope(testDocScope())
@@ -368,18 +368,18 @@ func TestPathPolicyWriteScopeSurvivesWithoutRoot(t *testing.T) {
 		t.Fatal("ResolvePath(outside notes.md) = nil under scope, want denial")
 	}
 
-	relaxed := policy.WithoutRoot()
+	relaxed := policy.WithoutRootContainment()
 	outsideDoc := filepath.Join(outside, "notes.md")
 	if _, err := relaxed.ResolvePath(outsideDoc, true); err == nil {
-		t.Fatalf("WithoutRoot ResolvePath(%q) = nil, want scope denial", outsideDoc)
+		t.Fatalf("WithoutRootContainment ResolvePath(%q) = nil, want scope denial", outsideDoc)
 	} else {
 		assertScopeDenial(t, err, outsideDoc, testDocScope().Reason)
 	}
 	if _, err := relaxed.ResolvePath(filepath.Join(root, "x.go"), true); err == nil {
-		t.Fatal("WithoutRoot ResolvePath(root x.go) = nil, want scope denial")
+		t.Fatal("WithoutRootContainment ResolvePath(root x.go) = nil, want scope denial")
 	}
 	if _, err := relaxed.ResolvePath(filepath.Join(root, "README.md"), true); err != nil {
-		t.Fatalf("WithoutRoot ResolvePath(root README.md) error = %v, want nil", err)
+		t.Fatalf("WithoutRootContainment ResolvePath(root README.md) error = %v, want nil", err)
 	}
 }
 

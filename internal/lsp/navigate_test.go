@@ -367,10 +367,9 @@ func TestConcurrentDefinitionsNonInterleaving(t *testing.T) {
 	var wg sync.WaitGroup
 	var err1, err2 error
 
-	// Use distinct positions so each call reaches the LSP instead of sharing a
-	// result-cache key and short-circuiting the second call.
 	// Launch two concurrent Manager.Definitions calls against the same
-	// session. They should serialize at the cycleMu level, not interleave.
+	// session, at distinct positions. They should serialize at the cycleMu
+	// level, not interleave.
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -722,7 +721,7 @@ func TestDocumentSymbolsWithQuery(t *testing.T) {
 	}
 }
 
-func TestDocumentSymbolsCacheDoesNotLeakAcrossQueries(t *testing.T) {
+func TestDocumentSymbolsQueryFilteringReachesServer(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	fs.documentSymbolResult = protocol.DocumentSymbolSlice{
@@ -755,15 +754,15 @@ func TestDocumentSymbolsCacheDoesNotLeakAcrossQueries(t *testing.T) {
 		t.Fatalf("DocumentSymbols (Foo): got %+v, want [Foo]", res1.Symbols)
 	}
 
-	// Second call: query "Bar" against the same file. Must not reuse the
-	// first call's filtered list even though the request hits the cache for
-	// the underlying document scan.
+	// Second call: query "Bar" against the same file. Each query filters
+	// its own freshly fetched symbol list, so the second call must not reuse
+	// the first call's filtered result.
 	res2, err := m.DocumentSymbols(ctx, testFile, "Bar")
 	if err != nil {
 		t.Fatalf("DocumentSymbols (Bar): %v", err)
 	}
 	if len(res2.Symbols) != 1 || res2.Symbols[0].Name != "Bar" {
-		t.Fatalf("DocumentSymbols (Bar): got %+v, want [Bar] (cache leaked Foo's filtered list)", res2.Symbols)
+		t.Fatalf("DocumentSymbols (Bar): got %+v, want [Bar] (query filtering leaked Foo's list)", res2.Symbols)
 	}
 
 	calls := 0
@@ -772,8 +771,8 @@ func TestDocumentSymbolsCacheDoesNotLeakAcrossQueries(t *testing.T) {
 			calls++
 		}
 	}
-	if calls != 1 {
-		t.Errorf("textDocument/documentSymbol called %d times, want 1 (second call should hit the underlying cache)", calls)
+	if calls != 2 {
+		t.Errorf("textDocument/documentSymbol called %d times, want 2 (every query must reach the server)", calls)
 	}
 }
 
@@ -1101,7 +1100,7 @@ func TestImplementationsInvalidPosition(t *testing.T) {
 	}
 }
 
-func TestImplementationsCacheHit(t *testing.T) {
+func TestImplementationsRepeatedCallReachesServer(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	fs.implementationResult = &protocol.Location{
@@ -1134,13 +1133,14 @@ func TestImplementationsCacheHit(t *testing.T) {
 		t.Fatalf("Implementations: %v", err)
 	}
 
-	// Second call with same position should hit cache.
+	// Second call with the same position must reach the server again: the
+	// manager holds no result cache.
 	_, err = m.Implementations(ctx, testFile, 1, 1)
 	if err != nil {
 		t.Fatalf("Implementations: %v", err)
 	}
 
-	// Should only have called once.
+	// Both calls must have reached the server.
 	methods := fs.recorded()
 	implCount := 0
 	for _, m := range methods {
@@ -1148,12 +1148,12 @@ func TestImplementationsCacheHit(t *testing.T) {
 			implCount++
 		}
 	}
-	if implCount != 1 {
-		t.Errorf("textDocument/implementation called %d times, want 1 (second call should hit the cache)", implCount)
+	if implCount != 2 {
+		t.Errorf("textDocument/implementation called %d times, want 2 (every call must reach the server)", implCount)
 	}
 }
 
-func TestImplementationsCacheKeyDistinctFromDefinitions(t *testing.T) {
+func TestImplementationsDistinctFromDefinitions(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	implLoc := &protocol.Location{
@@ -1203,7 +1203,7 @@ func TestImplementationsCacheKeyDistinctFromDefinitions(t *testing.T) {
 
 	// Results should differ (different URIs).
 	if implResult.Locations[0].File == defResult.Locations[0].File {
-		t.Error("Implementations and Definitions returned same result; cache keys must differ")
+		t.Error("Implementations and Definitions returned same result; each request kind must be answered separately")
 	}
 
 	// Both request kinds should have been recorded.
@@ -1355,7 +1355,7 @@ func TestTypeDefinitionsInvalidPosition(t *testing.T) {
 	}
 }
 
-func TestTypeDefinitionsCacheHit(t *testing.T) {
+func TestTypeDefinitionsRepeatedCallReachesServer(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	fs.typeDefinitionResult = &protocol.Location{
@@ -1388,13 +1388,14 @@ func TestTypeDefinitionsCacheHit(t *testing.T) {
 		t.Fatalf("TypeDefinitions: %v", err)
 	}
 
-	// Second call with same position should hit cache.
+	// Second call with the same position must reach the server again: the
+	// manager holds no result cache.
 	_, err = m.TypeDefinitions(ctx, testFile, 1, 1)
 	if err != nil {
 		t.Fatalf("TypeDefinitions: %v", err)
 	}
 
-	// Should only have called once.
+	// Both calls must have reached the server.
 	methods := fs.recorded()
 	typeDefCount := 0
 	for _, m := range methods {
@@ -1402,12 +1403,12 @@ func TestTypeDefinitionsCacheHit(t *testing.T) {
 			typeDefCount++
 		}
 	}
-	if typeDefCount != 1 {
-		t.Errorf("textDocument/typeDefinition called %d times, want 1 (second call should hit the cache)", typeDefCount)
+	if typeDefCount != 2 {
+		t.Errorf("textDocument/typeDefinition called %d times, want 2 (every call must reach the server)", typeDefCount)
 	}
 }
 
-func TestTypeDefinitionsCacheKeyDistinctFromDefinitions(t *testing.T) {
+func TestTypeDefinitionsDistinctFromDefinitions(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	typeDefLoc := &protocol.Location{
@@ -1457,7 +1458,7 @@ func TestTypeDefinitionsCacheKeyDistinctFromDefinitions(t *testing.T) {
 
 	// Results should differ (different URIs).
 	if typeDefResult.Locations[0].File == defResult.Locations[0].File {
-		t.Error("TypeDefinitions and Definitions returned same result; cache keys must differ")
+		t.Error("TypeDefinitions and Definitions returned same result; each request kind must be answered separately")
 	}
 
 	// Both request kinds should have been recorded.

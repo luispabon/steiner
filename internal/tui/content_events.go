@@ -72,7 +72,8 @@ type toolCallSegment struct {
 	approvalAgentID        string
 	approvalIdentity       string
 	approvalQueueDepth     int
-	approvalSelectedAction int // 0=allow once, 1=always allow, 2=deny
+	approvalSelectedAction int  // 0=allow once, 1=always allow, 2=deny
+	approvalNoPersist      bool // request decides this call only; no session grant
 }
 
 type toolCallGroupSegment struct {
@@ -105,6 +106,9 @@ type approvalPillData struct {
 	// selectedAction mirrors the tray selection for this request: 0=allow
 	// once, 1=always allow, 2=deny.
 	selectedAction int
+	// noPersist marks a request decided for this call only; it offers no
+	// session-wide grant.
+	noPersist bool
 	// cleared marks a pending pill dropped by terminal cleanup. It renders
 	// nothing, unlike a resolved pill which reports its outcome.
 	cleared  bool

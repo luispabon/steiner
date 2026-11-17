@@ -60,12 +60,20 @@ func NewBashTool(env Env) tool.ToolDef {
 				if err != nil {
 					return nil, fmt.Errorf("bash: %w", err)
 				}
+				// bash drops NUL bytes from the command it reads, so a cwd like
+				// ".\x00." would silently become ".." and the command would run
+				// in the wrong directory. Refuse it before building the command.
+				if strings.ContainsRune(cwd, 0) {
+					return nil, errors.New("bash: working directory contains a NUL byte")
+				}
 			}
 
-			// Build the command string, optionally prefixed with a cd.
+			// Build the command string, optionally prefixed with a cd. The cwd is
+			// single-quoted so bash treats it as one literal word; %q would emit
+			// double quotes, letting $VAR, $(...) and backticks run.
 			command := in.Command
 			if cwd != "" {
-				command = fmt.Sprintf("cd %q && %s", cwd, in.Command)
+				command = "cd -- " + shellQuote(cwd) + " && " + in.Command
 			}
 
 			// Apply timeout via context.
@@ -142,6 +150,14 @@ func NewBashTool(env Env) tool.ToolDef {
 			return res, nil
 		},
 	}
+}
+
+// shellQuote returns s as a single POSIX shell word. Wrapping s in single
+// quotes stops every expansion ($VAR, $(...), backticks) and word splitting; an
+// embedded single quote closes the quoting, contributes an escaped quote, and
+// reopens it.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // bashResultTruncated reports whether a bash result is incomplete: the preview

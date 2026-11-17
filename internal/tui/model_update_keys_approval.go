@@ -25,14 +25,27 @@ func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	// Handle printable characters (tea.KeyRunes equivalent)
 	if msg.Text != "" {
-		switch msg.String() {
-		case "y":
-			return m.executeApprovalDecision(ApprovalDecisionAllowOnce)
-		case "a":
-			return m.executeApprovalDecision(ApprovalDecisionAlwaysAllow)
-		case "n":
-			return m.executeApprovalDecision(ApprovalDecisionDeny)
+		if decision, ok := m.approvalRuneDecision(msg.String()); ok {
+			return m.executeApprovalDecision(decision)
 		}
 	}
 	return m, nil
+}
+
+// approvalRuneDecision maps a printable approval key to its decision. A
+// no-persist request cannot be granted for the session, so its 'a' key is
+// inert and reports no decision.
+func (m *Model) approvalRuneDecision(key string) (ApprovalDecision, bool) {
+	switch key {
+	case "y":
+		return ApprovalDecisionAllowOnce, true
+	case "a":
+		if m.approval.noPersist {
+			return "", false
+		}
+		return ApprovalDecisionAlwaysAllow, true
+	case "n":
+		return ApprovalDecisionDeny, true
+	}
+	return "", false
 }

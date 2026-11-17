@@ -22,11 +22,11 @@ User guide: [LSP-backed code intelligence](../user/lsp.md).
 
 `awaitReadySession` gates navigation, hover, and symbol queries; diagnostics do not wait. It watches the session and readiness tracker the lease captured. Reading `entry.session` would observe a nil session a concurrent crashed-session retirement cleared, and reading `entry.readiness` would observe a later respawn's tracker. A completed `$/progress` begin-to-end cycle marks the session ready (`processReadinessProgress`), and a begin stops the grace timer. If `ready_grace_period` expires with no begin, the session is ready. If `ready_timeout` expires first, `awaitReadySession` returns `incomplete=true` with a nil error and the request proceeds.
 
-## Diagnostics, caching, and tools
+## Diagnostics and tools
 
 Diagnostics come from `publishDiagnostics` pushes after `didOpen`, not pull diagnostics. Post-mutate injection (`ReadyForFile`) uses only ready sessions, bounded by `maxMutateDiagnosticsFiles` and `maxMutateDiagnosticsLines` (`mutate_diagnostics.go`).
 
-`resultCache` is an LRU of `resultCacheMaxEntries` (512). Keys cover the server, root, file, the SHA-256 of the file bytes (`hashFileContent`), and the position for location queries. A read failure gives an empty hash and skips the cache. Location queries, document symbols, and diagnostics use it; hover and workspace symbols do not. `Manager.Close` clears it before closing sessions.
+Navigation, symbol, and diagnostics queries hold no result cache: each query runs its own open, request, and close cycle and returns the server's answer. A repeated query reaches the server again, so edits to related files and edits made while a request is in flight are reflected by the next query. A repeated diagnostics query therefore collects again and waits up to the configured `diagnostics_window` for a publication, just as the first one did. `Manager.Close` therefore shuts down only sessions and the reaper.
 
 `ToolDefs` (`internal/lsp/tooldef.go`) returns seven definitions in deterministic order. `lsp_symbols` with `file` calls `textDocument/documentSymbol` and filters by `query`. With only `query`, `WorkspaceSymbols` queries enabled servers concurrently and merges results best-effort. An existing session for a server is reused (`existingSessionKeyForServer`) rather than spawning another root.
 

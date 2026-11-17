@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -261,5 +262,107 @@ func TestEventingApproverContextCancelledDeniesWithoutHanging(t *testing.T) {
 	}
 	if got, want := eventTypes(events), []string{output.EventTypeApprovalRequested, output.EventTypeApprovalDenied}; !equalStrings(got, want) {
 		t.Fatalf("event types = %v, want %v", got, want)
+	}
+}
+
+// TestEventingApproverPropagatesNoPersist proves a one-time request marks every
+// lifecycle event, including the user-denied event.
+func TestEventingApproverPropagatesNoPersist(t *testing.T) {
+	tests := []struct {
+		name  string
+		allow bool
+		want  []string
+	}{
+		{name: "accepted", allow: true, want: []string{output.EventTypeApprovalRequested, output.EventTypeApprovalAccepted}},
+		{name: "denied", allow: false, want: []string{output.EventTypeApprovalRequested, output.EventTypeApprovalDenied}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+				req.Response <- tool.ApprovalResponse{Allow: tt.allow, Message: "user decision"}
+				return nil
+			}))
+
+			response := make(chan tool.ApprovalResponse, 1)
+			err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+				Tool:      tool.ToolDef{Name: "bash"},
+				Reason:    "command blocked by sandbox",
+				Response:  response,
+				Kind:      tool.ApprovalKindPath,
+				NoPersist: true,
+			})
+			if err != nil {
+				t.Fatalf("RequestApproval() error = %v", err)
+			}
+			<-response
+
+			if got := eventTypes(events); !equalStrings(got, tt.want) {
+				t.Fatalf("event types = %v, want %v", got, tt.want)
+			}
+			for _, event := range events {
+				payload, ok := event.Payload.(output.ApprovalEvent)
+				if !ok {
+					t.Fatalf("payload = %T, want output.ApprovalEvent", event.Payload)
+				}
+				if !payload.NoPersist {
+					t.Fatalf("%s payload.NoPersist = false, want true", event.Type)
+				}
+			}
+		})
+	}
+}
+
+// TestEventingApproverForwardsOutsidePaths pins that every outside path the
+// tool collected reaches the approval events, so the prompt can list them all.
+func TestEventingApproverForwardsOutsidePaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		response tool.ApprovalResponse
+	}{
+		{name: "approved", response: tool.ApprovalResponse{Allow: true, Message: "ok"}},
+		{name: "denied", response: tool.ApprovalResponse{Allow: false, Message: "no"}},
+	}
+	deniedPaths := []string{"/outside/a.txt", "/outside/b.txt"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var events []output.Event
+			approver := NewEventingApprover(output.SinkFunc(func(event output.Event) { events = append(events, event) }), tool.ApprovalResponderFunc(func(_ context.Context, req tool.ApprovalRequest) error {
+				req.Response <- tt.response
+				return nil
+			}))
+
+			response := make(chan tool.ApprovalResponse, 1)
+			err := approver.RequestApproval(context.Background(), tool.ApprovalRequest{
+				Tool:     tool.ToolDef{Name: "mutate"},
+				Reason:   "paths outside the project root",
+				Response: response,
+				Kind:     tool.ApprovalKindPath,
+				Path: &tool.PathApprovalDetails{
+					DeniedPath:      deniedPaths[0],
+					DeniedPaths:     deniedPaths,
+					DeniedPathCount: 3,
+				},
+			})
+			if err != nil {
+				t.Fatalf("RequestApproval() error = %v", err)
+			}
+			<-response
+			if len(events) != 2 {
+				t.Fatalf("events = %d, want 2", len(events))
+			}
+			for _, event := range events {
+				payload, ok := event.Payload.(output.ApprovalEvent)
+				if !ok {
+					t.Fatalf("payload type = %T, want ApprovalEvent", event.Payload)
+				}
+				if !slices.Equal(payload.DeniedPaths, deniedPaths) {
+					t.Fatalf("DeniedPaths = %v, want %v", payload.DeniedPaths, deniedPaths)
+				}
+				if payload.DeniedPathCount != 3 {
+					t.Fatalf("DeniedPathCount = %d, want 3", payload.DeniedPathCount)
+				}
+			}
+		})
 	}
 }

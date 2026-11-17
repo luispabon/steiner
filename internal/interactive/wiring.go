@@ -78,7 +78,10 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 		grantKey = req.MCP.Server + "\x00" + req.MCP.ToolName
 	}
 
-	if h.isAlwaysAllowed(grantKey) {
+	// A request marked NoPersist must never be answered from a cached session
+	// grant: it decides this call only. Every other path and MCP grant keeps
+	// its session-wide behaviour.
+	if !req.NoPersist && h.isAlwaysAllowed(grantKey) {
 		req.RequestID = tool.NewApprovalRequestID()
 		return h.respond(ctx, req, func(_ context.Context, inner tool.ApprovalRequest) error {
 			inner.Response <- tool.ApprovalResponse{Allow: true, Message: "always allowed"}
@@ -109,10 +112,17 @@ func (h *approvalResponder) RequestApproval(ctx context.Context, req tool.Approv
 			if !ok {
 				return fmt.Errorf("approval response channel closed")
 			}
-			if submission.Decision == "always_allow" {
+			decision := submission.Decision
+			if req.NoPersist {
+				// A one-time request never caches a grant. A session-wide
+				// decision submitted for it still only allows this call.
+				if decision == "always_allow" {
+					decision = "allow_once"
+				}
+			} else if decision == "always_allow" {
 				h.cacheAlwaysAllow(grantKey)
 			}
-			inner.Response <- approvalResponseForDecision(submission.Decision)
+			inner.Response <- approvalResponseForDecision(decision)
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()

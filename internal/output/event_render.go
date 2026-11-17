@@ -369,7 +369,42 @@ func renderApprovalEvent(event Event, payload ApprovalEvent) Segment {
 	parts = appendField(parts, "mode", payload.Mode)
 	parts = appendField(parts, "args", payload.Preview)
 	parts = appendField(parts, "message", payload.Message)
-	return Segment{Channel: ChannelApproval, Label: "approval", Text: strings.Join(parts, " ")}
+	if payload.NoPersist {
+		// The prompt offers no session grant; the command runs again on approval.
+		parts = append(parts, "one_time=true (command runs again)")
+	}
+	text := strings.Join(parts, " ")
+	if lines := approvalOutsidePathLines(payload.DeniedPaths, payload.DeniedPathCount); len(lines) > 0 {
+		text += "\noutside paths:\n  " + strings.Join(lines, "\n  ")
+	}
+	return Segment{Channel: ChannelApproval, Label: "approval", Text: text}
+}
+
+// approvalPathReplacer keeps an untrusted path on one display line.
+var approvalPathReplacer = strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
+
+// approvalOutsidePathLines renders the outside paths an approval would
+// authorize, one per line, then a count of any paths beyond the collected
+// list. Paths are model-supplied, so each is sanitized onto a single line; a
+// path is never truncated.
+func approvalOutsidePathLines(paths []string, count int) []string {
+	if len(paths) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(paths)+1)
+	for _, path := range paths {
+		line := strings.TrimSpace(approvalPathReplacer.Replace(SanitizeDisplayText(path)))
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if remaining := count - len(paths); remaining > 0 {
+		lines = append(lines, fmt.Sprintf("and %d more outside the project", remaining))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return lines
 }
 
 func renderWorkflowHandoffEvent(payload WorkflowHandoffEvent) Segment {

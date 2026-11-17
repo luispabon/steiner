@@ -77,7 +77,9 @@ Choices:
 - `s` This session only: nothing is written.
 - `d` Deny and exit: the default; `Esc` and `Ctrl-C` choose it. The process exits non-zero.
 
-There is no revoke command: edit or delete `trusted_projects.json`. A corrupt or unrecognised-version file is deleted with a one-time notice; a read or permission error is fatal and leaves the file untouched.
+There is no revoke command: edit or delete `trusted_projects.json`. A corrupt or unrecognised-version file is deleted with a one-time notice; a read, lock, or permission error is fatal and leaves the file untouched. Inspecting the store (including `steiner config`) creates `~/.config/steiner` and the sibling `trusted_projects.json.lock` lock file when they are missing, and fails when either cannot be created.
+
+Steiner holds that lock file while it reads and rewrites the store, so concurrent processes keep each other's trust decisions. Windows, AIX, and filesystems that do not support advisory file locking are the exception: Steiner continues without the lock and does not report it, so trust decisions written by separate processes at the same moment can be lost.
 
 The dialog needs an interactive terminal. With `--exec` or without a TTY, an untrusted project makes Steiner exit non-zero unless you pass `--trust-project-config` or set `STEINER_TRUST_PROJECT_CONFIG=1` (or `true`). Both trust the project for that run only. `steiner oneshot` follows the same rule.
 
@@ -340,6 +342,10 @@ Structured JSONL capture for measuring cache hit rates, provider calls, tool run
 | `diagnostics.streams.tui` | bool | `false` | Interactive TUI timings, counts and sizes, never content (`tui.jsonl`). |
 | `diagnostics.streams.internal` | bool | `false` | TUI developer error entries (`internal.jsonl`); sanitised and capped, but may still carry prompt or tool content. |
 | `diagnostics.capture_bodies` | bool | `false` | Capture full message, tool and block content instead of bounded fields. Expensive, and captures prompts. |
+
+Several processes can write the same directory: the parent run, its sub-agents and a second terminal. Writes are best effort and are not serialized. Before each record a writer compares its open file with the active path and reopens it when another process replaced or removed the file. A rotation that fails keeps appending past the cap for at most one more cap worth of records, then drops records while retrying the rotation every few seconds, so a stuck rotation cannot grow a stream file without bound.
+
+Two gaps remain. Another process can replace the active file between that check and the write, so the record lands in a file nothing reads, and concurrent rotations or retention rewriting the active file while a run writes can lose or interleave records. Retention runs when a writer opens, so a process opening a shared directory prunes the file another process is writing. A failed rotation or write logs `diagnostics writer degraded` once per writer, to the `.slog` file beside the log file (`--log-file`, or `logging.file` when logging is enabled); without a log file the warning is discarded.
 
 ## `context_management` block
 

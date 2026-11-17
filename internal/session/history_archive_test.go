@@ -132,8 +132,10 @@ func TestHistoryArchiveRejectsEmptySessionID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir failed: %v", err)
 	}
-	if len(entries) != 0 {
-		t.Errorf("store directory has %d entries after rejected archive calls, want 0", len(entries))
+	for _, entry := range entries {
+		if entry.Name() != indexLockFile {
+			t.Errorf("store directory has unexpected entry %q after rejected archive calls", entry.Name())
+		}
 	}
 }
 

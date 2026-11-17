@@ -24,7 +24,14 @@ func planModeWriteDenial() string {
 
 // PathPolicyError is returned when a path is rejected by policy.
 type PathPolicyError struct {
-	Path       string
+	Path string
+	// Paths holds every distinct promptable outside path found while
+	// validating the whole call, capped at maxCollectedOutsidePaths. A
+	// single-path violation carries just that path.
+	Paths []string
+	// PathCount is the number of distinct outside paths found, including any
+	// beyond the Paths cap.
+	PathCount  int
 	Reason     string
 	Promptable bool // true when the violation is "outside project root" (can be overridden by user)
 }
@@ -32,6 +39,24 @@ type PathPolicyError struct {
 // Error implements the error interface.
 func (e *PathPolicyError) Error() string {
 	return fmt.Sprintf("tool path policy denied: %s", e.Reason)
+}
+
+// outsidePaths returns the distinct outside paths an approval prompt should
+// list and their total count, falling back to Path for a violation raised
+// without a collection.
+func (e *PathPolicyError) outsidePaths() ([]string, int) {
+	if e == nil {
+		return nil, 0
+	}
+	paths := e.Paths
+	if len(paths) == 0 && e.Path != "" {
+		paths = []string{e.Path}
+	}
+	count := e.PathCount
+	if count < len(paths) {
+		count = len(paths)
+	}
+	return paths, count
 }
 
 // PathPolicy constrains tool paths relative to the active project root.
@@ -48,7 +73,8 @@ type PathPolicy struct {
 	writeAllowlist  []string
 	// writeScope, when active, further restricts writable paths by final file
 	// name. writeScopeRoot is the root the scope was installed with; it is
-	// retained so clearing root via WithoutRoot cannot relax the scope.
+	// retained so lifting root containment via WithoutRootContainment cannot
+	// relax the scope.
 	writeScope     WriteScope
 	writeScopeRoot string
 }
@@ -85,13 +111,16 @@ func (p PathPolicy) Root() string {
 	return p.root
 }
 
-// WithoutRoot returns a copy of p with the root and projectRootOnly constraints
-// cleared. Used when the user has approved access to a path outside the project root.
-// The write scope is retained together with the root it was installed with, so
-// approval cannot relax it.
-func (p PathPolicy) WithoutRoot() PathPolicy {
+// WithoutRootContainment returns a copy of p that no longer enforces the
+// project-root containment check. Used when the user has approved access to a
+// path outside the project root. The root itself is retained, so relative paths
+// in the approved call still resolve against the project root instead of the
+// process working directory, and the write scope keeps checking against the
+// root it was installed with, so approval cannot relax it. Every other
+// restriction, including blocked paths, writable paths, and plan-mode write
+// limits, is retained.
+func (p PathPolicy) WithoutRootContainment() PathPolicy {
 	relaxed := p
-	relaxed.root = ""
 	relaxed.projectRootOnly = false
 	return relaxed
 }
@@ -227,11 +256,13 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return p.policyResolutionError(path, err)
 	}
 	if !allowed {
-		return &PathPolicyError{
-			Path:       path,
-			Reason:     fmt.Sprintf("path %q is outside project root %q", path, p.root),
-			Promptable: true,
+		// Approval relaxes the project-root check only, so a path that also
+		// breaks a rule approval cannot relax is denied here instead of being
+		// offered as a prompt that could never let the call run.
+		if err := p.ensureOutsidePathRules(path, writable, planWriteAllowed); err != nil {
+			return err
 		}
+		return p.outsideRootError([]string{path}, 1)
 	}
 	if blocked, err := p.blocked(path); err != nil {
 		return p.policyResolutionError(path, err)
@@ -239,6 +270,22 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return p.blockedPathError(path)
 	}
 	return p.ensureWritablePathAllowed(path, writable, planWriteAllowed)
+}
+
+// ensureOutsidePathRules returns the nonpromptable violation an outside path
+// still carries, if any. The checks mirror the ones an in-project path runs:
+// blocked paths, the writable allowlist, and special files, all of which keep
+// applying after approval.
+func (p PathPolicy) ensureOutsidePathRules(path string, writable, planWriteAllowed bool) error {
+	if blocked, err := p.blocked(path); err != nil {
+		return p.policyResolutionError(path, err)
+	} else if blocked {
+		return p.blockedPathError(path)
+	}
+	if err := p.ensureWritablePathAllowed(path, writable, planWriteAllowed); err != nil {
+		return err
+	}
+	return rejectSpecialFile(path)
 }
 
 func (p PathPolicy) ensurePlanWriteAllowed(path string, writable bool) (bool, error) {
@@ -293,6 +340,27 @@ func (p PathPolicy) writePathAllowed(path string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// outsideRootError builds the promptable violation for one or more paths
+// outside the project root.
+func (p PathPolicy) outsideRootError(paths []string, count int) *PathPolicyError {
+	reason := fmt.Sprintf("path is outside project root %q", p.root)
+	if count == 1 && len(paths) == 1 {
+		reason = fmt.Sprintf("path %q is outside project root %q", paths[0], p.root)
+	} else if count > 1 {
+		reason = fmt.Sprintf("%d paths are outside project root %q", count, p.root)
+	}
+	err := &PathPolicyError{
+		Reason:     reason,
+		Promptable: true,
+	}
+	if len(paths) > 0 {
+		err.Path = paths[0]
+		err.Paths = paths
+		err.PathCount = count
+	}
+	return err
 }
 
 func (p PathPolicy) blocked(path string) (bool, error) {

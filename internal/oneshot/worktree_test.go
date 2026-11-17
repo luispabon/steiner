@@ -71,6 +71,24 @@ func TestCleanupWorktreeWithoutBranchIsHarmless(t *testing.T) {
 	assertBranchAbsent(t, projectRoot, identity.BranchName())
 }
 
+func TestProvisionWorktreeRejectsSymlinkedSteinerDir(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(projectRoot, ".steiner")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	identity := RunIdentity{ID: "abc456", Slug: "symlinked-steiner"}
+	if _, err := ProvisionWorktree(context.Background(), projectRoot, identity); err == nil {
+		t.Fatal("ProvisionWorktree succeeded with a symlinked .steiner directory")
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, ".gitignore")); !os.IsNotExist(err) {
+		t.Fatalf(".gitignore created outside the project: %v", err)
+	}
+	assertBranchAbsent(t, projectRoot, identity.BranchName())
+}
+
 func assertBranchExists(t *testing.T, projectRoot, branchName string) {
 	t.Helper()
 

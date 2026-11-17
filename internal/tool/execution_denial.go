@@ -86,7 +86,11 @@ func (e *Executor) handleSandboxDenial(ctx context.Context, ec *executionContext
 		Kind:              ApprovalKindPath,
 		Reason:            params.Reason,
 		GrantInstructions: params.GrantInstructions,
-		Response:          make(chan ApprovalResponse, 1),
+		// Approving reruns the whole command outside the sandbox with host
+		// access, so the grant is one-time: it is neither answered from a
+		// cached session grant nor cached for later calls.
+		NoPersist: true,
+		Response:  make(chan ApprovalResponse, 1),
 		Path: &PathApprovalDetails{
 			WorkDir:    policy.Root(),
 			Preview:    buildApprovalPreview(ec.Def.Name, ec.NormalizedInput, *policy),

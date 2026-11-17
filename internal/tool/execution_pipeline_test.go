@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -395,6 +397,11 @@ func TestExecuteTool_BashDenialDetection_ApproverCalled(t *testing.T) {
 	if approver.lastReq.Path.DeniedPath != "/host/path" {
 		t.Fatalf("req.DeniedPath = %q, want '/host/path'", approver.lastReq.Path.DeniedPath)
 	}
+	// A sandbox retry runs the whole command outside the sandbox, so its
+	// approval must never become a session-wide grant.
+	if !approver.lastReq.NoPersist {
+		t.Fatal("req.NoPersist = false, want true for a sandbox retry")
+	}
 	br, ok := result.(*mockBashResult)
 	if !ok {
 		t.Fatalf("result type = %T, want *mockBashResult", result)
@@ -495,9 +502,11 @@ func TestExecuteTool_BashNoDenialPrompt_SandboxNil(t *testing.T) {
 }
 
 func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
+	var handlerCalls int
 	reg := NewRegistry(ToolDef{
 		Name: "bash",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) {
+			handlerCalls++
 			return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
 		},
 	})
@@ -510,6 +519,9 @@ func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
 	br, ok := result.(*mockBashResult)
 	if !ok {
 		t.Fatalf("result type = %T, want *mockBashResult", result)
+	}
+	if handlerCalls != 1 {
+		t.Fatalf("handler call count = %d, want 1: a nil approver must not grant a retry", handlerCalls)
 	}
 	if strings.Contains(br.output, "host_mount") {
 		t.Fatalf("output = %q, want no grant instructions when approver nil", br.output)
@@ -542,6 +554,10 @@ func TestExecuteTool_BashSSHConfigDenial_AllowRetriesOutsideSandbox(t *testing.T
 	}
 	if approver.lastReq.GrantInstructions != "Re-run outside the sandbox with --unsafe" {
 		t.Fatalf("req.GrantInstructions = %q, want SSH rerun instructions", approver.lastReq.GrantInstructions)
+	}
+	// The SSH rerun approval is also a one-time escape from the sandbox.
+	if !approver.lastReq.NoPersist {
+		t.Fatal("req.NoPersist = false, want true for an SSH rerun approval")
 	}
 	if len(callContexts) != 2 {
 		t.Fatalf("handler call count = %d, want 2 (initial + retry)", len(callContexts))
@@ -678,12 +694,107 @@ func TestNormalizeExecutionInput_PathViolation_ApproverCalled(t *testing.T) {
 	if approver.lastReq.Path.DeniedPath != "/etc/passwd" {
 		t.Fatalf("req.DeniedPath = %q, want '/etc/passwd'", approver.lastReq.Path.DeniedPath)
 	}
+	// A path approval relaxes the project root only, so it may persist.
+	if approver.lastReq.NoPersist {
+		t.Fatal("req.NoPersist = true, want false for a path policy approval")
+	}
 	var toolErr *ToolExecutionError
 	if !errors.As(err, &toolErr) {
 		t.Fatalf("error type = %T, want *ToolExecutionError", err)
 	}
 	if toolErr.Kind != "policy_denied" {
 		t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+	}
+}
+
+func TestNormalizeExecutionInput_PathViolation_ListsEveryOutsidePath(t *testing.T) {
+	approver := &mockApprover{response: ApprovalResponse{Allow: false}}
+	reg := NewRegistry(ToolDef{
+		Name:    "mutate",
+		Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+	})
+	workDir := t.TempDir()
+	executor := NewExecutor(reg, rootOnlyConfig(), approver, workDir, "", &testSandbox{})
+	outsideCreated := filepath.Join(t.TempDir(), "created.txt")
+	outsideMoved := filepath.Join(t.TempDir(), "moved.txt")
+	_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{
+		"operations": []any{
+			map[string]any{"type": "create", "path": "inside.txt", "content": "inside\n"},
+			map[string]any{"type": "create", "path": outsideCreated, "content": "outside\n"},
+			map[string]any{"type": "move", "from": outsideMoved, "to": "moved.txt"},
+		},
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want policy_denied")
+	}
+	if !approver.called {
+		t.Fatal("approver.RequestApproval() was not called, want called")
+	}
+	if want := []string{outsideCreated, outsideMoved}; !slices.Equal(approver.lastReq.Path.DeniedPaths, want) {
+		t.Fatalf("req.DeniedPaths = %v, want %v", approver.lastReq.Path.DeniedPaths, want)
+	}
+	if got, want := approver.lastReq.Path.DeniedPathCount, 2; got != want {
+		t.Fatalf("req.DeniedPathCount = %d, want %d", got, want)
+	}
+	if got, want := approver.lastReq.Path.DeniedPath, outsideCreated; got != want {
+		t.Fatalf("req.DeniedPath = %q, want %q", got, want)
+	}
+}
+
+// TestNormalizeExecutionInput_NonPromptableViolationSkipsApproval pins that a
+// batch holding both an outside path and a rule the user cannot approve is
+// denied without prompting, so no part of it can run.
+func TestNormalizeExecutionInput_NonPromptableViolationSkipsApproval(t *testing.T) {
+	// blockedOutside blocks a directory outside the project root, so its paths
+	// are both outside the root and blocked.
+	tests := []struct {
+		name           string
+		blockedOutside bool
+	}{
+		{name: "blocked path in another operation"},
+		{name: "blocked path that is also outside the root", blockedOutside: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			approver := &mockApprover{response: ApprovalResponse{Allow: true}}
+			reg := NewRegistry(ToolDef{
+				Name:    "mutate",
+				Handler: func(_ context.Context, _ map[string]any) (any, error) { return nil, nil },
+			})
+			workDir := t.TempDir()
+			cfg := rootOnlyConfig()
+			operations := []any{
+				map[string]any{"type": "create", "path": "/etc/passwd", "content": "x"},
+				map[string]any{"type": "create", "path": "blocked/secret.txt", "content": "x"},
+			}
+			if tt.blockedOutside {
+				outsideDir := t.TempDir()
+				cfg.Paths.BlockedPaths = []string{outsideDir}
+				operations = []any{
+					map[string]any{"type": "create", "path": filepath.Join(outsideDir, "secret.txt"), "content": "x"},
+				}
+			} else {
+				cfg.Paths.BlockedPaths = []string{filepath.Join(workDir, "blocked")}
+			}
+			executor := NewExecutor(reg, cfg, approver, workDir, "", &testSandbox{})
+			_, err := executor.Execute(context.Background(), "mutate", "", map[string]any{"operations": operations})
+			if err == nil {
+				t.Fatal("Execute() error = nil, want policy_denied")
+			}
+			if approver.called {
+				t.Fatal("approver.RequestApproval() was called, want no prompt for a nonpromptable violation")
+			}
+			var toolErr *ToolExecutionError
+			if !errors.As(err, &toolErr) {
+				t.Fatalf("error type = %T, want *ToolExecutionError", err)
+			}
+			if toolErr.Kind != "policy_denied" {
+				t.Fatalf("error kind = %q, want policy_denied", toolErr.Kind)
+			}
+			if !strings.Contains(toolErr.Message, "blocked by policy") {
+				t.Fatalf("error message = %q, want 'blocked by policy'", toolErr.Message)
+			}
+		})
 	}
 }
 

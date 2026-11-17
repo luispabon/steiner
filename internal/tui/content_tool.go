@@ -350,8 +350,18 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	// Buttons
 	btns := b.renderToolApprovalButtons(tc, accentC, width)
 
-	return strings.Join([]string{sep, header, preview, btns}, "\n")
+	parts := []string{sep, header, preview}
+	if tc.approvalNoPersist {
+		parts = append(parts, b.styles.FgMute.Render(approvalNoPersistWarning))
+	}
+	parts = append(parts, btns)
+	return strings.Join(parts, "\n")
 }
+
+// approvalNoPersistWarning explains what a one-time sandbox retry does. Such a
+// request offers no session-wide grant, because approving it reruns the whole
+// command outside the sandbox.
+const approvalNoPersistWarning = "One-time retry: the whole command runs again and side effects may repeat."
 
 // renderApprovalPreview formats the approval preview string.
 // If the preview is JSON, each key is rendered bold followed by its value.
@@ -400,6 +410,14 @@ func (b *contentBuffer) renderToolApprovalButtons(tc *toolCallSegment, accentC c
 		{"Allow once", "y", 0},
 		{"Allowed for session", "a", 1},
 		{"Deny", "n", 2},
+	}
+	if tc.approvalNoPersist {
+		// A one-time retry cannot be granted for the session, so the action
+		// is neither offered nor reachable.
+		specs = []btnSpec{
+			{"Allow once", "y", 0},
+			{"Deny", "n", 2},
+		}
 	}
 
 	// Selected button uses tool accent color; all others are a neutral gray.

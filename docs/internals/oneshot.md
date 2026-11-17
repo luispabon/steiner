@@ -28,7 +28,7 @@ The run ID is 8 random bytes, hex-encoded (`generateRunID`). The slug comes from
 - The start point is the `origin/main` commit when it resolves, otherwise `HEAD`. Its SHA is stored as `worktree_base`.
 - An existing `refs/heads/<branch>` is checked out. Otherwise the branch is created with `-b`.
 - A stale worktree path is pruned and removed first.
-- `ensureSteinerProjectDir` writes `.steiner/.gitignore` containing `*`.
+- `session.EnsureSteinerProjectDir`, shared with the CLI runtime, writes `.steiner/.gitignore` containing `*` in the project root and the worktree, and resume setup reuses it. Symlink rules: [Sessions and persistence](architecture.md#sessions-and-persistence).
 
 `Orchestrator.Run` order: provision the worktree, acquire the run lock (`Release` runs on return, via `defer`), derive the interrupt context, create the planning dir, write the manifest with every phase `pending`, run each phase, then `finalizeRun`. Concurrent runs never share a branch, worktree, manifest, or lock because run IDs are unique.
 
@@ -50,7 +50,7 @@ Phases run in order: plan, implement, review. `runPhase` builds a fresh runner f
 
 - A new `PhaseRunner` and `prompt.StaticContextCache`, in workflow mode `prompt.DelegatedChildWorkflowMode()`.
 - `WorkDir` is the worktree. `ProjectRoot` stays the main checkout, which holds the manifest. `ProjectAgentsPath` is `<worktree>/AGENTS.md`.
-- Approvals: `worktreeAutoApprover` approves only `mutate` path requests inside the worktree (`tool.PathWithinRoot`). Every other approval is denied.
+- Approvals: the phase runner gets a nil `tool.ApprovalResponder`. The executor treats that as a denial: a promptable path violation becomes `policy_denied` in `normalizeExecutionInput` and `handleBashDenial` never runs, so no unsandboxed retry is granted. Edits inside the worktree need no approval. An explicit `paths.project_root_only: false` still disables the containment check, so the denial does not apply.
 - Advisor: enabled, with `MaxUsesPerRun` per phase: plan 4, implement 3, review 4.
 - Cache identity: `SessionID` and `PromptCacheKey` are the run ID. One `agent.NewCacheBaselineStore()` per `Run` or `Resume` call is shared by all phases.
 - Seed: one user message from `phaseSeedConversation` with the task, phase, run ID, branch, worktree, and the paths `overview.md` and `plan.yaml` in the planning dir.

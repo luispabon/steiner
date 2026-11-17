@@ -657,6 +657,125 @@ func TestApprovalResponseForDecision(t *testing.T) {
 	}
 }
 
+// TestApprovalResponderNoPersistBypassesCachedGrant proves a prior session-wide
+// grant for the same tool never answers a one-time (sandbox retry) request: the
+// retry still registers and waits for its own decision.
+func TestApprovalResponderNoPersistBypassesCachedGrant(t *testing.T) {
+	coordinator := &ApprovalCoordinator{}
+	responder := newApprovalResponder(coordinator, nil)
+
+	firstResponse := make(chan tool.ApprovalResponse, 1)
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			Tool:     tool.ToolDef{Name: "bash"},
+			CallID:   "call-bash-1",
+			Reason:   "sandbox_violation",
+			Response: firstResponse,
+			Kind:     tool.ApprovalKindPath,
+		})
+	}()
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
+		Tool:     "bash",
+		Mode:     "prompt",
+		Decision: "always_allow",
+	})
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first RequestApproval() error = %v", err)
+	}
+	if got, want := <-firstResponse, (tool.ApprovalResponse{Allow: true, Message: "always allowed"}); got != want {
+		t.Fatalf("first response = %#v, want %#v", got, want)
+	}
+
+	retryResponse := make(chan tool.ApprovalResponse, 1)
+	retryDone := make(chan error, 1)
+	go func() {
+		retryDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			Tool:      tool.ToolDef{Name: "bash"},
+			CallID:    "call-bash-2",
+			Reason:    "command blocked by sandbox",
+			Response:  retryResponse,
+			Kind:      tool.ApprovalKindPath,
+			NoPersist: true,
+		})
+	}()
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
+		Tool:     "bash",
+		Mode:     "prompt",
+		Decision: "deny",
+	})
+	if err := <-retryDone; err != nil {
+		t.Fatalf("retry RequestApproval() error = %v", err)
+	}
+	if got, want := <-retryResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
+		t.Fatalf("retry response = %#v, want %#v", got, want)
+	}
+}
+
+// TestApprovalResponderNoPersistAlwaysAllowIsOneTime proves a session-wide
+// decision submitted for a one-time request is treated as allow once: it allows
+// the call and caches no grant for later requests.
+func TestApprovalResponderNoPersistAlwaysAllowIsOneTime(t *testing.T) {
+	coordinator := &ApprovalCoordinator{}
+	responder := newApprovalResponder(coordinator, nil)
+
+	responseCh := make(chan tool.ApprovalResponse, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			Tool:      tool.ToolDef{Name: "bash"},
+			CallID:    "call-bash-1",
+			Reason:    "command blocked by sandbox",
+			Response:  responseCh,
+			Kind:      tool.ApprovalKindPath,
+			NoPersist: true,
+		})
+	}()
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
+		Tool:     "bash",
+		Mode:     "prompt",
+		Decision: "always_allow",
+	})
+	if err := <-done; err != nil {
+		t.Fatalf("RequestApproval() error = %v", err)
+	}
+	if got, want := <-responseCh, (tool.ApprovalResponse{Allow: true, Message: "approved"}); got != want {
+		t.Fatalf("one-time response = %#v, want %#v", got, want)
+	}
+
+	// No grant was cached: the next request for the same tool still prompts.
+	nextResponse := make(chan tool.ApprovalResponse, 1)
+	nextDone := make(chan error, 1)
+	go func() {
+		nextDone <- responder.RequestApproval(context.Background(), tool.ApprovalRequest{
+			Tool:     tool.ToolDef{Name: "bash"},
+			CallID:   "call-bash-2",
+			Reason:   "sandbox_violation",
+			Response: nextResponse,
+			Kind:     tool.ApprovalKindPath,
+		})
+	}()
+	waitForPendingApproval(t, coordinator)
+	coordinator.Submit(SubmitApproval{
+		Identity: coordinator.HeadIdentity(),
+		Tool:     "bash",
+		Mode:     "prompt",
+		Decision: "deny",
+	})
+	if err := <-nextDone; err != nil {
+		t.Fatalf("next RequestApproval() error = %v", err)
+	}
+	if got, want := <-nextResponse, (tool.ApprovalResponse{Allow: false, Message: "denied"}); got != want {
+		t.Fatalf("next response = %#v, want %#v", got, want)
+	}
+}
+
 func TestWorkflowHandoffResponderAcceptsDecision(t *testing.T) {
 	coordinator := &WorkflowHandoffCoordinator{}
 	var events []output.Event

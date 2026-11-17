@@ -69,8 +69,6 @@ type Manager struct {
 	reapTicker *time.Ticker
 	stopReaper chan struct{}
 	reaperDone chan struct{} // closed when reapIdle returns; nil without a reaper
-
-	resultCache *resultCache
 }
 
 // session is one live connection to a language server process.
@@ -148,7 +146,6 @@ func NewManager(cfg config.LSPConfig, workspace string, wrap WrapFn, opts Manage
 		spawnCancel: spawnCancel,
 		sessions:    make(map[sessionKey]*entry),
 		stopReaper:  make(chan struct{}),
-		resultCache: newResultCache(resultCacheMaxEntries),
 	}
 
 	// Start idle reaper if IdleTimeout is non-zero.
@@ -430,8 +427,7 @@ func closeSession(sess session) {
 }
 
 // resolveSessionKey computes the (server, root) session key for a file without
-// side effects. It is used by the result cache to build cache keys.
-// On error, it returns ok=false; the caller should skip the cache (best-effort).
+// side effects. On error, it returns ok=false.
 func (m *Manager) resolveSessionKey(file string) (sessionKey, bool) {
 	m.mu.Lock()
 	serverName := m.serverForExtension(file)
@@ -610,10 +606,6 @@ func (m *Manager) close() {
 	m.mu.Unlock()
 
 	m.spawnCancel()
-
-	if m.resultCache != nil {
-		m.resultCache.clear()
-	}
 
 	// stopReaper is closed exactly once because close runs under closeOnce. Join
 	// the reaper so a reap already in progress finishes its session closes before

@@ -632,16 +632,87 @@ func TestPathPolicyError_NotPromptable_WritableAllowlist(t *testing.T) {
 	}
 }
 
-func TestPathPolicy_WithoutRoot(t *testing.T) {
+func TestPathPolicy_WithoutRootContainment(t *testing.T) {
 	policy := NewPathPolicy("/project", config.PathsConfig{ProjectRootOnly: true})
-	relaxed := policy.WithoutRoot()
-	if relaxed.Root() != "" {
-		t.Fatalf("WithoutRoot().Root() = %q, want ''", relaxed.Root())
+	relaxed := policy.WithoutRootContainment()
+	// The root stays set: approved calls still resolve relative paths against
+	// the project root instead of the process working directory.
+	if relaxed.Root() != "/project" {
+		t.Fatalf("WithoutRootContainment().Root() = %q, want '/project'", relaxed.Root())
 	}
-	// After removing root, outside paths should be allowed.
-	_, err := relaxed.ResolvePath("/etc/passwd", false)
-	if err != nil {
+	// Root containment is off, so an outside absolute path is allowed.
+	if _, err := relaxed.ResolvePath("/etc/passwd", false); err != nil {
 		t.Fatalf("relaxed.ResolvePath(/etc/passwd) error = %v, want nil", err)
+	}
+	// A relative path still resolves under the retained root.
+	resolved, err := relaxed.ResolvePath("sub/file.txt", false)
+	if err != nil {
+		t.Fatalf("relaxed.ResolvePath(sub/file.txt) error = %v, want nil", err)
+	}
+	if want := "/project/sub/file.txt"; resolved != want {
+		t.Fatalf("relaxed.ResolvePath(sub/file.txt) = %q, want %q", resolved, want)
+	}
+}
+
+// assertNotPromptablePolicyDenial fails the test unless err is a
+// *PathPolicyError that cannot be turned into an approval prompt.
+func assertNotPromptablePolicyDenial(t *testing.T, err error, wantSubstring string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("ResolvePath() error = nil, want denial")
+	}
+	var policyErr *PathPolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("error type = %T, want *PathPolicyError", err)
+	}
+	if policyErr.Promptable {
+		t.Fatal("Promptable = true, want false: approval must not lift this restriction")
+	}
+	if !strings.Contains(err.Error(), wantSubstring) {
+		t.Fatalf("error = %q, want %q", err.Error(), wantSubstring)
+	}
+}
+
+// TestPathPolicy_WithoutRootContainment_KeepsBlockedPaths pins that approving a
+// path outside the root does not lift configured blocked paths.
+func TestPathPolicy_WithoutRootContainment_KeepsBlockedPaths(t *testing.T) {
+	root := t.TempDir()
+	policy := NewPathPolicy(root, config.PathsConfig{
+		ProjectRootOnly: true,
+		BlockedPaths:    []string{"secrets"},
+	})
+	relaxed := policy.WithoutRootContainment()
+	_, err := relaxed.ResolvePath(filepath.Join(root, "secrets", "key.txt"), false)
+	assertNotPromptablePolicyDenial(t, err, "blocked by policy")
+}
+
+// TestPathPolicy_WithoutRootContainment_KeepsWritablePaths pins that approving a
+// path outside the root does not lift the writable allowlist.
+func TestPathPolicy_WithoutRootContainment_KeepsWritablePaths(t *testing.T) {
+	root := t.TempDir()
+	policy := NewPathPolicy(root, config.PathsConfig{
+		ProjectRootOnly: true,
+		WritablePaths:   []string{"output"},
+	})
+	relaxed := policy.WithoutRootContainment()
+	_, err := relaxed.ResolvePath(filepath.Join(root, "src", "main.go"), true)
+	assertNotPromptablePolicyDenial(t, err, "writable allowlist")
+	if _, err := relaxed.ResolvePath(filepath.Join(root, "output", "report.txt"), true); err != nil {
+		t.Fatalf("ResolvePath(output/report.txt) error = %v, want nil inside the allowlist", err)
+	}
+}
+
+// TestPathPolicy_WithoutRootContainment_KeepsPlanWriteLimits pins that approving
+// a path outside the root does not lift plan-mode write limits.
+func TestPathPolicy_WithoutRootContainment_KeepsPlanWriteLimits(t *testing.T) {
+	root := t.TempDir()
+	policy := NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: true}).
+		RestrictWritesTo(filepath.Join(root, ".steiner"))
+	relaxed := policy.WithoutRootContainment()
+	_, err := relaxed.ResolvePath(filepath.Join(root, "src", "main.go"), true)
+	assertNotPromptablePolicyDenial(t, err, "plan mode")
+	if _, err := relaxed.ResolvePath(filepath.Join(root, ".steiner", "plans", "plan.yaml"), true); err != nil {
+		t.Fatalf("ResolvePath(.steiner/plans/plan.yaml) error = %v, want nil inside the plan allowlist", err)
 	}
 }
 

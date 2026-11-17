@@ -3,6 +3,7 @@ package lsp
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"unicode/utf16"
 )
@@ -22,7 +23,7 @@ func resolveSymbolPosition(workspace, file, symbol string, line int) (resolvedFi
 		return "", 0, 0, err
 	}
 
-	content, err := readFileContent(absPath)
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return "", 0, 0, fmt.Errorf("read file: %w", err)
 	}

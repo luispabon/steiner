@@ -168,8 +168,12 @@ func delegationCompactionOperation(payload output.ContextCompactionEvent) string
 	return "context compacted"
 }
 
+// Child transcript handlers ignore the root compaction state: a root
+// compaction rewrites the root prefix, not the child transcripts, so suppressing
+// child output would silently drop content the child emitted while the root was
+// compacting. Only the user's thinking preference still gates child thinking.
 func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState, event output.Event) bool {
-	if b.compaction.SuppressThinking() || !b.showThinking {
+	if !b.showThinking {
 		return true
 	}
 	payload, ok := event.Payload.(output.ThinkingChunkEvent)
@@ -185,9 +189,6 @@ func (b *contentBuffer) applyDelegationThinkingChunk(dd *delegationDisplayState,
 }
 
 func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState, event output.Event) bool {
-	if b.compaction.SuppressThinking() {
-		return true
-	}
 	payload, ok := event.Payload.(output.AssistantChunkEvent)
 	if !ok {
 		return false
@@ -202,9 +203,6 @@ func (b *contentBuffer) applyDelegationAssistantChunk(dd *delegationDisplayState
 }
 
 func (b *contentBuffer) applyDelegationAssistantMessage(dd *delegationDisplayState, event output.Event) bool {
-	if b.compaction.SuppressThinking() {
-		return true
-	}
 	payload, ok := event.Payload.(output.AssistantMessageEvent)
 	if !ok {
 		return false

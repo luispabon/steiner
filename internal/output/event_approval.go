@@ -15,6 +15,16 @@ type ApprovalEvent struct {
 	Kind      string `json:"kind,omitempty"`
 	Server    string `json:"server,omitempty"`
 	ToolName  string `json:"tool_name,omitempty"`
+	// NoPersist marks a request that can only be decided for this call: the
+	// prompt offers no session-wide grant, and any session-wide decision is
+	// downgraded to a one-time allowance.
+	NoPersist bool `json:"no_persist,omitempty"`
+	// DeniedPaths lists the outside paths a path approval would authorize,
+	// capped at the collector's limit, and DeniedPathCount is how many distinct
+	// outside paths the call touches. Values are normalized resolved paths, not
+	// the literal argument text; renderers sanitize them for display.
+	DeniedPaths     []string `json:"denied_paths,omitempty"`
+	DeniedPathCount int      `json:"denied_path_count,omitempty"`
 }
 
 // WorkflowHandoffEvent captures a workflow handoff request for later handling.
@@ -50,6 +60,15 @@ type ApprovalEventParams struct {
 	Server string
 	// ToolName is the MCP tool name for MCP approvals.
 	ToolName string
+	// NoPersist marks a request that can only be decided for this call.
+	NoPersist bool
+	// DeniedPaths lists the outside paths a path approval would authorize.
+	// Values are normalized resolved paths, not the literal argument text;
+	// renderers sanitize them for display.
+	DeniedPaths []string
+	// DeniedPathCount is the number of distinct outside paths the call
+	// touches, including any beyond DeniedPaths.
+	DeniedPathCount int
 }
 
 // NewApprovalRequestedEvent creates a new approval requested event. It ignores p.Message.
@@ -80,6 +99,10 @@ func newApprovalEvent(eventType string, p ApprovalEventParams, message string, a
 		Kind:      p.Kind,
 		Server:    p.Server,
 		ToolName:  p.ToolName,
+		NoPersist: p.NoPersist,
+
+		DeniedPaths:     p.DeniedPaths,
+		DeniedPathCount: p.DeniedPathCount,
 	})
 }
 

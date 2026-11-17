@@ -35,6 +35,7 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 				identity:    identity,
 				agentID:     event.Scope.AgentID,
 				queueDepth:  0,
+				noPersist:   payload.NoPersist,
 			},
 			renderDirty: true,
 		})
@@ -63,6 +64,7 @@ func (b *contentBuffer) embedApprovalRequest(payload output.ApprovalEvent, ident
 			seg.toolData.approvalMCPTool = payload.ToolName
 			seg.toolData.approvalQueueDepth = 0
 			seg.toolData.approvalSelectedAction = 0
+			seg.toolData.approvalNoPersist = payload.NoPersist
 			seg.toolData.collapsed = false
 			seg.renderDirty = true
 			b.gen++
@@ -86,6 +88,7 @@ func (b *contentBuffer) embedApprovalRequest(payload output.ApprovalEvent, ident
 				entry.approvalMode = payload.Mode
 				entry.approvalPreview = payload.Preview
 				entry.approvalSelectedAction = 0
+				entry.approvalNoPersist = payload.NoPersist
 				entry.collapsed = false
 				seg.renderDirty = true
 				b.recomputeApprovalQueueDepths()

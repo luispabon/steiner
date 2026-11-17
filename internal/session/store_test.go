@@ -896,6 +896,118 @@ func TestDeleteRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
+// requireReservedIDError asserts that rejecting id reports a reserved id.
+func requireReservedIDError(t *testing.T, call string, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), "reserved session id") {
+		t.Errorf("%s error = %v, want reserved session id", call, err)
+	}
+}
+
+func TestReservedSessionIDsRejected(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+
+	ids := []string{
+		"index",             // dir/<id>.json is the index file
+		indexFile,           // dir/<id> is the index file
+		indexLockFile,       // dir/<id> is the index lock file
+		"Index.JSON",        // case-insensitive filesystem
+		"index.json ",       // Windows strips the trailing space
+		"index.json.",       // Windows strips the trailing dot
+		".tmp-index.json-x", // matches the index temp file sweep
+		".tmp-a.json-b",     // matches another session's temp file sweep
+		".TMP-session",      // temp prefix on a case-insensitive filesystem
+	}
+	for _, id := range ids {
+		_, err := safeSessionPath(dir, id)
+		requireReservedIDError(t, fmt.Sprintf("safeSessionPath(%q)", id), err)
+		_, err = safeSessionDir(dir, id)
+		requireReservedIDError(t, fmt.Sprintf("safeSessionDir(%q)", id), err)
+		requireReservedIDError(t, fmt.Sprintf("Save(%q)", id), store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now}))
+		_, err = store.Load(id)
+		requireReservedIDError(t, fmt.Sprintf("Load(%q)", id), err)
+		requireReservedIDError(t, fmt.Sprintf("Delete(%q)", id), store.Delete(id))
+		_, err = store.HistoryPath(id)
+		requireReservedIDError(t, fmt.Sprintf("HistoryPath(%q)", id), err)
+		_, err = store.AppendHistory(id, "h\n", "c\n")
+		requireReservedIDError(t, fmt.Sprintf("AppendHistory(%q)", id), err)
+		_, err = store.ReadHistory(id)
+		requireReservedIDError(t, fmt.Sprintf("ReadHistory(%q)", id), err)
+	}
+}
+
+func TestReservedSessionIDsCannotRemoveStoreFiles(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Save(Session{ID: "keep", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	for _, id := range []string{"index", indexFile, indexLockFile, ".tmp-index.json-x"} {
+		requireReservedIDError(t, fmt.Sprintf("Delete(%q)", id), store.Delete(id))
+	}
+	for _, name := range []string{indexFile, indexLockFile} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("Delete removed %s: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-index.json-x"+sessionExt)); !os.IsNotExist(err) {
+		t.Errorf("reserved id wrote a session file: %v", err)
+	}
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if got := indexIDs(entries); !slices.Equal(got, []string{"keep"}) {
+		t.Errorf("List IDs = %v, want [keep]", got)
+	}
+
+	// The stable lock file still serialises a second store on the same directory.
+	second, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("second NewStore failed: %v", err)
+	}
+	if err := second.Save(Session{ID: "keep-2", CreatedAt: now, UpdatedAt: now.Add(time.Minute)}); err != nil {
+		t.Fatalf("second Save failed: %v", err)
+	}
+	checkIndexIDs(t, dir, store, []string{"keep-2", "keep"})
+}
+
+func TestSessionIDsSharingReservedPrefixesAllowed(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+	now := time.Now().UTC()
+
+	ids := []string{"indexes", "index-json", "index.json.bak", "index.json.lock.bak", "my.index.json", "my.index", "session.json", ".tmp", "x.tmp-y", ".tmpy"}
+	for i, id := range ids {
+		if err := store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now.Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatalf("Save(%q) failed: %v", id, err)
+		}
+		if _, err := store.Load(id); err != nil {
+			t.Errorf("Load(%q) failed: %v", id, err)
+		}
+	}
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != len(ids) {
+		t.Errorf("List returned %d entries, want %d", len(entries), len(ids))
+	}
+}
+
 func TestSaveLoadDeleteWithValidHexID(t *testing.T) {
 	t.Parallel()
 
@@ -1031,7 +1143,7 @@ func TestSaveTightensStaleTmpFile(t *testing.T) {
 
 func TestLoadIndexDropsInvalidIDs(t *testing.T) {
 	dir := t.TempDir()
-	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"good"}]`
+	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"index.json"},{"id":"index.json.lock"},{"id":"index.json "},{"id":".tmp-index.json-x"},{"id":"good"}]`
 	if err := os.WriteFile(filepath.Join(dir, indexFile), []byte(idx), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1525,7 +1637,7 @@ func TestDeleteHistoryRemovalFailureRemovesJSONAndKeepsArchive(t *testing.T) {
 	}
 }
 
-func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
+func TestFinishRemovalJoinsHistoryAndIndexSaveErrors(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore(dir)
 	if err != nil {
@@ -1539,6 +1651,13 @@ func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
 		t.Fatalf("AppendHistory failed: %v", err)
 	}
 
+	// Delete removes the session file before calling finishRemovalLocked, but it
+	// also reloads the index first, and a directory at index.json fails that
+	// reload. Call finishRemovalLocked directly with the JSON file already gone.
+	if err := os.Remove(filepath.Join(dir, "both-fail"+sessionExt)); err != nil {
+		t.Fatalf("remove session file: %v", err)
+	}
+
 	// Replacing index.json with a directory makes the index save fail.
 	indexPath := filepath.Join(dir, indexFile)
 	if err := os.Remove(indexPath); err != nil {
@@ -1550,15 +1669,14 @@ func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
 
 	errRemove := errors.New("simulated removal failure")
 	failHistoryRemoval(t, errRemove)
-	err = store.Delete("both-fail")
+	store.mu.Lock()
+	err = store.finishRemovalLocked("both-fail", filepath.Join(dir, "both-fail"))
+	store.mu.Unlock()
 	if !errors.Is(err, errRemove) {
-		t.Errorf("Delete error = %v, want history removal failure", err)
+		t.Errorf("finishRemovalLocked error = %v, want history removal failure", err)
 	}
 	if err == nil || !strings.Contains(err.Error(), "save index") {
-		t.Errorf("Delete error = %v, want index save failure", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "both-fail"+sessionExt)); !os.IsNotExist(err) {
-		t.Errorf("session file still exists after failed Delete: %v", err)
+		t.Errorf("finishRemovalLocked error = %v, want index save failure", err)
 	}
 }
 

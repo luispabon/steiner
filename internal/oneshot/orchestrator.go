@@ -190,7 +190,12 @@ func (o *Orchestrator) runPhase(p runPhaseParams) error {
 	}
 
 	phaseCtx, cancel := context.WithCancel(p.InterruptCtx)
-	runner, err := o.deps.RunnerFactory.NewPhaseRunner(phaseCtx, p.Phase, modelAlias, NewWorktreeAutoApprover(p.WorktreePath), advisorCfg)
+	// A phase has no user to answer an approval prompt, so it runs without an
+	// approval responder. The executor treats a nil responder as a denial: a
+	// path outside the project root fails with a policy error instead of being
+	// approved, and a sandbox denial is returned without an unsandboxed retry.
+	// In-root mutate calls need no approval, so they still succeed.
+	runner, err := o.deps.RunnerFactory.NewPhaseRunner(phaseCtx, p.Phase, modelAlias, nil, advisorCfg)
 	if err != nil {
 		return o.finalizePhaseFailure(p, cancel, err, phaseFailureOptions{
 			IndicatorState:       phaseIndicatorBoundary,

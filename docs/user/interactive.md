@@ -109,7 +109,7 @@ When a tool call needs approval, an approval prompt appears in the transcript. [
 | Key | Action |
 |-----|--------|
 | `y` | Approve this call once |
-| `a` | Approve and allow this tool for the rest of the session (for MCP tools, that server's tool) |
+| `a` | Approve and allow this tool for the rest of the session (for MCP tools, that server's tool). Not offered for sandbox retries, which allow only this call |
 | `n`, `esc` | Deny |
 | arrow keys, `tab` | Move between the options |
 | `enter` | Confirm the selected option |

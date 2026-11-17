@@ -142,7 +142,7 @@ func (m *Manager) connectServer(spec ServerSpec, srv config.MCPServerConfig, tra
 				warnFn(fmt.Sprintf("MCP server %q tool %q skipped: input schema is %d bytes (limit %d) or unmarshalable", spec.Name, t.Name, size, maxInputSchemaBytes))
 				continue
 			}
-			def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, func() bool { return m.planMode }, srv, limits)
+			def := mcpToolDef(session, t, func() tool.ApprovalResponder { return m.currentApprover() }, m.currentPlanMode, srv, limits)
 			m.defs = append(m.defs, def)
 			toolNames = append(toolNames, t.Name)
 		}
@@ -240,6 +240,13 @@ func (m *Manager) currentApprover() tool.ApprovalResponder {
 	return m.approver
 }
 
+// currentPlanMode returns the manager's current plan mode under the mutex.
+func (m *Manager) currentPlanMode() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.planMode
+}
+
 // WaitInit blocks until every enabled server has resolved to connected or
 // failed, or until ctx is done. It is idempotent and safe to call from
 // multiple goroutines: the first call arms the done channel, later calls just
@@ -309,13 +316,16 @@ func (m *Manager) UpdateApprover(approver tool.ApprovalResponder) {
 }
 
 // UpdatePlanMode sets the plan mode read by the handler closures at call
-// time. Tool definitions are not rebuilt: each handler reads the current mode
-// from the closure. Safe to call with nil.
+// time. Tool definitions are not rebuilt: each handler resolves the current
+// mode through currentPlanMode, which takes the manager mutex, so a mode switch
+// may run concurrently with tool calls. Safe to call with nil.
 func (m *Manager) UpdatePlanMode(planMode bool) {
 	if m == nil {
 		return
 	}
+	m.mu.Lock()
 	m.planMode = planMode
+	m.mu.Unlock()
 }
 
 // Close terminates every connected server and cancels in-flight connects. It

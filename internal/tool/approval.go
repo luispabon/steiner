@@ -56,6 +56,12 @@ type ApprovalRequest struct {
 
 	Reason            string // human-readable reason for the prompt
 	GrantInstructions string // how to permanently allow this
+	// NoPersist marks a request that must be decided for this call only. A
+	// responder must neither answer it from a cached session grant nor cache a
+	// grant from its decision, and a session-wide decision is downgraded to a
+	// one-time allowance. Sandbox denials set it because approving one reruns
+	// the command outside the sandbox.
+	NoPersist bool
 
 	Path *PathApprovalDetails // non-nil when Kind == ApprovalKindPath
 	MCP  *MCPApprovalDetails  // non-nil when Kind == ApprovalKindMCP
@@ -63,9 +69,18 @@ type ApprovalRequest struct {
 
 // PathApprovalDetails carries a sandbox boundary violation for user decision.
 type PathApprovalDetails struct {
-	WorkDir    string
-	Preview    ApprovalPreview
-	DeniedPath string // path that caused the violation (may be empty for bash)
+	WorkDir string
+	Preview ApprovalPreview
+	// DeniedPath is the path that caused the violation (may be empty for
+	// bash). DeniedPaths is the full set the prompt lists, capped at
+	// maxCollectedOutsidePaths, and DeniedPathCount is how many distinct
+	// outside paths the call touches. These are normalized resolved paths,
+	// not the literal argument text; display layers sanitize them onto a
+	// single line, so what a prompt shows can differ from the string in the
+	// model's call.
+	DeniedPath      string
+	DeniedPaths     []string
+	DeniedPathCount int
 }
 
 // MCPApprovalDetails carries the details of an MCP tool call approval prompt.

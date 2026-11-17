@@ -33,6 +33,7 @@ func (m *Model) applyApprovalEvent(event output.Event, payload output.ApprovalEv
 				kind:           payload.Kind,
 				server:         payload.Server,
 				mcpToolName:    payload.ToolName,
+				noPersist:      payload.NoPersist,
 				selectedAction: 0,
 			}
 			m.status.mode = "approval"
@@ -150,7 +151,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		seg := &m.content.segments[i]
 		if seg.kind == segmentToolCall && seg.toolData != nil && seg.toolData.approvalPending && !seg.toolData.approvalResolved && (identity == "" || seg.toolData.approvalIdentity == identity) {
 			tc := seg.toolData
-			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
+			m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool, noPersist: tc.approvalNoPersist}
 			m.status.mode = "approval"
 			m.input.Blur()
 			m.syncApprovalSelection(m.approval.selectedAction)
@@ -159,7 +160,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		if seg.kind == segmentToolCallGroup && seg.toolGroupData != nil {
 			for _, tc := range seg.toolGroupData.entries {
 				if tc != nil && tc.approvalPending && !tc.approvalResolved && (identity == "" || tc.approvalIdentity == identity) {
-					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool}
+					m.approval = approvalState{active: true, identity: tc.approvalIdentity, tool: tc.tool, mode: tc.approvalMode, preview: tc.approvalPreview, kind: tc.approvalKind, server: tc.approvalServer, mcpToolName: tc.approvalMCPTool, noPersist: tc.approvalNoPersist}
 					m.status.mode = "approval"
 					m.input.Blur()
 					m.syncApprovalSelection(m.approval.selectedAction)
@@ -169,7 +170,7 @@ func (m *Model) promoteNextApproval(resolvedIdentities ...string) bool {
 		}
 		if seg.kind == segmentApprovalPill && seg.approvalData != nil && !seg.approvalData.resolved && !seg.approvalData.cleared && (identity == "" || seg.approvalData.identity == identity) {
 			ad := seg.approvalData
-			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName}
+			m.approval = approvalState{active: true, identity: ad.identity, tool: ad.tool, mode: ad.mode, preview: ad.preview, kind: ad.kind, server: ad.server, mcpToolName: ad.mcpToolName, noPersist: ad.noPersist}
 			m.status.mode = "approval"
 			m.input.Blur()
 			m.syncApprovalSelection(m.approval.selectedAction)
