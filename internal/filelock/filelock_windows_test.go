@@ -45,6 +45,10 @@ func TestWindowsLockHelper(t *testing.T) {
 	if _, err := io.WriteString(os.Stdout, "released\n"); err != nil {
 		t.Fatal(err)
 	}
+	command, err = reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(command) != "exit" {
+		t.Fatalf("helper command = %q, %v", command, err)
+	}
 }
 
 func TestWindowsUnsupportedLockClosesFile(t *testing.T) {
@@ -76,11 +80,19 @@ func startWindowsHolder(t *testing.T, path string) (*exec.Cmd, io.WriteCloser, <
 	if err != nil {
 		t.Fatal(err)
 	}
-	stdout, err := cmd.StdoutPipe()
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
+	cmd.Stdout = stdoutWriter
 	if err := cmd.Start(); err != nil {
+		_ = stdout.Close()
+		_ = stdoutWriter.Close()
+		t.Fatal(err)
+	}
+	if err := stdoutWriter.Close(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = stdout.Close()
 		t.Fatal(err)
 	}
 	lines := make(chan string, 4)
@@ -102,6 +114,7 @@ func startWindowsHolder(t *testing.T, path string) (*exec.Cmd, io.WriteCloser, <
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
 		_ = stdin.Close()
+		_ = stdout.Close()
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
