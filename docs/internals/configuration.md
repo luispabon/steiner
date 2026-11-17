@@ -26,7 +26,9 @@ Env expansion runs per file before decoding. `readConfigPatch` returns the first
 
 The trust store is `~/.config/steiner/trusted_projects.json`, keyed by absolute, symlink-resolved project root. The directory is mode `0o700` and the file `0o600`. `TrustProject` writes it through `fsatomic.WriteFile`.
 
-`withTrustStoreLock` in `trust_store.go` serializes trust store access across processes. It creates the store directory when missing, then holds the stable sibling lock file `trusted_projects.json.lock` (via `internal/filelock`) for the whole callback: `TrustProject`'s read-modify-write, and `InspectProject`'s read, which can delete a corrupt file. A lock error fails the call. A platform or filesystem without advisory locking proceeds unlocked, and this package does not surface the lock warning.
+`withTrustStoreLock` in `trust_store.go` serializes trust store access across processes. It creates the store directory when missing, then holds the stable sibling lock file `trusted_projects.json.lock` (via `internal/filelock`) for the whole callback: `TrustProject`'s read-modify-write, and `InspectProject`'s read, which can delete a corrupt file. Because the lock file lives beside the store, `InspectProject` fails when the directory or lock file cannot be created, even when no store exists yet.
+
+An ordinary lock error fails the call. On Windows, AIX, and filesystems that report locking as unsupported, `internal/filelock` returns an unsupported lock and the callback runs unlocked; this package does not surface the lock warning, so concurrent trust writes there can be lost. `ProjectInspection.StoreNotice` is not a warning channel: it carries only the corrupt-store reset notice.
 
 `ensureProjectTrust` in `cmd/steiner` resolves trust once per process, memoized on `cliFlags.trustResolved`. Order: stored trust, `--trust-project-config`, `STEINER_TRUST_PROJECT_CONFIG`, the trust dialog (only when not `exec` and the terminal is interactive), then an error naming both fixes. "Always trust" calls `config.TrustProject`. The session choice trusts for the run only. Deny is an error.
 

@@ -277,6 +277,43 @@ func TestTrustStoreLockErrors(t *testing.T) {
 	})
 }
 
+func TestTrustStoreDirectoryCreationErrors(t *testing.T) {
+	// A regular file where the store directory belongs makes the lock helper's
+	// directory creation fail deterministically, without permission bits.
+	blockStoreDir := func(t *testing.T, home string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(home, ".config"), []byte("not a dir"), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
+	t.Run("inspect project", func(t *testing.T) {
+		home, work := t.TempDir(), t.TempDir()
+		blockStoreDir(t, home)
+
+		_, err := InspectProject(inspectOptions(home, work))
+		if err == nil {
+			t.Fatal("InspectProject err = nil, want directory creation error")
+		}
+		if !strings.Contains(err.Error(), "create dir") {
+			t.Errorf("err = %q, want to contain %q", err, "create dir")
+		}
+	})
+
+	t.Run("trust project", func(t *testing.T) {
+		home := t.TempDir()
+		blockStoreDir(t, home)
+
+		err := TrustProject(LoadOptions{HomeDir: home}, "/repo/one", time.Now())
+		if err == nil {
+			t.Fatal("TrustProject err = nil, want directory creation error")
+		}
+		if !strings.Contains(err.Error(), "create dir") {
+			t.Errorf("err = %q, want to contain %q", err, "create dir")
+		}
+	})
+}
+
 func TestTrustProject(t *testing.T) {
 	t.Run("trusts a project", func(t *testing.T) {
 		home := t.TempDir()
