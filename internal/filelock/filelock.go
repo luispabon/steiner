@@ -2,10 +2,10 @@
 // steiner's on-disk stores.
 //
 // A lock protects a data file through a stable sibling lock file, for example
-// sessions-index.json.lock. The lock file is created 0600 when missing and never
-// deleted: the kernel lock binds to the inode opened at lock time, and data
-// files are rewritten by rename, so the lock must live on a path whose inode
-// does not change.
+// sessions-index.json.lock. The lock file is created with mode 0600 on Unix
+// when missing. Windows uses the inherited directory ACL, not a restrictive ACL
+// set by this package. The path is never deleted: data files are rewritten by
+// rename, so the lock must live on a stable path.
 //
 // Unix targets other than aix use flock, and Windows uses LockFileEx. Elsewhere,
 // and on filesystems that report locking as unsupported, Acquire degrades to an

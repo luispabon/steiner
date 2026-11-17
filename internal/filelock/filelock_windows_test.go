@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 const helperEnv = "STEINER_FILELOCK_HELPER"
@@ -32,14 +34,42 @@ func TestWindowsLockHelper(t *testing.T) {
 	if _, err := io.WriteString(os.Stdout, "locked\n"); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = io.Copy(io.Discard, os.Stdin)
+	reader := bufio.NewReader(os.Stdin)
+	command, err := reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(command) != "release" {
+		t.Fatalf("helper command = %q, %v", command, err)
+	}
 	if err := lock.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(os.Stdout, "released\n"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestWindowsSubprocessExclusionCancellationAndTermination(t *testing.T) {
+func TestWindowsUnsupportedLockClosesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "index.json.lock")
+	var handle windows.Handle
+	lock, err := acquireWindows(context.Background(), path, func(h windows.Handle, _, _, _, _ uint32, _ *windows.Overlapped) error {
+		handle = h
+		return windows.ERROR_NOT_SUPPORTED
+	})
+	if err != nil {
+		t.Fatalf("acquireWindows() error = %v", err)
+	}
+	if !lock.Unsupported() {
+		t.Fatal("Unsupported() = false")
+	}
+	if !strings.Contains(lock.Warning(), path) || !strings.Contains(lock.Warning(), windows.ERROR_NOT_SUPPORTED.Error()) {
+		t.Errorf("Warning() = %q, want path and unsupported cause", lock.Warning())
+	}
+	if _, err := windows.GetFileType(handle); !errors.Is(err, windows.ERROR_INVALID_HANDLE) {
+		t.Errorf("handle remains open after unsupported result: GetFileType() error = %v", err)
+	}
+}
+
+func startWindowsHolder(t *testing.T, path string) (*exec.Cmd, io.WriteCloser, <-chan string, <-chan error) {
+	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestWindowsLockHelper$")
 	cmd.Env = append(os.Environ(), helperEnv+"="+path)
 	stdin, err := cmd.StdinPipe()
@@ -53,21 +83,45 @@ func TestWindowsSubprocessExclusionCancellationAndTermination(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+	lines := make(chan string, 4)
+	go func() {
+		reader := bufio.NewReader(stdout)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			lines <- line
+		}
 	}()
-	ready := make(chan string, 1)
-	go func() { line, _ := bufio.NewReader(stdout).ReadString('\n'); ready <- line }()
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+		close(done)
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = stdin.Close()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("holder process did not exit")
+		}
+	})
 	select {
-	case line := <-ready:
+	case line := <-lines:
 		if strings.TrimSpace(line) != "locked" {
-			t.Fatalf("holder output = %q, want locked", line)
+			t.Fatalf("holder readiness = %q", line)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("holder did not acquire lock")
 	}
+	return cmd, stdin, lines, done
+}
 
+func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "index.json.lock")
+	_, stdin, lines, done := startWindowsHolder(t, path)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	if lock, err := Acquire(ctx, path); err == nil {
@@ -86,11 +140,21 @@ func TestWindowsSubprocessExclusionCancellationAndTermination(t *testing.T) {
 		}
 		waiting <- err
 	}()
-	if err := stdin.Close(); err != nil {
+	select {
+	case err := <-waiting:
+		t.Fatalf("contender acquired before holder release: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := io.WriteString(stdin, "release\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("holder exit after stdin close: %v", err)
+	select {
+	case line := <-lines:
+		if strings.TrimSpace(line) != "released" {
+			t.Fatalf("holder output = %q", line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("holder did not release lock")
 	}
 	select {
 	case err := <-waiting:
@@ -98,31 +162,21 @@ func TestWindowsSubprocessExclusionCancellationAndTermination(t *testing.T) {
 			t.Fatalf("Acquire() after live holder release: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("Acquire() did not proceed after live holder release")
+		t.Fatal("contender did not acquire after holder released while still alive")
+	}
+	_ = stdin.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("holder exit: %v", err)
 	}
 
-	terminated := exec.Command(os.Args[0], "-test.run=^TestWindowsLockHelper$")
-	terminated.Env = append(os.Environ(), helperEnv+"="+path)
-	termIn, err := terminated.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	termOut, err := terminated.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := terminated.Start(); err != nil {
-		t.Fatal(err)
-	}
-	line, err := bufio.NewReader(termOut).ReadString('\n')
-	if err != nil || strings.TrimSpace(line) != "locked" {
-		t.Fatalf("terminated holder readiness = %q, %v", line, err)
-	}
+	terminated, termIn, _, termDone := startWindowsHolder(t, path)
 	if err := terminated.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_ = termIn.Close()
-	_ = terminated.Wait()
+	if err := <-termDone; err == nil {
+		t.Fatal("terminated holder exited without error")
+	}
 	reacquireCtx, reacquireCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer reacquireCancel()
 	after, err := Acquire(reacquireCtx, path)
