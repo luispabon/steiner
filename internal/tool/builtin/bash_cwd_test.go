@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -32,6 +33,82 @@ func TestShellQuote(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := shellQuote(tt.in); got != tt.want {
 				t.Errorf("shellQuote(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBashToolRejectsNULCWD proves a cwd containing a NUL byte is refused
+// before the command is built. bash drops NUL bytes from the command it reads,
+// so ".\x00." would collapse to ".." and the command would run in a directory
+// the caller never asked for. Path policies that skip root containment accept
+// such a cwd, so the check belongs to the tool.
+func TestBashToolRejectsNULCWD(t *testing.T) {
+	base := t.TempDir()
+	realDir := filepath.Join(base, "real")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir %q: %v", realDir, err)
+	}
+
+	// An absolute marker proves the command did not run, wherever bash would
+	// have put it.
+	markerPath := filepath.Join(base, "steiner-bash-cwd-nul-marker")
+	t.Cleanup(func() { _ = os.Remove(markerPath) })
+	command := `touch '` + markerPath + `'`
+
+	tests := []struct {
+		name            string
+		cwd             string
+		rootless        bool
+		projectRootOnly bool
+	}{
+		{
+			name:     "rootless policy, trailing NUL",
+			cwd:      realDir + "\x00",
+			rootless: true,
+		},
+		{
+			name:     "rootless policy, NUL between dot segments",
+			cwd:      realDir + "/.\x00.",
+			rootless: true,
+		},
+		{
+			name: "containment disabled, trailing NUL",
+			cwd:  realDir + "\x00",
+		},
+		{
+			name: "containment disabled, NUL between dot segments",
+			cwd:  realDir + "/.\x00.",
+		},
+		{
+			name:            "containment enabled, trailing NUL",
+			cwd:             realDir + "\x00",
+			projectRootOnly: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := base
+			if tt.rootless {
+				root = ""
+			}
+			policy := tool.NewPathPolicy(root, config.PathsConfig{ProjectRootOnly: tt.projectRootOnly})
+			toolDef := NewBashTool(Env{WorkDir: base, PathPolicy: &policy})
+			ctx := withUnsandboxedWrapper(context.Background())
+
+			resultI, err := toolDef.Handler(ctx, map[string]any{
+				"command": command,
+				"cwd":     tt.cwd,
+			})
+			if err == nil {
+				t.Fatalf("Handler() result = %#v, want NUL rejection error", resultI)
+			}
+			if !strings.Contains(err.Error(), "NUL") {
+				t.Errorf("Handler() error = %v, want a NUL rejection message", err)
+			}
+			if _, statErr := os.Stat(markerPath); statErr == nil {
+				t.Errorf("command ran despite the invalid cwd: %q exists", markerPath)
 			}
 		})
 	}

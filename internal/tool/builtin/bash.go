@@ -60,6 +60,12 @@ func NewBashTool(env Env) tool.ToolDef {
 				if err != nil {
 					return nil, fmt.Errorf("bash: %w", err)
 				}
+				// bash drops NUL bytes from the command it reads, so a cwd like
+				// ".\x00." would silently become ".." and the command would run
+				// in the wrong directory. Refuse it before building the command.
+				if strings.ContainsRune(cwd, 0) {
+					return nil, errors.New("bash: working directory contains a NUL byte")
+				}
 			}
 
 			// Build the command string, optionally prefixed with a cd. The cwd is
