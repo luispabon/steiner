@@ -45,6 +45,13 @@ func TestWindowsLockHelper(t *testing.T) {
 	if _, err := io.WriteString(os.Stdout, "released\n"); err != nil {
 		t.Fatal(err)
 	}
+	command, err = reader.ReadString('\n')
+	if err != nil || strings.TrimSpace(command) != "exit" {
+		t.Fatalf("helper exit command = %q, %v", command, err)
+	}
+	if _, err := io.WriteString(os.Stdout, "exited\n"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestWindowsUnsupportedLockClosesFile(t *testing.T) {
@@ -131,19 +138,29 @@ func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.
 		t.Fatalf("Acquire() error = %v, want deadline exceeded", err)
 	}
 	waiting := make(chan error, 1)
+	contended := make(chan struct{}, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		lock, err := Acquire(ctx, path)
+		lock, err := acquireWindows(ctx, path, func(h windows.Handle, flags, reserved, low, high uint32, overlapped *windows.Overlapped) error {
+			err := windows.LockFileEx(h, flags, reserved, low, high, overlapped)
+			if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+				select {
+				case contended <- struct{}{}:
+				default:
+				}
+			}
+			return err
+		})
 		if err == nil {
 			err = lock.Release()
 		}
 		waiting <- err
 	}()
 	select {
-	case err := <-waiting:
-		t.Fatalf("contender acquired before holder release: %v", err)
-	case <-time.After(100 * time.Millisecond):
+	case <-contended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("contender did not observe lock contention")
 	}
 	if _, err := io.WriteString(stdin, "release\n"); err != nil {
 		t.Fatal(err)
@@ -164,9 +181,25 @@ func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.
 	case <-time.After(5 * time.Second):
 		t.Fatal("contender did not acquire after holder released while still alive")
 	}
+	if _, err := io.WriteString(stdin, "exit\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case line := <-lines:
+		if strings.TrimSpace(line) != "exited" {
+			t.Fatalf("holder exit output = %q", line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("holder did not acknowledge exit")
+	}
 	_ = stdin.Close()
-	if err := <-done; err != nil {
-		t.Fatalf("holder exit: %v", err)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("holder exit: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("holder process did not finish")
 	}
 
 	terminated, termIn, _, termDone := startWindowsHolder(t, path)
@@ -174,8 +207,13 @@ func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.
 		t.Fatal(err)
 	}
 	_ = termIn.Close()
-	if err := <-termDone; err == nil {
-		t.Fatal("terminated holder exited without error")
+	select {
+	case err := <-termDone:
+		if err == nil {
+			t.Fatal("terminated holder exited without error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("terminated holder did not exit")
 	}
 	reacquireCtx, reacquireCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer reacquireCancel()

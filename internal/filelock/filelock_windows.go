@@ -14,11 +14,12 @@ import (
 
 const retryInterval = 10 * time.Millisecond
 
+type lockFileExFunc func(windows.Handle, uint32, uint32, uint32, uint32, *windows.Overlapped) error
+
 // The persistent sibling lock file is created when missing with mode 0600, but
 // Windows applies the inherited directory ACL. This package does not set a
 // restrictive ACL. The lock file is never deleted.
-type lockFileExFunc func(windows.Handle, uint32, uint32, uint32, uint32, *windows.Overlapped) error
-
+//
 // Acquire takes an exclusive LockFileEx lock on the fixed first byte of path.
 func Acquire(ctx context.Context, path string) (*Lock, error) {
 	return acquireWindows(ctx, path, windows.LockFileEx)
