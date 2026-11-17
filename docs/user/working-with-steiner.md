@@ -72,7 +72,7 @@ If you plan to simplify, you can stop at review closeout and open the PR afterwa
 
 ## Oneshot
 
-For a well-specified task you are happy to leave unattended, run `steiner oneshot "<task>"` or enter `/oneshot <task>` in the TUI. Oneshot runs plan, implement, and review phases without approval prompts, each with a fresh context. Only `mutate` path approvals inside its own worktree are auto-approved; other approvals are denied.
+For a well-specified task you are happy to leave unattended, run `steiner oneshot "<task>"` or enter `/oneshot <task>` in the TUI. Oneshot runs plan, implement, and review phases without approval prompts, each with a fresh context. It approves nothing: edits inside its own worktree need no approval, and every approval request is denied.
 
 The run uses its own worktree and an `oneshot/<slug>-<id>` branch. `oneshot.auto_pr` can open a PR at the end. Use `steiner oneshot --list` and `steiner oneshot --resume <id>` to find and resume interrupted runs. Sub-agents must be enabled. See [Oneshot](oneshot.md) for requirements, closeout, and recovery.
 

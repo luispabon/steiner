@@ -495,9 +495,11 @@ func TestExecuteTool_BashNoDenialPrompt_SandboxNil(t *testing.T) {
 }
 
 func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
+	var handlerCalls int
 	reg := NewRegistry(ToolDef{
 		Name: "bash",
 		Handler: func(_ context.Context, _ map[string]any) (any, error) {
+			handlerCalls++
 			return &mockBashResult{exitCode: 1, output: "Permission denied /host/path"}, nil
 		},
 	})
@@ -510,6 +512,9 @@ func TestExecuteTool_BashNoDenialPrompt_ApproverNil(t *testing.T) {
 	br, ok := result.(*mockBashResult)
 	if !ok {
 		t.Fatalf("result type = %T, want *mockBashResult", result)
+	}
+	if handlerCalls != 1 {
+		t.Fatalf("handler call count = %d, want 1: a nil approver must not grant a retry", handlerCalls)
 	}
 	if strings.Contains(br.output, "host_mount") {
 		t.Fatalf("output = %q, want no grant instructions when approver nil", br.output)
