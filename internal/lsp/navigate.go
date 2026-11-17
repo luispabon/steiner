@@ -26,7 +26,7 @@ type HoverResult struct {
 
 // Definitions returns all definitions for a symbol at the given position in a file.
 func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (Result, error) {
-	return m.locationsAt(ctx, "definitions", file, line, col, false,
+	return m.locationsAt(ctx, file, line, col,
 		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
 			return sess.Definition(ctx, resolvedFile, line, col)
 		}, "definition request")
@@ -34,15 +34,15 @@ func (m *Manager) Definitions(ctx context.Context, file string, line, col int) (
 
 // References returns all references to a symbol at the given position in a file.
 func (m *Manager) References(ctx context.Context, file string, line, col int, includeDecl bool) (Result, error) {
-	return m.locationsAt(ctx, "references", file, line, col, includeDecl,
+	return m.locationsAt(ctx, file, line, col,
 		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
 			return sess.References(ctx, resolvedFile, line, col, includeDecl)
 		}, "references request")
 }
 
-// locationsAt runs the cache/readiness/locking flow shared by location queries,
+// locationsAt runs the readiness/locking flow shared by location queries,
 // dispatching the actual LSP request through req.
-func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, line, col int, includeDecl bool,
+func (m *Manager) locationsAt(ctx context.Context, file string, line, col int,
 	req func(context.Context, session, string) ([]Location, error), reqErrPrefix string) (Result, error) {
 	if line < 1 || col < 1 {
 		return Result{}, fmt.Errorf("invalid position: line %d col %d", line, col)
@@ -51,27 +51,6 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 	file, err := absWorkspacePath(m.workspace, file)
 	if err != nil {
 		return Result{}, err
-	}
-
-	buildKey := func(sessionKey sessionKey, fileHash string) cacheKey {
-		return cacheKey{
-			server:      sessionKey.server,
-			root:        sessionKey.root,
-			method:      cacheMethod,
-			file:        file,
-			line:        line,
-			column:      col,
-			fileHash:    fileHash,
-			includeDecl: includeDecl,
-		}
-	}
-
-	if sk, ok := m.resolveSessionKey(file); ok {
-		if fileHash := hashFileContent(file); fileHash != "" {
-			if cached, hit := m.resultCache.get(buildKey(sk, fileHash)); hit {
-				return *cached.(*Result), nil
-			}
-		}
 	}
 
 	ent, sess, lease, err := m.acquireEntry(ctx, file)
@@ -112,23 +91,13 @@ func (m *Manager) locationsAt(ctx context.Context, cacheMethod, file string, lin
 		truncated = true
 	}
 
-	result := Result{Locations: locations, Incomplete: incomplete, Truncated: truncated, Total: total}
-
-	if !incomplete {
-		if sk, ok := m.resolveSessionKey(file); ok {
-			if fileHash := hashFileContent(file); fileHash != "" {
-				m.resultCache.put(buildKey(sk, fileHash), &result)
-			}
-		}
-	}
-
-	return result, nil
+	return Result{Locations: locations, Incomplete: incomplete, Truncated: truncated, Total: total}, nil
 }
 
 // Implementations returns the concrete implementations of the interface or
 // interface method at the given position in a file.
 func (m *Manager) Implementations(ctx context.Context, file string, line, col int) (Result, error) {
-	return m.locationsAt(ctx, "implementations", file, line, col, false,
+	return m.locationsAt(ctx, file, line, col,
 		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
 			return sess.Implementation(ctx, resolvedFile, line, col)
 		}, "implementation request")
@@ -137,7 +106,7 @@ func (m *Manager) Implementations(ctx context.Context, file string, line, col in
 // TypeDefinitions returns the type declaration for the symbol at the given
 // position in a file.
 func (m *Manager) TypeDefinitions(ctx context.Context, file string, line, col int) (Result, error) {
-	return m.locationsAt(ctx, "type_definitions", file, line, col, false,
+	return m.locationsAt(ctx, file, line, col,
 		func(ctx context.Context, sess session, resolvedFile string) ([]Location, error) {
 			return sess.TypeDefinition(ctx, resolvedFile, line, col)
 		}, "type definition request")
@@ -212,26 +181,9 @@ func (m *Manager) DocumentSymbols(ctx context.Context, file, query string) (Symb
 		return SymbolResult{}, err
 	}
 
-	documentCacheKey, haveCacheKey := m.documentSymbolCacheKey(file)
-
-	var all []SymbolInfo
-	var incomplete bool
-	if haveCacheKey {
-		if cached, hit := m.resultCache.get(documentCacheKey); hit {
-			cachedResult := cached.(*SymbolResult)
-			all = cachedResult.Symbols
-			incomplete = cachedResult.Incomplete
-		}
-	}
-
-	if all == nil {
-		all, incomplete, err = m.fetchDocumentSymbols(ctx, file)
-		if err != nil {
-			return SymbolResult{}, err
-		}
-		if !incomplete && haveCacheKey {
-			m.resultCache.put(documentCacheKey, &SymbolResult{Symbols: all, Total: len(all)})
-		}
+	all, incomplete, err := m.fetchDocumentSymbols(ctx, file)
+	if err != nil {
+		return SymbolResult{}, err
 	}
 
 	filtered := all
@@ -252,30 +204,6 @@ func (m *Manager) DocumentSymbols(ctx context.Context, file, query string) (Symb
 		Truncated:  truncated,
 		Total:      total,
 	}, nil
-}
-
-// documentSymbolCacheKey builds the cache key for a document_symbol lookup on
-// file. It returns ok=false (best-effort: skip the cache) when the session key
-// or file hash cannot be resolved. Unlike Definitions/References, this key
-// deliberately excludes query: the cached value always holds the unfiltered,
-// unsorted-by-query symbol list, and filtering is applied fresh on every call
-// so two different queries against the same file never collide on one entry.
-func (m *Manager) documentSymbolCacheKey(file string) (cacheKey, bool) {
-	sk, ok := m.resolveSessionKey(file)
-	if !ok {
-		return cacheKey{}, false
-	}
-	fileHash := hashFileContent(file)
-	if fileHash == "" {
-		return cacheKey{}, false
-	}
-	return cacheKey{
-		server:   sk.server,
-		root:     sk.root,
-		method:   "document_symbol",
-		file:     file,
-		fileHash: fileHash,
-	}, true
 }
 
 // fetchDocumentSymbols resolves a session for file, awaits readiness, and
@@ -319,8 +247,7 @@ func (m *Manager) fetchDocumentSymbols(ctx context.Context, file string) ([]Symb
 // configured language server, fanning the request out concurrently. A server
 // that is slow, errors, or isn't spawnable is skipped rather than failing the
 // whole call; the merged result is marked Incomplete if any server was
-// skipped or itself reported incomplete. Results are not cached: a
-// project-wide query has no single file to hash for cache invalidation.
+// skipped or itself reported incomplete.
 func (m *Manager) WorkspaceSymbols(ctx context.Context, query string) (SymbolResult, error) {
 	names := m.enabledServerNames()
 	if len(names) == 0 {

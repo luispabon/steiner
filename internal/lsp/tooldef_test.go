@@ -574,7 +574,7 @@ func TestSymbolResolutionEmptyResult(t *testing.T) {
 	}
 }
 
-func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
+func TestSymbolResolutionReachesServerFromColumnPath(t *testing.T) {
 	t.Parallel()
 	fs := newFakeServer()
 	fs.definitionResult = &protocol.Location{
@@ -607,7 +607,7 @@ func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
 		t.Fatalf("Definitions (column path): %v", err)
 	}
 	if res.Incomplete {
-		t.Fatalf("Definitions (column path): Incomplete = true, want false (caching only happens for non-provisional results)")
+		t.Fatalf("Definitions (column path): Incomplete = true, want false (readiness gate should have completed)")
 	}
 
 	// Resolve the equivalent symbol position and confirm it yields the
@@ -620,7 +620,8 @@ func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
 		t.Fatalf("resolveSymbolPosition: got (%d, %d), want (2, 6)", resolvedLine, resolvedCol)
 	}
 
-	// Second call: via the resolved symbol position. Should hit the cache.
+	// Second call: via the resolved symbol position. Both paths must reach
+	// the server: results are never cached.
 	if _, err := m.Definitions(ctx, testFile, resolvedLine, resolvedCol); err != nil {
 		t.Fatalf("Definitions (symbol-resolved path): %v", err)
 	}
@@ -631,8 +632,8 @@ func TestSymbolResolutionCacheSharesWithColumnPath(t *testing.T) {
 			calls++
 		}
 	}
-	if calls != 1 {
-		t.Errorf("textDocument/definition called %d times, want 1 (second call should hit the cache)", calls)
+	if calls != 2 {
+		t.Errorf("textDocument/definition called %d times, want 2 (every call must reach the server)", calls)
 	}
 }
 

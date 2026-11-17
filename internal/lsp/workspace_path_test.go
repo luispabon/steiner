@@ -132,7 +132,7 @@ func TestOperationsResolveRelativePaths(t *testing.T) {
 			var outcomes []opOutcome
 
 			// Each spelling gets its own manager and server so the second run is
-			// a genuine round trip rather than a result-cache hit.
+			// an independent round trip with its own session.
 			for _, spelling := range []string{"absolute", "relative"} {
 				ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 				defer cancel()
