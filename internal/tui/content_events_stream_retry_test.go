@@ -104,6 +104,19 @@ func TestRetryDiagnosticWithoutTextKeepsActivityRetryLabel(t *testing.T) {
 	}
 }
 
+func TestInterruptedStreamSurvivesLaterRetryReset(t *testing.T) {
+	t.Parallel()
+	b := retryResetBuffer()
+	startRootModelCall(b, 1)
+	appendAssistantChunk(b, 1, "partial answer")
+	b.AppendInterrupted()
+	b.AppendEvent(retryDiagnostic(true, ""))
+
+	if rendered := renderedRetryTranscript(b); !strings.Contains(rendered, "partial answer") {
+		t.Errorf("rendered transcript = %q, want interrupted answer retained", rendered)
+	}
+}
+
 func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

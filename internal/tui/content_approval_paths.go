@@ -92,7 +92,11 @@ func fitApprovalPaths(wrapped [][]string, limit int) (shown, used int) {
 func approvalRemainderLines(wrapped [][]string, shown, used, count, width int, style lipgloss.Style) (int, int, []string) {
 	var lines []string
 	for {
-		lines = wrapStyledApprovalPath(fmt.Sprintf("and %d more outside the project", count-shown), width, style)
+		remaining := count - shown
+		if remaining <= 0 {
+			return shown, used, nil
+		}
+		lines = wrapStyledApprovalPath(fmt.Sprintf("and %d more outside the project", remaining), width, style)
 		if shown == 0 || used+len(lines) <= maxApprovalOutsidePathLines {
 			return shown, used, lines
 		}

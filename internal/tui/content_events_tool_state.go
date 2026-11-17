@@ -413,5 +413,8 @@ func normalizeToolName(tool string) string {
 
 func (b *contentBuffer) AppendInterrupted() {
 	b.finishStreaming()
+	// The interrupted call is over, so a later root reset from another stream
+	// must not discard its retained output.
+	b.modelCallActive = false
 	b.segments = append(b.segments, contentSegment{kind: segmentInterrupted, renderDirty: true})
 }

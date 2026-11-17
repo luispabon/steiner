@@ -74,6 +74,12 @@ func TestApprovalOutsidePathsHelper(t *testing.T) {
 			want:  []string{"/outside/a.txt", "/outside/b.txt"},
 		},
 		{
+			name:  "count smaller than paths has no remainder line",
+			paths: []string{"/outside/a.txt", "/outside/b.txt", "/outside/c.txt"},
+			count: 1,
+			width: 8,
+		},
+		{
 			name:  "empty list with a count reports the remainder",
 			count: 4,
 			width: 60,
@@ -98,6 +104,10 @@ func TestApprovalOutsidePathsHelper(t *testing.T) {
 				t.Errorf("line count = %d, want <= %d (%q)", len(got), maxApprovalOutsidePathLines, got)
 			}
 			for _, line := range got {
+				plain := strings.TrimSpace(stripANSI(line))
+				if tt.name == "count smaller than paths has no remainder line" && (strings.Contains(plain, "and -") || strings.Contains(plain, "and 0 more")) {
+					t.Errorf("unexpected remainder line %q", plain)
+				}
 				if strings.ContainsRune(line, '\n') {
 					t.Errorf("line %q contains a newline", line)
 				}
