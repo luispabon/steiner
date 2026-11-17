@@ -1036,6 +1036,24 @@ func TestWorkflowGeneralRulesAndAmbiguityByMode(t *testing.T) {
 				return
 			}
 
+			// Code, documentor, and the legacy delegated child are writers.
+			writer := tc.mode != workflowModeParent
+			roleRules := []string{"Push back on overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly."}
+			if writer {
+				roleRules = []string{
+					"Report overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.",
+					"The codebase root is the current folder. Work in the assigned worktree.",
+				}
+			}
+			for _, rule := range roleRules {
+				if !strings.Contains(content, rule) {
+					t.Fatalf("preamble missing role rule %q in %q", rule, content)
+				}
+			}
+			if !writer && strings.Contains(content, "Work in the assigned worktree.") {
+				t.Fatalf("parent preamble contains the writer worktree rule in %q", content)
+			}
+
 			wantLine := ambiguity + tc.wantAmbiguity + "."
 			if got := strings.Count(content, wantLine); got != 1 {
 				t.Fatalf("ambiguity instruction %q count = %d, want 1 in %q", wantLine, got, content)

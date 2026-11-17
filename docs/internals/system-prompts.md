@@ -173,8 +173,8 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
 - Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, ask the user.
-- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
-- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+- Push back on overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder.
 
 ### While editing
 
@@ -185,7 +185,7 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 - Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Do not rewrite adjacent code, comments, formatting, or structure.
 - Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
@@ -256,7 +256,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 - Enabling advisor adds the orchestrator guidance reproduced under Advisor. Disabling it omits that section.
 - Enabling LSP adds the section below. Disabling it omits the section.
 - Disabling sandbox omits `Sandbox`. When enabled, additional writable mount paths are appended to its last line as ` Additional writable paths: ` followed by paths joined with `, `.
-- The workflow section's ambiguity instruction is role-specific: `code` and `documentor` say to stop and report the blocker, and the parent says to ask the user.
+- The workflow section's ambiguity instruction is role-specific: `code` and `documentor` say to stop and report the blocker, and the parent says to ask the user. Writers report overcomplicated requests and work in the assigned worktree; the parent pushes back on them and treats the current folder as the codebase root.
 - A system override replaces sandbox and execution modes. `buildOverridePreamble` orders identity, delegation, advisor, LSP, code child, documentor child, workflow, override text, tool batching, output voice, and, for delegated child modes, the delegated task. The workflow section, including the working rules, still renders before the override text.
 
 Blocking results, from `internal/prompt/templates/delegation.md.tmpl`:
@@ -915,8 +915,8 @@ Do not:
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
 - Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, stop and report the blocker.
-- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
-- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+- Report overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder. Work in the assigned worktree.
 
 ### While editing
 
@@ -927,7 +927,7 @@ Do not:
 - Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Do not rewrite adjacent code, comments, formatting, or structure.
 - Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
@@ -1073,8 +1073,8 @@ Do not:
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
 - Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, stop and report the blocker.
-- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
-- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+- Report overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder. Work in the assigned worktree.
 
 ### While editing
 
@@ -1085,7 +1085,7 @@ Do not:
 - Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Do not rewrite adjacent code, comments, formatting, or structure.
 - Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
