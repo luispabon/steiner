@@ -102,6 +102,52 @@ func assertCollapseIndexesValid(t *testing.T, b *contentBuffer) {
 	}
 }
 
+// thinkingAttempts returns the attempt carrying each thinking block.
+func thinkingAttempts(b *contentBuffer) []uint64 {
+	var out []uint64
+	for _, seg := range b.segments {
+		if seg.kind == segmentThinkingBlock && seg.thinkData != nil {
+			out = append(out, seg.streamAttempt)
+		}
+	}
+	return out
+}
+
+// streamingThinkingBodies returns the bodies of the thinking blocks still
+// marked streaming.
+func streamingThinkingBodies(b *contentBuffer) []string {
+	var out []string
+	for _, seg := range b.segments {
+		if seg.kind == segmentThinkingBlock && seg.thinkData != nil && seg.thinkData.streaming {
+			out = append(out, seg.thinkData.body)
+		}
+	}
+	return out
+}
+
+// assertThinkingBlocksFinalized fails when a thinking block still renders
+// streaming and expanded after the stream that wrote it moved on.
+func assertThinkingBlocksFinalized(t *testing.T, b *contentBuffer) {
+	t.Helper()
+	if live := b.liveThinkingSegment(); live != nil {
+		t.Errorf("thinking block %q still live, want every superseded block finalized", live.body)
+	}
+	for index, seg := range b.segments {
+		if seg.kind != segmentThinkingBlock || seg.thinkData == nil {
+			continue
+		}
+		if seg.thinkData.streaming {
+			t.Errorf("thinking block %d (%q) still streaming, want it finalized", index, seg.thinkData.body)
+		}
+		if !seg.thinkData.collapsed {
+			t.Errorf("thinking block %d (%q) expanded, want it collapsed", index, seg.thinkData.body)
+		}
+		if !b.collapseState[index] {
+			t.Errorf("thinking block %d (%q) collapse state = false, want it collapsed", index, seg.thinkData.body)
+		}
+	}
+}
+
 func TestRetryDiagnosticWithoutTextKeepsActivityRetryLabel(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
@@ -571,6 +617,75 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 					if seg.kind == segmentThinkingBlock && seg.thinkData != nil && !seg.thinkData.collapsed {
 						t.Error("child thinking block expanded, want the reset to collapse it")
 					}
+				}
+				assertCollapseIndexesValid(t, b)
+			},
+		},
+		{
+			// Regression: a root attempt and an unbound child alternate owners, so
+			// every chunk supersedes the previous live block. Each superseded block
+			// must be finalized when the new one opens, otherwise the earlier ones
+			// stay streaming and expanded for the rest of the turn.
+			name: "interleaved root and unbound child thinking finalizes each superseded block",
+			build: func(t *testing.T, b *contentBuffer) {
+				t.Helper()
+				startRootModelCall(b, 1)
+				appendThinkingChunk(b, 1, "root first reasoning")
+				appendUnboundChildThinkingChunk(b, "ghost-child", "child reasoning")
+				appendThinkingChunk(b, 1, "root second reasoning")
+				if got, want := streamingThinkingBodies(b), []string{"root second reasoning"}; !reflect.DeepEqual(got, want) {
+					t.Fatalf("streaming thinking mid-turn = %q, want only the newest block %q", got, want)
+				}
+				appendUnboundChildThinkingChunk(b, "ghost-child", "child second reasoning")
+				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := thinkingBodies(b), []string{"root first reasoning", "child reasoning", "root second reasoning", "child second reasoning"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("thinking bodies = %q, want %q", got, want)
+				}
+				if got, want := thinkingAttempts(b), []uint64{1, 0, 1, 0}; !reflect.DeepEqual(got, want) {
+					t.Errorf("thinking attempts = %v, want %v", got, want)
+				}
+				assertThinkingBlocksFinalized(t, b)
+				rendered := renderedRetryTranscript(b)
+				for _, body := range thinkingBodies(b) {
+					if !strings.Contains(rendered, body) {
+						t.Errorf("rendered transcript = %q, want it to contain %q", rendered, body)
+					}
+				}
+				assertCollapseIndexesValid(t, b)
+			},
+		},
+		{
+			// Regression: the child block that a root chunk superseded keeps its
+			// text, and the retry reset drops only the root attempt, leaving the
+			// child block finalized rather than streaming.
+			name: "root retry reset after interleaved unbound child thinking keeps the child reasoning",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendThinkingChunk(b, 1, "root abandoned reasoning")
+				appendUnboundChildThinkingChunk(b, "ghost-child", "child kept reasoning")
+				appendThinkingChunk(b, 1, "root more abandoned reasoning")
+				b.AppendEvent(retryDiagnostic(true, ""))
+				appendThinkingChunk(b, 1, "root retried reasoning")
+				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := thinkingBodies(b), []string{"child kept reasoning", "root retried reasoning"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("thinking bodies = %q, want %q", got, want)
+				}
+				if got, want := thinkingAttempts(b), []uint64{0, 1}; !reflect.DeepEqual(got, want) {
+					t.Errorf("thinking attempts = %v, want %v", got, want)
+				}
+				assertThinkingBlocksFinalized(t, b)
+				rendered := renderedRetryTranscript(b)
+				for _, want := range []string{"child kept reasoning", "root retried reasoning"} {
+					if !strings.Contains(rendered, want) {
+						t.Errorf("rendered transcript = %q, want it to contain %q", rendered, want)
+					}
+				}
+				if strings.Contains(rendered, "abandoned") {
+					t.Errorf("rendered transcript = %q, want the abandoned root blocks gone", rendered)
 				}
 				assertCollapseIndexesValid(t, b)
 			},

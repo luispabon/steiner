@@ -233,16 +233,23 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 	// Merge only into a live block from the same attempt: a retried attempt must
 	// not inherit the abandoned attempt's reasoning text, and unbound child
 	// reasoning must not merge into the root call's block.
-	if td := b.liveThinkingSegment(); td != nil && b.segments[len(b.segments)-1].streamAttempt == attempt {
-		td.body += text
-		for i := len(b.segments) - 1; i >= 0; i-- {
-			if b.segments[i].kind == segmentThinkingBlock && b.segments[i].thinkData == td {
-				b.segments[i].renderDirty = true
-				b.invalidatePrefixIfCached(i)
-				break
+	if td := b.liveThinkingSegment(); td != nil {
+		if b.segments[len(b.segments)-1].streamAttempt == attempt {
+			td.body += text
+			for i := len(b.segments) - 1; i >= 0; i-- {
+				if b.segments[i].kind == segmentThinkingBlock && b.segments[i].thinkData == td {
+					b.segments[i].renderDirty = true
+					b.invalidatePrefixIfCached(i)
+					break
+				}
 			}
+			return
 		}
-		return
+		// A chunk from another owner supersedes the live block. Finalize it
+		// before opening the new one: only the last block can be live, so a
+		// superseded block left streaming would render expanded for the rest of
+		// the turn.
+		b.finalizeThinkingBlock()
 	}
 
 	idx := len(b.segments)
