@@ -74,9 +74,61 @@ func TestConsumeModelStreamResetsStateOnRetryReset(t *testing.T) {
 		if payload.Kind != output.DiagnosticKindRetry || payload.Attempt != 2 || payload.MaxAttempts != 2 || payload.Delay != "1s" {
 			t.Fatalf("retry diagnostic = %+v, want kind retry, attempt 2, max attempts 2, delay 1s", payload)
 		}
+		if !payload.RetryReset {
+			t.Fatalf("retry diagnostic = %+v, want retry reset marker set", payload)
+		}
 	}
 	if !sawDiagnostic {
 		t.Fatal("expected provider diagnostic event")
+	}
+}
+
+// TestConsumeModelStreamEmitsRetryResetWithoutDiagnostic proves a reset that
+// carries no diagnostic text still reaches the sink, so a consumer can drop
+// the abandoned attempt's output even when the provider reported nothing.
+func TestConsumeModelStreamEmitsRetryResetWithoutDiagnostic(t *testing.T) {
+	chunks := make(chan provider.ChatChunk, 4)
+	chunks <- provider.ChatChunk{
+		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "first"},
+	}
+	chunks <- provider.ChatChunk{RetryReset: true}
+	chunks <- provider.ChatChunk{
+		Delta: provider.Message{Role: provider.MessageRoleAssistant, Content: "second"},
+	}
+	chunks <- provider.ChatChunk{
+		Done:         true,
+		FinishReason: "stop",
+		Delta:        provider.Message{Role: provider.MessageRoleAssistant, Content: "second"},
+	}
+	close(chunks)
+
+	var events []output.Event
+	resp, err := consumeModelStream(context.Background(), output.SinkFunc(func(event output.Event) {
+		events = append(events, event)
+	}), 1, chunks, output.ChunkSourceAssistant, nil)
+	if err != nil {
+		t.Fatalf("consumeModelStream() error = %v", err)
+	}
+	if got, want := resp.Message.Content, "second"; got != want {
+		t.Fatalf("response content = %q, want %q", got, want)
+	}
+	var retries []output.ProviderDiagnosticEvent
+	for _, event := range events {
+		payload, ok := event.Payload.(output.ProviderDiagnosticEvent)
+		if !ok {
+			continue
+		}
+		retries = append(retries, payload)
+	}
+	if len(retries) != 1 {
+		t.Fatalf("diagnostics = %+v, want exactly one retry reset event", retries)
+	}
+	got := retries[0]
+	if !got.RetryReset || got.Kind != output.DiagnosticKindRetry {
+		t.Fatalf("retry diagnostic = %+v, want retry reset marker and kind retry", got)
+	}
+	if got.Message != "" {
+		t.Fatalf("retry diagnostic message = %q, want empty", got.Message)
 	}
 }
 
@@ -172,6 +224,9 @@ func TestConsumeModelStreamReportsNonResetRetry(t *testing.T) {
 	}
 	if got := retries[0]; got.Kind != output.DiagnosticKindRetry || got.Attempt != 1 || got.MaxAttempts != 10 || got.Delay != "2s" {
 		t.Fatalf("retry diagnostic = %+v, want kind retry, attempt 1, max attempts 10, delay 2s", got)
+	}
+	if retries[0].RetryReset {
+		t.Fatalf("retry diagnostic = %+v, want retry reset marker clear", retries[0])
 	}
 	if got, want := retries[0].Message, "claude CLI retrying API request after overloaded, attempt 1/10, next try in 2s"; got != want {
 		t.Fatalf("retry diagnostic message = %q, want %q", got, want)

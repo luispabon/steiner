@@ -26,16 +26,18 @@ func (b *contentBuffer) appendApprovalRequestedEvent(event output.Event) {
 		b.segments = append(b.segments, contentSegment{
 			kind: segmentApprovalPill,
 			approvalData: &approvalPillData{
-				tool:        payload.Tool,
-				mode:        payload.Mode,
-				preview:     payload.Preview,
-				kind:        payload.Kind,
-				server:      payload.Server,
-				mcpToolName: payload.ToolName,
-				identity:    identity,
-				agentID:     event.Scope.AgentID,
-				queueDepth:  0,
-				noPersist:   payload.NoPersist,
+				tool:            payload.Tool,
+				mode:            payload.Mode,
+				preview:         payload.Preview,
+				kind:            payload.Kind,
+				server:          payload.Server,
+				mcpToolName:     payload.ToolName,
+				identity:        identity,
+				agentID:         event.Scope.AgentID,
+				queueDepth:      0,
+				noPersist:       payload.NoPersist,
+				deniedPaths:     payload.DeniedPaths,
+				deniedPathCount: payload.DeniedPathCount,
 			},
 			renderDirty: true,
 		})
@@ -65,6 +67,8 @@ func (b *contentBuffer) embedApprovalRequest(payload output.ApprovalEvent, ident
 			seg.toolData.approvalQueueDepth = 0
 			seg.toolData.approvalSelectedAction = 0
 			seg.toolData.approvalNoPersist = payload.NoPersist
+			seg.toolData.approvalDeniedPaths = payload.DeniedPaths
+			seg.toolData.approvalDeniedPathCount = payload.DeniedPathCount
 			seg.toolData.collapsed = false
 			seg.renderDirty = true
 			b.gen++
@@ -89,6 +93,8 @@ func (b *contentBuffer) embedApprovalRequest(payload output.ApprovalEvent, ident
 				entry.approvalPreview = payload.Preview
 				entry.approvalSelectedAction = 0
 				entry.approvalNoPersist = payload.NoPersist
+				entry.approvalDeniedPaths = payload.DeniedPaths
+				entry.approvalDeniedPathCount = payload.DeniedPathCount
 				entry.collapsed = false
 				seg.renderDirty = true
 				b.recomputeApprovalQueueDepths()
@@ -177,7 +183,13 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 	}
 	switch {
 	case payload.Kind == output.DiagnosticKindRetry:
-		// Retry attempts show on the activity row, not in the transcript.
+		// Retry attempts show on the activity row, not in the transcript. A
+		// reset that discarded a partially streamed attempt also drops that
+		// attempt's visible output, for the root call only: a child retry must
+		// not touch the concurrently streaming root response.
+		if payload.RetryReset && event.Scope.AgentID == "" {
+			b.discardInFlightStream()
+		}
 		return
 	case payload.Kind == output.DiagnosticKindToolPanic:
 		b.AppendNotice(noticeError, "internal error: a tool panicked; full stack in the dev log", event.Scope.AgentID)

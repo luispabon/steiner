@@ -104,7 +104,7 @@ While a oneshot run is active in the TUI, only `/exit`, `/thinking` and `/accent
 
 ## Approvals
 
-When a tool call needs approval, an approval prompt appears in the transcript. [Sandboxing](sandboxing.md) explains which calls need approval and what approving allows.
+When a tool call needs approval, an approval prompt appears in the transcript. [Sandboxing](sandboxing.md) explains which calls need approval and what approving allows. A path approval lists the outside paths the approval would authorize, plus a remainder count when the list is capped.
 
 | Key | Action |
 |-----|--------|

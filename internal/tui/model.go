@@ -49,6 +49,10 @@ type approvalState struct {
 	// noPersist marks a request decided for this call only. The tray drops the
 	// session-wide grant action and treats a submitted one as allow once.
 	noPersist bool
+	// deniedPaths lists the outside paths a path approval covers, capped at the
+	// collector's limit; deniedPathCount is how many distinct paths it touches.
+	deniedPaths     []string
+	deniedPathCount int
 }
 
 type workflowHandoffLaunch struct {

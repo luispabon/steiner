@@ -351,6 +351,14 @@ func (b *contentBuffer) renderToolApprovalBlock(tc *toolCallSegment, width int) 
 	btns := b.renderToolApprovalButtons(tc, accentC, width)
 
 	parts := []string{sep, header, preview}
+	outsideWidth := max(1, width-2)
+	if lines := approvalOutsidePaths(tc.approvalDeniedPaths, tc.approvalDeniedPathCount, outsideWidth, b.styles.FgMute); len(lines) > 0 {
+		block := b.styles.FgMute.Render(truncateRunes("outside paths:", outsideWidth))
+		for _, line := range lines {
+			block += "\n  " + line
+		}
+		parts = append(parts, block)
+	}
 	if tc.approvalNoPersist {
 		parts = append(parts, b.styles.FgMute.Render(approvalNoPersistWarning))
 	}

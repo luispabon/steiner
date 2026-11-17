@@ -74,6 +74,10 @@ type toolCallSegment struct {
 	approvalQueueDepth     int
 	approvalSelectedAction int  // 0=allow once, 1=always allow, 2=deny
 	approvalNoPersist      bool // request decides this call only; no session grant
+	// approvalDeniedPaths lists the outside paths a path approval covers, capped
+	// at the collector's limit; approvalDeniedPathCount is how many it touches.
+	approvalDeniedPaths     []string
+	approvalDeniedPathCount int
 }
 
 type toolCallGroupSegment struct {
@@ -109,6 +113,10 @@ type approvalPillData struct {
 	// noPersist marks a request decided for this call only; it offers no
 	// session-wide grant.
 	noPersist bool
+	// deniedPaths lists the outside paths a path approval covers, capped at the
+	// collector's limit; deniedPathCount is how many distinct paths it touches.
+	deniedPaths     []string
+	deniedPathCount int
 	// cleared marks a pending pill dropped by terminal cleanup. It renders
 	// nothing, unlike a resolved pill which reports its outcome.
 	cleared  bool
@@ -318,6 +326,10 @@ type contentSegment struct {
 	noticeCount        int                     // segmentNotice only: occurrences collapsed into this row
 	noticeScope        string                  // segmentNotice only: notices in different scopes never collapse
 	noticeKey          string                  // segmentNotice only: full untruncated text, compared on collapse
+	// streamAttempt identifies the root model call attempt that streamed this
+	// segment. Zero means the segment was not created by the model stream, so a
+	// retry reset never discards it.
+	streamAttempt uint64
 	// render cache at the active width, plus other recent widths (renderAtWidth).
 	// Render-mutated: written during render, never by event handling.
 	cachedRender      string
@@ -342,6 +354,7 @@ type contentBuffer struct {
 	streaming         bool
 	hadChunks         bool
 	streamBuffer      string
+	pendingAttempt    uint64 // attempt that wrote the pending stream text; 0 = no root attempt
 	streamPreview     streamPreviewCache
 	glamour           glamourPool
 	styles            *theme.Styles
@@ -354,6 +367,8 @@ type contentBuffer struct {
 	showThinking      bool            // from prefs; when false skip thinking segments
 	lastShowThinking  bool            // last showThinking value observed by checkBufferDirty
 	compaction        compactionState // when true skip thinking chunks from compaction
+	streamAttempt     uint64          // root model call attempt; one identity per model call
+	modelCallActive   bool            // a root model call is open and may be discarded
 	streamingPhase    string          // "thinking" | "tool" | "answer" | ""
 	streamingSource   output.ChunkSource
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
@@ -458,7 +473,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeStopReason:                (*contentBuffer).appendStopReasonEvent,
 	output.EventTypeAssistantMessage:          (*contentBuffer).appendAssistantMessageEvent,
 	output.EventTypeContextReport:             (*contentBuffer).appendContextReportEvent,
-	output.EventTypeModelCallStarted:          (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeModelCallStarted:          (*contentBuffer).appendModelCallStartedEvent,
 	output.EventTypeModelCallFinished:         (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeContextDiagnostics:        (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeUserInput:                 (*contentBuffer).appendUserInputEvent,
@@ -481,7 +496,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// event carries no transcript state of its own.
 	output.EventTypeSkillState:  func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIRequest:  func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIResponse: func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+	output.EventTypeAPIResponse: (*contentBuffer).appendAPIResponseEvent,
 	// SteerReceived is handled by model_events.go (AppendUser); no content
 	// line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},

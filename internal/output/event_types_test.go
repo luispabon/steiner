@@ -23,6 +23,27 @@ func TestProviderDiagnosticEventIncludesTimingFields(t *testing.T) {
 	}
 }
 
+func TestProviderDiagnosticEventMarshalsRetryReset(t *testing.T) {
+	data, err := json.Marshal(NewProviderDiagnosticEvent(ProviderDiagnosticEvent{
+		Kind:       DiagnosticKindRetry,
+		RetryReset: true,
+	}))
+	if err != nil {
+		t.Fatalf("marshal provider diagnostic event: %v", err)
+	}
+	if !strings.Contains(string(data), `"retry_reset":true`) {
+		t.Errorf("event JSON = %s, missing retry_reset", data)
+	}
+
+	plain, err := json.Marshal(NewProviderDiagnosticEvent(ProviderDiagnosticEvent{Kind: DiagnosticKindRetry}))
+	if err != nil {
+		t.Fatalf("marshal provider diagnostic event: %v", err)
+	}
+	if strings.Contains(string(plain), "retry_reset") {
+		t.Errorf("event JSON = %s, want retry_reset omitted when false", plain)
+	}
+}
+
 func TestSkillEventJSONFieldNames(t *testing.T) {
 	truncated, err := json.Marshal(NewSkillTruncatedEvent("docs", 2048, 1024))
 	if err != nil {

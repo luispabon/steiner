@@ -154,7 +154,9 @@ func (m *Model) applyPayloadEvent(event output.Event) (tea.Cmd, bool) {
 	case output.SandboxStatusEvent:
 		m.applySandboxStatusEvent(payload)
 	case output.ProviderDiagnosticEvent:
-		if payload.Kind == output.DiagnosticKindRetry {
+		// A reset emitted without diagnostic text must not overwrite the retry
+		// label an earlier attempt set.
+		if payload.Kind == output.DiagnosticKindRetry && payload.Message != "" {
 			m.activity.retry = retryLabel(payload.Attempt, payload.MaxAttempts)
 		}
 	case output.ConversationWarningEvent:

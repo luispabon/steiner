@@ -178,7 +178,7 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 
 ### While editing
 
-- Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- Use the `mutate` tool for content edits; its `move` op handles single-file moves. Where a copy or move cannot be expressed by `mutate` (for example a directory tree), bash `cp` or `mv` may be used only where your role, mode, and sandbox allow bash writes, both paths are inside your assigned write scope, and the destination does not exist. Do not use bash, sed, cat, or shell redirection for content edits.
 - View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
 - Keep each `mutate` call to a small, coherent unit of edits: single digits.
 - For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
@@ -920,7 +920,7 @@ Do not:
 
 ### While editing
 
-- Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- Use the `mutate` tool for content edits; its `move` op handles single-file moves. Where a copy or move cannot be expressed by `mutate` (for example a directory tree), bash `cp` or `mv` may be used only where your role, mode, and sandbox allow bash writes, both paths are inside your assigned write scope, and the destination does not exist. Do not use bash, sed, cat, or shell redirection for content edits.
 - View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
 - Keep each `mutate` call to a small, coherent unit of edits: single digits.
 - For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
@@ -1078,7 +1078,7 @@ Do not:
 
 ### While editing
 
-- Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- Use the `mutate` tool for content edits; its `move` op handles single-file moves. Your role forbids bash writes: never use bash, including `cp` or `mv`, to create or change files. Leave a copy or move that `mutate` cannot express (for example a directory tree) undone and report it.
 - View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
 - Keep each `mutate` call to a small, coherent unit of edits: single digits.
 - For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
