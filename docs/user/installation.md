@@ -7,6 +7,12 @@
 
 The sandbox is Linux-only. On macOS and Windows, tools run without it. The release binary has no other dependencies.
 
+## Cross-process locking
+
+Steiner serializes writes that more than one process can make to the same file with advisory locks on stable sibling lock files: the session index (`index.json.lock`), the trusted-projects store (`trusted_projects.json.lock`) and each diagnostics stream (`<stream>.jsonl.lock`).
+
+These locks need `flock` and a filesystem that supports it. Linux, macOS and other Unix systems except AIX provide it. Windows, AIX and filesystems that report locking as unsupported (some NFS and SMB mounts, for example) are the exception: Steiner continues without cross-process exclusion, so two processes writing at the same moment can lose session index entries, trust decisions or diagnostics records. The diagnostics writer logs the degraded lock to the process log when one is configured; the session store and the trusted-projects store do not report it.
+
 ## Download a release binary
 
 Download the binary for your operating system and CPU from [GitHub Releases](https://github.com/luispabon/steiner/releases):

@@ -343,6 +343,10 @@ Structured JSONL capture for measuring cache hit rates, provider calls, tool run
 | `diagnostics.streams.internal` | bool | `false` | TUI developer error entries (`internal.jsonl`); sanitised and capped, but may still carry prompt or tool content. |
 | `diagnostics.capture_bodies` | bool | `false` | Capture full message, tool and block content instead of bounded fields. Expensive, and captures prompts. |
 
+Each enabled stream keeps a stable sibling lock file, `<stream>.jsonl.lock`, beside its `<stream>.jsonl` file. Steiner creates it with mode `0600` and never deletes it. Where advisory locks work, that lock serializes retention, rotation and appends across processes, so a run, its sub-agents and a second terminal can share one directory, and a writer reopens the active file when another process has rotated or pruned it.
+
+Locking is best effort. A writer that cannot take a stream lock drops that record instead of stalling the run. On Windows, AIX, and filesystems that report locking as unsupported (some NFS mounts, for example), the writer appends without cross-process exclusion and logs `diagnostics writer degraded` with `action=lock diagnostics stream` once per writer, to the `.slog` file beside the log file (`--log-file`, or `logging.file` when logging is enabled); without a log file the warning is discarded. Concurrent processes can then lose or interleave records. The lock file and the per-record lock acquisition exist only for enabled streams: disabled diagnostics create no directory and no lock file.
+
 ## `context_management` block
 
 Baseline context management. Applies to the parent and to each sub-agent. See [Context management](context-management.md).
