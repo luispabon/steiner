@@ -318,6 +318,10 @@ type contentSegment struct {
 	noticeCount        int                     // segmentNotice only: occurrences collapsed into this row
 	noticeScope        string                  // segmentNotice only: notices in different scopes never collapse
 	noticeKey          string                  // segmentNotice only: full untruncated text, compared on collapse
+	// streamAttempt identifies the root model call attempt that streamed this
+	// segment. Zero means the segment was not created by the model stream, so a
+	// retry reset never discards it.
+	streamAttempt uint64
 	// render cache at the active width, plus other recent widths (renderAtWidth).
 	// Render-mutated: written during render, never by event handling.
 	cachedRender      string
@@ -354,6 +358,7 @@ type contentBuffer struct {
 	showThinking      bool            // from prefs; when false skip thinking segments
 	lastShowThinking  bool            // last showThinking value observed by checkBufferDirty
 	compaction        compactionState // when true skip thinking chunks from compaction
+	streamAttempt     uint64          // root model call attempt; one identity per model call
 	streamingPhase    string          // "thinking" | "tool" | "answer" | ""
 	streamingSource   output.ChunkSource
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
@@ -458,7 +463,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	output.EventTypeStopReason:                (*contentBuffer).appendStopReasonEvent,
 	output.EventTypeAssistantMessage:          (*contentBuffer).appendAssistantMessageEvent,
 	output.EventTypeContextReport:             (*contentBuffer).appendContextReportEvent,
-	output.EventTypeModelCallStarted:          (*contentBuffer).appendModelCallDiagnosticsEvent,
+	output.EventTypeModelCallStarted:          (*contentBuffer).appendModelCallStartedEvent,
 	output.EventTypeModelCallFinished:         (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeContextDiagnostics:        (*contentBuffer).appendModelCallDiagnosticsEvent,
 	output.EventTypeUserInput:                 (*contentBuffer).appendUserInputEvent,

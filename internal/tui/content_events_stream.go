@@ -8,6 +8,77 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
+// appendModelCallStartedEvent opens a new attempt identity for a root model
+// call. Every chunk of the call, a provider retried attempt included, keeps
+// that identity, so a retry reset can drop exactly what the call streamed.
+func (b *contentBuffer) appendModelCallStartedEvent(event output.Event) {
+	if event.Scope.AgentID != "" {
+		return
+	}
+	b.streamAttempt++
+}
+
+// appendStreamMarkdownBlock appends streamed assistant text tagged with the
+// attempt that produced it, so a retry reset can discard it later.
+func (b *contentBuffer) appendStreamMarkdownBlock(block string) {
+	block = strings.TrimSpace(block)
+	if block == "" {
+		return
+	}
+	b.segments = append(b.segments, contentSegment{
+		kind:          segmentAssistantMarkdown,
+		text:          block,
+		streamAttempt: b.streamAttempt,
+		renderDirty:   true,
+	})
+}
+
+// discardInFlightStream drops the current root model call's streamed output
+// after a provider retry reset, together with any pending stream state. It
+// never increments the attempt: the retried attempt belongs to the same model
+// call. Pending state is cleared even when no segment matched, because a reset
+// can arrive before the first flush.
+func (b *contentBuffer) discardInFlightStream() {
+	attempt := b.streamAttempt
+	rewritten := false
+	if attempt != 0 {
+		kept := make([]contentSegment, 0, len(b.segments))
+		oldToNew := make(map[int]int, len(b.segments))
+		start := -1
+		for i, seg := range b.segments {
+			if seg.streamAttempt == attempt && streamedSegmentKind(seg.kind) {
+				if start < 0 || i < start {
+					start = i
+				}
+				continue
+			}
+			oldToNew[i] = len(kept)
+			kept = append(kept, seg)
+		}
+		if start >= 0 {
+			b.commitSegmentRewrite(kept, oldToNew, start)
+			rewritten = true
+		}
+	}
+	if !rewritten {
+		// No segment held the abandoned attempt, but a rendered frame can still
+		// cache its streaming preview. Drop the render caches the way Clear does.
+		b.stringCacheWidth, b.stringCacheBlocks = 0, nil
+		b.gen++
+	}
+	b.streamBuffer = ""
+	b.streaming = false
+	b.hadChunks = false
+	b.streamingPhase = ""
+	b.streamingSource = ""
+	b.streamPreview.reset()
+}
+
+// streamedSegmentKind reports whether kind holds text a model stream produced.
+func streamedSegmentKind(kind contentSegmentKind) bool {
+	return kind == segmentAssistantMarkdown || kind == segmentThinkingBlock
+}
+
 func (b *contentBuffer) appendThinkingChunkEvent(event output.Event) {
 	if b.compaction.SuppressThinking() {
 		return
@@ -46,7 +117,7 @@ func (b *contentBuffer) finishStreaming() {
 		}
 		b.finalizeThinkingBlock()
 		if strings.TrimSpace(b.streamBuffer) != "" {
-			b.appendMarkdownBlock(b.streamBuffer)
+			b.appendStreamMarkdownBlock(b.streamBuffer)
 		}
 	}
 	b.streamBuffer = ""
@@ -99,7 +170,7 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 	// rather than on whether a thinking segment happens to be open, to avoid
 	// corrupting interleave order when thinking and answer phases alternate.
 	if b.streamingPhase == "answer" && strings.TrimSpace(b.streamBuffer) != "" {
-		b.appendMarkdownBlock(b.streamBuffer)
+		b.appendStreamMarkdownBlock(b.streamBuffer)
 		b.streamBuffer = ""
 	}
 
@@ -107,7 +178,9 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 	b.streamingPhase = "thinking"
 	b.streamingSource = source
 
-	if td := b.liveThinkingSegment(); td != nil {
+	// Merge only into a live block from this attempt: a retried attempt must
+	// not inherit the abandoned attempt's reasoning text.
+	if td := b.liveThinkingSegment(); td != nil && b.segments[len(b.segments)-1].streamAttempt == b.streamAttempt {
 		td.body += text
 		for i := len(b.segments) - 1; i >= 0; i-- {
 			if b.segments[i].kind == segmentThinkingBlock && b.segments[i].thinkData == td {
@@ -128,7 +201,8 @@ func (b *contentBuffer) appendThinkingChunk(text string, source output.ChunkSour
 			body:      text,
 			source:    source,
 		},
-		renderDirty: true,
+		streamAttempt: b.streamAttempt,
+		renderDirty:   true,
 	})
 	b.collapseState[idx] = false
 }

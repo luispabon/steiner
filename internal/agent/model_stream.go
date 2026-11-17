@@ -113,17 +113,19 @@ func handleRetryResetChunk(sink output.EventSink, turn int, chunk provider.ChatC
 	*message = provider.Message{Role: provider.MessageRoleAssistant}
 	streamed.Reset()
 	*sawFinal = false
-	if chunk.Diagnostic != "" {
-		emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
-			Kind:        output.DiagnosticKindRetry,
-			Turn:        turn,
-			Severity:    chunk.Severity,
-			Message:     chunk.Diagnostic,
-			Attempt:     chunk.RetryAttempt,
-			MaxAttempts: chunk.RetryMaxAttempts,
-			Delay:       chunk.RetryDelay.String(),
-		}))
-	}
+	// The event is emitted even when the chunk carries no diagnostic text: the
+	// reset itself tells a consumer to drop the abandoned attempt's output,
+	// which is independent of any retry notice the provider supplied.
+	emitEvent(sink, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
+		Kind:        output.DiagnosticKindRetry,
+		Turn:        turn,
+		Severity:    chunk.Severity,
+		Message:     chunk.Diagnostic,
+		Attempt:     chunk.RetryAttempt,
+		MaxAttempts: chunk.RetryMaxAttempts,
+		Delay:       chunk.RetryDelay.String(),
+		RetryReset:  true,
+	}))
 	return true
 }
 

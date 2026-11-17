@@ -177,7 +177,13 @@ func (b *contentBuffer) appendProviderDiagnosticEvent(event output.Event) {
 	}
 	switch {
 	case payload.Kind == output.DiagnosticKindRetry:
-		// Retry attempts show on the activity row, not in the transcript.
+		// Retry attempts show on the activity row, not in the transcript. A
+		// reset that discarded a partially streamed attempt also drops that
+		// attempt's visible output, for the root call only: a child retry must
+		// not touch the concurrently streaming root response.
+		if payload.RetryReset && event.Scope.AgentID == "" {
+			b.discardInFlightStream()
+		}
 		return
 	case payload.Kind == output.DiagnosticKindToolPanic:
 		b.AppendNotice(noticeError, "internal error: a tool panicked; full stack in the dev log", event.Scope.AgentID)

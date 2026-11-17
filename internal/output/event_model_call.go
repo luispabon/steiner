@@ -120,6 +120,9 @@ type ProviderDiagnosticEvent struct {
 	Partial        bool   `json:"partial,omitempty"`
 	TTFTMillis     int    `json:"ttft_millis,omitempty"`
 	DurationMillis int    `json:"duration_millis,omitempty"`
+	// RetryReset marks a retry that discarded a partially streamed attempt.
+	// The TUI uses it to drop the abandoned attempt's visible output.
+	RetryReset bool `json:"retry_reset,omitempty"`
 }
 
 // DiagnosticKindRetry is the ProviderDiagnosticEvent Kind for a transient
