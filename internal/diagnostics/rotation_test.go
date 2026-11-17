@@ -56,6 +56,7 @@ func TestRetentionReplacesFileUnderOpenWriter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cache.jsonl")
 	seedStream(t, path, 40*24*time.Hour)
+	requireStreamLock(t, path)
 
 	writer, err := New(Options{Dir: dir, Streams: Streams{Cache: true}})
 	if err != nil {
@@ -189,9 +190,66 @@ func TestWriterRecoversFromRotationFailure(t *testing.T) {
 	}
 }
 
+func TestRepeatedRotationFailurePreservesGenerations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	seedStream(t, path+".1", 24*time.Hour)
+	seedStream(t, path+".2", 2*24*time.Hour)
+	seedStream(t, path+".3", 3*24*time.Hour)
+
+	// The generation shift succeeds while the active rename fails, which is what
+	// every retry after a blocked first attempt looks like.
+	renameFile = func(oldpath, newpath string) error {
+		if newpath == path+".1" {
+			return errors.New("injected active rename failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	t.Cleanup(func() { renameFile = os.Rename })
+
+	if err := os.Truncate(path, maxStreamBytes); err != nil {
+		t.Fatalf("truncate active stream: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		w.Write(Record{Kind: KindTool, AgentID: fmt.Sprintf("failed-%d", i)})
+	}
+
+	// Only the first attempt shifts: the 2-day generation lands in .3 and the
+	// 1-day generation in .2, and later attempts must leave both in place.
+	records := readRecords(t, path+".2")
+	if len(records) != 1 || records[0].AgentID != ageLabel(24*time.Hour) {
+		t.Fatalf(".2 records = %+v, want the generation shifted there once", records)
+	}
+	records = readRecords(t, path+".3")
+	if len(records) != 1 || records[0].AgentID != ageLabel(2*24*time.Hour) {
+		t.Fatalf(".3 records = %+v, want the generation shifted there once", records)
+	}
+
+	renameFile = os.Rename
+	w.Write(Record{Kind: KindTool, AgentID: "recovered"})
+
+	if !sameOpenFile(t, w, KindTool) {
+		t.Error("writer kept a stale descriptor after recovering, want it reopened")
+	}
+	records = readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "recovered" {
+		t.Fatalf("records = %+v, want the record written after recovery", records)
+	}
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Errorf("stat rotated generation: %v, want the retried rotation to land", err)
+	}
+}
+
 func TestConcurrentRotateAndAppend(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tool.jsonl")
+	requireStreamLock(t, path)
 	rotator, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -258,6 +316,7 @@ func TestConcurrentOpensWithRetention(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cache.jsonl")
 	seedStream(t, path, 40*24*time.Hour)
+	requireStreamLock(t, path)
 
 	const writers = 4
 	opened := make([]*Writer, writers)

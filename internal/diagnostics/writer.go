@@ -12,8 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/luispabon/steiner/internal/filelock"
 )
 
 // maxStreamBytes caps one generation of a stream file before it rotates.
@@ -91,23 +89,20 @@ func New(opts Options) (*Writer, error) {
 }
 
 // openStream opens the file for kind after applying retention while holding the
-// stream's cross-process lock, so a concurrent writer cannot append through a
-// descriptor this process is about to replace by rename.
+// stream's cross-process lock. Retention is skipped when the lock stays busy,
+// so a contended diagnostics directory cannot fail or stall startup; opening
+// without the lock only creates the file, and appends still take the lock.
 func (w *Writer) openStream(kind Kind, cutoff time.Time) error {
-	path := filepath.Join(w.dir, kind.fileName())
-	lock, err := lockStream(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
-	w.warnLockUnsupported(lock)
-
-	if !cutoff.IsZero() {
-		if err := pruneStaleGenerations(path, cutoff); err != nil {
-			return err
+	s := &stream{path: filepath.Join(w.dir, kind.fileName())}
+	lock := w.lockStream(s, openLockTimeout)
+	if lock != nil {
+		defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
+		if !cutoff.IsZero() {
+			if err := pruneStaleGenerations(s.path, cutoff); err != nil {
+				return err
+			}
 		}
 	}
-	s := &stream{path: path}
 	if err := s.reopen(); err != nil {
 		return err
 	}
@@ -199,14 +194,15 @@ func (w *Writer) Write(rec Record) {
 // appendRecord appends one encoded record to s under the stream's cross-process
 // lock. Revalidating first keeps a descriptor replaced by another process's
 // retention or rotation out of the write path, and refreshes the size used for
-// the rotation decision. Caller must hold the writer's mutex.
+// the rotation decision. When the lock cannot be taken the record is dropped
+// rather than appended without exclusion; the lock problem is already reported
+// once, so no error is returned. Caller must hold the writer's mutex.
 func (w *Writer) appendRecord(s *stream, data []byte) error {
-	lock, err := lockStream(s.path)
-	if err != nil {
-		return err
+	lock := w.lockStream(s, appendLockTimeout)
+	if lock == nil {
+		return nil
 	}
 	defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
-	w.warnLockUnsupported(lock)
 
 	if err := s.revalidate(); err != nil {
 		return err
@@ -234,17 +230,15 @@ func (w *Writer) warn(action string, err error) {
 	slog.Warn("diagnostics writer degraded", "action", action, "error", err, "dir", w.dir)
 }
 
-// warnLockUnsupported reports, once per writer, that the stream lock degraded
-// to no cross-process exclusion. Caller must hold the writer's mutex, or call
-// it before the writer is shared.
-func (w *Writer) warnLockUnsupported(lock *filelock.Lock) {
-	if w.lockWarn || !lock.Unsupported() {
+// warnLock logs the first lock problem this writer hits, so a contended or
+// unlocked stream cannot flood the log. Caller must hold the writer's mutex, or
+// call it before the writer is shared.
+func (w *Writer) warnLock(action string, detail string) {
+	if w.lockWarn {
 		return
 	}
 	w.lockWarn = true
-	if msg := lock.Warning(); msg != "" {
-		slog.Warn("diagnostics writer degraded", "action", "lock diagnostics stream", "error", msg, "dir", w.dir)
-	}
+	slog.Warn("diagnostics writer degraded", "action", action, "error", detail, "dir", w.dir)
 }
 
 // Close closes every open stream file. No-op on a nil receiver. Records written
