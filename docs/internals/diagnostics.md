@@ -14,6 +14,7 @@ The session log is JSONL. Each process starts it with a `log_started` record, an
 
 - Default directory: `$XDG_STATE_HOME/steiner/diagnostics`, else `~/.local/state/steiner/diagnostics`. Configured paths expand `~`.
 - Modes: directory `0o700`, stream files `0o600`, opened with `O_APPEND`. Records append across runs.
+- Each stream keeps a stable sibling lock file, `<kind>.jsonl.lock`, created `0o600` by `internal/filelock` and never deleted. It serializes retention, rotation and appends across processes.
 - The delegation trace log (`tool`) and stream error log (`provider`) write to the writer only when that stream is enabled. Otherwise they keep their own files.
 - The `internal` stream is written by the TUI devlog. Messages are capped at 8 KiB and control characters are removed.
 
@@ -37,11 +38,15 @@ When the `tool` stream is enabled, every `Executor.Execute` call writes one `kin
 
 `ops_requested` is opt-in per tool through `ToolDef.OpsRequested` (currently only mutate supplies one). The extractor reads the call's raw input after execution, so counts cover policy-denied and failed calls, and it runs only while the `tool` stream is enabled. Absent means the tool has no extractor or the input did not describe operations, such as mutate input whose `operations` value is not an array, including a double-encoded JSON string. A present `{}` means the input described zero operations. Counts never carry paths, arguments, file content, or other model-supplied text: mutate derives its labels from `allowedFields`, maps a missing, non-string, or unknown `type` to `invalid`, and trims the type as the planner does. The executor also bounds any extractor result to 16 labels of at most 24 lowercase identifier characters and drops labels outside that shape, so the field cannot hold arbitrary strings. An extractor panic is swallowed and omits the field. `ops_total` is computed separately and does not change.
 
-## Rotation and retention
+## Rotation, retention and concurrent writers
 
-Before a write that would exceed the stream cap, `rotate` closes the file, shifts `<file>.N` to `<file>.N+1`, drops the oldest generation, renames the active file to `<file>.1`, and reopens it. The cap and generation count are constants in `writer.go`. If reopening fails, later records for that run are dropped without a log line. A failed write logs `diagnostics writer degraded` once per writer.
+Several processes can write the same directory: the parent run and its sub-agents, or two terminals. Each stream serializes retention, rotation and appends through `internal/filelock` on its stable sibling lock file. `lockStream` in `internal/diagnostics/stream.go` waits at most `lockTimeout` (2s), so a writer parked behind a stuck or suspended process drops the record instead of stalling its caller. When the platform or filesystem reports locking as unsupported, the writer continues unlocked and logs `diagnostics writer degraded` with `action="lock diagnostics stream"` once per writer; `internal/filelock` never writes warnings itself.
 
-Retention runs once when a `Writer` opens and `retention_days` is positive. For each active and rotated file, `pruneStale` reads only the first line. It rewrites the file through a temp file and rename, only when that line is older than the cutoff. A first line without a parseable timestamp counts as stale, and unparseable lines are dropped during the rewrite.
+Every append marshals the record before taking the writer mutex, then the stream lock. Under the lock `stream.revalidate` compares the open descriptor with the active path through `os.SameFile`: a descriptor left on a replaced inode by another process's retention or rotation is closed and reopened, a missing descriptor is recreated, and `written` is refreshed from the open file so the rotation decision counts bytes other writers appended. Records therefore never land in an unlinked inode, and a file removed underneath the writer is recreated.
+
+Before a write that would exceed the stream cap, `rotateStream` closes the descriptor, shifts `<file>.N` to `<file>.N+1`, drops the oldest generation, renames the active file to `<file>.1`, and reopens it. The cap and generation count are constants in `writer.go`. Closing before the rename is what keeps appends aimed at the active file out of the rotated generation. A failed rotation leaves the stream closed and unnamed; the next append revalidates, reopens the active path and retries the rotation, so records resume instead of being dropped for the rest of the run. A failed lock, rotation or write logs `diagnostics writer degraded` once per writer.
+
+Retention runs once when a `Writer` opens and `retention_days` is positive, holding the stream lock for the whole prune. For each active and rotated file, `pruneStale` reads only the first line. It rewrites the file through a temp file and rename, only when that line is older than the cutoff. A first line without a parseable timestamp counts as stale, and unparseable lines are dropped during the rewrite. The rewrite replaces the inode, so writers that already hold the stream open detect the change on their next append and reopen.
 
 ## TUI frame stats
 

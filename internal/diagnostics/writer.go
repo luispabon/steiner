@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/luispabon/steiner/internal/filelock"
 )
 
 // maxStreamBytes caps one generation of a stream file before it rotates.
@@ -25,13 +27,6 @@ const maxStreamGenerations = 3
 // so records from different files can be ordered against each other.
 var seq atomic.Int64
 
-// stream is one open per-kind file.
-type stream struct {
-	file    *os.File
-	path    string
-	written int64
-}
-
 // Writer appends diagnostics records to one JSONL file per enabled stream.
 // Safe for concurrent use. A nil *Writer is a valid no-op writer, so callers
 // never need a nil check.
@@ -41,6 +36,8 @@ type Writer struct {
 	streams  Streams
 	files    map[Kind]*stream
 	warned   bool
+	lockWarn bool
+	closed   bool
 	captureB bool
 	runID    string
 	buildSHA string
@@ -85,37 +82,37 @@ func New(opts Options) (*Writer, error) {
 		if !opts.Streams.enabled(kind) {
 			continue
 		}
-		path := filepath.Join(dir, kind.fileName())
-		if !cutoff.IsZero() {
-			if err := pruneStaleGenerations(path, cutoff); err != nil {
-				_ = w.Close()
-				return nil, err
-			}
-		}
-		file, err := openStreamFile(path)
-		if err != nil {
+		if err := w.openStream(kind, cutoff); err != nil {
 			_ = w.Close()
 			return nil, err
 		}
-		var written int64
-		if info, statErr := file.Stat(); statErr == nil {
-			written = info.Size()
-		}
-		w.files[kind] = &stream{file: file, path: path, written: written}
 	}
 	return w, nil
 }
 
-func openStreamFile(path string) (*os.File, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+// openStream opens the file for kind after applying retention while holding the
+// stream's cross-process lock, so a concurrent writer cannot append through a
+// descriptor this process is about to replace by rename.
+func (w *Writer) openStream(kind Kind, cutoff time.Time) error {
+	path := filepath.Join(w.dir, kind.fileName())
+	lock, err := lockStream(path)
 	if err != nil {
-		return nil, fmt.Errorf("open diagnostics stream: %w", err)
+		return err
 	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("secure diagnostics stream: %w", err)
+	defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
+	w.warnLockUnsupported(lock)
+
+	if !cutoff.IsZero() {
+		if err := pruneStaleGenerations(path, cutoff); err != nil {
+			return err
+		}
 	}
-	return file, nil
+	s := &stream{path: path}
+	if err := s.reopen(); err != nil {
+		return err
+	}
+	w.files[kind] = s
+	return nil
 }
 
 func newRunID() string {
@@ -187,22 +184,44 @@ func (w *Writer) Write(rec Record) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	s := w.files[rec.Kind]
-	if s == nil || s.file == nil {
+	if w.closed {
 		return
 	}
+	s := w.files[rec.Kind]
+	if s == nil {
+		return
+	}
+	if err := w.appendRecord(s, data); err != nil {
+		w.warn("append diagnostics record", err)
+	}
+}
+
+// appendRecord appends one encoded record to s under the stream's cross-process
+// lock. Revalidating first keeps a descriptor replaced by another process's
+// retention or rotation out of the write path, and refreshes the size used for
+// the rotation decision. Caller must hold the writer's mutex.
+func (w *Writer) appendRecord(s *stream, data []byte) error {
+	lock, err := lockStream(s.path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
+	w.warnLockUnsupported(lock)
+
+	if err := s.revalidate(); err != nil {
+		return err
+	}
 	if s.written+int64(len(data)) > maxStreamBytes {
-		if err := rotate(s); err != nil {
-			w.warn("rotate diagnostics stream", err)
-			return
+		if err := rotateStream(s); err != nil {
+			return err
 		}
 	}
 	n, err := s.file.Write(data)
 	if err != nil {
-		w.warn("write diagnostics record", err)
-		return
+		return fmt.Errorf("write diagnostics record: %w", err)
 	}
 	s.written += int64(n)
+	return nil
 }
 
 // warn logs the first failure this writer hits and stays quiet afterwards, so
@@ -215,51 +234,37 @@ func (w *Writer) warn(action string, err error) {
 	slog.Warn("diagnostics writer degraded", "action", action, "error", err, "dir", w.dir)
 }
 
-// rotate shifts existing generations, renames the active file to <file>.1 and
-// opens a fresh one. Caller must hold the writer's mutex.
-func rotate(s *stream) error {
-	if err := s.file.Close(); err != nil {
-		return fmt.Errorf("close diagnostics stream for rotation: %w", err)
+// warnLockUnsupported reports, once per writer, that the stream lock degraded
+// to no cross-process exclusion. Caller must hold the writer's mutex, or call
+// it before the writer is shared.
+func (w *Writer) warnLockUnsupported(lock *filelock.Lock) {
+	if w.lockWarn || !lock.Unsupported() {
+		return
 	}
-	s.file = nil
-	for i := maxStreamGenerations; i >= 1; i-- {
-		src := fmt.Sprintf("%s.%d", s.path, i)
-		if i == maxStreamGenerations {
-			_ = os.Remove(src)
-			continue
-		}
-		if _, err := os.Stat(src); err == nil {
-			_ = os.Rename(src, fmt.Sprintf("%s.%d", s.path, i+1))
-		}
+	w.lockWarn = true
+	if msg := lock.Warning(); msg != "" {
+		slog.Warn("diagnostics writer degraded", "action", "lock diagnostics stream", "error", msg, "dir", w.dir)
 	}
-	if err := os.Rename(s.path, s.path+".1"); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("rotate diagnostics stream: %w", err)
-	}
-	file, err := openStreamFile(s.path)
-	if err != nil {
-		return err
-	}
-	s.file = file
-	s.written = 0
-	return nil
 }
 
-// Close closes every open stream file. No-op on a nil receiver.
+// Close closes every open stream file. No-op on a nil receiver. Records written
+// after Close are dropped rather than reopening a file nothing will close
+// again.
 func (w *Writer) Close() error {
 	if w == nil {
 		return nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.closed = true
 	var firstErr error
 	for kind, s := range w.files {
-		if s == nil || s.file == nil {
+		if s == nil {
 			continue
 		}
-		if err := s.file.Close(); err != nil && firstErr == nil {
+		if err := s.closeFile(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close diagnostics stream %s: %w", kind, err)
 		}
-		s.file = nil
 	}
 	return firstErr
 }
