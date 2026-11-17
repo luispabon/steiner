@@ -11,6 +11,7 @@ internal/agent/          Loop orchestration, state, limits
 internal/config/         Config loading, merging, validation, defaults
 internal/delegation/     Delegation contracts and scaffolding
 internal/diagnostics/    Structured diagnostics streams: envelope, writer, rotation, retention
+internal/filelock/       Cross-process advisory file locks on stable sibling lock files
 internal/fsatomic/       Atomic file replacement: temp file, fsync, rename
 internal/globexpand/     Shared glob brace and zero-directory doublestar expansion for glob, grep, and exclusions
 internal/history/        Prompt (input) history persistence
@@ -139,6 +140,7 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | `internal/mcp`: manager, transport, naming, approval, tooldefs | both `mcp.md`; config fields also `user/configuration.md` |
 | `internal/lsp`: server types, config, tools, server lifecycle | both `lsp.md` (user page holds server setup examples); config fields also `user/configuration.md`; tool availability also `user/sub-agent-delegation.md` allowlists |
 | `internal/diagnostics`: envelope, streams, writer/rotation/retention | `user/configuration.md` "`diagnostics` block"; `internals/diagnostics.md`; `skills/configure/SKILL.md` |
+| `internal/filelock`: lock file layout, acquisition, platform degradation | the docs page of the store that adopts it; internals pages that describe on-disk locking |
 | `internal/notify`: platform driver or Service behaviour | both `desktop-notifications.md` (internals if driver interface, extension points, lifecycle, or error handling changed) |
 | `internal/oauth`: flow, token store, refresh, PKCE | `user/provider-and-model-setup.md` "Codex (ChatGPT sign-in)" if setup or token storage changed; `user/configuration.md` "Provider types" if auth behaviour changed |
 | Optional features: accent colour, web search, image paste, conversation forking, code simplification | `user/interactive.md` for accent colour, image paste and conversation forking; `user/web-search.md` for web search; `user/skills.md` for code simplification |
