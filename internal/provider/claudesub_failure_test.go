@@ -1265,4 +1265,203 @@ func TestClaudeSubRetryForkOnlyWhenMarkerSetDuringBackoff(t *testing.T) {
 	if !pool.reseedPending("parent") {
 		t.Error("the retry cleared the reseed marker another call recorded")
 	}
+	claudeSubWantNoRecoveryNotice(t, got)
+}
+
+// claudeSubForkOnlyAttach builds the attach input a retry runs with: the stored
+// checkpoint of an opening turn and the request that extends it.
+func claudeSubForkOnlyAttach(t *testing.T, msgs []Message, st claudeSubBackendState) claudeSubAttach {
+	t.Helper()
+	spec := claudeSubStartSpec{Model: claudeSubTestSpec().Model, SystemPrompt: claudeSubSystemPrompt(msgs)}
+	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	a := claudeSubAttach{key: "parent", spec: spec, fingerprint: fingerprint, msgs: msgs, stored: st, hasState: true, partial: -1}
+	a.resume, a.restorable, _, err = claudeSubRestoreFor(msgs, st, true, "parent", fingerprint)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if !a.restorable {
+		t.Fatal("the opening turn's stored state is not restorable")
+	}
+	return a
+}
+
+// TestClaudeSubAttachForkOnlyRefusesFreshSpawn proves a fork-only attach never
+// starts a fresh conversation: a request with nothing to resume, and a forced
+// reseed, both fail before a process exists.
+func TestClaudeSubAttachForkOnlyRefusesFreshSpawn(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	msgs := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
+	fork := claudeSubForkOnlyAttach(t, msgs, st)
+	req := ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         msgs,
+		BackendState:     claudeSubEncodeState(t, st),
+	}
+	tests := []struct {
+		name        string
+		mutate      func(*claudeSubAttach)
+		forceReseed bool
+	}{
+		{name: "nothing to resume", mutate: func(a *claudeSubAttach) { a.resume, a.restorable = claudeSubResume{}, false }},
+		{name: "forced reseed", forceReseed: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+			a := fork
+			if tt.mutate != nil {
+				tt.mutate(&a)
+			}
+			if _, err := claudeSubAttachSession(context.Background(), pool, req, a, tt.forceReseed, true); !errors.Is(err, errClaudeSubRetryNeedsReseed) {
+				t.Fatalf("attach error = %v, want errClaudeSubRetryNeedsReseed", err)
+			}
+			if n := spawner.callCount(); n != 0 {
+				t.Errorf("spawn count = %d, want 0 (a retry never starts a fresh conversation)", n)
+			}
+			if pool.reseedPending("parent") {
+				t.Error("a refused attach recorded a reseed requirement")
+			}
+		})
+	}
+}
+
+// TestClaudeSubAttachForkOnlyRefusesLiveProcess proves a fork-only attach never
+// delivers on a pooled live process, even one a normal request would reuse: a
+// retry resumes the stored checkpoint in a fork or refuses, and the process is
+// left for the request it belongs to.
+func TestClaudeSubAttachForkOnlyRefusesLiveProcess(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	msgs := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1))
+	// One normal turn leaves a primed process pooled under the key.
+	claudeSubRunTurn(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes")},
+	})
+	fork := claudeSubForkOnlyAttach(t, msgs, st)
+	req := ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         msgs,
+		BackendState:     claudeSubEncodeState(t, st),
+	}
+	got, err := claudeSubAttachSession(context.Background(), pool, req, fork, false, true)
+	if !errors.Is(err, errClaudeSubRetryNeedsReseed) {
+		t.Fatalf("attach error = %v, want errClaudeSubRetryNeedsReseed", err)
+	}
+	if got.session != nil {
+		t.Error("a refused attach returned a process")
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Errorf("spawn count = %d, want 1 (a refused retry starts no process)", n)
+	}
+	// The primed process is untouched, so the request that owns it still finds it.
+	live, err := pool.acquireLive(context.Background(), "parent")
+	if err != nil || live == nil {
+		t.Fatalf("acquireLive = %v, %v, want the pooled process", live, err)
+	}
+	pool.release(live)
+	if pool.reseedPending("parent") {
+		t.Error("a refused attach recorded a reseed requirement")
+	}
+}
+
+// TestClaudeSubAttachForkOnlyRefusesMarkerSetUnderLease proves the fork-only
+// check made after the process is leased: a reseed requirement another call
+// records while the retry waits for that lease ends the attach and keeps the
+// marker for the next user request.
+func TestClaudeSubAttachForkOnlyRefusesMarkerSetUnderLease(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	msgs := []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")}
+	fork := claudeSubForkOnlyAttach(t, msgs, st)
+	req := ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         msgs,
+		BackendState:     claudeSubEncodeState(t, st),
+	}
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	holder, err := pool.acquire(context.Background(), "parent", claudeSubTestSpec())
+	if err != nil {
+		t.Fatalf("acquire holder: %v", err)
+	}
+	attachErr := make(chan error, 1)
+	go func() {
+		_, err := claudeSubAttachSession(context.Background(), pool, req, fork, false, true)
+		attachErr <- err
+	}()
+	// The retry passed its pre-acquire check, took its reservation, and is parked
+	// on the lease this test holds.
+	claudeSubWaitFor(t, func() bool {
+		pool.mu.Lock()
+		defer pool.mu.Unlock()
+		return pool.active >= 2
+	})
+	// Another same-key call records the requirement while the retry waits.
+	pool.noteReseedKey("parent")
+	select {
+	case err := <-attachErr:
+		t.Fatalf("attach = %v while the lease was held, want it parked on the lease", err)
+	default:
+	}
+	pool.release(holder)
+	select {
+	case err := <-attachErr:
+		if !errors.Is(err, errClaudeSubRetryNeedsReseed) {
+			t.Fatalf("attach error = %v, want errClaudeSubRetryNeedsReseed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("attach did not settle after the lease was released")
+	}
+	if !pool.reseedPending("parent") {
+		t.Error("the refused attach cleared the marker another call recorded")
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Errorf("spawn count = %d, want 1 (only the process the holder owns)", n)
+	}
+}
+
+// TestClaudeSubRetryDeniedAttachKeepsFailure proves a retry whose attach refuses
+// fork-only recovery reports nothing it did not do: the call returns the
+// original failure, emits no retry notice, records no recovery, and keeps the
+// marker for the next user request.
+func TestClaudeSubRetryDeniedAttachKeepsFailure(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{}, claudeSubTextTurns(t, 1))
+	retrying := false
+	pool.confirmRetire = func(*claudeSubSession) bool {
+		retrying = true
+		return true
+	}
+	pool.afterAdmission = func() {
+		// The retry's process is published and leased. Another same-key call
+		// records the requirement before the attach's under-lease check.
+		if retrying {
+			pool.noteReseedKey("parent")
+		}
+	}
+	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err == nil || !strings.Contains(got.err.Error(), "claude CLI connection closed") {
+		t.Fatalf("turn error = %v, want the original connection-closed failure", got.err)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Errorf("spawn count = %d, want 2 (the crash and the refused retry's process)", n)
+	}
+	claudeSubWantNoRecoveryNotice(t, got)
+	if final := got.final(t); final.Done && claudeSubRecoveryLabel(final) != "" {
+		t.Errorf("recovery = %q, want none (no retry was delivered)", claudeSubRecoveryLabel(final))
+	}
+	if !pool.reseedPending("parent") {
+		t.Error("the refused retry cleared the reseed marker another call recorded")
+	}
 }

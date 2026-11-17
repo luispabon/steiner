@@ -52,11 +52,12 @@ type claudeSubAttachResult struct {
 }
 
 // claudeSubAttachSession returns the process req runs on, locked (the caller
-// releases it) and how req must be delivered. forkOnly forbids every reseed
-// branch: it is set for a retry attempt, which must resume the stored checkpoint
-// or fail with errClaudeSubRetryNeedsReseed. The check is made again once the
-// process is leased, so a reseed marker another call recorded while this attempt
-// waited cannot slip through.
+// releases it) and how req must be delivered. forkOnly allows one outcome: a
+// fork resume of the stored checkpoint. It is set for a retry attempt, which
+// must never reseed, start a fresh conversation or deliver on a pooled live
+// process, and fails with errClaudeSubRetryNeedsReseed otherwise. The reseed
+// marker is checked again once the process is leased, so a marker another call
+// recorded while this attempt waited cannot slip through.
 //
 //   - A process a cancelled delivery left unsafe is retired before anything is
 //     planned on it, because the CLI may still produce that turn's events (see
@@ -104,6 +105,12 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		// orphaned or just-retired process may still hold open.
 		spawn.Resume = a.resume
 	}
+	if forkOnly && spawn.Resume.SessionID == "" {
+		// A retry resumes the stored checkpoint in a fork and never starts a fresh
+		// conversation, so it ends here before a process exists. Every reseed
+		// branch above already returned.
+		return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
+	}
 	s, err := pool.acquire(ctx, a.key, spawn)
 	if err != nil {
 		// The record stays: a failed spawn has not reseeded anything yet.
@@ -143,6 +150,13 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		next.retired = true
 		next.stopped = true
 		return claudeSubAttachSession(ctx, pool, req, next, forceReseed, forkOnly)
+	}
+	if forkOnly && s.primed {
+		// A primed process already served a turn, so reusing it is not the fork
+		// resume a retry must perform. It is left pooled for the request it
+		// belongs to and the call ends with its original failure.
+		pool.release(s)
+		return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
 	}
 	if s.primed {
 		if err := claudeSubFinishPending(ctx, s, req); err != nil {
@@ -225,6 +239,8 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 	}
 	s.sync.fingerprint = a.fingerprint
 	if spawn.Resume.SessionID == "" {
+		// forkOnly cannot reach this branch: it refuses above unless the spawn
+		// carries a fork target.
 		claudeSubMetricsFrom(ctx).setProcess(claudeSubProcessSpawn)
 		return claudeSubAttachResult{session: s, reseed: claudeSubHasHistory(a.msgs)}, nil
 	}

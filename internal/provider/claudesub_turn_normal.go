@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 // claudeSubNormalTurn runs a parent or sub-agent request. A process is reused
@@ -15,10 +16,11 @@ import (
 // A failed attempt is retried at most claudeSubRetryMaxRecoveries times, as
 // claudeSubRetryDecision decides: only before any output reached the caller, and
 // only when the request carries a stored checkpoint the retry can fork-resume. A
-// retry never reseeds a fresh conversation. A failure after output, and every
-// failure the decision does not qualify, ends the call with its error, so the
-// caller keeps the partial it already streamed and the next request resumes the
-// stored checkpoint.
+// retry never reseeds a fresh conversation, and its metric, log line and notice
+// are recorded only after its attach forked the stored checkpoint. A failure
+// after output, and every failure the decision does not qualify, ends the call
+// with its error, so the caller keeps the partial it already streamed and the
+// next request resumes the stored checkpoint.
 func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req ChatRequest, key string, spec claudeSubStartSpec, emit func(ChatChunk) error) error {
 	fingerprint, err := claudeSubFingerprint(spec.SystemPrompt, spec.Tools)
 	if err != nil {
@@ -50,8 +52,14 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 	noticeReported := false
 	recoveries := 0
 	// recoveryErr is the failure a scheduled retry is recovering from. A retry
-	// that would have to reseed ends the call with it.
+	// that cannot fork the stored checkpoint ends the call with it.
 	var recoveryErr error
+	// pendingAction and pendingDelay are the retry this call is waiting on: the
+	// action it takes and the wait it spent. They are reported only once the
+	// retry's attach forked the stored checkpoint, so a denied attach never
+	// claims a retry happened.
+	pendingAction := claudeSubRetryNone
+	var pendingDelay time.Duration
 	for {
 		attached, err := claudeSubAttachSession(ctx, pool, req, a, false, recoveries > 0)
 		if err != nil {
@@ -59,6 +67,19 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 				return recoveryErr
 			}
 			return err
+		}
+		if pendingAction != claudeSubRetryNone {
+			// The retry forked the stored checkpoint, so it is reported now: the
+			// action in the call diagnostics, the log line, and the notice that
+			// tells the caller a retry is running. An attach that refused fork-only
+			// recovery returned above, so nothing here claims a retry it did not do.
+			metrics := claudeSubMetricsFrom(ctx)
+			metrics.noteRecovery(claudeSubActionLabel(pendingAction))
+			claudeSubLogRecovery(recoveryErr, pendingAction, recoveries)
+			if noticeErr := emit(claudeSubRecoveryNotice(recoveryErr, recoveries, pendingDelay)); noticeErr != nil {
+				return fmt.Errorf("emit claude_subscription recovery notice: %w", noticeErr)
+			}
+			pendingAction = claudeSubRetryNone
 		}
 		s := attached.session
 		if !attached.reseed {
@@ -144,22 +165,13 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		pool.release(s)
 		recoveryErr = err
 		recoveries++
-		metrics := claudeSubMetricsFrom(ctx)
-		metrics.resetDelivery()
-		// A retry resumes the stored checkpoint, so the reseed branch belongs to
-		// the restore rules; a teardown that cannot confirm the exit records its
-		// own reason on the next attach.
-		if !a.restorable {
-			metrics.noteReseed(restoreReason)
-		}
-		metrics.noteRecovery(claudeSubActionLabel(action))
-		claudeSubLogRecovery(err, action, recoveries)
-		delay := claudeSubRecoveryDelay(recoveries)
-		if waitErr := claudeSubAwaitRecovery(ctx, delay); waitErr != nil {
+		// Nothing is reported here: the attempt is only a retry once its attach
+		// forked the stored checkpoint, which the next loop iteration decides.
+		claudeSubMetricsFrom(ctx).resetDelivery()
+		pendingAction = action
+		pendingDelay = claudeSubRecoveryDelay(recoveries)
+		if waitErr := claudeSubAwaitRecovery(ctx, pendingDelay); waitErr != nil {
 			return waitErr
-		}
-		if noticeErr := emit(claudeSubRecoveryNotice(err, recoveries, delay)); noticeErr != nil {
-			return fmt.Errorf("emit claude_subscription recovery notice: %w", noticeErr)
 		}
 	}
 }
