@@ -120,7 +120,7 @@ If OpenSSH rejects a config file inside the sandbox (`Bad owner or permissions o
 
 Denying a sandbox denial returns the original result to the model with a hint to add a `sandbox.host_mounts` entry or use `--unsafe`. Path violations that are not about the project root, such as `paths.blocked_paths`, `paths.writable_paths`, or plan-mode write limits, are denied without a prompt.
 
-A `mutate` batch is approved or denied as a whole, so Steiner collects the paths outside the project root across every operation before asking. The `--exec` prompt lists each distinct path on its own line, up to 20, then `and N more outside the project`, and never truncates a path. The interactive approval card still shows the truncated arguments preview and does not list the paths separately. If any operation in the batch breaks a rule you cannot approve, the whole call is denied without a prompt.
+A `mutate` batch is approved or denied as a whole, so Steiner collects the paths outside the project root across every operation before asking. The `--exec` prompt lists each distinct path on its own line, up to 20, then `and N more outside the project`, and never truncates a path. The interactive approval card still shows the truncated arguments preview and does not list the paths separately. If any operation in the batch breaks a rule you cannot approve, the whole call is denied without a prompt; that includes a path outside the project root that is also under `paths.blocked_paths`, outside `paths.writable_paths`, or a special file such as a pipe or device. Listed paths are the resolved paths with control characters removed, so a path containing unusual characters can display differently from the text the model sent.
 
 ### Choices and their scope
 

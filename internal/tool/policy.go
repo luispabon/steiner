@@ -26,9 +26,8 @@ func planModeWriteDenial() string {
 type PathPolicyError struct {
 	Path string
 	// Paths holds every distinct promptable outside path found while
-	// validating the whole call, capped at maxCollectedOutsidePaths. It is
-	// empty for violations raised outside that collection, in which case Path
-	// is the only path.
+	// validating the whole call, capped at maxCollectedOutsidePaths. A
+	// single-path violation carries just that path.
 	Paths []string
 	// PathCount is the number of distinct outside paths found, including any
 	// beyond the Paths cap.
@@ -257,6 +256,12 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return p.policyResolutionError(path, err)
 	}
 	if !allowed {
+		// Approval relaxes the project-root check only, so a path that also
+		// breaks a rule approval cannot relax is denied here instead of being
+		// offered as a prompt that could never let the call run.
+		if err := p.ensureOutsidePathRules(path, writable, planWriteAllowed); err != nil {
+			return err
+		}
 		return p.outsideRootError([]string{path}, 1)
 	}
 	if blocked, err := p.blocked(path); err != nil {
@@ -265,6 +270,22 @@ func (p PathPolicy) ensureAllowed(path string, writable bool) error {
 		return p.blockedPathError(path)
 	}
 	return p.ensureWritablePathAllowed(path, writable, planWriteAllowed)
+}
+
+// ensureOutsidePathRules returns the nonpromptable violation an outside path
+// still carries, if any. The checks mirror the ones an in-project path runs:
+// blocked paths, the writable allowlist, and special files, all of which keep
+// applying after approval.
+func (p PathPolicy) ensureOutsidePathRules(path string, writable, planWriteAllowed bool) error {
+	if blocked, err := p.blocked(path); err != nil {
+		return p.policyResolutionError(path, err)
+	} else if blocked {
+		return p.blockedPathError(path)
+	}
+	if err := p.ensureWritablePathAllowed(path, writable, planWriteAllowed); err != nil {
+		return err
+	}
+	return rejectSpecialFile(path)
 }
 
 func (p PathPolicy) ensurePlanWriteAllowed(path string, writable bool) (bool, error) {

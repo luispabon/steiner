@@ -74,7 +74,10 @@ type PathApprovalDetails struct {
 	// DeniedPath is the path that caused the violation (may be empty for
 	// bash). DeniedPaths is the full set the prompt lists, capped at
 	// maxCollectedOutsidePaths, and DeniedPathCount is how many distinct
-	// outside paths the call touches.
+	// outside paths the call touches. These are normalized resolved paths,
+	// not the literal argument text; display layers sanitize them onto a
+	// single line, so what a prompt shows can differ from the string in the
+	// model's call.
 	DeniedPath      string
 	DeniedPaths     []string
 	DeniedPathCount int
