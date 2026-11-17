@@ -367,6 +367,7 @@ type contentBuffer struct {
 	lastShowThinking  bool            // last showThinking value observed by checkBufferDirty
 	compaction        compactionState // when true skip thinking chunks from compaction
 	streamAttempt     uint64          // root model call attempt; one identity per model call
+	modelCallActive   bool            // a root model call is open and may be discarded
 	streamingPhase    string          // "thinking" | "tool" | "answer" | ""
 	streamingSource   output.ChunkSource
 	tickCount         int   // incremented by 500ms tick, used for cursor blink
@@ -494,7 +495,7 @@ var contentEventHandlers = map[string]contentEventHandler{
 	// event carries no transcript state of its own.
 	output.EventTypeSkillState:  func(*contentBuffer, output.Event) {},
 	output.EventTypeAPIRequest:  func(*contentBuffer, output.Event) {},
-	output.EventTypeAPIResponse: func(b *contentBuffer, _ output.Event) { b.finishStreaming() },
+	output.EventTypeAPIResponse: (*contentBuffer).appendAPIResponseEvent,
 	// SteerReceived is handled by model_events.go (AppendUser); no content
 	// line is emitted here.
 	output.EventTypeSteerReceived: func(*contentBuffer, output.Event) {},

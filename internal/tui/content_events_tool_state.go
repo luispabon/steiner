@@ -284,6 +284,8 @@ func (b *contentBuffer) Clear() {
 	b.streamingPhase = ""
 	b.streamingSource = ""
 	b.hadChunks = false
+	b.streamAttempt = 0
+	b.modelCallActive = false
 	b.collapseState = make(map[int]bool)
 	b.activeDelegations = nil
 	b.activeToolCalls = nil

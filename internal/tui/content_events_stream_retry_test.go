@@ -184,6 +184,9 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 				if got, want := thinkingBodies(b), []string{"root reasoning"}; !reflect.DeepEqual(got, want) {
 					t.Errorf("thinking bodies = %q, want %q", got, want)
 				}
+				if rendered := renderedRetryTranscript(b); !strings.Contains(rendered, "par") || !strings.Contains(rendered, "root reasoning") {
+					t.Errorf("rendered transcript = %q, want the live root stream still rendered", rendered)
+				}
 				if b.streamBuffer != "tial" {
 					t.Errorf("stream buffer = %q, want the pending root text untouched", b.streamBuffer)
 				}
@@ -295,6 +298,123 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 				}
 				if got, want := streamAssistantTexts(b), []string{"recovered answer"}; !reflect.DeepEqual(got, want) {
 					t.Errorf("streamed segments = %q, want %q", got, want)
+				}
+			},
+		},
+		{
+			// Regression for #997: a reset from a root stream that never opened
+			// a model call, such as a compaction summary, used to discard the
+			// previous call's completed answer.
+			name: "completed answer survives a reset from a later root stream",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "first answer")
+				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
+				b.AppendEvent(retryDiagnostic(true, ""))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := streamAssistantTexts(b), []string{"first answer"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("committed segments = %q, want %q", got, want)
+				}
+				if rendered := renderedRetryTranscript(b); !strings.Contains(rendered, "first answer") {
+					t.Errorf("rendered transcript = %q, want the completed answer kept", rendered)
+				}
+				if b.modelCallActive {
+					t.Error("model call still marked active, want the discard window closed by the API response")
+				}
+			},
+		},
+		{
+			name: "reset without a model call start keeps streamed output",
+			build: func(_ *testing.T, b *contentBuffer) {
+				// A compaction summary streams through the root sink without a
+				// ModelCallStarted event, so no discard window is open.
+				b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "earlier answer"))
+				appendAssistantChunk(b, 1, "compaction summary")
+				b.AppendEvent(retryDiagnostic(true, ""))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				rendered := renderedRetryTranscript(b)
+				for _, want := range []string{"earlier answer", "compaction summary"} {
+					if !strings.Contains(rendered, want) {
+						t.Errorf("rendered transcript = %q, want it to contain %q", rendered, want)
+					}
+				}
+				if b.streamBuffer != "compaction summary" || !b.streaming || !b.hadChunks {
+					t.Errorf("stream state after reset: buffer=%q streaming=%v hadChunks=%v, want the pending stream untouched",
+						b.streamBuffer, b.streaming, b.hadChunks)
+				}
+				if b.streamPreview.source != "" && b.streamBuffer != "compaction summary" {
+					t.Errorf("stream preview source = %q, want it left as is", b.streamPreview.source)
+				}
+			},
+		},
+		{
+			name: "two resets within one call keep only the final answer",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "alpha")
+				b.AppendEvent(retryDiagnostic(true, ""))
+				appendAssistantChunk(b, 1, "beta")
+				b.AppendEvent(retryDiagnostic(true, ""))
+				appendAssistantChunk(b, 1, "gamma")
+				b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "gamma"))
+				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := streamAssistantTexts(b), []string{"gamma"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("committed segments = %q, want %q", got, want)
+				}
+				rendered := renderedRetryTranscript(b)
+				if !strings.Contains(rendered, "gamma") {
+					t.Errorf("rendered transcript = %q, want the final answer kept", rendered)
+				}
+				for _, absent := range []string{"alpha", "beta"} {
+					if strings.Contains(rendered, absent) {
+						t.Errorf("rendered transcript = %q, want %q discarded", rendered, absent)
+					}
+				}
+			},
+		},
+		{
+			name: "child API response does not close the root discard window",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "par")
+				b.AppendEvent(output.WithAgentScope(output.NewAPIResponseEvent(nil, nil, "", nil), "child-1"))
+				b.AppendEvent(retryDiagnostic(true, ""))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got := streamAssistantTexts(b); len(got) != 0 {
+					t.Errorf("committed segments = %q, want the root attempt discarded", got)
+				}
+				if rendered := renderedRetryTranscript(b); strings.Contains(rendered, "par") {
+					t.Errorf("rendered transcript = %q, want the child response not to shield the root attempt", rendered)
+				}
+				if !b.modelCallActive {
+					t.Error("model call window closed by a child response, want it still open")
+				}
+			},
+		},
+		{
+			name: "model call start leaves a pending stream buffer untouched",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "par")
+				startRootModelCall(b, 2)
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if b.streamBuffer != "par" {
+					t.Errorf("stream buffer = %q, want the pending chunk kept across the call start", b.streamBuffer)
+				}
+				if got := streamAssistantTexts(b); len(got) != 0 {
+					t.Errorf("committed segments = %q, want no flush on call start", got)
+				}
+				if got, want := b.streamAttempt, uint64(2); got != want {
+					t.Errorf("stream attempt = %d, want %d", got, want)
+				}
+				if !b.modelCallActive {
+					t.Error("model call window closed, want it open for the new call")
 				}
 			},
 		},

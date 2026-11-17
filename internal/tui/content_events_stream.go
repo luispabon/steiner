@@ -11,11 +11,27 @@ import (
 // appendModelCallStartedEvent opens a new attempt identity for a root model
 // call. Every chunk of the call, a provider retried attempt included, keeps
 // that identity, so a retry reset can drop exactly what the call streamed.
+// Opening the call also opens the discard window: only an active root model
+// call may be discarded, so a reset arriving from a stream that never announced
+// itself cannot delete an earlier call's committed output. Every current
+// producer emits APIResponse before the next ModelCallStarted, so the window
+// closes where the call ends.
 func (b *contentBuffer) appendModelCallStartedEvent(event output.Event) {
 	if event.Scope.AgentID != "" {
 		return
 	}
 	b.streamAttempt++
+	b.modelCallActive = true
+}
+
+// appendAPIResponseEvent ends the provider response: it always flushes the
+// pending stream, and closes the root discard window only for a root response.
+// A child response runs alongside the root call and must leave that window open.
+func (b *contentBuffer) appendAPIResponseEvent(event output.Event) {
+	b.finishStreaming()
+	if event.Scope.AgentID == "" {
+		b.modelCallActive = false
+	}
 }
 
 // appendStreamMarkdownBlock appends streamed assistant text tagged with the
@@ -37,8 +53,12 @@ func (b *contentBuffer) appendStreamMarkdownBlock(block string) {
 // after a provider retry reset, together with any pending stream state. It
 // never increments the attempt: the retried attempt belongs to the same model
 // call. Pending state is cleared even when no segment matched, because a reset
-// can arrive before the first flush.
+// can arrive before the first flush. A reset that arrives while no root model
+// call is open discards nothing and clears nothing.
 func (b *contentBuffer) discardInFlightStream() {
+	if !b.modelCallActive {
+		return
+	}
 	attempt := b.streamAttempt
 	rewritten := false
 	if attempt != 0 {
@@ -47,7 +67,7 @@ func (b *contentBuffer) discardInFlightStream() {
 		start := -1
 		for i, seg := range b.segments {
 			if seg.streamAttempt == attempt && streamedSegmentKind(seg.kind) {
-				if start < 0 || i < start {
+				if start < 0 {
 					start = i
 				}
 				continue
