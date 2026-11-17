@@ -982,3 +982,71 @@ func TestParentOverrideRetainsWorkflowWorkingRules(t *testing.T) {
 		t.Fatalf("workflow methodology should precede the override text in %q", content)
 	}
 }
+
+// TestWorkflowGeneralRulesAndAmbiguityByMode pins the consolidated working
+// rules that replaced the standalone core rules section. The general rules
+// render for every writer role, survive a system override, and each role gets
+// the ambiguity instruction the shared workflow template selects.
+func TestWorkflowGeneralRulesAndAmbiguityByMode(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		mode          workflowMode
+		override      string
+		wantRules     bool
+		wantAmbiguity string
+	}{
+		{name: "parent", mode: workflowModeParent, wantRules: true, wantAmbiguity: "ask the user"},
+		{name: "parent override", mode: workflowModeParent, override: "custom override", wantRules: true, wantAmbiguity: "ask the user"},
+		{name: "legacy delegated child", mode: workflowModeDelegatedChild, wantRules: true, wantAmbiguity: "stop and report the blocker"},
+		{name: "legacy delegated child override", mode: workflowModeDelegatedChild, override: "custom override", wantRules: true, wantAmbiguity: "stop and report the blocker"},
+		{name: "code sub-agent", mode: workflowModeDelegatedCodeSubAgent, wantRules: true, wantAmbiguity: "stop and report the blocker"},
+		{name: "code sub-agent override", mode: workflowModeDelegatedCodeSubAgent, override: "custom override", wantRules: true, wantAmbiguity: "stop and report the blocker"},
+		{name: "documentor", mode: workflowModeDelegatedDocumentor, wantRules: true, wantAmbiguity: "stop and report the blocker"},
+		{name: "documentor override", mode: workflowModeDelegatedDocumentor, override: "custom override", wantRules: true, wantAmbiguity: "stop and report the blocker"},
+		{name: "non-code child", mode: workflowModeDelegatedNonCodeChild, wantRules: false},
+		{name: "non-code override", mode: workflowModeDelegatedNonCodeChild, override: "custom override", wantRules: false},
+	}
+
+	const ambiguity = "If ambiguity materially changes implementation, "
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			content := systemPreambleWithAdvisor(SystemPreambleParams{Override: tc.override, Mode: tc.mode}).Content
+
+			for _, rule := range []string{
+				"### General",
+				"Do only the assigned task.",
+				"Prefer the smallest correct change.",
+				"Match existing project style.",
+				"The codebase root is the current folder.",
+				"Use at most one `bash` call per turn",
+			} {
+				if got := strings.Contains(content, rule); got != tc.wantRules {
+					t.Fatalf("consolidated rule %q present = %v, want %v in %q", rule, got, tc.wantRules, content)
+				}
+			}
+			if !tc.wantRules {
+				if strings.Contains(content, ambiguity) {
+					t.Fatalf("non-writer preamble contains the ambiguity instruction in %q", content)
+				}
+				return
+			}
+
+			wantLine := ambiguity + tc.wantAmbiguity + "."
+			if got := strings.Count(content, wantLine); got != 1 {
+				t.Fatalf("ambiguity instruction %q count = %d, want 1 in %q", wantLine, got, content)
+			}
+			other := "stop and report the blocker"
+			if tc.wantAmbiguity == other {
+				other = "ask the user"
+			}
+			if strings.Contains(content, ambiguity+other+".") {
+				t.Fatalf("preamble contains the other role's ambiguity branch %q in %q", ambiguity+other+".", content)
+			}
+		})
+	}
+}

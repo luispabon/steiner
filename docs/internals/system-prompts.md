@@ -167,14 +167,26 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 
 ## Working rules
 
+### General
+
+- Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
+- Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
+- Match existing project style. Keep code and documentation simple; no overengineering.
+- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, ask the user.
+- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+
 ### While editing
 
-- Touch only required files and lines.
 - Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
+- Keep each `mutate` call to a small, coherent unit of edits: single digits.
+- For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
+- Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure.
-- Keep code simple. No overengineering.
+- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
 
@@ -244,6 +256,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 - Enabling advisor adds the orchestrator guidance reproduced under Advisor. Disabling it omits that section.
 - Enabling LSP adds the section below. Disabling it omits the section.
 - Disabling sandbox omits `Sandbox`. When enabled, additional writable mount paths are appended to its last line as ` Additional writable paths: ` followed by paths joined with `, `.
+- The workflow section's ambiguity instruction is role-specific: `code` and `documentor` say to stop and report the blocker, and the parent says to ask the user.
 - A system override replaces sandbox and execution modes. `buildOverridePreamble` orders identity, delegation, advisor, LSP, code child, documentor child, workflow, override text, tool batching, output voice, and, for delegated child modes, the delegated task. The workflow section, including the working rules, still renders before the override text.
 
 Blocking results, from `internal/prompt/templates/delegation.md.tmpl`:
@@ -896,14 +909,26 @@ Do not:
 
 ## Working rules
 
+### General
+
+- Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
+- Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
+- Match existing project style. Keep code and documentation simple; no overengineering.
+- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, stop and report the blocker.
+- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+
 ### While editing
 
-- Touch only required files and lines.
 - Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
+- Keep each `mutate` call to a small, coherent unit of edits: single digits.
+- For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
+- Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure.
-- Keep code simple. No overengineering.
+- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
 
@@ -1042,14 +1067,26 @@ Do not:
 
 ## Working rules
 
+### General
+
+- Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
+- Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
+- Match existing project style. Keep code and documentation simple; no overengineering.
+- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, stop and report the blocker.
+- Flag overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
+- The codebase root is the current folder. Delegated writers work in their assigned worktree.
+
 ### While editing
 
-- Touch only required files and lines.
 - Use the `mutate` tool for file mutations; do not use bash, sed, cat, or shell redirection for edits.
+- View files intended for `mutate` edits with `read`, not `cat`/`sed`/`head`/`tail` in bash, because mutate trusts `read` or `file_hash`.
+- Keep each `mutate` call to a small, coherent unit of edits: single digits.
+- For larger tasks, issue several `mutate` calls in the same message; they run in order within one turn.
+- Each `mutate` call is its own transaction with no joint rollback across calls. Keep edits that must land together in one call.
 - Clean up only unused code from your own changes.
 - Do not remove unrelated dead code.
-- Do not rewrite adjacent code, comments, formatting, or structure.
-- Keep code simple. No overengineering.
+- Do not rewrite adjacent code, comments, formatting, or structure unless required.
+- Use at most one `bash` call per turn; each call gets a fresh shell, so cwd and exports do not carry over and background jobs are unsupported.
 
 ### Verification
 
