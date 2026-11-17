@@ -184,13 +184,19 @@ func claudeSubRetryRefused(err error) bool {
 		// recovered, even on a CLI version that names no terminal reason for it.
 		return true
 	}
+	if failure, ok := claudeSubFailedTurnResult(err); ok && failure.terminalReason == "" && claudeSubAPIFailureTextMatch(failure.text) {
+		// A result with no terminal reason can be a crash or an API failure the
+		// CLI reported without naming it. Its own API failure wording is ambiguous,
+		// so the turn fails closed instead of being sent again.
+		return true
+	}
 	if errors.Is(err, errClaudeSubPaidExtraUsage) || errors.Is(err, errClaudeSubUnrecognisedStatus) {
 		return true
 	}
 	if errors.Is(err, errClaudeSubUsageNotReady) || errors.Is(err, errClaudeSubUsageCreditsEnabled) {
 		return true
 	}
-	if errors.Is(err, errClaudeSubSessionUnsafe) || errors.Is(err, errClaudeSubPoolClosed) {
+	if errors.Is(err, errClaudeSubSessionUnsafe) || errors.Is(err, errClaudeSubUnconsumedTurn) || errors.Is(err, errClaudeSubPoolClosed) {
 		return true
 	}
 	if errors.Is(err, errClaudeSubDecodeStream) || errors.Is(err, errClaudeSubResultEnvelope) {
@@ -232,6 +238,23 @@ func claudeSubPermanentFailureTextMatch(err error) bool {
 	text = strings.ToLower(text)
 	for _, want := range claudeSubPermanentFailureText {
 		if strings.Contains(text, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// claudeSubAPIFailureText lists the CLI's own API failure wording. A turn that
+// reports it without a terminal reason may have exhausted the CLI's own retries,
+// so it is never sent again.
+var claudeSubAPIFailureMarkers = []string{"api error", "server error mid-response"}
+
+// claudeSubAPIFailureText reports whether text carries the CLI's API failure
+// wording. The match is case-insensitive.
+func claudeSubAPIFailureTextMatch(text string) bool {
+	lower := strings.ToLower(text)
+	for _, want := range claudeSubAPIFailureMarkers {
+		if strings.Contains(lower, want) {
 			return true
 		}
 	}

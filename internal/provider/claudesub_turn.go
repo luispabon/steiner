@@ -394,10 +394,15 @@ func claudeSubDeliver(ctx context.Context, s *claudeSubSession, req ChatRequest,
 	}
 	if len(delta.User) > 0 {
 		if err := writeClaudeSubUser(s.conn, claudeSubUserBlocks(delta.User)); err != nil {
-			// A failed write means the CLI connection ended before the turn could
-			// start. The error is typed, so a pre-output attempt can be retried on a
-			// replacement process.
-			return fmt.Errorf("%w: %w", errClaudeSubConnClosed, err)
+			if len(delta.ToolResults) > 0 {
+				// The CLI already received this delivery's tool results, so it may
+				// have started the turn the failed write was meant to continue.
+				// Nothing may be replayed on it: the process is abandoned, which
+				// makes the next request retire it and follow the mismatch rules.
+				s.abandon()
+				return fmt.Errorf("%w: %w", errClaudeSubUnconsumedTurn, err)
+			}
+			return err
 		}
 	}
 	if len(delta.ToolResults) > 0 || len(delta.User) > 0 {

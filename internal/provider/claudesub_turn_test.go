@@ -595,11 +595,14 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 		fault claudeSubRetryFault
 		// delivered is true when the tool result is resolved before the failure.
 		delivered bool
+		// abandoned is true when the failure leaves the session unusable: the CLI
+		// may already hold a turn steiner never reads.
+		abandoned bool
 	}{
 		{name: "set model fails", model: "claude-sonnet-5-5", fault: claudeSubRetryFault{modelErr: true}},
 		{name: "usage lookup fails", fault: claudeSubRetryFault{usageErr: true}},
 		{name: "usage gate refuses", fault: claudeSubRetryFault{refuse: true}},
-		{name: "user write fails after tool result", fault: claudeSubRetryFault{writeErr: true}, delivered: true},
+		{name: "user write fails after tool result", fault: claudeSubRetryFault{writeErr: true}, delivered: true, abandoned: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -706,6 +709,23 @@ func TestClaudeSubTurnFailureThenRetry(t *testing.T) {
 			conn.mu.Lock()
 			conn.sendErr = nil
 			conn.mu.Unlock()
+			if tc.abandoned {
+				// The CLI already had the tool result when the user write failed, so
+				// it may hold an unconsumed turn: nothing is replayed on that process.
+				s, err := pool.acquire(ctx, "retry", spec)
+				if err != nil {
+					t.Fatalf("acquire abandoned session: %v", err)
+				}
+				unsafe := s.unsafeForReuse()
+				pool.release(s)
+				if !unsafe {
+					t.Error("the session stayed reusable with a possibly active turn")
+				}
+				if !pool.replacementPending("retry") {
+					t.Error("the abandoned session recorded no replacement notice")
+				}
+				return
+			}
 
 			wantFailed := before
 			if tc.delivered {

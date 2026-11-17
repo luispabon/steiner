@@ -218,6 +218,8 @@ func TestClaudeSubRetryDecision(t *testing.T) {
 		{name: "interrupted result without a terminal reason", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "[Request interrupted by user for tool use]"), facts: retry},
 		{name: "error_max_turns", err: claudeSubFailedTurn("error_max_turns", "", "stopped early"), facts: retry},
 		{name: "auth refusal text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "request failed with status 401"), facts: retry},
+		{name: "API failure text without a terminal reason", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "API Error: Server error mid-response. The response above may be incomplete."), facts: retry},
+		{name: "unconsumed turn", err: fmt.Errorf("%w: %w", errClaudeSubUnconsumedTurn, errClaudeSubConnClosed), facts: retry},
 		{name: "billing refusal text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "", "billing not enabled"), facts: retry},
 		{name: "invalid request text", err: claudeSubFailedTurn(claudeSubCrashResultSubtype, "api_error", "invalid_request_error: max_tokens"), facts: claudeSubRetryFacts{CallKind: normal, Restorable: true, Visible: true}},
 		{name: "decode failure", err: errors.Join(errClaudeSubDecodeStream, errors.New("boom")), facts: retry},
@@ -665,44 +667,59 @@ func TestClaudeSubRecoverGateTransportIsNotRetried(t *testing.T) {
 	claudeSubWantNoRecoveryNotice(t, got)
 }
 
-// TestClaudeSubRecoverUnconfirmedRetireReseeds proves a retry whose teardown
-// cannot confirm the exit reseeds with its own reason, reported on the terminal
-// chunk, and reports the flattened replay once.
-func TestClaudeSubRecoverUnconfirmedRetireReseeds(t *testing.T) {
+// TestClaudeSubRecoverUnconfirmedRetireEndsCall proves an automatic retry never
+// reseeds: when the failed process cannot be proven gone the call returns its
+// original failure, keeps the reseed marker for the next user request, and does
+// not attempt anything else on that process.
+func TestClaudeSubRecoverUnconfirmedRetireEndsCall(t *testing.T) {
 	assistant, st := claudeSubOpeningTurn(t)
 	pool, spawner := claudeSubCrashingPool(t, 1, &claudeSubScript{}, claudeSubTextTurns(t, 1))
 	pool.confirmRetire = func(*claudeSubSession) bool { return false }
-	got := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+	req := ChatRequest{
 		TransportSession: "parent",
 		Model:            claudeSubTestSpec().Model,
 		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
 		BackendState:     claudeSubEncodeState(t, st),
+	}
+	got := claudeSubRunMeasuredCollected(t, pool, req)
+	if got.err == nil || !strings.Contains(got.err.Error(), "claude CLI connection closed") {
+		t.Fatalf("turn error = %v, want the original connection-closed failure", got.err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (an unconfirmed teardown never retries)", n)
+	}
+	claudeSubWantNoRecoveryNotice(t, got)
+	if got.final(t).Done && claudeSubRecoveryLabel(got.final(t)) != "" {
+		t.Errorf("recovery = %q, want none", claudeSubRecoveryLabel(got.final(t)))
+	}
+	if !pool.reseedPending("parent") {
+		t.Error("the unconfirmed teardown left no reseed marker for the next request")
+	}
+
+	// The next user request reseeds instead of resuming the process that may still
+	// be alive.
+	next := claudeSubRunMeasuredCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         append(append([]Message(nil), req.Messages...), claudeSubUserText("again")),
+		BackendState:     claudeSubEncodeState(t, st),
 	})
-	if got.err != nil {
-		t.Fatalf("turn error = %v", got.err)
+	if next.err != nil {
+		t.Fatalf("next turn error = %v", next.err)
 	}
 	if n := spawner.callCount(); n != 2 {
-		t.Fatalf("spawn count = %d, want 2 (the crashed process and the reseed)", n)
+		t.Fatalf("spawn count = %d, want 2 (the next request reseeds)", n)
 	}
 	serving := spawner.call(t, 1)
 	if _, ok := claudeSubArgValue(serving.Args, "--resume"); ok {
-		t.Errorf("unconfirmed retry resumed: %q, want a reseed", serving.Args)
+		t.Errorf("next request resumed: %q, want a reseed", serving.Args)
 	}
 	if lines := claudeSubUserLines(serving.Conn); len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
 		t.Fatalf("reseed user lines = %q, want one rendered transcript", lines)
 	}
-	final := got.final(t)
-	if diagnostics := final.Diagnostics; diagnostics == nil || diagnostics.ClaudeSub == nil {
-		t.Fatal("terminal chunk carries no claude_subscription measurements")
-	}
-	if got := final.Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedUnconfirmed {
+	if got := next.final(t).Diagnostics.ClaudeSub.ReseedReason; got != claudeSubReseedUnconfirmed {
 		t.Errorf("reseed reason = %q, want %q", got, claudeSubReseedUnconfirmed)
 	}
-	if got := final.Diagnostics.ClaudeSub.Recovery; got != claudeSubRecoveryRetryPreOutput {
-		t.Errorf("recovery = %q, want %q", got, claudeSubRecoveryRetryPreOutput)
-	}
-	claudeSubWantFailureWarning(t, got, claudeSubFlattenedReseedWarning)
-	claudeSubWantRetryNotice(t, got, "claude_subscription turn failed (connection closed); retrying, attempt 1/2", 1)
 }
 
 // TestClaudeSubRetryReportsReplacementOnce proves a retry reports the pending
@@ -1089,6 +1106,134 @@ func TestClaudeSubAPIRetryOverageExemption(t *testing.T) {
 			if got := claudeSubEventIsOverage(ev); got != tt.want {
 				t.Errorf("claudeSubEventIsOverage(%s) = %v, want %v", tt.line, got, tt.want)
 			}
+		})
+	}
+}
+
+// TestClaudeSubOversizedUserLineIsNotARetry proves the CLI's stdin limit
+// refusal is reported as a limit refusal and never as a closed connection, so
+// the turn is not retried.
+func TestClaudeSubOversizedUserLineIsNotARetry(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{}, claudeSubTextTurns(t, 1))
+	spawner.onSpawn = func(c *claudeSubFakeConn) {
+		index := len(spawner.calls)
+		c.mu.Lock()
+		c.responder = func(line []byte) []claudeSubEvent {
+			var env struct {
+				RequestID string `json:"request_id"`
+			}
+			if json.Unmarshal(line, &env) != nil || !strings.Contains(string(line), `"subtype":"get_usage"`) {
+				return nil
+			}
+			if index == 0 {
+				// The CLI refuses the user line as oversized.
+				c.mu.Lock()
+				c.sendErr = &claudeSubLineTooLargeError{limit: 512}
+				c.mu.Unlock()
+			}
+			return []claudeSubEvent{claudeSubSuccessEvent(env.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+		}
+		c.mu.Unlock()
+	}
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            claudeSubTestSpec().Model,
+		Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText(strings.Repeat("a", 2048))},
+		BackendState:     claudeSubEncodeState(t, st),
+	})
+	if got.err == nil {
+		t.Fatal("turn error = nil, want the stdin limit refusal")
+	}
+	var tooLarge *claudeSubLineTooLargeError
+	if !errors.As(got.err, &tooLarge) {
+		t.Fatalf("turn error = %v, want a *claudeSubLineTooLargeError", got.err)
+	}
+	if errors.Is(got.err, errClaudeSubConnClosed) {
+		t.Errorf("limit refusal %v was labelled a closed connection", got.err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (an oversized line is not retried)", n)
+	}
+	claudeSubWantNoRecoveryNotice(t, got)
+}
+
+// TestClaudeSubToolResultsThenFailedWriteAbandonsSession proves a delivery that
+// already handed the CLI its tool results and then cannot write its user line
+// abandons the process: nothing may be replayed on a CLI that may hold an
+// unconsumed turn.
+func TestClaudeSubToolResultsThenFailedWriteAbandonsSession(t *testing.T) {
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	pool, spawner := newClaudeSubTestPool(t, ClaudeSubscriptionPoolOptions{})
+	spec := claudeSubTestSpec()
+	spec.Tools = tools
+	s, err := pool.acquire(context.Background(), "parent", spec)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	conn := spawner.call(t, 0).Conn
+	conn.mu.Lock()
+	conn.responder = func(line []byte) []claudeSubEvent {
+		var env struct {
+			RequestID string `json:"request_id"`
+		}
+		if json.Unmarshal(line, &env) != nil || !strings.Contains(string(line), `"subtype":"get_usage"`) {
+			return nil
+		}
+		// The usage gate answers, then the user write fails.
+		conn.mu.Lock()
+		conn.sendErr = errors.New("fake write failed")
+		conn.mu.Unlock()
+		return []claudeSubEvent{claudeSubSuccessEvent(env.RequestID, json.RawMessage(`{"rate_limits_available":true,"rate_limits":{"extra_usage":{"is_enabled":false}}}`))}
+	}
+	conn.mu.Unlock()
+	if call := s.beginPendingCall("toolu_1"); call == nil {
+		t.Fatal("beginPendingCall returned no handle")
+	}
+	delta := claudeSubDelta{
+		ToolResults: []Message{{Role: MessageRoleTool, ToolCallID: "toolu_1", Content: "notes body"}},
+		User:        []Message{claudeSubUserText("more")},
+	}
+	err = claudeSubDeliver(context.Background(), s, ChatRequest{TransportSession: "parent", Model: spec.Model, Tools: tools}, delta, func(ChatChunk) error { return nil })
+	if !errors.Is(err, errClaudeSubUnconsumedTurn) {
+		t.Fatalf("deliver error = %v, want %v", err, errClaudeSubUnconsumedTurn)
+	}
+	if !s.unsafeForReuse() {
+		t.Error("the session was left reusable with a possibly active turn")
+	}
+	if !pool.replacementPending("parent") {
+		t.Error("the abandoned session recorded no replacement notice")
+	}
+	if got := claudeSubRetryDecision(err, claudeSubRetryFacts{CallKind: claudeSubCallKindNormal, Restorable: true}); got != claudeSubRetryNone {
+		t.Errorf("decision = %v, want no retry for an unconsumed turn", got)
+	}
+	pool.release(s)
+}
+
+// TestClaudeSubCrashResultWithAPIFailureTextFailsClosed proves a result that
+// names a CLI API failure but carries no terminal reason is not retried: the
+// wording is ambiguous, so the turn ends.
+func TestClaudeSubCrashResultWithAPIFailureTextFailsClosed(t *testing.T) {
+	assistant, st := claudeSubOpeningTurn(t)
+	for _, text := range []string{
+		"API Error: Server error mid-response. The response above may be incomplete.",
+		"API Error: 500 internal error",
+	} {
+		t.Run(text, func(t *testing.T) {
+			pool, spawner := claudeSubPoolWithScripts(t, &claudeSubScript{batches: [][]claudeSubEvent{{claudeSubCrashResult(text)}}}, claudeSubTextTurns(t, 1))
+			got := claudeSubRunCollected(t, pool, ChatRequest{
+				TransportSession: "parent",
+				Model:            claudeSubTestSpec().Model,
+				Messages:         []Message{claudeSubUserText("read notes"), assistant, claudeSubUserText("more")},
+				BackendState:     claudeSubEncodeState(t, st),
+			})
+			if got.err == nil || !strings.Contains(got.err.Error(), text) {
+				t.Fatalf("turn error = %v, want the API failure text", got.err)
+			}
+			if n := spawner.callCount(); n != 1 {
+				t.Fatalf("spawn count = %d, want 1 (ambiguous API failure text fails closed)", n)
+			}
+			claudeSubWantNoRecoveryNotice(t, got)
 		})
 	}
 }

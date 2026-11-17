@@ -124,6 +124,18 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 			pool.release(s)
 			return err
 		}
+		// The failed process is replaced before any retry, so a retry never
+		// reseeds: a resume must never append to the transcript file the failed
+		// process may still hold open. A teardown that cannot confirm the exit
+		// therefore ends the call with the original failure and keeps the reseed
+		// marker, so the next user request reseeds instead of resuming a process
+		// that may still be alive.
+		if !pool.retireConfirmed(key, s) {
+			pool.noteReseedKey(key)
+			pool.release(s)
+			return err
+		}
+		pool.release(s)
 		recoveries++
 		metrics := claudeSubMetricsFrom(ctx)
 		metrics.resetDelivery()
@@ -136,13 +148,6 @@ func claudeSubNormalTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req 
 		metrics.noteRecovery(claudeSubActionLabel(action))
 		claudeSubLogRecovery(err, action, recoveries)
 		delay := claudeSubRecoveryDelay(recoveries)
-		// The failed process is replaced first, so the retry's resume never appends
-		// to a transcript file it may still hold open. A teardown that cannot
-		// confirm the exit records that the next attach must reseed instead.
-		if !pool.retireConfirmed(key, s) {
-			pool.noteReseedKey(key)
-		}
-		pool.release(s)
 		if waitErr := claudeSubAwaitRecovery(ctx, delay); waitErr != nil {
 			return waitErr
 		}

@@ -19,6 +19,12 @@ import (
 // is gone.
 var errClaudeSubTeardownIncomplete = errors.New("claude_subscription session teardown did not complete within deadline")
 
+// errClaudeSubUnconsumedTurn reports a delivery that handed the CLI its tool
+// results and then failed to write the user line: the CLI may already be running
+// a turn steiner never reads, so the process is abandoned and nothing is
+// replayed on it.
+var errClaudeSubUnconsumedTurn = errors.New("claude_subscription delivery left an unconsumed turn")
+
 // errClaudeSubSessionUnsafe reports that a request tried to deliver on a process
 // a cancelled turn left behind. The CLI may still be producing that turn's
 // events, so the process is retired instead of written to and the request fails

@@ -380,5 +380,16 @@ func writeClaudeSubUser(conn claudeSubConn, blocks []map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("encode user message: %w", err)
 	}
-	return conn.Send(line)
+	if err := conn.Send(line); err != nil {
+		var tooLarge *claudeSubLineTooLargeError
+		if errors.As(err, &tooLarge) {
+			// A line the CLI refused is not a connection failure: retrying it would
+			// reproduce the same refusal.
+			return err
+		}
+		// A failed write means the CLI connection ended. The error is typed so a
+		// pre-output attempt can be retried on a replacement process.
+		return fmt.Errorf("%w: %w", errClaudeSubConnClosed, err)
+	}
+	return nil
 }
