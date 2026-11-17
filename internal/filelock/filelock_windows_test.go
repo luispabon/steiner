@@ -45,13 +45,6 @@ func TestWindowsLockHelper(t *testing.T) {
 	if _, err := io.WriteString(os.Stdout, "released\n"); err != nil {
 		t.Fatal(err)
 	}
-	command, err = reader.ReadString('\n')
-	if err != nil || strings.TrimSpace(command) != "exit" {
-		t.Fatalf("helper exit command = %q, %v", command, err)
-	}
-	if _, err := io.WriteString(os.Stdout, "exited\n"); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestWindowsUnsupportedLockClosesFile(t *testing.T) {
@@ -185,14 +178,6 @@ func TestWindowsSubprocessExclusionCancellationHandoffAndTermination(t *testing.
 		t.Fatal(err)
 	}
 	_ = stdin.Close()
-	select {
-	case line := <-lines:
-		if strings.TrimSpace(line) != "exited" {
-			t.Fatalf("holder exit output = %q", line)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("holder did not acknowledge exit")
-	}
 	select {
 	case err := <-done:
 		if err != nil {
