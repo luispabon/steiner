@@ -133,14 +133,16 @@ func (b *contentBuffer) renderApprovalPill(ad *approvalPillData, width int) stri
 		return row + b.renderApprovalPreview(ad.preview, innerWidth)
 	}
 	// A path approval lists the outside paths the request would authorize.
-	return row + b.renderApprovalOutsidePaths(ad, indent, innerWidth)
+	return row + b.renderApprovalOutsidePaths(ad, indent, width)
 }
 
 // renderApprovalOutsidePaths renders the outside-paths block of a path
 // approval, one path line under an "outside paths:" heading, and returns an
-// empty string when there is nothing to list.
-func (b *contentBuffer) renderApprovalOutsidePaths(ad *approvalPillData, indent string, innerWidth int) string {
-	outsideWidth := max(1, innerWidth-2)
+// empty string when there is nothing to list. The path lines sit two columns
+// inside indent, so their width comes from the terminal width rather than the
+// pill's clamped inner width, which is wider than a narrow terminal.
+func (b *contentBuffer) renderApprovalOutsidePaths(ad *approvalPillData, indent string, width int) string {
+	outsideWidth := max(1, width-len(indent)-2)
 	lines := approvalOutsidePaths(ad.deniedPaths, ad.deniedPathCount, outsideWidth, b.styles.FgMute)
 	if len(lines) == 0 {
 		return ""

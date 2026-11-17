@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,19 +13,19 @@ import (
 
 // TestApprovalOutsidePathsHelper pins the shared helper both approval cards
 // use: sanitizing each path onto one line, wrapping to the available width,
-// and counting whatever the collected list leaves out.
+// counting whatever the collected list leaves out, and staying inside
+// maxApprovalOutsidePathLines.
 func TestApprovalOutsidePathsHelper(t *testing.T) {
 	t.Parallel()
 	style := testStyles(theme.AccentAmber).FgMute
 
 	tests := []struct {
-		name     string
-		paths    []string
-		count    int
-		width    int
-		wantNil  bool
-		want     []string // expected plain lines, trimmed, when exact
-		minLines int      // minimum line count when the wrap points are not pinned
+		name    string
+		paths   []string
+		count   int
+		width   int
+		wantNil bool
+		want    []string // expected plain lines, trimmed, when exact
 	}{
 		{
 			name:    "empty list and zero count adds nothing",
@@ -36,6 +37,12 @@ func TestApprovalOutsidePathsHelper(t *testing.T) {
 			paths:   []string{"/outside/a.txt"},
 			count:   1,
 			width:   0,
+			wantNil: true,
+		},
+		{
+			name:    "paths that sanitize away with no count add nothing",
+			paths:   []string{"\x1b]0;pwned\x07"},
+			width:   40,
 			wantNil: true,
 		},
 		{
@@ -51,13 +58,6 @@ func TestApprovalOutsidePathsHelper(t *testing.T) {
 			count: 2,
 			width: 60,
 			want:  []string{"/outside/red/x.txt", "and 1 more outside the project"},
-		},
-		{
-			name:     "long path wraps to the width",
-			paths:    []string{"/outside/a/very/long/nested/path/file.txt"},
-			count:    1,
-			width:    12,
-			minLines: 2,
 		},
 		{
 			name:  "paths beyond the collected list are counted",
@@ -91,8 +91,11 @@ func TestApprovalOutsidePathsHelper(t *testing.T) {
 				}
 				return
 			}
-			if len(got) < max(1, tt.minLines) {
-				t.Fatalf("line count = %d, want at least %d (%q)", len(got), max(1, tt.minLines), got)
+			if len(got) == 0 {
+				t.Fatal("got no lines, want at least one")
+			}
+			if len(got) > maxApprovalOutsidePathLines {
+				t.Errorf("line count = %d, want <= %d (%q)", len(got), maxApprovalOutsidePathLines, got)
 			}
 			for _, line := range got {
 				if strings.ContainsRune(line, '\n') {
@@ -115,6 +118,68 @@ func TestApprovalOutsidePathsHelper(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestApprovalOutsidePathWrapIsLossless pins that wrapping only breaks a path
+// across lines and never drops part of it. A truncating renderer also satisfies
+// a per-line width assertion, so each path is reassembled and compared whole.
+func TestApprovalOutsidePathWrapIsLossless(t *testing.T) {
+	t.Parallel()
+	style := testStyles(theme.AccentAmber).FgMute
+	const path = "/outside/a/very/long/nested/path/file.txt"
+
+	for _, width := range []int{60, 30, 20, 14} {
+		t.Run(fmt.Sprintf("width %d", width), func(t *testing.T) {
+			t.Parallel()
+			got := approvalOutsidePaths([]string{path}, 1, width, style)
+			if len(got) == 0 {
+				t.Fatal("got no lines")
+			}
+			var rejoined strings.Builder
+			for _, line := range got {
+				rejoined.WriteString(strings.TrimRight(stripANSI(line), " "))
+			}
+			if rejoined.String() != path {
+				t.Fatalf("rejoined lines = %q, want %q (%q)", rejoined.String(), path, got)
+			}
+		})
+	}
+}
+
+// TestApprovalOutsidePathsBoundedHeight pins the height cap: the block never
+// grows past maxApprovalOutsidePathLines, remainder line included, and the
+// paths it cannot show are counted in that remainder.
+func TestApprovalOutsidePathsBoundedHeight(t *testing.T) {
+	t.Parallel()
+	style := testStyles(theme.AccentAmber).FgMute
+	const width = 40
+
+	// Each path wraps to three lines at this width, so three paths fit beside
+	// the remainder line and the fourth moves into the count.
+	long := "/outside/" + strings.Repeat("a", 90) + ".txt"
+	paths := make([]string, 20)
+	for i := range paths {
+		paths[i] = long
+	}
+
+	got := approvalOutsidePaths(paths, len(paths), width, style)
+	if len(got) != 10 {
+		t.Fatalf("line count = %d, want 10 (%q)", len(got), got)
+	}
+	for _, line := range got {
+		if w := lipgloss.Width(line); w > width {
+			t.Errorf("line width = %d, want <= %d for %q", w, width, stripANSI(line))
+		}
+	}
+	if plain := strings.TrimSpace(stripANSI(got[len(got)-1])); plain != "and 17 more outside the project" {
+		t.Errorf("remainder line = %q, want %q", plain, "and 17 more outside the project")
+	}
+
+	// A remainder line that cannot fit the cap is clipped to it rather than
+	// growing the block.
+	if got := approvalOutsidePaths(nil, 200, 2, style); len(got) > maxApprovalOutsidePathLines {
+		t.Errorf("line count = %d, want <= %d", len(got), maxApprovalOutsidePathLines)
 	}
 }
 
@@ -462,72 +527,79 @@ func TestApprovalGroupedDecisionCarriesOutsidePaths(t *testing.T) {
 	}
 }
 
-// TestApprovalDecisionWithoutPathsKeepsRequestPaths pins the guard at the top
-// of applyApprovalDecisionPaths: a decision event that carries no paths leaves
-// the ones the request recorded on the control and in the tray.
-func TestApprovalDecisionWithoutPathsKeepsRequestPaths(t *testing.T) {
+// TestApplyApprovalDecisionPaths pins the guard inside
+// applyApprovalDecisionPaths: a decision event that carries no paths leaves what
+// the request recorded, and one carrying paths replaces it. Driving the helper
+// directly is what makes the guard observable; through the event route a
+// pathless decision leaves the same state either way.
+func TestApplyApprovalDecisionPaths(t *testing.T) {
 	t.Parallel()
 
-	t.Run("embedded control", func(t *testing.T) {
+	newBuffer := func() *contentBuffer {
+		return &contentBuffer{segments: []contentSegment{
+			{kind: segmentPlain, text: "history"},
+			{kind: segmentToolCall, toolData: &toolCallSegment{
+				approvalIdentity:        "req-decide",
+				approvalDeniedPaths:     []string{"/outside/keep-a.txt", "/outside/keep-b.txt"},
+				approvalDeniedPathCount: 5,
+			}},
+			{kind: segmentToolCallGroup, toolGroupData: &toolCallGroupSegment{entries: []*toolCallSegment{
+				{approvalIdentity: "req-decide", approvalDeniedPaths: []string{"/outside/keep-a.txt"}, approvalDeniedPathCount: 5},
+				{approvalIdentity: "req-other", approvalDeniedPaths: []string{"/outside/other.txt"}, approvalDeniedPathCount: 1},
+			}}},
+		}}
+	}
+
+	t.Run("no paths keep request paths", func(t *testing.T) {
 		t.Parallel()
-		m := approvalEventModel(t)
-		m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "mutate", "call-req-keep", map[string]any{"path": "a.txt"})})
-		m = updateModel(t, m, runtimeEventMsg{Event: mutateApprovalRequest("req-keep", []string{"/outside/keep-a.txt", "/outside/keep-b.txt"}, 5)})
+		buffer := newBuffer()
+		applyApprovalDecisionPaths(buffer, "req-decide", nil, 0)
 
-		control := findApprovalControl(&m.content, "req-keep")
-		if control == nil {
-			t.Fatal("no approval control for the request")
-		}
-		if len(control.approvalDeniedPaths) != 2 || control.approvalDeniedPathCount != 5 {
-			t.Fatalf("request paths = %v/%d, want the two paths and count 5", control.approvalDeniedPaths, control.approvalDeniedPathCount)
-		}
-
-		m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{
-			Turn: 1, Tool: "mutate", CallID: "call-req-keep", RequestID: "req-keep",
-			Mode: "paths outside the project root", Kind: "path", Message: "approved",
-		})})
-
-		control = findApprovalControl(&m.content, "req-keep")
-		if control == nil {
-			t.Fatal("approval control disappeared after the decision")
-		}
-		wantPaths := []string{"/outside/keep-a.txt", "/outside/keep-b.txt"}
-		if len(control.approvalDeniedPaths) != len(wantPaths) {
-			t.Fatalf("control paths = %v, want %v", control.approvalDeniedPaths, wantPaths)
-		}
-		for i, want := range wantPaths {
-			if got := control.approvalDeniedPaths[i]; got != want {
-				t.Errorf("control path %d = %q, want %q", i, got, want)
-			}
+		control := buffer.segments[1].toolData
+		if want := []string{"/outside/keep-a.txt", "/outside/keep-b.txt"}; strings.Join(control.approvalDeniedPaths, ",") != strings.Join(want, ",") {
+			t.Errorf("control paths = %v, want %v", control.approvalDeniedPaths, want)
 		}
 		if got := control.approvalDeniedPathCount; got != 5 {
 			t.Errorf("control path count = %d, want 5", got)
 		}
+		entry := buffer.segments[2].toolGroupData.entries[0]
+		if len(entry.approvalDeniedPaths) != 1 || entry.approvalDeniedPaths[0] != "/outside/keep-a.txt" {
+			t.Errorf("grouped entry paths = %v, want [/outside/keep-a.txt]", entry.approvalDeniedPaths)
+		}
+		if got := entry.approvalDeniedPathCount; got != 5 {
+			t.Errorf("grouped entry path count = %d, want 5", got)
+		}
+		if buffer.gen != 0 || buffer.segments[1].renderDirty || buffer.segments[2].renderDirty {
+			t.Errorf("pathless decision changed the buffer: gen = %d, dirty = %t/%t",
+				buffer.gen, buffer.segments[1].renderDirty, buffer.segments[2].renderDirty)
+		}
 	})
 
-	// A pathless decision for a queued request must not clear the tray of the
-	// request it did not resolve.
-	t.Run("active tray", func(t *testing.T) {
+	t.Run("paths replace request paths", func(t *testing.T) {
 		t.Parallel()
-		m := newModel(Config{Controller: approvalHeadController{head: "req-tray-a"}}, nil)
-		m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "mutate", "call-req-tray-a", map[string]any{"path": "a.txt"})})
-		m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "mutate", "call-req-tray-b", map[string]any{"path": "b.txt"})})
-		m = updateModel(t, m, runtimeEventMsg{Event: mutateApprovalRequest("req-tray-a", []string{"/outside/tray-a.txt"}, 3)})
-		m = updateModel(t, m, runtimeEventMsg{Event: mutateApprovalRequest("req-tray-b", nil, 0)})
+		buffer := newBuffer()
+		applyApprovalDecisionPaths(buffer, "req-decide", []string{"/outside/decided.txt"}, 2)
 
-		if !m.approval.active || m.approval.identity != "req-tray-a" {
-			t.Fatalf("active approval = %#v, want req-tray-a prompting", m.approval)
+		control := buffer.segments[1].toolData
+		if len(control.approvalDeniedPaths) != 1 || control.approvalDeniedPaths[0] != "/outside/decided.txt" {
+			t.Errorf("control paths = %v, want [/outside/decided.txt]", control.approvalDeniedPaths)
 		}
-		m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalAcceptedEvent(output.ApprovalEventParams{
-			Turn: 1, Tool: "mutate", CallID: "call-req-tray-b", RequestID: "req-tray-b",
-			Mode: "paths outside the project root", Kind: "path", Message: "approved",
-		})})
-
-		if got, want := m.approval.deniedPaths, []string{"/outside/tray-a.txt"}; len(got) != 1 || got[0] != want[0] {
-			t.Fatalf("tray paths = %v, want %v", got, want)
+		if got := control.approvalDeniedPathCount; got != 2 {
+			t.Errorf("control path count = %d, want 2", got)
 		}
-		if got, want := m.approval.deniedPathCount, 3; got != want {
-			t.Fatalf("tray path count = %d, want %d", got, want)
+		entry := buffer.segments[2].toolGroupData.entries[0]
+		if len(entry.approvalDeniedPaths) != 1 || entry.approvalDeniedPaths[0] != "/outside/decided.txt" {
+			t.Errorf("grouped entry paths = %v, want [/outside/decided.txt]", entry.approvalDeniedPaths)
+		}
+		other := buffer.segments[2].toolGroupData.entries[1]
+		if len(other.approvalDeniedPaths) != 1 || other.approvalDeniedPaths[0] != "/outside/other.txt" {
+			t.Errorf("untouched entry paths = %v, want [/outside/other.txt]", other.approvalDeniedPaths)
+		}
+		if !buffer.segments[1].renderDirty || !buffer.segments[2].renderDirty {
+			t.Error("segments = clean, want renderDirty so the cards rerender")
+		}
+		if buffer.gen != 1 {
+			t.Errorf("buffer gen = %d, want 1 after one change", buffer.gen)
 		}
 	})
 }
@@ -550,8 +622,10 @@ func requireTextOrder(t *testing.T, label, text string, anchors ...string) {
 }
 
 // TestApprovalCardsOrderOutsidePaths pins where each card renders the outside
-// paths block relative to its other lines: after the arguments preview and the
-// no-persist warning, and before the decision buttons.
+// paths block relative to its other lines. The two layouts differ on purpose:
+// the embedded card lists the paths under the arguments preview and above the
+// no-persist warning, while the pill keeps the warning directly under its bar
+// and buttons and lists the paths last.
 func TestApprovalCardsOrderOutsidePaths(t *testing.T) {
 	t.Parallel()
 	const width = 80
@@ -562,12 +636,12 @@ func TestApprovalCardsOrderOutsidePaths(t *testing.T) {
 		m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "mutate", "call-order-embedded", map[string]any{"path": "a.txt"})})
 		m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{
 			Turn: 1, Tool: "mutate", CallID: "call-order-embedded", RequestID: "req-order-embedded",
-			Mode: "paths outside the project root", Preview: `{"note":"preview-anchor"}`, Kind: "path",
+			Mode: "paths outside the project root", Preview: `{"note":"preview-anchor"}`, Kind: "path", NoPersist: true,
 			DeniedPaths: []string{"/outside/order-embedded.txt"}, DeniedPathCount: 1,
 		})})
 
 		rendered := m.content.String(width)
-		requireTextOrder(t, "embedded approval card", stripANSI(rendered), "preview-anchor", "outside paths:", "Allow once")
+		requireTextOrder(t, "embedded approval card", stripANSI(rendered), "preview-anchor", "outside paths:", "One-time retry", "Allow once")
 		requireRenderedWidths(t, "embedded approval card", rendered)
 	})
 
@@ -581,7 +655,109 @@ func TestApprovalCardsOrderOutsidePaths(t *testing.T) {
 		})})
 
 		rendered := m.content.String(width)
-		requireTextOrder(t, "approval pill", stripANSI(rendered), "One-time retry", "outside paths:")
+		requireTextOrder(t, "approval pill", stripANSI(rendered), "approve", "One-time retry", "outside paths:", "/outside/order-pill.txt")
 		requireRenderedWidths(t, "approval pill", rendered)
 	})
+}
+
+// TestApprovalPillOutsidePathsFitNarrowWidth pins the pill's outside-path
+// width: the pill clamps its inner width so its bar keeps its layout, but the
+// indented path lines still have to fit the terminal. The no-persist warning is
+// the last fixed line, so every line below it belongs to the path block.
+func TestApprovalPillOutsidePathsFitNarrowWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, width := range []int{20, 12, 8} {
+		t.Run(fmt.Sprintf("width %d", width), func(t *testing.T) {
+			t.Parallel()
+			m := approvalEventModel(t)
+			m = updateModel(t, m, runtimeEventMsg{Event: output.NewApprovalRequestedEvent(output.ApprovalEventParams{
+				Turn: 1, Tool: "mutate", CallID: "call-narrow-pill", RequestID: "req-narrow-pill",
+				Mode: "paths outside the project root", Preview: `{"path":"a.txt"}`, Kind: "path", NoPersist: true,
+				DeniedPaths: []string{"/outside/narrow.txt"}, DeniedPathCount: 1,
+			})})
+
+			rendered := m.content.String(width)
+			lines := strings.Split(stripANSI(rendered), "\n")
+			warning := -1
+			for i, line := range lines {
+				if strings.Contains(line, "One-time") {
+					warning = i
+					break
+				}
+			}
+			if warning < 0 {
+				t.Fatalf("pill has no no-persist warning:\n%s", strings.Join(lines, "\n"))
+			}
+			pathLines := 0
+			for _, line := range lines[warning+1:] {
+				if strings.TrimSpace(line) == "" {
+					continue
+				}
+				pathLines++
+				if got := lipgloss.Width(line); got > width {
+					t.Errorf("outside-path line width = %d, want <= %d for %q", got, width, line)
+				}
+			}
+			if pathLines == 0 {
+				t.Fatalf("pill rendered no outside-path lines:\n%s", strings.Join(lines, "\n"))
+			}
+			requireOnlySGR(t, "narrow approval pill", rendered)
+		})
+	}
+}
+
+// TestApprovalEmbeddedBlockBoundsOutsidePaths renders twenty long outside paths
+// at a narrow width: the block keeps to maxApprovalOutsidePathLines with a
+// remainder line, so the card cannot scroll its own decision buttons out of
+// view.
+func TestApprovalEmbeddedBlockBoundsOutsidePaths(t *testing.T) {
+	t.Parallel()
+	const width = 40
+
+	paths := make([]string, 0, 20)
+	for i := range 20 {
+		paths = append(paths, fmt.Sprintf("/outside/nested/%02d/%s.txt", i, strings.Repeat("d", 80)))
+	}
+
+	m := approvalEventModel(t)
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewToolCallStartedEvent(1, "mutate", "call-req-long-paths", map[string]any{"path": "a.txt"})})
+	m = updateModel(t, m, runtimeEventMsg{Event: mutateApprovalRequest("req-long-paths", paths, len(paths))})
+
+	rendered := m.content.String(width)
+	lines := strings.Split(stripANSI(rendered), "\n")
+	heading := -1
+	for i, line := range lines {
+		if strings.Contains(line, "outside paths:") {
+			heading = i
+			break
+		}
+	}
+	if heading < 0 {
+		t.Fatalf("card has no outside paths heading:\n%s", strings.Join(lines, "\n"))
+	}
+	blockLines, remainder := 0, false
+	for _, line := range lines[heading+1:] {
+		if strings.Contains(line, "Allow once") {
+			break
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		blockLines++
+		remainder = remainder || strings.Contains(line, "more outside the project")
+		if got := lipgloss.Width(line); got > width {
+			t.Errorf("outside-path line width = %d, want <= %d for %q", got, width, line)
+		}
+	}
+	if blockLines > maxApprovalOutsidePathLines {
+		t.Errorf("outside-path lines = %d, want <= %d", blockLines, maxApprovalOutsidePathLines)
+	}
+	if !remainder {
+		t.Errorf("outside-path block has no remainder line:\n%s", strings.Join(lines, "\n"))
+	}
+	if len(lines) > 30 {
+		t.Errorf("card height = %d lines, want <= 30", len(lines))
+	}
+	requireOnlySGR(t, "bounded approval card", rendered)
 }
