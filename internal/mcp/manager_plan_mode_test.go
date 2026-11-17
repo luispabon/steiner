@@ -92,8 +92,13 @@ func TestUpdatePlanModeConcurrentToolCalls(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			if _, err := def.Handler(context.Background(), map[string]any{"text": "hi"}); err != nil {
+			env, err := def.Handler(context.Background(), map[string]any{"text": "hi"})
+			if err != nil {
 				t.Errorf("handler returned Go error %v, want nil", err)
+				return
+			}
+			if text, ok := env.(string); !ok || text != "hi" {
+				t.Errorf("handler result = %#v, want %q", env, "hi")
 			}
 		}()
 	}
