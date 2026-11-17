@@ -22,7 +22,7 @@ func (m *Model) approvalOffersAction(idx int) bool {
 	if idx < 0 || idx >= len(approvalDecisions) {
 		return false
 	}
-	return !(m.approval.noPersist && approvalDecisions[idx] == ApprovalDecisionAlwaysAllow)
+	return !m.approval.noPersist || approvalDecisions[idx] != ApprovalDecisionAlwaysAllow
 }
 
 // approvalDecisionIndexes lists the offered decision indexes in decision order.
