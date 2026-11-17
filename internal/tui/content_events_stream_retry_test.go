@@ -36,8 +36,8 @@ func appendUnboundChildAssistantChunk(b *contentBuffer, agentID, text string) {
 
 // appendUnboundChildThinkingChunk streams a thinking chunk scoped to a child
 // that no delegation card is bound to.
-func appendUnboundChildThinkingChunk(b *contentBuffer, agentID, text string) {
-	b.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, text, output.ChunkSourceAssistant), agentID))
+func appendUnboundChildThinkingChunk(b *contentBuffer, text string) {
+	b.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, text, output.ChunkSourceAssistant), "ghost-child"))
 }
 
 // retryDiagnostic builds the provider retry diagnostic the agent emits when it
@@ -603,7 +603,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendThinkingChunk(b, 1, "root abandoned reasoning")
-				appendUnboundChildThinkingChunk(b, "ghost-child", "child visible reasoning")
+				appendUnboundChildThinkingChunk(b, "child visible reasoning")
 				b.AppendEvent(retryDiagnostic(true, ""))
 			},
 			check: func(t *testing.T, b *contentBuffer) {
@@ -631,12 +631,12 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 				t.Helper()
 				startRootModelCall(b, 1)
 				appendThinkingChunk(b, 1, "root first reasoning")
-				appendUnboundChildThinkingChunk(b, "ghost-child", "child reasoning")
+				appendUnboundChildThinkingChunk(b, "child reasoning")
 				appendThinkingChunk(b, 1, "root second reasoning")
 				if got, want := streamingThinkingBodies(b), []string{"root second reasoning"}; !reflect.DeepEqual(got, want) {
 					t.Fatalf("streaming thinking mid-turn = %q, want only the newest block %q", got, want)
 				}
-				appendUnboundChildThinkingChunk(b, "ghost-child", "child second reasoning")
+				appendUnboundChildThinkingChunk(b, "child second reasoning")
 				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
 			},
 			check: func(t *testing.T, b *contentBuffer) {
@@ -664,7 +664,7 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
 				appendThinkingChunk(b, 1, "root abandoned reasoning")
-				appendUnboundChildThinkingChunk(b, "ghost-child", "child kept reasoning")
+				appendUnboundChildThinkingChunk(b, "child kept reasoning")
 				appendThinkingChunk(b, 1, "root more abandoned reasoning")
 				b.AppendEvent(retryDiagnostic(true, ""))
 				appendThinkingChunk(b, 1, "root retried reasoning")
