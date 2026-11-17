@@ -20,12 +20,18 @@ var approvalPathReplacer = strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
 // fit the budget and counts the rest in its remainder line.
 const maxApprovalOutsidePathLines = 12
 
+// approvalPathTruncationMarker closes the clipped prefix of a path that is
+// taller than the whole block, so a shortened path never reads as complete.
+const approvalPathTruncationMarker = "… (path truncated)"
+
 // approvalOutsidePaths returns sanitized, width-wrapped lines for the outside
 // paths a path approval covers, ending with a remainder line when the collected
 // list is shorter than the total count or does not fit the line budget. Paths
-// stay in order, a path is either shown whole or counted in the remainder, and
-// the result never exceeds maxApprovalOutsidePathLines. It returns nil when
-// there is nothing to show.
+// stay in order, and a path is either shown whole or counted in the remainder,
+// except for a leading path that is taller than the whole budget: that one
+// keeps a clipped prefix and a truncation marker, because hiding the first path
+// the request is about defeats the point of asking. The result never exceeds
+// maxApprovalOutsidePathLines. It returns nil when there is nothing to show.
 func approvalOutsidePaths(paths []string, count, width int, style lipgloss.Style) []string {
 	if width < 1 {
 		return nil
@@ -42,6 +48,12 @@ func approvalOutsidePaths(paths []string, count, width int, style lipgloss.Style
 			lines = append(lines, pathLines...)
 		}
 		return lines
+	}
+
+	if shown == 0 && len(wrapped) > 0 {
+		if lines := clippedApprovalPathLines(wrapped[0], count-1, width, style); len(lines) > 0 {
+			return lines
+		}
 	}
 
 	// Something is left out, so the wrapped remainder line shares the same
@@ -72,6 +84,38 @@ func wrapApprovalPaths(paths []string, width int, style lipgloss.Style) [][]stri
 		wrapped = append(wrapped, wrapStyledApprovalPath(line, width, style))
 	}
 	return wrapped
+}
+
+// clippedApprovalPathLines renders the leading lines of a path that does not
+// fit the budget, followed by the truncation marker and, when the count leaves
+// paths out, the remainder line. The clipped path counts as shown, so hidden
+// counts the paths still unaccounted for. It returns nil when the marker and
+// the remainder line leave no room for any path line, leaving the caller to
+// count the path in the remainder instead.
+func clippedApprovalPathLines(pathLines []string, hidden, width int, style lipgloss.Style) []string {
+	marker := wrapStyledApprovalPath(approvalPathTruncationMarker, width, style)
+	room := maxApprovalOutsidePathLines - len(marker)
+	if room < 1 {
+		return nil
+	}
+
+	var remainder []string
+	if hidden > 0 {
+		remainder = wrapStyledApprovalPath(fmt.Sprintf("and %d more outside the project", hidden), width, style)
+		if len(remainder) > room {
+			return nil
+		}
+		room -= len(remainder)
+	}
+
+	prefix := min(len(pathLines), room)
+	if prefix < 1 {
+		return nil
+	}
+	lines := make([]string, 0, prefix+len(marker)+len(remainder))
+	lines = append(lines, pathLines[:prefix]...)
+	lines = append(lines, marker...)
+	return append(lines, remainder...)
 }
 
 // fitApprovalPaths reports how many leading paths fit limit lines and how many

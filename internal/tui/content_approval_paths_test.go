@@ -193,6 +193,98 @@ func TestApprovalOutsidePathsBoundedHeight(t *testing.T) {
 	}
 }
 
+// requireTruncatedPathPrefix fails unless the lines it is given rebuild a
+// non-empty strict prefix of path, so a clipped path is neither empty nor the
+// whole path.
+func requireTruncatedPathPrefix(t *testing.T, lines []string, path string) {
+	t.Helper()
+	var prefix strings.Builder
+	for _, line := range lines {
+		prefix.WriteString(strings.TrimRight(stripANSI(line), " "))
+	}
+	got := prefix.String()
+	if got == "" {
+		t.Fatalf("truncated path has no visible prefix (%q)", lines)
+	}
+	if !strings.HasPrefix(path, got) {
+		t.Fatalf("truncated prefix = %q, want a prefix of %q", got, path)
+	}
+	if got == path {
+		t.Fatalf("truncated path shows the whole path %q", path)
+	}
+}
+
+// TestApprovalOutsidePathsTruncatesSingleOverlongPath pins the fix for an
+// overlong leading path: it used to be dropped whole, leaving only "and 1 more
+// outside the project" on a card whose whole purpose is naming the path. The
+// path now keeps a clipped prefix and a truncation marker inside the height
+// cap.
+func TestApprovalOutsidePathsTruncatesSingleOverlongPath(t *testing.T) {
+	t.Parallel()
+	const width = 40
+	style := testStyles(theme.AccentAmber).FgMute
+
+	// Thirteen lines once wrapped, one more than the block allows.
+	path := "/outside/" + strings.Repeat("a", 500) + ".txt"
+	if lines := wrapStyledApprovalPath(path, width, style); len(lines) <= maxApprovalOutsidePathLines {
+		t.Fatalf("wrapped path = %d lines, want more than %d", len(lines), maxApprovalOutsidePathLines)
+	}
+
+	got := approvalOutsidePaths([]string{path}, 1, width, style)
+	if len(got) != maxApprovalOutsidePathLines {
+		t.Fatalf("line count = %d, want %d (%q)", len(got), maxApprovalOutsidePathLines, got)
+	}
+	if plain := strings.TrimSpace(stripANSI(got[len(got)-1])); plain != approvalPathTruncationMarker {
+		t.Errorf("last line = %q, want the truncation marker %q", plain, approvalPathTruncationMarker)
+	}
+	for _, line := range got {
+		if w := lipgloss.Width(line); w > width {
+			t.Errorf("line width = %d, want <= %d for %q", w, width, stripANSI(line))
+		}
+	}
+	requireTruncatedPathPrefix(t, got[:len(got)-1], path)
+	for _, line := range got[:len(got)-1] {
+		if strings.Contains(strings.TrimSpace(stripANSI(line)), "more outside the project") {
+			t.Errorf("single path block counted itself in the remainder: %q", stripANSI(line))
+		}
+	}
+	requireOnlySGR(t, "truncated single path", strings.Join(got, "\n"))
+}
+
+// TestApprovalOutsidePathsTruncatesLeadingPath covers an overlong leading path
+// beside shorter ones: the first path keeps a clipped prefix and marker, and
+// every path the block still cannot show stays in the remainder count.
+func TestApprovalOutsidePathsTruncatesLeadingPath(t *testing.T) {
+	t.Parallel()
+	const width = 40
+	style := testStyles(theme.AccentAmber).FgMute
+
+	path := "/outside/" + strings.Repeat("b", 600)
+	paths := []string{path, "/outside/second.txt", "/outside/third.txt"}
+	const count = 5
+
+	got := approvalOutsidePaths(paths, count, width, style)
+	if len(got) == 0 {
+		t.Fatal("got no lines")
+	}
+	if len(got) > maxApprovalOutsidePathLines {
+		t.Fatalf("line count = %d, want <= %d (%q)", len(got), maxApprovalOutsidePathLines, got)
+	}
+	if plain := strings.TrimSpace(stripANSI(got[len(got)-1])); plain != "and 4 more outside the project" {
+		t.Errorf("last line = %q, want %q", plain, "and 4 more outside the project")
+	}
+	if plain := strings.TrimSpace(stripANSI(got[len(got)-2])); plain != approvalPathTruncationMarker {
+		t.Errorf("marker line = %q, want %q", plain, approvalPathTruncationMarker)
+	}
+	for _, line := range got {
+		if w := lipgloss.Width(line); w > width {
+			t.Errorf("line width = %d, want <= %d for %q", w, width, stripANSI(line))
+		}
+	}
+	requireTruncatedPathPrefix(t, got[:len(got)-2], path)
+	requireOnlySGR(t, "truncated leading path", strings.Join(got, "\n"))
+}
+
 // approvalEventModel builds a model whose content buffer renders approvals
 // through the production event route.
 func approvalEventModel(t *testing.T) *Model {
