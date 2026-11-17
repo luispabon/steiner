@@ -28,6 +28,18 @@ func appendThinkingChunk(b *contentBuffer, turn int, text string) {
 	b.AppendEvent(output.NewThinkingChunkEventWithSource(turn, text, output.ChunkSourceAssistant))
 }
 
+// appendUnboundChildAssistantChunk streams an assistant chunk scoped to a child
+// that no delegation card is bound to.
+func appendUnboundChildAssistantChunk(b *contentBuffer, agentID, text string) {
+	b.AppendEvent(output.WithAgentScope(output.NewAssistantChunkEventWithSource(1, text, output.ChunkSourceAssistant), agentID))
+}
+
+// appendUnboundChildThinkingChunk streams a thinking chunk scoped to a child
+// that no delegation card is bound to.
+func appendUnboundChildThinkingChunk(b *contentBuffer, agentID, text string) {
+	b.AppendEvent(output.WithAgentScope(output.NewThinkingChunkEventWithSource(1, text, output.ChunkSourceAssistant), agentID))
+}
+
 // retryDiagnostic builds the provider retry diagnostic the agent emits when it
 // discards a partially streamed attempt.
 func retryDiagnostic(reset bool, agentID string) output.Event {
@@ -128,22 +140,22 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 			name: "retry reset drops the abandoned answer and thinking",
 			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
-				appendAssistantChunk(b, 1, "par")
+				appendAssistantChunk(b, 1, "abandoned opening")
 				appendThinkingChunk(b, 1, "abandoned reasoning")
 				b.AppendEvent(retryDiagnostic(true, ""))
-				appendAssistantChunk(b, 1, "tial")
-				b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "tial"))
+				appendAssistantChunk(b, 1, "retried closing")
+				b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "retried closing"))
 				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
 			},
 			check: func(t *testing.T, b *contentBuffer) {
-				if got, want := streamAssistantTexts(b), []string{"tial"}; !reflect.DeepEqual(got, want) {
+				if got, want := streamAssistantTexts(b), []string{"retried closing"}; !reflect.DeepEqual(got, want) {
 					t.Errorf("committed segments = %q, want %q", got, want)
 				}
 				rendered := renderedRetryTranscript(b)
-				if !strings.Contains(rendered, "tial") {
+				if !strings.Contains(rendered, "retried closing") {
 					t.Errorf("rendered transcript = %q, want the retried answer", rendered)
 				}
-				if strings.Contains(rendered, "par") || strings.Contains(rendered, "abandoned reasoning") {
+				if strings.Contains(rendered, "abandoned opening") || strings.Contains(rendered, "abandoned reasoning") {
 					t.Errorf("rendered transcript = %q, want the abandoned attempt gone", rendered)
 				}
 				if got := thinkingBodies(b); len(got) != 0 {
@@ -155,22 +167,22 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 			name: "notice mid-attempt survives a gap rewrite",
 			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
-				appendAssistantChunk(b, 1, "par")
+				appendAssistantChunk(b, 1, "abandoned opening")
 				appendThinkingChunk(b, 1, "first reasoning")
 				b.AppendEvent(output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Severity: "warning", Message: "disk almost full"}))
-				appendAssistantChunk(b, 1, "tail")
+				appendAssistantChunk(b, 1, "abandoned closing")
 				appendThinkingChunk(b, 1, "second reasoning")
 				b.AppendEvent(retryDiagnostic(true, ""))
-				b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "tial"))
+				b.AppendEvent(output.NewAssistantMessageEvent(1, "assistant", "retried answer"))
 			},
 			check: func(t *testing.T, b *contentBuffer) {
 				rendered := renderedRetryTranscript(b)
-				for _, want := range []string{"disk almost full", "tial"} {
+				for _, want := range []string{"disk almost full", "retried answer"} {
 					if !strings.Contains(rendered, want) {
 						t.Errorf("rendered transcript = %q, want it to contain %q", rendered, want)
 					}
 				}
-				for _, absent := range []string{"par", "tail", "first reasoning", "second reasoning"} {
+				for _, absent := range []string{"abandoned opening", "abandoned closing", "first reasoning", "second reasoning"} {
 					if strings.Contains(rendered, absent) {
 						t.Errorf("rendered transcript = %q, want %q discarded", rendered, absent)
 					}
@@ -185,22 +197,22 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 			name: "child scoped reset leaves root stream untouched",
 			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
-				appendAssistantChunk(b, 1, "par")
+				appendAssistantChunk(b, 1, "root opening text")
 				appendThinkingChunk(b, 1, "root reasoning")
-				appendAssistantChunk(b, 1, "tial")
+				appendAssistantChunk(b, 1, "root closing text")
 				b.AppendEvent(retryDiagnostic(true, "child-1"))
 			},
 			check: func(t *testing.T, b *contentBuffer) {
-				if got, want := streamAssistantTexts(b), []string{"par"}; !reflect.DeepEqual(got, want) {
+				if got, want := streamAssistantTexts(b), []string{"root opening text"}; !reflect.DeepEqual(got, want) {
 					t.Errorf("streamed segments = %q, want %q", got, want)
 				}
 				if got, want := thinkingBodies(b), []string{"root reasoning"}; !reflect.DeepEqual(got, want) {
 					t.Errorf("thinking bodies = %q, want %q", got, want)
 				}
-				if rendered := renderedRetryTranscript(b); !strings.Contains(rendered, "par") || !strings.Contains(rendered, "root reasoning") {
+				if rendered := renderedRetryTranscript(b); !strings.Contains(rendered, "root opening text") || !strings.Contains(rendered, "root reasoning") {
 					t.Errorf("rendered transcript = %q, want the live root stream still rendered", rendered)
 				}
-				if b.streamBuffer != "tial" {
+				if b.streamBuffer != "root closing text" {
 					t.Errorf("stream buffer = %q, want the pending root text untouched", b.streamBuffer)
 				}
 				if !b.streaming || !b.hadChunks {
@@ -410,18 +422,28 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 			},
 		},
 		{
-			name: "model call start leaves a pending stream buffer untouched",
+			// Regression for #997: a call start commits the previous call's pending
+			// text under the attempt that produced it, instead of leaving it to be
+			// tagged with the new attempt and discarded by a reset inside that call.
+			name: "model call start commits pending text under the previous attempt",
 			build: func(_ *testing.T, b *contentBuffer) {
 				startRootModelCall(b, 1)
-				appendAssistantChunk(b, 1, "par")
+				appendAssistantChunk(b, 1, "previous call pending text")
 				startRootModelCall(b, 2)
 			},
 			check: func(t *testing.T, b *contentBuffer) {
-				if b.streamBuffer != "par" {
-					t.Errorf("stream buffer = %q, want the pending chunk kept across the call start", b.streamBuffer)
+				segs := streamAssistantSegments(b)
+				if len(segs) != 1 {
+					t.Fatalf("committed segments = %+v, want the pending text committed once", segs)
 				}
-				if got := streamAssistantTexts(b); len(got) != 0 {
-					t.Errorf("committed segments = %q, want no flush on call start", got)
+				if got, want := segs[0].text, "previous call pending text"; got != want {
+					t.Errorf("committed text = %q, want %q", got, want)
+				}
+				if got, want := segs[0].streamAttempt, uint64(1); got != want {
+					t.Errorf("committed attempt = %d, want the attempt that produced it (%d)", got, want)
+				}
+				if b.streamBuffer != "" {
+					t.Errorf("stream buffer = %q, want it emptied by the call start", b.streamBuffer)
 				}
 				if got, want := b.streamAttempt, uint64(2); got != want {
 					t.Errorf("stream attempt = %d, want %d", got, want)
@@ -429,6 +451,128 @@ func TestRetryResetDiscardsInFlightStream(t *testing.T) {
 				if !b.modelCallActive {
 					t.Error("model call window closed, want it open for the new call")
 				}
+			},
+		},
+		{
+			// Regression for #997: the committed text keeps the attempt that
+			// produced it, so a reset in the new call drops only the new attempt.
+			name: "retry reset in a new call drops only the new attempt",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "previous call pending text")
+				startRootModelCall(b, 2)
+				appendAssistantChunk(b, 2, "second call abandoned text")
+				b.AppendEvent(retryDiagnostic(true, ""))
+				appendAssistantChunk(b, 2, "second call retried text")
+				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := streamAssistantTexts(b), []string{"previous call pending text", "second call retried text"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("committed segments = %q, want %q", got, want)
+				}
+				segs := streamAssistantSegments(b)
+				if len(segs) != 2 {
+					t.Fatalf("committed segments = %+v, want one per call", segs)
+				}
+				if got, want := segs[0].streamAttempt, uint64(1); got != want {
+					t.Errorf("first call attempt = %d, want %d", got, want)
+				}
+				if got, want := segs[1].streamAttempt, uint64(2); got != want {
+					t.Errorf("second call attempt = %d, want %d", got, want)
+				}
+				rendered := renderedRetryTranscript(b)
+				if strings.Contains(rendered, "second call abandoned text") {
+					t.Errorf("rendered transcript = %q, want the abandoned attempt gone", rendered)
+				}
+				if !strings.Contains(rendered, "previous call pending text") {
+					t.Errorf("rendered transcript = %q, want the previous call's text kept", rendered)
+				}
+			},
+		},
+		{
+			// Regression for #997: an assistant chunk scoped to a child with no
+			// delegation binding belongs to no root attempt. It must not join the
+			// root's pending text, and a root reset must not discard it.
+			name: "unbound child chunk survives a root retry reset",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "root abandoned opening")
+				appendUnboundChildAssistantChunk(b, "ghost-child", "child visible answer")
+				appendAssistantChunk(b, 1, "root abandoned closing")
+				b.AppendEvent(retryDiagnostic(true, ""))
+				appendAssistantChunk(b, 1, "root retried answer")
+				b.AppendEvent(output.NewAPIResponseEvent(nil, nil, "", nil))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := streamAssistantTexts(b), []string{"child visible answer", "root retried answer"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("committed segments = %q, want %q", got, want)
+				}
+				segs := streamAssistantSegments(b)
+				if len(segs) != 2 {
+					t.Fatalf("committed segments = %+v, want the child text and the retried answer", segs)
+				}
+				if got := segs[0].streamAttempt; got != 0 {
+					t.Errorf("child segment attempt = %d, want 0 so no root attempt owns it", got)
+				}
+				if got, want := segs[1].streamAttempt, uint64(1); got != want {
+					t.Errorf("root segment attempt = %d, want %d", got, want)
+				}
+				rendered := renderedRetryTranscript(b)
+				if !strings.Contains(rendered, "child visible answer") {
+					t.Errorf("rendered transcript = %q, want the unbound child text kept", rendered)
+				}
+				for _, absent := range []string{"root abandoned opening", "root abandoned closing"} {
+					if strings.Contains(rendered, absent) {
+						t.Errorf("rendered transcript = %q, want %q discarded", rendered, absent)
+					}
+				}
+			},
+		},
+		{
+			name: "root reset keeps unbound child text that is still pending",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendAssistantChunk(b, 1, "root pending answer")
+				appendUnboundChildAssistantChunk(b, "ghost-child", "child pending answer")
+				b.AppendEvent(retryDiagnostic(true, ""))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := streamAssistantTexts(b), []string{"child pending answer"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("committed segments = %q, want %q", got, want)
+				}
+				if b.streamBuffer != "" {
+					t.Errorf("stream buffer = %q, want it cleared by the reset", b.streamBuffer)
+				}
+				rendered := renderedRetryTranscript(b)
+				if !strings.Contains(rendered, "child pending answer") {
+					t.Errorf("rendered transcript = %q, want the pending child text kept, not discarded", rendered)
+				}
+				if strings.Contains(rendered, "root pending answer") {
+					t.Errorf("rendered transcript = %q, want the abandoned root text gone", rendered)
+				}
+			},
+		},
+		{
+			name: "unbound child thinking survives a root retry reset",
+			build: func(_ *testing.T, b *contentBuffer) {
+				startRootModelCall(b, 1)
+				appendThinkingChunk(b, 1, "root abandoned reasoning")
+				appendUnboundChildThinkingChunk(b, "ghost-child", "child visible reasoning")
+				b.AppendEvent(retryDiagnostic(true, ""))
+			},
+			check: func(t *testing.T, b *contentBuffer) {
+				if got, want := thinkingBodies(b), []string{"child visible reasoning"}; !reflect.DeepEqual(got, want) {
+					t.Errorf("thinking bodies = %q, want %q", got, want)
+				}
+				if b.liveThinkingSegment() != nil {
+					t.Error("child thinking block still streaming, want the reset to finalize it")
+				}
+				for _, seg := range b.segments {
+					if seg.kind == segmentThinkingBlock && seg.thinkData != nil && !seg.thinkData.collapsed {
+						t.Error("child thinking block expanded, want the reset to collapse it")
+					}
+				}
+				assertCollapseIndexesValid(t, b)
 			},
 		},
 		{

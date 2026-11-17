@@ -354,6 +354,7 @@ type contentBuffer struct {
 	streaming         bool
 	hadChunks         bool
 	streamBuffer      string
+	pendingAttempt    uint64 // attempt that wrote the pending stream text; 0 = no root attempt
 	streamPreview     streamPreviewCache
 	glamour           glamourPool
 	styles            *theme.Styles
