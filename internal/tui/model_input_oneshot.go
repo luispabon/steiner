@@ -107,6 +107,9 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	}
+	if err := sess.Handle(context.Background(), interactive.RecordPromptHistory{Text: "/oneshot " + strings.TrimSpace(task)}); err != nil {
+		m.appendError(err)
+	}
 
 	register, releaseControl := routeControlToOneshot(sess)
 	sess.RunBackground(func(ctx context.Context) {
