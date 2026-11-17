@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -10,7 +9,6 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
-	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
@@ -369,7 +367,7 @@ func TestNewPhaseRunnerInstallsCompactionFallbackMemo(t *testing.T) {
 	}
 }
 
-func TestCompactionFallbackOneshotRejectsClaudeSubscription(t *testing.T) {
+func TestCompactionFallbackOneshotAllowsClaudeSubscription(t *testing.T) {
 	rec := stubPhaseRuntime(t, compactionFallbackRuntimeConfig("claude-model"))
 
 	runner, err := newPhaseRunner(context.Background(), nil, &cliFlags{}, phaseRunnerParams{})
@@ -382,11 +380,21 @@ func TestCompactionFallbackOneshotRejectsClaudeSubscription(t *testing.T) {
 		t.Fatal("CompactionFallback.Resolve = nil, want enabled fallback")
 	}
 
-	_, err = req.CompactionFallback.Resolve(context.Background())
-	if !errors.Is(err, oneshot.ErrClaudeSubscription) {
-		t.Fatalf("Resolve() error = %v, want %v", err, oneshot.ErrClaudeSubscription)
+	target, err := req.CompactionFallback.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("Resolve() error = %v, want a claude_subscription provider", err)
 	}
-	if len(rec.models) != 0 {
-		t.Fatalf("base provider factory builds = %d, want 0 for rejected claude_subscription fallback", len(rec.models))
+	if target.Provider == nil {
+		t.Fatal("Resolve() provider = nil, want built provider")
+	}
+	if len(rec.models) != 1 {
+		t.Fatalf("base provider factory builds = %d, want 1 for the claude_subscription fallback", len(rec.models))
+	}
+	got := rec.models[0]
+	if got.Alias != "claude-model" || got.BackendModelID != "claude-model" {
+		t.Fatalf("fallback model alias, backend = %q, %q; want claude-model, claude-model", got.Alias, got.BackendModelID)
+	}
+	if got.ProviderConfig.Type != config.ProviderTypeClaudeSubscription || got.EffectiveProviderType != config.ProviderTypeClaudeSubscription {
+		t.Fatalf("fallback provider type, effective type = %q, %q; want %q", got.ProviderConfig.Type, got.EffectiveProviderType, config.ProviderTypeClaudeSubscription)
 	}
 }

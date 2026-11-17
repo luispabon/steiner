@@ -2,7 +2,6 @@ package oneshot
 
 import (
 	"errors"
-	"slices"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -58,44 +57,6 @@ func TestRequireSubAgents(t *testing.T) {
 	}
 }
 
-func TestRequireProviders(t *testing.T) {
-	tests := []struct {
-		name    string
-		mutate  func(*config.Config)
-		wantErr bool
-	}{
-		{name: "local models only", mutate: func(*config.Config) {}},
-		{name: "default model is claude", mutate: func(c *config.Config) { c.Models.Effective.DefaultModel = "claude" }, wantErr: true},
-		{name: "advisor is claude", mutate: func(c *config.Config) { c.Models.Effective.Advisor = "claude" }, wantErr: true},
-		{name: "phase model is claude", mutate: func(c *config.Config) { c.Models.Effective.OneShot = map[string]string{"review": "claude"} }, wantErr: true},
-		{name: "sub-agent model is claude", mutate: func(c *config.Config) { c.Models.Effective.SubAgents = map[string]string{"explore": " claude "} }, wantErr: true},
-		{name: "unknown alias is not a provider refusal", mutate: func(c *config.Config) { c.Models.Effective.Advisor = "missing" }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := preflightConfig()
-			tt.mutate(&cfg)
-			err := RequireProviders(cfg)
-			if tt.wantErr {
-				if !errors.Is(err, ErrClaudeSubscription) {
-					t.Fatalf("RequireProviders() error = %v, want %v", err, ErrClaudeSubscription)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("RequireProviders() error = %v, want nil", err)
-			}
-		})
-	}
-}
-
-func TestErrClaudeSubscriptionText(t *testing.T) {
-	const want = "the claude_subscription provider cannot be used for oneshot runs; choose another provider for oneshot"
-	if got := ErrClaudeSubscription.Error(); got != want {
-		t.Fatalf("ErrClaudeSubscription = %q, want %q", got, want)
-	}
-}
-
 func TestRequireModels(t *testing.T) {
 	setPhases := func(cfg *config.Config, alias string) {
 		for _, phase := range phaseOrder() {
@@ -109,6 +70,11 @@ func TestRequireModels(t *testing.T) {
 		wantAnyErr bool
 	}{
 		{name: "profile default covers phases and advisor", mutate: func(*config.Config) {}},
+		{name: "claude_subscription models are valid references", mutate: func(c *config.Config) {
+			c.Models.Effective.DefaultModel = "claude"
+			c.Models.Effective.Advisor = "claude"
+			setPhases(c, "claude")
+		}},
 		{name: "empty models", mutate: func(c *config.Config) { c.Models.Effective = config.EffectiveModelAssignments{} }, wantErr: config.ErrNoModelConfigured},
 		{name: "advisor missing when phases are set", mutate: func(c *config.Config) {
 			c.Models.Effective.DefaultModel = ""
@@ -142,24 +108,5 @@ func TestRequireModels(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestModelAliases(t *testing.T) {
-	cfg := preflightConfig()
-	cfg.Models.Effective.DefaultModel = "default"
-	cfg.Models.Effective.Advisor = "advisor"
-	cfg.Models.Effective.OneShot = map[string]string{"review": "review-model"}
-	cfg.Models.Effective.SubAgents = map[string]string{"explore": "explore-model"}
-
-	got := modelAliases(cfg)
-	want := []string{"default", "advisor", "review-model", "explore-model"}
-	if len(got) != len(want) {
-		t.Fatalf("modelAliases() = %v, want %d aliases", got, len(want))
-	}
-	for _, alias := range want {
-		if !slices.Contains(got, alias) {
-			t.Errorf("modelAliases() = %v, missing %q", got, alias)
-		}
 	}
 }

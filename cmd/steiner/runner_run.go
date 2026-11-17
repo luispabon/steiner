@@ -316,8 +316,8 @@ type runHooks struct {
 // setup's main model. sessionID and cacheScope are the transport session and
 // prompt cache key the request was built with, so the fallback shares their
 // scope. Nothing resolves or builds until a compaction needs the fallback.
-// ProviderFactory is the runtime factory, so the oneshot claude_subscription
-// wrapper applies to fallback builds too.
+// ProviderFactory is the runtime factory, so every provider type, including
+// claude_subscription, builds through the same path as the main model.
 func (r cliRunner) compactionFallback(setup runnerSetup, sessionID, cacheScope string) agent.CompactionFallback {
 	cfg := r.liveConfig()
 	return delegation.NewCompactionFallback(delegation.CompactionFallbackParams{

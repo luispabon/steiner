@@ -5,8 +5,8 @@ Oneshot runs a task autonomously in three phases: plan, implement, review. Each 
 ## Requirements
 
 - **Sub-agents enabled** (`sub_agent.enabled: true`). The phase prompts require delegation, so the CLI and the TUI refuse to start or resume a run without it.
-- **No `claude_subscription` models.** `steiner oneshot` and `--resume` refuse to run if the default model, the advisor, any phase model, or any sub-agent model uses a `claude_subscription` provider. See [Claude subscription](claude-subscription.md).
 - **A model for every phase and the advisor.** Each phase uses its profile assignment or the profile's `default_model`. If one does not resolve, the run stops with a `no model configured` error before any run state is created. The active interactive model is never used as a fallback.
+- **Any provider, including `claude_subscription`.** Phases, the advisor, sub-agents, and the compaction fallback can use a `claude_subscription` model. The CLI version and sign-in checks run lazily when a phase runtime first needs the CLI, so a missing or signed-out CLI fails that phase and resume retries it after you fix the login. See [Claude subscription](claude-subscription.md).
 - **A git repository.**
 
 ## Running
