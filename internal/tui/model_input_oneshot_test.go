@@ -2,12 +2,20 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/oneshot"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tool"
 	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
@@ -29,14 +37,22 @@ func (h *oneshotPromptHistory) Load() ([]string, error) {
 	return append([]string(nil), h.prompts...), nil
 }
 
-func TestLaunchOneshotActionRecordsRelaunchableHistory(t *testing.T) {
+func TestLaunchOneshotHistoryCanRecallAndResume(t *testing.T) {
 	t.Parallel()
-
+	projectRoot := setupOneshotProject(t)
 	history := &oneshotPromptHistory{}
+	var eventsMu sync.Mutex
+	var events []output.Event
 	sess, err := interactive.NewSession(interactive.Dependencies{
-		BaseEvents:    output.NoopSink{},
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			eventsMu.Lock()
+			events = append(events, event)
+			eventsMu.Unlock()
+		}),
 		HistoryWriter: history,
 		SessionStore:  tuiTestSessionStore{},
+		WorkDir:       projectRoot,
+		Config:        oneshotTestConfig(),
 	})
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
@@ -45,6 +61,7 @@ func TestLaunchOneshotActionRecordsRelaunchableHistory(t *testing.T) {
 	styles := testStyles(theme.AccentAmber)
 	m := &Model{
 		controller:       sess,
+		sessionStore:     tuiTestSessionStore{},
 		input:            newModelInput(),
 		styles:           styles,
 		subAgentsEnabled: true,
@@ -53,17 +70,22 @@ func TestLaunchOneshotActionRecordsRelaunchableHistory(t *testing.T) {
 			collapseState: make(map[int]bool),
 			styles:        styles,
 		},
-		oneshotRunnerFactory: func(oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
-			return nil
-		},
+	}
+	var phaseCalls int
+	m.oneshotRunnerFactory = func(oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
+		return oneshot.PhaseRunnerFactoryFunc(func(context.Context, oneshot.Phase, string, tool.ApprovalResponder, config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+			phaseCalls++
+			return nil, errors.New("stop after admission")
+		})
 	}
 
 	updated, _ := m.executeLaunchOneshotAction("  build the thing  ")
-	if updated.(*Model).oneshotRunning != true {
-		t.Fatal("oneshotRunning = false, want true after accepted launch")
-	}
+	m = updated.(*Model)
 	if !sess.WaitRuns(context.Background()) {
 		t.Fatal("WaitRuns() = false, want true")
+	}
+	if phaseCalls != 1 {
+		t.Fatalf("phase factory calls after launch = %d, want 1", phaseCalls)
 	}
 
 	prompts, err := history.Load()
@@ -73,23 +95,99 @@ func TestLaunchOneshotActionRecordsRelaunchableHistory(t *testing.T) {
 	if len(prompts) != 1 || prompts[0] != "/oneshot build the thing" {
 		t.Fatalf("history prompts = %q, want one relaunchable command", prompts)
 	}
+	eventsMu.Lock()
+	for _, event := range events {
+		if event.Type == output.EventTypeHistoryLoaded {
+			m.applyEvent(event)
+		}
+	}
+	eventsMu.Unlock()
+	m = updateModel(t, m, tea.KeyPressMsg{Code: tea.KeyUp})
+	recalled := parseInput(m.input.Value())
+	if recalled.launchOneshotTask != "build the thing" {
+		t.Fatalf("Up recalled %q, parsed task = %q, want relaunchable task", m.input.Value(), recalled.launchOneshotTask)
+	}
+
+	runs, err := oneshot.ListRuns(projectRoot)
+	if err != nil {
+		t.Fatalf("ListRuns() error = %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs after accepted launch = %d, want 1", len(runs))
+	}
+	m.executeResumeOneshotAction(runs[0].RunID)
+	if !sess.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns() = false after resume, want true")
+	}
+	if phaseCalls != 2 {
+		t.Fatalf("phase factory calls after resume = %d, want 2", phaseCalls)
+	}
+	prompts, err = history.Load()
+	if err != nil {
+		t.Fatalf("history.Load() after resume error = %v", err)
+	}
+	if len(prompts) != 1 || prompts[0] != "/oneshot build the thing" {
+		t.Fatalf("history prompts after resume = %q, want only the launch command", prompts)
+	}
 }
 
-func TestResumeAndRejectedOneshotDoNotRecordHistory(t *testing.T) {
+func TestRejectedOneshotLaunchDoesNotRecordHistory(t *testing.T) {
 	t.Parallel()
-
 	history := &oneshotPromptHistory{}
 	sess, err := interactive.NewSession(interactive.Dependencies{
 		BaseEvents:    output.NoopSink{},
 		HistoryWriter: history,
+		Config:        oneshotTestConfig(),
 	})
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)
 	}
-
 	styles := testStyles(theme.AccentAmber)
 	m := &Model{
 		controller:       sess,
+		input:            newModelInput(),
+		styles:           styles,
+		subAgentsEnabled: true,
+		sessionStore:     listOnlySessionStore{},
+		content: contentBuffer{
+			segments:      make([]contentSegment, 0),
+			collapseState: make(map[int]bool),
+			styles:        styles,
+		},
+	}
+	m.oneshotRunnerFactory = func(oneshot.RunIdentity) oneshot.PhaseRunnerFactory {
+		return oneshot.PhaseRunnerFactoryFunc(func(context.Context, oneshot.Phase, string, tool.ApprovalResponder, config.AdvisorConfig) (oneshot.PhaseRunner, error) {
+			return nil, errors.New("unexpected phase")
+		})
+	}
+	m.executeLaunchOneshotAction("rejected task")
+	if !sess.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns() = false, want true")
+	}
+	prompts, err := history.Load()
+	if err != nil {
+		t.Fatalf("history.Load() error = %v", err)
+	}
+	if len(prompts) != 0 {
+		t.Fatalf("history prompts = %q, want none", prompts)
+	}
+}
+
+func TestOneshotModelPreflightFailureDoesNotRecordHistory(t *testing.T) {
+	t.Parallel()
+	history := &oneshotPromptHistory{}
+	sess, err := interactive.NewSession(interactive.Dependencies{
+		BaseEvents:    output.NoopSink{},
+		HistoryWriter: history,
+		SessionStore:  tuiTestSessionStore{},
+	})
+	if err != nil {
+		t.Fatalf("NewSession() error = %v", err)
+	}
+	styles := testStyles(theme.AccentAmber)
+	m := &Model{
+		controller:       sess,
+		sessionStore:     tuiTestSessionStore{},
 		input:            newModelInput(),
 		styles:           styles,
 		subAgentsEnabled: true,
@@ -99,9 +197,10 @@ func TestResumeAndRejectedOneshotDoNotRecordHistory(t *testing.T) {
 			styles:        styles,
 		},
 	}
-	m.executeResumeOneshotAction("run-id")
-	m.executeLaunchOneshotAction("rejected without runner factory")
-
+	updated, _ := m.executeLaunchOneshotAction("missing model config")
+	if updated.(*Model).oneshotRunning {
+		t.Fatal("oneshotRunning = true, want false after model preflight rejection")
+	}
 	prompts, err := history.Load()
 	if err != nil {
 		t.Fatalf("history.Load() error = %v", err)
@@ -109,4 +208,51 @@ func TestResumeAndRejectedOneshotDoNotRecordHistory(t *testing.T) {
 	if len(prompts) != 0 {
 		t.Fatalf("history prompts = %q, want none", prompts)
 	}
+	if !sess.WaitRuns(context.Background()) {
+		t.Fatal("WaitRuns() = false, want true")
+	}
+}
+
+func oneshotTestConfig() config.Config {
+	return config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"local": {Type: config.ProviderTypeOpenAICompat, BaseURL: "http://localhost:11434/v1"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"local-model": {Provider: "local", ID: "local-model"},
+			},
+			Effective: config.EffectiveModelAssignments{
+				DefaultModel: "local-model",
+				Advisor:      "local-model",
+			},
+		},
+	}
+}
+
+func setupOneshotProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("test\n"), 0o600); err != nil {
+		t.Fatalf("write project file: %v", err)
+	}
+	for _, args := range [][]string{{"add", "README.md"}, {"commit", "-m", "initial"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	return root
 }
