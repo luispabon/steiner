@@ -96,6 +96,16 @@ func blockRotation(t *testing.T, path string) {
 	}
 }
 
+// fileSize returns the size of path.
+func fileSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return info.Size()
+}
+
 // unblockRotation removes the directories blockRotation created.
 func unblockRotation(t *testing.T, path string) {
 	t.Helper()
@@ -238,6 +248,104 @@ func TestWriterRecoversFromFailedRotation(t *testing.T) {
 	}
 	if active.Size() >= maxStreamBytes {
 		t.Errorf("active size = %d, want a fresh file below the cap", active.Size())
+	}
+}
+
+func TestPersistentRotationFailureCapsGrowth(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	blockRotation(t, path)
+	padToCap(t, path)
+	payload := strings.Repeat("x", 64*1024)
+
+	// The first failure allows one more cap worth of appends.
+	w.Write(Record{Kind: KindTool, AgentID: "past-cap"})
+	if s := w.files[KindTool]; s.rotateStalled {
+		t.Fatal("stream stalled after the first failed rotation, want one cap of grace")
+	}
+	for i := 0; i < maxStreamBytes/len(payload)+40; i++ {
+		w.Write(Record{Kind: KindTool, Payload: payload})
+	}
+
+	if s := w.files[KindTool]; !s.rotateStalled {
+		t.Fatal("stream not stalled after the deferred retry failed")
+	}
+	size := fileSize(t, path)
+	if size <= maxStreamBytes {
+		t.Errorf("size = %d, want the grace window to append past the cap", size)
+	}
+	if limit := int64(2*maxStreamBytes + len(payload)); size > limit {
+		t.Fatalf("size = %d, want at most %d with a stuck rotation", size, limit)
+	}
+
+	// A stalled stream drops records instead of growing the file.
+	for i := 0; i < 5; i++ {
+		w.Write(Record{Kind: KindTool, Payload: payload})
+	}
+	if got := fileSize(t, path); got != size {
+		t.Errorf("size = %d after dropped records, want it unchanged at %d", got, size)
+	}
+
+	// Recovery still happens once the obstruction clears.
+	unblockRotation(t, path)
+	for i := 0; i < maxStreamBytes/len(payload)+40; i++ {
+		w.Write(Record{Kind: KindTool, Payload: payload})
+	}
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Fatalf("stat generation 1: %v, want a rotation once the obstruction cleared", err)
+	}
+	if s := w.files[KindTool]; s.rotateStalled {
+		t.Error("stream still stalled after a successful rotation")
+	}
+	w.Write(Record{Kind: KindTool, AgentID: "recovered"})
+	records := readTailRecords(t, path)
+	if len(records) == 0 || records[len(records)-1].AgentID != "recovered" {
+		t.Fatalf("last record = %+v, want the record written after recovery", records)
+	}
+}
+
+func TestReplacementClearsRotationDeferral(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	blockRotation(t, path)
+	padToCap(t, path)
+	payload := strings.Repeat("x", 64*1024)
+	w.Write(Record{Kind: KindTool, AgentID: "past-cap"})
+	for i := 0; i < maxStreamBytes/len(payload)+40; i++ {
+		w.Write(Record{Kind: KindTool, Payload: payload})
+	}
+	if s := w.files[KindTool]; !s.rotateStalled {
+		t.Fatal("setup: stream not stalled after the deferred retry failed")
+	}
+
+	// Another process rotates the stream away. The new active file has its own
+	// rotation history, so the stall recorded against the old inode must not
+	// drop this writer's records.
+	unblockRotation(t, path)
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatalf("rename active stream: %v", err)
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "after-replacement"})
+
+	if s := w.files[KindTool]; s.rotateStalled || s.rotateAfter != 0 || s.dropped != 0 {
+		t.Errorf("deferral = %d/%v/%d after replacement, want it cleared", s.rotateAfter, s.rotateStalled, s.dropped)
+	}
+	records := readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-replacement" {
+		t.Fatalf("records = %+v, want the record written after the replacement", records)
 	}
 }
 

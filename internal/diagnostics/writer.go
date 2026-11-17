@@ -27,13 +27,22 @@ var seq atomic.Int64
 
 // stream is one open per-kind file.
 //
-// A failed rotation appends past the cap instead of closing the stream for the
-// rest of the run, and sets rotateAfter to defer the next attempt.
+// Rotation failure is bounded. A failed rotation appends past the cap for at
+// most one more cap worth of records; if the deferred retry fails too the
+// stream drops records until a rotation succeeds.
 type stream struct {
-	file        *os.File
-	path        string
-	written     int64
+	file    *os.File
+	path    string
+	written int64
+	// rotateAfter defers a failed rotation until the active file reaches this
+	// size, so the generations are not shifted once per record.
 	rotateAfter int64
+	// rotateStalled reports that the deferred retry failed as well. Records are
+	// then dropped, which keeps the file within one cap of the cap.
+	rotateStalled bool
+	// dropped counts the bytes dropped since the last rotation attempt, so a
+	// stalled stream retries once per cap worth of records, not once per record.
+	dropped int64
 }
 
 // Writer appends diagnostics records to one JSONL file per enabled stream.
@@ -213,12 +222,16 @@ func (w *Writer) append(kind Kind, data []byte) {
 		w.warn("reopen diagnostics stream", err)
 		return
 	}
-	if s.written+int64(len(data)) > maxStreamBytes && s.written >= s.rotateAfter {
+	if s.written+int64(len(data)) > maxStreamBytes && s.rotationDue() {
 		if err := rotate(s); err != nil {
 			w.warn("rotate diagnostics stream", err)
 		}
 	}
 	if s.file == nil {
+		return
+	}
+	if s.rotateStalled {
+		s.dropped += int64(len(data))
 		return
 	}
 	n, err := s.file.Write(data)
@@ -255,10 +268,33 @@ func (s *stream) reopenIfNeeded() error {
 	}
 	active, err := os.Stat(s.path)
 	if err != nil || !os.SameFile(open, active) {
+		// Another process replaced the active file, so a deferral or stall
+		// recorded against the old one says nothing about this file.
+		s.resetRotation()
 		return s.reopen()
 	}
 	s.written = active.Size()
 	return nil
+}
+
+// rotationDue reports whether the next record should attempt a rotation. After
+// a failed rotation the attempt waits for one cap worth of appended records; a
+// stalled stream waits for one cap worth of dropped records, so neither retries
+// once per record. Caller must hold the writer's mutex.
+func (s *stream) rotationDue() bool {
+	if s.rotateStalled {
+		return s.dropped >= maxStreamBytes
+	}
+	return s.written >= s.rotateAfter
+}
+
+// resetRotation clears the deferred rotation state. It runs after a successful
+// rotation and when another process replaces the active file. Caller must hold
+// the writer's mutex.
+func (s *stream) resetRotation() {
+	s.rotateAfter = 0
+	s.rotateStalled = false
+	s.dropped = 0
 }
 
 // reopen closes the current descriptor and opens the active path, taking the
@@ -282,10 +318,9 @@ func (s *stream) reopen() error {
 }
 
 // rotate shifts existing generations, renames the active file to <file>.1 and
-// opens a fresh one. A failed rotation leaves the stream appending to the
-// active path past the cap instead of dropping every later record for the run,
-// and defers the next attempt by one cap worth of appends. Caller must hold the
-// writer's mutex.
+// opens a fresh one. A failed rotation leaves the stream appending to the active
+// path past the cap instead of dropping every later record for the run;
+// deferRotation bounds that growth. Caller must hold the writer's mutex.
 func rotate(s *stream) error {
 	if err := s.file.Close(); err != nil {
 		s.file = nil
@@ -305,19 +340,25 @@ func rotate(s *stream) error {
 	if err := os.Rename(s.path, s.path+".1"); err != nil && !os.IsNotExist(err) {
 		return s.deferRotation(fmt.Errorf("rotate diagnostics stream: %w", err))
 	}
-	s.rotateAfter = 0
+	s.resetRotation()
 	if err := s.reopen(); err != nil {
 		return s.deferRotation(err)
 	}
 	return nil
 }
 
-// deferRotation keeps the stream writable after a failed rotation and delays
-// the next attempt until another maxStreamBytes have been written, so a
-// persistent failure cannot shift the generations once per record. Caller must
-// hold the writer's mutex.
+// deferRotation keeps a failed rotation from disabling the stream or growing the
+// file without bound. The first failure allows appends past the cap for one more
+// cap worth of records; when the deferred retry fails too, the stream stalls and
+// drops records, retrying once per cap worth of drops until a rotation succeeds.
+// Caller must hold the writer's mutex.
 func (s *stream) deferRotation(err error) error {
-	s.rotateAfter = s.written + maxStreamBytes
+	if s.rotateAfter == 0 {
+		s.rotateAfter = s.written + maxStreamBytes
+	} else {
+		s.rotateStalled = true
+	}
+	s.dropped = 0
 	if reopenErr := s.reopen(); reopenErr != nil {
 		return fmt.Errorf("%w; reopen diagnostics stream: %w", err, reopenErr)
 	}
