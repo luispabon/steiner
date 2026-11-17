@@ -18,6 +18,9 @@ const (
 // It is idempotent and safe to call concurrently, including from separate
 // processes.
 //
+// workDir must already exist; the helper does not create it and returns an
+// error naming the path when it is missing.
+//
 // Every step is anchored to workDir through os.OpenRoot, so the helper never
 // writes through a symlink out of the project: a symlinked or non-directory
 // .steiner is rejected instead of followed, and .gitignore is created
@@ -74,11 +77,21 @@ func openProjectDir(root *os.Root, workDir string) (*os.Root, error) {
 		_ = dir.Close()
 		return nil, fmt.Errorf("inspect opened %s in %s: %w", projectDirName, workDir, err)
 	}
-	if !os.SameFile(info, opened) {
+	if err := verifyProjectDirUnchanged(info, opened, workDir); err != nil {
 		_ = dir.Close()
-		return nil, fmt.Errorf("%s in %s was replaced while steiner set it up; retry once nothing else is modifying it", projectDirName, workDir)
+		return nil, err
 	}
 	return dir, nil
+}
+
+// verifyProjectDirUnchanged rejects a directory that was swapped after it was
+// inspected, so the .gitignore write lands in the directory that passed the
+// symlink check.
+func verifyProjectDirUnchanged(inspected, opened fs.FileInfo, workDir string) error {
+	if os.SameFile(inspected, opened) {
+		return nil
+	}
+	return fmt.Errorf("%s in %s was replaced while steiner set it up; retry once nothing else is modifying it", projectDirName, workDir)
 }
 
 // ensureProjectGitignore exclusively creates .gitignore when missing. A file

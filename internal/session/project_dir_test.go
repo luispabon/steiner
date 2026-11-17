@@ -265,3 +265,53 @@ func TestEnsureSteinerProjectDirReadOnlyProject(t *testing.T) {
 		t.Fatalf("expected error, got nil")
 	}
 }
+
+// TestVerifyProjectDirUnchanged covers the guard that rejects a .steiner
+// directory swapped between the Lstat check and the anchored open. The window
+// itself is not forced here; this exercises the comparison the open relies on.
+func TestVerifyProjectDirUnchanged(t *testing.T) {
+	workDir := t.TempDir()
+	otherDir := t.TempDir()
+
+	inspected, err := os.Stat(workDir)
+	if err != nil {
+		t.Fatalf("stat workDir: %v", err)
+	}
+	reopened, err := os.Stat(workDir)
+	if err != nil {
+		t.Fatalf("stat workDir again: %v", err)
+	}
+	swapped, err := os.Stat(otherDir)
+	if err != nil {
+		t.Fatalf("stat otherDir: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		opened  os.FileInfo
+		wantErr bool
+	}{
+		{name: "same directory", opened: reopened},
+		{name: "directory replaced between check and open", opened: swapped, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := verifyProjectDirUnchanged(inspected, tt.opened, workDir)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error for a replaced .steiner directory, got nil")
+				}
+				for _, want := range []string{".steiner", workDir, "was replaced"} {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf("error = %q, want it to mention %q", err, want)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("verifyProjectDirUnchanged: %v", err)
+			}
+		})
+	}
+}

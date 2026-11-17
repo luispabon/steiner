@@ -2,6 +2,15 @@
 
 Steiner supports conversational work, structured skill workflows, and unattended runs. Choose the approach that fits the task and how much oversight you want.
 
+## Project directory
+
+Steiner keeps project state in `.steiner/` at the project root and creates it, with a `.gitignore` containing `*`, when a session starts. It refuses to start when `.steiner` is a symlink or not a directory, or when `.steiner/.gitignore` is a symlink or not a regular file, because following either could write outside the project. The error names the offending path.
+
+- `.steiner` rejected: delete the symlink or file (`rm .steiner`) and start steiner again; it creates the directory.
+- `.steiner/.gitignore` rejected: delete it (`rm .steiner/.gitignore`) and start again; it is recreated containing `*`. Copy it somewhere first if it lists entries you want to keep.
+
+A project root that is itself a symlink is accepted.
+
 ## Plan and build modes
 
 Interactive sessions use one of two execution modes. A mode limits what the agent may change; a workflow is the process it follows. Workflows run within the active mode.
