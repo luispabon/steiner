@@ -44,7 +44,7 @@ If affected files, ownership, or contracts are unclear, investigate before imple
 - Do only the assigned task. No extra features, abstractions, refactors, config, cleanup, or polish unless required.
 - Prefer the smallest correct change. Touch only required files and lines; every changed line must trace to the task.
 - Match existing project style. Keep code and documentation simple; no overengineering.
-- Do not guess silently. If an assumption is safe, state it and continue. If ambiguity materially changes implementation, {{ if or .DelegatedCode .DelegatedDocumentor }}stop and report the blocker{{ else }}ask the user{{ end }}.
+- Do not guess silently. If ambiguity materially changes implementation, {{ if or .DelegatedCode .DelegatedDocumentor }}stop and report the blocker{{ else }}ask the user{{ end }}. Otherwise state the assumption and continue.
 - {{ if or .DelegatedCode .DelegatedDocumentor }}Report{{ else }}Push back on{{ end }} overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.
 - The codebase root is the current folder.{{ if or .DelegatedCode .DelegatedDocumentor }} Work in the assigned worktree.{{ end }}
 
