@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,11 +13,17 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/filelock"
 	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
 const (
-	indexFile   = "index.json"
+	indexFile = "index.json"
+	// indexLockFile serialises the index read-modify-write across processes.
+	// It is a stable sibling of index.json because the index itself is
+	// replaced by rename.
+	indexLockFile = indexFile + ".lock"
+
 	maxSessions = 25
 	sessionExt  = ".json"
 	historyFile = "history.md"
@@ -57,6 +64,8 @@ func secureExistingFiles(dir string) {
 }
 
 // Store manages session persistence to disk with atomic writes and eviction.
+// Index updates are serialised across processes by the sibling index lock, so
+// separate stores pointed at the same directory observe each other's changes.
 type Store struct {
 	dir   string
 	mu    sync.Mutex
@@ -73,9 +82,11 @@ func NewStore(dir string) (*Store, error) {
 	}
 	secureExistingFiles(dir)
 	store := &Store{dir: dir}
-	if err := store.loadIndex(); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("load index: %w", err)
+	lock, err := store.acquireIndex(context.Background())
+	if err != nil {
+		return nil, err
 	}
+	store.releaseIndex(lock)
 	return store, nil
 }
 
@@ -97,8 +108,11 @@ func safeSessionDir(dir, id string) (string, error) {
 
 // Save writes a session to disk atomically and updates the index.
 func (s *Store) Save(session Session) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	lock, err := s.acquireIndex(context.Background())
+	if err != nil {
+		return err
+	}
+	defer s.releaseIndex(lock)
 
 	sessionPath, err := safeSessionPath(s.dir, session.ID)
 	if err != nil {
@@ -181,10 +195,14 @@ func restoreLegacyLineage(session Session, data []byte) Session {
 	return session
 }
 
-// List returns all sessions sorted newest-first.
+// List returns all sessions sorted newest-first. It reloads the index from disk
+// so entries written by another store process are visible.
 func (s *Store) List() ([]IndexEntry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	lock, err := s.acquireIndex(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer s.releaseIndex(lock)
 
 	out := make([]IndexEntry, len(s.index))
 	copy(out, s.index)
@@ -193,9 +211,6 @@ func (s *Store) List() ([]IndexEntry, error) {
 
 // Delete removes a session file and its index entry.
 func (s *Store) Delete(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	sessionPath, err := safeSessionPath(s.dir, id)
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
@@ -204,6 +219,13 @@ func (s *Store) Delete(id string) error {
 	if err != nil {
 		return fmt.Errorf("validate session id: %w", err)
 	}
+
+	lock, err := s.acquireIndex(context.Background())
+	if err != nil {
+		return err
+	}
+	defer s.releaseIndex(lock)
+
 	if err := os.Remove(sessionPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete session file: %w", err)
 	}
@@ -312,7 +334,40 @@ func (s *Store) writeAtomic(path string, data interface{}) error {
 	return nil
 }
 
-// loadIndex reads the index file if it exists.
+// acquireIndex locks the store mutex, takes the cross-process index lock, and
+// reloads the index so the in-memory copy includes writes from other processes.
+// Every index read or update goes through it, so callers must pass the returned
+// lock to releaseIndex.
+func (s *Store) acquireIndex(ctx context.Context) (*filelock.Lock, error) {
+	s.mu.Lock()
+	lock, err := filelock.Acquire(ctx, filepath.Join(s.dir, indexLockFile))
+	if err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("acquire index lock: %w", err)
+	}
+	if warning := lock.Warning(); warning != "" {
+		slog.Warn("session store: index lock unavailable, continuing without cross-process exclusion", "dir", s.dir, "warning", warning)
+	}
+	if err := s.loadIndex(); err != nil {
+		s.releaseIndex(lock)
+		return nil, fmt.Errorf("load index: %w", err)
+	}
+	return lock, nil
+}
+
+// releaseIndex drops the index lock and the store mutex. A close failure only
+// leaks the lock file descriptor for the rest of the process lifetime, and the
+// kernel releases the lock with that descriptor, so it is logged rather than
+// returned.
+func (s *Store) releaseIndex(lock *filelock.Lock) {
+	if err := lock.Release(); err != nil {
+		slog.Warn("session store: cannot close index lock file", "dir", s.dir, "error", err)
+	}
+	s.mu.Unlock()
+}
+
+// loadIndex replaces the cached index with the index file's contents. A missing
+// file yields an empty index.
 func (s *Store) loadIndex() error {
 	indexPath := filepath.Join(s.dir, indexFile)
 	data, err := os.ReadFile(indexPath)

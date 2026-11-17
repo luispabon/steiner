@@ -1525,7 +1525,7 @@ func TestDeleteHistoryRemovalFailureRemovesJSONAndKeepsArchive(t *testing.T) {
 	}
 }
 
-func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
+func TestFinishRemovalJoinsHistoryAndIndexSaveErrors(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore(dir)
 	if err != nil {
@@ -1539,6 +1539,13 @@ func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
 		t.Fatalf("AppendHistory failed: %v", err)
 	}
 
+	// Delete removes the session file before calling finishRemovalLocked, but it
+	// also reloads the index first, and a directory at index.json fails that
+	// reload. Call finishRemovalLocked directly with the JSON file already gone.
+	if err := os.Remove(filepath.Join(dir, "both-fail"+sessionExt)); err != nil {
+		t.Fatalf("remove session file: %v", err)
+	}
+
 	// Replacing index.json with a directory makes the index save fail.
 	indexPath := filepath.Join(dir, indexFile)
 	if err := os.Remove(indexPath); err != nil {
@@ -1550,15 +1557,14 @@ func TestDeleteJoinsHistoryAndIndexSaveErrors(t *testing.T) {
 
 	errRemove := errors.New("simulated removal failure")
 	failHistoryRemoval(t, errRemove)
-	err = store.Delete("both-fail")
+	store.mu.Lock()
+	err = store.finishRemovalLocked("both-fail", filepath.Join(dir, "both-fail"))
+	store.mu.Unlock()
 	if !errors.Is(err, errRemove) {
-		t.Errorf("Delete error = %v, want history removal failure", err)
+		t.Errorf("finishRemovalLocked error = %v, want history removal failure", err)
 	}
 	if err == nil || !strings.Contains(err.Error(), "save index") {
-		t.Errorf("Delete error = %v, want index save failure", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "both-fail"+sessionExt)); !os.IsNotExist(err) {
-		t.Errorf("session file still exists after failed Delete: %v", err)
+		t.Errorf("finishRemovalLocked error = %v, want index save failure", err)
 	}
 }
 
