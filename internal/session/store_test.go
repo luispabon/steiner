@@ -896,6 +896,14 @@ func TestDeleteRejectsInvalidSessionID(t *testing.T) {
 	}
 }
 
+// requireReservedIDError asserts that rejecting id reports a reserved id.
+func requireReservedIDError(t *testing.T, call string, err error) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), "reserved session id") {
+		t.Errorf("%s error = %v, want reserved session id", call, err)
+	}
+}
+
 func TestReservedSessionIDsRejected(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore(dir)
@@ -904,31 +912,32 @@ func TestReservedSessionIDsRejected(t *testing.T) {
 	}
 	now := time.Now().UTC()
 
-	for _, id := range []string{"index", indexFile, indexLockFile, "Index.JSON"} {
-		if _, err := safeSessionPath(dir, id); err == nil {
-			t.Errorf("safeSessionPath(%q) accepted a reserved id", id)
-		}
-		if _, err := safeSessionDir(dir, id); err == nil {
-			t.Errorf("safeSessionDir(%q) accepted a reserved id", id)
-		}
-		if err := store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now}); err == nil || !strings.Contains(err.Error(), "reserved session id") {
-			t.Errorf("Save(%q) error = %v, want reserved session id", id, err)
-		}
-		if _, err := store.Load(id); err == nil {
-			t.Errorf("Load(%q) accepted a reserved id", id)
-		}
-		if err := store.Delete(id); err == nil {
-			t.Errorf("Delete(%q) accepted a reserved id", id)
-		}
-		if _, err := store.HistoryPath(id); err == nil {
-			t.Errorf("HistoryPath(%q) accepted a reserved id", id)
-		}
-		if _, err := store.AppendHistory(id, "h\n", "c\n"); err == nil {
-			t.Errorf("AppendHistory(%q) accepted a reserved id", id)
-		}
-		if _, err := store.ReadHistory(id); err == nil {
-			t.Errorf("ReadHistory(%q) accepted a reserved id", id)
-		}
+	ids := []string{
+		"index",             // dir/<id>.json is the index file
+		indexFile,           // dir/<id> is the index file
+		indexLockFile,       // dir/<id> is the index lock file
+		"Index.JSON",        // case-insensitive filesystem
+		"index.json ",       // Windows strips the trailing space
+		"index.json.",       // Windows strips the trailing dot
+		".tmp-index.json-x", // matches the index temp file sweep
+		".tmp-a.json-b",     // matches another session's temp file sweep
+		".TMP-session",      // temp prefix on a case-insensitive filesystem
+	}
+	for _, id := range ids {
+		_, err := safeSessionPath(dir, id)
+		requireReservedIDError(t, fmt.Sprintf("safeSessionPath(%q)", id), err)
+		_, err = safeSessionDir(dir, id)
+		requireReservedIDError(t, fmt.Sprintf("safeSessionDir(%q)", id), err)
+		requireReservedIDError(t, fmt.Sprintf("Save(%q)", id), store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now}))
+		_, err = store.Load(id)
+		requireReservedIDError(t, fmt.Sprintf("Load(%q)", id), err)
+		requireReservedIDError(t, fmt.Sprintf("Delete(%q)", id), store.Delete(id))
+		_, err = store.HistoryPath(id)
+		requireReservedIDError(t, fmt.Sprintf("HistoryPath(%q)", id), err)
+		_, err = store.AppendHistory(id, "h\n", "c\n")
+		requireReservedIDError(t, fmt.Sprintf("AppendHistory(%q)", id), err)
+		_, err = store.ReadHistory(id)
+		requireReservedIDError(t, fmt.Sprintf("ReadHistory(%q)", id), err)
 	}
 }
 
@@ -943,15 +952,16 @@ func TestReservedSessionIDsCannotRemoveStoreFiles(t *testing.T) {
 		t.Fatalf("Save failed: %v", err)
 	}
 
-	for _, id := range []string{"index", indexFile, indexLockFile} {
-		if err := store.Delete(id); err == nil {
-			t.Errorf("Delete(%q) succeeded", id)
-		}
+	for _, id := range []string{"index", indexFile, indexLockFile, ".tmp-index.json-x"} {
+		requireReservedIDError(t, fmt.Sprintf("Delete(%q)", id), store.Delete(id))
 	}
 	for _, name := range []string{indexFile, indexLockFile} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("Delete removed %s: %v", name, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-index.json-x"+sessionExt)); !os.IsNotExist(err) {
+		t.Errorf("reserved id wrote a session file: %v", err)
 	}
 	entries, err := store.List()
 	if err != nil {
@@ -980,7 +990,7 @@ func TestSessionIDsSharingReservedPrefixesAllowed(t *testing.T) {
 	}
 	now := time.Now().UTC()
 
-	ids := []string{"indexes", "index-json", "index.json.bak", "index.json.lock.bak", "my.index.json", "my.index", "session.json"}
+	ids := []string{"indexes", "index-json", "index.json.bak", "index.json.lock.bak", "my.index.json", "my.index", "session.json", ".tmp", "x.tmp-y", ".tmpy"}
 	for i, id := range ids {
 		if err := store.Save(Session{ID: id, CreatedAt: now, UpdatedAt: now.Add(time.Duration(i) * time.Second)}); err != nil {
 			t.Fatalf("Save(%q) failed: %v", id, err)
@@ -1133,7 +1143,7 @@ func TestSaveTightensStaleTmpFile(t *testing.T) {
 
 func TestLoadIndexDropsInvalidIDs(t *testing.T) {
 	dir := t.TempDir()
-	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"index.json"},{"id":"index.json.lock"},{"id":"good"}]`
+	idx := `[{"id":"../evil"},{"id":""},{"id":"a/b"},{"id":"index.json"},{"id":"index.json.lock"},{"id":"index.json "},{"id":".tmp-index.json-x"},{"id":"good"}]`
 	if err := os.WriteFile(filepath.Join(dir, indexFile), []byte(idx), 0o600); err != nil {
 		t.Fatal(err)
 	}

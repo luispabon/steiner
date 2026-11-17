@@ -74,8 +74,10 @@ type Store struct {
 
 // NewStore creates a store for the given directory, creating it if absent.
 //
-// Opening the store takes the index lock, so the directory must be writable
-// until index.json.lock exists. A read-only directory that earlier versions
+// Opening the store takes the index lock by opening index.json.lock read-write
+// and creating it with 0600 when missing. The directory must therefore be
+// writable while the file is absent, and an existing lock file must be writable
+// by the current user. A read-only directory or lock file that earlier versions
 // could open now fails with an index lock error: ordinary lock errors are
 // reported rather than skipped. Load, which only reads a session file, does not
 // take the index lock.
@@ -96,22 +98,42 @@ func NewStore(dir string) (*Store, error) {
 	return store, nil
 }
 
-// reservedSessionIDs are store file names a session id must not reuse. An id
+// sessionTempPrefix starts every temporary file fsatomic creates, and the names
+// it sweeps as stale orphans. A session file whose name begins with it can be
+// removed by another write's sweep.
+const sessionTempPrefix = ".tmp-"
+
+// reservedSessionNames are store file names a session id must not reuse. An id
 // maps to dir/<id> as its history directory and dir/<id>.json as its session
-// file, so the ids below would collide with the index file or its lock. The
-// comparison is case-insensitive because the store directory can live on a
-// case-insensitive filesystem.
-var reservedSessionIDs = map[string]bool{
-	strings.ToLower(strings.TrimSuffix(indexFile, sessionExt)): true,
-	strings.ToLower(indexFile):                                 true,
-	strings.ToLower(indexLockFile):                             true,
+// file, so the names below would collide with the index file or its lock.
+var reservedSessionNames = []string{
+	strings.TrimSuffix(indexFile, sessionExt),
+	indexFile,
+	indexLockFile,
+}
+
+// reservedSessionID reports whether id collides with a store file or with
+// fsatomic's temporary file naming. Reserved names are compared with EqualFold,
+// and trailing dots and spaces are ignored as well because Windows strips them
+// from file and directory names.
+func reservedSessionID(id string) bool {
+	if strings.HasPrefix(strings.ToLower(id), sessionTempPrefix) {
+		return true
+	}
+	trimmed := strings.TrimRight(id, ". ")
+	for _, name := range reservedSessionNames {
+		if strings.EqualFold(trimmed, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func safeSessionPath(dir, id string) (string, error) {
 	if id == "" || id == "." || id == ".." || filepath.Base(id) != id || strings.ContainsAny(id, `/\`) {
 		return "", fmt.Errorf("invalid session id %q", id)
 	}
-	if reservedSessionIDs[strings.ToLower(id)] {
+	if reservedSessionID(id) {
 		return "", fmt.Errorf("reserved session id %q", id)
 	}
 	return filepath.Join(dir, id+sessionExt), nil
@@ -119,7 +141,8 @@ func safeSessionPath(dir, id string) (string, error) {
 
 // safeSessionDir returns the per-session directory that holds the session's
 // history archive. It applies the same id validation as safeSessionPath,
-// including the reserved index and index lock file names.
+// including the reserved index and index lock file names and the temporary file
+// prefix.
 func safeSessionDir(dir, id string) (string, error) {
 	if _, err := safeSessionPath(dir, id); err != nil {
 		return "", err
@@ -218,7 +241,7 @@ func restoreLegacyLineage(session Session, data []byte) Session {
 
 // List returns all sessions sorted newest-first. It reloads the index from disk
 // under the index lock, so entries written by another store process are visible
-// and the directory must allow creating index.json.lock.
+// and listing needs the same writable directory or lock file as NewStore.
 func (s *Store) List() ([]IndexEntry, error) {
 	lock, err := s.acquireIndex(context.Background())
 	if err != nil {
