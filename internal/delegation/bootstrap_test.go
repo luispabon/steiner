@@ -53,8 +53,6 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 
 	for _, want := range []string{
 		"You are steiner, a lean coding agent.",
-		"Core rules:",
-		"Prefer smallest correct change.",
 		"### While editing",
 		"### Verification",
 		"## Final response",
@@ -73,6 +71,29 @@ func assertSharedChildSystemPrompt(t *testing.T, content string) {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("shared child system prompt unexpectedly contains delegation instructions: %q", content)
 		}
+	}
+	// The shared Working rules render for writer children, which is every caller
+	// of this helper: code sub-agents and the legacy delegated child. The
+	// core-derived general rules and the writer role branch must reach both.
+	for _, want := range []string{
+		"### General",
+		"Do only the assigned task.",
+		"Prefer the smallest correct change.",
+		"If ambiguity materially changes implementation, stop and report the blocker. Otherwise state the assumption and continue.",
+		"Report overcomplicated, risky, or unnecessary requests and surface important tradeoffs briefly.",
+		"The codebase root is the current folder. Work in the assigned worktree.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("shared child Working rules missing %q in %q", want, content)
+		}
+	}
+	for _, forbidden := range []string{"Push back on overcomplicated", "If ambiguity materially changes implementation, ask the user."} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("shared child Working rules contain parent-only wording %q in %q", forbidden, content)
+		}
+	}
+	if outputVoice, delegatedTask := strings.Index(content, "## Output voice"), strings.Index(content, "## Delegated task"); outputVoice < 0 || delegatedTask < outputVoice {
+		t.Fatalf("shared child system prompt must place the delegated-task authorization after the output voice in %q", content)
 	}
 	if strings.Contains(content, "Ask the user for confirmation before editing.") {
 		t.Fatalf("shared child system prompt unexpectedly contains parent approval guidance: %q", content)

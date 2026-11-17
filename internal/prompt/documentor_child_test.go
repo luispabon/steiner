@@ -40,9 +40,10 @@ func TestDocumentorChildSectionOrder(t *testing.T) {
 				"### Accuracy",
 				"### Worktree and commits",
 				worktreeDuties,
-				"## Delegated task",
 				"## Working rules",
 				"### While editing",
+				testOutputVoiceMarker,
+				"## Delegated task",
 			}
 			last := -1
 			for _, marker := range markers {

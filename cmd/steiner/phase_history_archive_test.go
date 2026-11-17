@@ -33,7 +33,7 @@ func TestRunPhaseCompactionArchivesUnderPhaseSession(t *testing.T) {
 	}
 	cfg := testRuntimeConfig("test-model")
 	model := cfg.Models.Definitions["test-model"]
-	model.Advanced.Limits.ContextWindow = 8192
+	model.Advanced.Limits.ContextWindow = 7000
 	cfg.Models.Definitions["test-model"] = model
 
 	// The first response answers the compaction summary request; the second

@@ -14,7 +14,6 @@ const (
 	templateLSP             = "lsp.md.tmpl"
 	templateCodeChild       = "code_child.md.tmpl"
 	templateDocumentorChild = "documentor_child.md.tmpl"
-	templateCoreRules       = "core_rules.md.tmpl"
 	templateToolBatching    = "tool_batching.md.tmpl"
 	templateWorkflow        = "workflow_approval.md.tmpl"
 	templateDelegatedTask   = "delegated_task.md.tmpl"
@@ -46,11 +45,11 @@ const (
 	sectionLSP             sectionID = "lsp"
 	sectionCodeChild       sectionID = "code_child"
 	sectionDocumentorChild sectionID = "documentor_child"
-	sectionCoreRules       sectionID = "core_rules"
 	sectionToolBatching    sectionID = "tool_batching"
 	sectionWorkflow        sectionID = "workflow"
 	sectionExecutionModes  sectionID = "execution_modes"
 	sectionOutputVoice     sectionID = "output_voice"
+	sectionDelegatedTask   sectionID = "delegated_task"
 )
 
 type sectionContext struct {
@@ -66,6 +65,16 @@ type sectionContext struct {
 
 type sectionRenderer func(sectionContext) string
 
+// preambleTailOrder closes a preamble that carries a system override: tool
+// batching, the built-in output voice, then the single delegated-task
+// authorization for delegated child modes. The default assembly places tool
+// batching before the workflow section and ends with the same two sections.
+var preambleTailOrder = []sectionID{
+	sectionToolBatching,
+	sectionOutputVoice,
+	sectionDelegatedTask,
+}
+
 var defaultSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
@@ -73,12 +82,12 @@ var defaultSectionOrder = []sectionID{
 	sectionLSP,
 	sectionCodeChild,
 	sectionDocumentorChild,
-	sectionCoreRules,
 	sectionToolBatching,
 	sectionWorkflow,
 	sectionSandbox,
 	sectionExecutionModes,
 	sectionOutputVoice,
+	sectionDelegatedTask,
 }
 
 var systemSections = map[sectionID]sectionRenderer{
@@ -113,16 +122,13 @@ var systemSections = map[sectionID]sectionRenderer{
 		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedCodeSubAgent {
 			return ""
 		}
-		return strings.TrimSpace(renderTemplate(templateCodeChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
+		return renderTemplate(templateCodeChild, nil)
 	},
 	sectionDocumentorChild: func(ctx sectionContext) string {
 		if normalizeWorkflowMode(ctx.workflowMode) != workflowModeDelegatedDocumentor {
 			return ""
 		}
-		return strings.TrimSpace(renderTemplate(templateDocumentorChild, nil)) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
-	},
-	sectionCoreRules: func(sectionContext) string {
-		return renderTemplate(templateCoreRules, nil)
+		return renderTemplate(templateDocumentorChild, nil)
 	},
 	sectionToolBatching: func(sectionContext) string {
 		return renderTemplate(templateToolBatching, nil)
@@ -139,13 +145,20 @@ var systemSections = map[sectionID]sectionRenderer{
 	sectionOutputVoice: func(sectionContext) string {
 		return renderTemplate(templateOutputVoice, nil)
 	},
+	sectionDelegatedTask: func(ctx sectionContext) string {
+		if !isDelegatedChildMode(ctx.workflowMode) {
+			return ""
+		}
+		return renderTemplate(templateDelegatedTask, nil)
+	},
 }
 
 // overrideSectionOrder is the section sequence used when the user supplies a
-// system-prompt override: the shared rules, sandbox, and execution mode sections
-// are replaced by the override text, but identity, delegation mechanics, advisor
-// guidance, and workflow methodology still render around it. Tool batching and
-// output voice follow the override. LSP guidance is included when configured.
+// system-prompt override: the sandbox and execution mode sections are replaced
+// by the override text, but identity, delegation mechanics, advisor guidance,
+// and the shared workflow methodology and working rules still render around it.
+// preambleTailOrder follows the override text. LSP guidance is included when
+// configured.
 var overrideSectionOrder = []sectionID{
 	sectionIdentity,
 	sectionDelegation,
@@ -233,7 +246,7 @@ func systemPreambleWithAdvisor(params SystemPreambleParams) ContextBlock {
 func buildOverridePreamble(override string, ctx sectionContext) string {
 	sections := renderSections(overrideSectionOrder, ctx)
 	sections = append(sections, override)
-	sections = append(sections, renderSections([]sectionID{sectionToolBatching, sectionOutputVoice}, ctx)...)
+	sections = append(sections, renderSections(preambleTailOrder, ctx)...)
 	return strings.Join(sections, "\n\n")
 }
 
@@ -262,7 +275,7 @@ func renderSections(order []sectionID, ctx sectionContext) []string {
 
 func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) string {
 	mode = normalizeWorkflowMode(mode)
-	content := renderTemplate(templateWorkflow, struct {
+	return renderTemplate(templateWorkflow, struct {
 		DelegatedCode       bool
 		DelegatedDocumentor bool
 		DelegatedNonCode    bool
@@ -273,10 +286,6 @@ func renderWorkflowInstructions(mode workflowMode, delegationEnabled bool) strin
 		DelegatedNonCode:    mode == workflowModeDelegatedNonCodeChild,
 		DelegationEnabled:   delegationEnabled,
 	})
-	if mode == workflowModeDelegatedCodeSubAgent || mode == workflowModeDelegatedDocumentor || !isDelegatedChildMode(mode) {
-		return content
-	}
-	return strings.TrimSpace(content) + "\n\n" + strings.TrimSpace(renderTemplate(templateDelegatedTask, nil))
 }
 
 func normalizeWorkflowMode(mode workflowMode) workflowMode {
