@@ -9,9 +9,11 @@ The sandbox is Linux-only. On macOS and Windows, tools run without it. The relea
 
 ## Cross-process locking
 
-Steiner serializes writes that more than one process can make to the same file with advisory locks on stable sibling lock files: the session index (`index.json.lock`), the trusted-projects store (`trusted_projects.json.lock`) and each diagnostics stream (`<stream>.jsonl.lock`).
+Steiner serializes writes that more than one process can make to the same file with advisory locks on stable sibling lock files: the session index (`index.json.lock`) and the trusted-projects store (`trusted_projects.json.lock`).
 
-These locks need `flock` and a filesystem that supports it. Linux, macOS and other Unix systems except AIX provide it. Windows, AIX and filesystems that report locking as unsupported (some NFS and SMB mounts, for example) are the exception: Steiner continues without cross-process exclusion, so two processes writing at the same moment can lose session index entries, trust decisions or diagnostics records. The diagnostics writer logs the degraded lock to the process log when one is configured; the session store and the trusted-projects store do not report it.
+These locks need `flock` and a filesystem that supports it. Linux, macOS and other Unix systems except AIX provide it. Windows, AIX and filesystems that report locking as unsupported (some NFS and SMB mounts, for example) are the exception: Steiner continues without cross-process exclusion, so two processes writing at the same moment can lose session index entries or trust decisions. Neither store reports a degraded lock.
+
+Diagnostics streams are not locked. Processes sharing a diagnostics directory write best-effort: a writer reopens the active file when another process replaced it, and a run can still lose or interleave records. See the [`diagnostics` block](configuration.md#diagnostics-block).
 
 ## Download a release binary
 

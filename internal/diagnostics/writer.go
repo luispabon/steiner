@@ -25,6 +25,17 @@ const maxStreamGenerations = 3
 // so records from different files can be ordered against each other.
 var seq atomic.Int64
 
+// stream is one open per-kind file.
+//
+// A failed rotation appends past the cap instead of closing the stream for the
+// rest of the run, and sets rotateAfter to defer the next attempt.
+type stream struct {
+	file        *os.File
+	path        string
+	written     int64
+	rotateAfter int64
+}
+
 // Writer appends diagnostics records to one JSONL file per enabled stream.
 // Safe for concurrent use. A nil *Writer is a valid no-op writer, so callers
 // never need a nil check.
@@ -34,7 +45,6 @@ type Writer struct {
 	streams  Streams
 	files    map[Kind]*stream
 	warned   bool
-	lockWarn bool
 	closed   bool
 	captureB bool
 	runID    string
@@ -80,34 +90,37 @@ func New(opts Options) (*Writer, error) {
 		if !opts.Streams.enabled(kind) {
 			continue
 		}
-		if err := w.openStream(kind, cutoff); err != nil {
+		path := filepath.Join(dir, kind.fileName())
+		if !cutoff.IsZero() {
+			if err := pruneStaleGenerations(path, cutoff); err != nil {
+				_ = w.Close()
+				return nil, err
+			}
+		}
+		file, err := openStreamFile(path)
+		if err != nil {
 			_ = w.Close()
 			return nil, err
 		}
+		var written int64
+		if info, statErr := file.Stat(); statErr == nil {
+			written = info.Size()
+		}
+		w.files[kind] = &stream{file: file, path: path, written: written}
 	}
 	return w, nil
 }
 
-// openStream opens the file for kind after applying retention while holding the
-// stream's cross-process lock. Retention is skipped when the lock stays busy,
-// so a contended diagnostics directory cannot fail or stall startup; opening
-// without the lock only creates the file, and appends still take the lock.
-func (w *Writer) openStream(kind Kind, cutoff time.Time) error {
-	s := &stream{path: filepath.Join(w.dir, kind.fileName())}
-	lock := w.lockForOpen(s)
-	if lock != nil {
-		defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
-		if !cutoff.IsZero() {
-			if err := pruneStaleGenerations(s.path, cutoff); err != nil {
-				return err
-			}
-		}
+func openStreamFile(path string) (*os.File, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open diagnostics stream: %w", err)
 	}
-	if err := s.reopen(); err != nil {
-		return err
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("secure diagnostics stream: %w", err)
 	}
-	w.files[kind] = s
-	return nil
+	return file, nil
 }
 
 func newRunID() string {
@@ -149,6 +162,11 @@ func (w *Writer) RunID() string {
 // identity fields are filled in when unset. Best-effort: a write failure is
 // reported once per writer and never returned. No-op on a nil receiver or a
 // disabled stream.
+//
+// Another process can share the directory, so each record first reopens the
+// active file when it no longer matches the open descriptor. The record can
+// still be lost: the file can be replaced again between that check and the
+// write.
 func (w *Writer) Write(rec Record) {
 	if w == nil || !w.streams.enabled(rec.Kind) {
 		return
@@ -178,46 +196,37 @@ func (w *Writer) Write(rec Record) {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.append(rec.Kind, data)
+}
 
+// append writes one encoded record to its stream, repairing the stream first.
+// Caller must hold the writer's mutex.
+func (w *Writer) append(kind Kind, data []byte) {
 	if w.closed {
 		return
 	}
-	s := w.files[rec.Kind]
+	s := w.files[kind]
 	if s == nil {
 		return
 	}
-	if err := w.appendRecord(s, data); err != nil {
-		w.warn("append diagnostics record", err)
+	if err := s.reopenIfNeeded(); err != nil {
+		w.warn("reopen diagnostics stream", err)
+		return
 	}
-}
-
-// appendRecord appends one encoded record to s under the stream's cross-process
-// lock. Revalidating first keeps a descriptor replaced by another process's
-// retention or rotation out of the write path, and refreshes the size used for
-// the rotation decision. When the lock cannot be taken the record is dropped
-// rather than appended without exclusion; the lock problem is already reported
-// once, so no error is returned. Caller must hold the writer's mutex.
-func (w *Writer) appendRecord(s *stream, data []byte) error {
-	lock := w.lockForAppend(s)
-	if lock == nil {
-		return nil
-	}
-	defer func() { _ = lock.Release() }() // best-effort: closing the descriptor releases the lock
-
-	if err := s.revalidate(); err != nil {
-		return err
-	}
-	if s.written+int64(len(data)) > maxStreamBytes {
-		if err := rotateStream(s); err != nil {
-			return err
+	if s.written+int64(len(data)) > maxStreamBytes && s.written >= s.rotateAfter {
+		if err := rotate(s); err != nil {
+			w.warn("rotate diagnostics stream", err)
 		}
+	}
+	if s.file == nil {
+		return
 	}
 	n, err := s.file.Write(data)
 	if err != nil {
-		return fmt.Errorf("write diagnostics record: %w", err)
+		w.warn("write diagnostics record", err)
+		return
 	}
 	s.written += int64(n)
-	return nil
 }
 
 // warn logs the first failure this writer hits and stays quiet afterwards, so
@@ -230,20 +239,93 @@ func (w *Writer) warn(action string, err error) {
 	slog.Warn("diagnostics writer degraded", "action", action, "error", err, "dir", w.dir)
 }
 
-// warnLock logs the first lock problem this writer hits, so a contended or
-// unlocked stream cannot flood the log. Caller must hold the writer's mutex, or
-// call it before the writer is shared.
-func (w *Writer) warnLock(action string, detail string) {
-	if w.lockWarn {
-		return
+// reopenIfNeeded readies s for the next append. Retention and another
+// process's rotation replace the active path with a new inode, leaving this
+// descriptor on a file no reader will find, so the path and the open file are
+// compared with os.SameFile and the stream reopened when they differ. The
+// tracked size is refreshed from the active file so rotation counts records
+// other writers appended. Caller must hold the writer's mutex.
+func (s *stream) reopenIfNeeded() error {
+	if s.file == nil {
+		return s.reopen()
 	}
-	w.lockWarn = true
-	slog.Warn("diagnostics writer degraded", "action", action, "error", detail, "dir", w.dir)
+	open, err := s.file.Stat()
+	if err != nil {
+		return s.reopen()
+	}
+	active, err := os.Stat(s.path)
+	if err != nil || !os.SameFile(open, active) {
+		return s.reopen()
+	}
+	s.written = active.Size()
+	return nil
+}
+
+// reopen closes the current descriptor and opens the active path, taking the
+// tracked size from the file it opened. Caller must hold the writer's mutex.
+func (s *stream) reopen() error {
+	if s.file != nil {
+		// Best-effort: the old descriptor names a file no active path reaches.
+		_ = s.file.Close()
+		s.file = nil
+	}
+	file, err := openStreamFile(s.path)
+	if err != nil {
+		return err
+	}
+	s.file = file
+	s.written = 0
+	if info, statErr := file.Stat(); statErr == nil {
+		s.written = info.Size()
+	}
+	return nil
+}
+
+// rotate shifts existing generations, renames the active file to <file>.1 and
+// opens a fresh one. A failed rotation leaves the stream appending to the
+// active path past the cap instead of dropping every later record for the run,
+// and defers the next attempt by one cap worth of appends. Caller must hold the
+// writer's mutex.
+func rotate(s *stream) error {
+	if err := s.file.Close(); err != nil {
+		s.file = nil
+		return s.deferRotation(fmt.Errorf("close diagnostics stream for rotation: %w", err))
+	}
+	s.file = nil
+	for i := maxStreamGenerations; i >= 1; i-- {
+		src := fmt.Sprintf("%s.%d", s.path, i)
+		if i == maxStreamGenerations {
+			_ = os.Remove(src)
+			continue
+		}
+		if _, err := os.Stat(src); err == nil {
+			_ = os.Rename(src, fmt.Sprintf("%s.%d", s.path, i+1))
+		}
+	}
+	if err := os.Rename(s.path, s.path+".1"); err != nil && !os.IsNotExist(err) {
+		return s.deferRotation(fmt.Errorf("rotate diagnostics stream: %w", err))
+	}
+	s.rotateAfter = 0
+	if err := s.reopen(); err != nil {
+		return s.deferRotation(err)
+	}
+	return nil
+}
+
+// deferRotation keeps the stream writable after a failed rotation and delays
+// the next attempt until another maxStreamBytes have been written, so a
+// persistent failure cannot shift the generations once per record. Caller must
+// hold the writer's mutex.
+func (s *stream) deferRotation(err error) error {
+	s.rotateAfter = s.written + maxStreamBytes
+	if reopenErr := s.reopen(); reopenErr != nil {
+		return fmt.Errorf("%w; reopen diagnostics stream: %w", err, reopenErr)
+	}
+	return err
 }
 
 // Close closes every open stream file. No-op on a nil receiver. Records written
-// after Close are dropped rather than reopening a file nothing will close
-// again.
+// after Close are dropped rather than reopening a file nothing would close.
 func (w *Writer) Close() error {
 	if w == nil {
 		return nil
@@ -253,12 +335,13 @@ func (w *Writer) Close() error {
 	w.closed = true
 	var firstErr error
 	for kind, s := range w.files {
-		if s == nil {
+		if s == nil || s.file == nil {
 			continue
 		}
-		if err := s.closeFile(); err != nil && firstErr == nil {
+		if err := s.file.Close(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("close diagnostics stream %s: %w", kind, err)
 		}
+		s.file = nil
 	}
 	return firstErr
 }
