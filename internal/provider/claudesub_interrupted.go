@@ -63,21 +63,9 @@ func claudeSubQuotePartial(text string) string {
 	if len(text) <= claudeSubPartialQuoteMax {
 		return text
 	}
-	head := claudeSubUTF8Head(text, claudeSubPartialQuoteHead)
+	head := truncateUTF8Bytes(text, claudeSubPartialQuoteHead)
 	tail := claudeSubUTF8Tail(text, claudeSubPartialQuoteTail)
 	return fmt.Sprintf("%s[... %d bytes elided ...]%s", head, len(text)-len(head)-len(tail), tail)
-}
-
-// claudeSubUTF8Head returns the longest prefix of text no longer than n bytes
-// that ends on a rune boundary.
-func claudeSubUTF8Head(text string, n int) string {
-	if n >= len(text) {
-		return text
-	}
-	for n > 0 && !utf8.RuneStart(text[n]) {
-		n--
-	}
-	return text[:n]
 }
 
 // claudeSubUTF8Tail returns the longest suffix of text no longer than n bytes
