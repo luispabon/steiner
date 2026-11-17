@@ -343,6 +343,18 @@ func TestClaudeSubDrainFallsBack(t *testing.T) {
 			name:  "usage limit during the drain",
 			reply: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "usage_limit.jsonl")},
 		},
+		{
+			// The CLI queued its own aborted result and a trailing status before
+			// it acknowledged the interrupt. The fake keeps both ahead of the
+			// control response in one channel, so they are already in the session
+			// queue when the drain's first pop runs and the guard sees the status
+			// behind the result without depending on router timing.
+			name: "event queued after the aborted result",
+			reply: &claudeSubInterruptReply{beforeAck: []claudeSubEvent{
+				claudeSubDrainResultEvent(t, claudeSubDrainAbortedSubtype, "aborted_streaming", true),
+				claudeSubDecodeEvents(t, "interrupt_window.jsonl")[1],
+			}},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
