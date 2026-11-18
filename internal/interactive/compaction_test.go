@@ -344,11 +344,11 @@ func TestManualCompactionUsesParentSnapshotToolsAfterChildRequest(t *testing.T) 
 	if !reflect.DeepEqual(gotTools, parentTools) {
 		t.Fatalf("Compact tools = %#v, want the parent tools %#v", gotTools, parentTools)
 	}
-	// The latest-overall snapshot still carries the child attribution, so
-	// context reports keep describing the most recent request.
-	snapshot, ok := s.SnapshotStore().Snapshot()
-	if !ok || snapshot.AgentID != "child-1" || snapshot.Model != "child-model" {
-		t.Fatalf("latest snapshot = %#v (ok=%v), want child attribution preserved", snapshot, ok)
+	// The parent snapshot still describes the parent request, so manual
+	// compaction reuses its tools even after a child request.
+	snapshot, ok := s.SnapshotStore().ParentSnapshot()
+	if !ok || snapshot.AgentID != "" || snapshot.Model != "parent-model" {
+		t.Fatalf("parent snapshot = %#v (ok=%v), want parent attribution preserved", snapshot, ok)
 	}
 }
 

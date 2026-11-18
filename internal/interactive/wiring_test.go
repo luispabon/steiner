@@ -21,7 +21,7 @@ func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
 	}
 	snaps := s.SnapshotStore()
 
-	_, ok := snaps.Snapshot()
+	_, ok := snaps.ParentSnapshot()
 	if ok {
 		t.Fatal("expected no snapshot initially")
 	}
@@ -34,7 +34,7 @@ func TestSessionSnapshotSinkCapturesAPIRequestEvent(t *testing.T) {
 		84,
 	))
 
-	snap, ok := snaps.Snapshot()
+	snap, ok := snaps.ParentSnapshot()
 	if !ok {
 		t.Fatal("expected snapshot after APIRequestEvent")
 	}
@@ -57,7 +57,7 @@ func TestSnapshotSinkCapturesAgentAttribution(t *testing.T) {
 	event = output.WithAPIRequestKind(event, output.APIRequestKindCompaction)
 	sink.Emit(event)
 
-	snapshot, ok := store.Snapshot()
+	snapshot, ok := store.AgentSnapshot("child-1")
 	if !ok {
 		t.Fatal("expected snapshot")
 	}
@@ -75,7 +75,7 @@ func TestSessionSnapshotSinkIgnoresNonAPIRequestEvents(t *testing.T) {
 
 	s.EventSink().Emit(output.NewRunStartedEvent("interactive", "test-model", "", 0, 0))
 
-	_, ok := snaps.Snapshot()
+	_, ok := snaps.ParentSnapshot()
 	if ok {
 		t.Fatal("expected no snapshot after non-API-request event")
 	}
@@ -101,7 +101,7 @@ func TestSnapshotSinkSnapshotSurvivesCallerMutationAfterEmit(t *testing.T) {
 	tools[0].Function.Name = "mutated"
 	tools[0].Function.Parameters["type"] = "mutated"
 
-	snapshot, ok := store.Snapshot()
+	snapshot, ok := store.ParentSnapshot()
 	if !ok {
 		t.Fatal("expected a stored snapshot")
 	}
@@ -142,14 +142,13 @@ func TestSnapshotSinkConcurrentEmitAndSnapshot(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				_, _ = store.Snapshot()
 				_, _ = store.ParentSnapshot()
 			}
 		}()
 	}
 	wg.Wait()
 
-	snapshot, ok := store.Snapshot()
+	snapshot, ok := store.ParentSnapshot()
 	if !ok {
 		t.Fatal("expected a stored snapshot after concurrent emits")
 	}

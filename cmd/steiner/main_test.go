@@ -1368,8 +1368,8 @@ func TestCLIRunnerPropagatesSelectedModelBudgetToLiveRunRequest(t *testing.T) {
 
 func TestRequestSnapshotStoreStartsEmpty(t *testing.T) {
 	store := &interactive.SnapshotStore{}
-	if _, ok := store.Snapshot(); ok {
-		t.Fatal("Snapshot() ok = true, want false")
+	if _, ok := store.ParentSnapshot(); ok {
+		t.Fatal("ParentSnapshot() ok = true, want false")
 	}
 }
 
@@ -1442,9 +1442,9 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "first"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
-	first, ok := store.Snapshot()
+	first, ok := store.ParentSnapshot()
 	if !ok {
-		t.Fatal("first Snapshot() ok = false, want true")
+		t.Fatal("first ParentSnapshot() ok = false, want true")
 	}
 	if got, want := first.ModelBudget.ContextSize, 4096; got != want {
 		t.Fatalf("first context size = %d, want %d", got, want)
@@ -1457,9 +1457,9 @@ func TestCLIRunnerUpdatesSnapshotBudgetWhenModelChanges(t *testing.T) {
 	if _, err := runner.RunWithHooks(context.Background(), []agent.Message{{Role: agent.MessageRoleUser, Content: "second"}}, nil, runHooks{}); err != nil {
 		t.Fatalf("second Run() error = %v", err)
 	}
-	second, ok := store.Snapshot()
+	second, ok := store.ParentSnapshot()
 	if !ok {
-		t.Fatal("second Snapshot() ok = false, want true")
+		t.Fatal("second ParentSnapshot() ok = false, want true")
 	}
 	if got, want := second.ModelBudget.ContextSize, 8192; got != want {
 		t.Fatalf("second context size = %d, want %d", got, want)

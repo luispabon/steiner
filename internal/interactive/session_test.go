@@ -279,23 +279,37 @@ func TestSkillsSetNilSafe(t *testing.T) {
 	s.Set("anything", true)
 }
 
-func TestSnapshotStoreStoreAndSnapshot(t *testing.T) {
+func TestSnapshotStoreStoreAndRead(t *testing.T) {
 	t.Parallel()
 	store := &SnapshotStore{}
-	_, ok := store.Snapshot()
-	if ok {
+	if _, ok := store.ParentSnapshot(); ok {
 		t.Fatal("expected ok=false for empty store")
+	}
+	if _, ok := store.AgentSnapshot("agent-1"); ok {
+		t.Fatal("expected ok=false for empty store agent snapshot")
 	}
 
 	store.Store(RequestContextSnapshot{
 		Model: "test-model",
 	})
-	snapshot, ok := store.Snapshot()
+	snapshot, ok := store.ParentSnapshot()
 	if !ok {
 		t.Fatal("expected ok=true after Store")
 	}
 	if snapshot.Model != "test-model" {
 		t.Fatalf("model = %q, want %q", snapshot.Model, "test-model")
+	}
+
+	store.Store(RequestContextSnapshot{
+		Model:   "agent-model",
+		AgentID: "agent-1",
+	})
+	agentSnapshot, ok := store.AgentSnapshot("agent-1")
+	if !ok {
+		t.Fatal("expected ok=true for agent snapshot")
+	}
+	if agentSnapshot.Model != "agent-model" {
+		t.Fatalf("agent model = %q, want %q", agentSnapshot.Model, "agent-model")
 	}
 }
 
@@ -337,9 +351,9 @@ func TestSnapshotStoreDeepClonesProviderOwnedFields(t *testing.T) {
 	}
 
 	store.Store(snapshot)
-	got, ok := store.Snapshot()
+	got, ok := store.ParentSnapshot()
 	if !ok {
-		t.Fatal("Snapshot() ok = false, want true")
+		t.Fatal("ParentSnapshot() ok = false, want true")
 	}
 
 	got.Messages[0].ToolCalls[0].Arguments["path"] = "b.go"
@@ -364,13 +378,6 @@ func TestSnapshotStoreRetainsAgentSnapshots(t *testing.T) {
 	store.Store(RequestContextSnapshot{Model: "first-agent-model", AgentID: "agent-1"})
 	store.Store(RequestContextSnapshot{Model: "second-agent-model", AgentID: "agent-2"})
 
-	latest, ok := store.Snapshot()
-	if !ok {
-		t.Fatal("Snapshot() ok = false, want true")
-	}
-	if latest.Model != "second-agent-model" {
-		t.Fatalf("latest model = %q, want second-agent-model", latest.Model)
-	}
 	parent, ok := store.ParentSnapshot()
 	if !ok {
 		t.Fatal("ParentSnapshot() ok = false, want true")
@@ -485,9 +492,6 @@ func TestSnapshotStoreClear(t *testing.T) {
 
 	store.Clear()
 
-	if _, ok := store.Snapshot(); ok {
-		t.Fatal("Snapshot() ok = true after Clear, want false")
-	}
 	if _, ok := store.ParentSnapshot(); ok {
 		t.Fatal("ParentSnapshot() ok = true after Clear, want false")
 	}
@@ -515,9 +519,6 @@ func TestResetConversationClearsSnapshots(t *testing.T) {
 	s.resetConversationLocked()
 	s.mu.Unlock()
 
-	if _, ok := s.snapshots.Snapshot(); ok {
-		t.Fatal("Snapshot() ok = true after reset, want false")
-	}
 	if _, ok := s.snapshots.ParentSnapshot(); ok {
 		t.Fatal("ParentSnapshot() ok = true after reset, want false")
 	}

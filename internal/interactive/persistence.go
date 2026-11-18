@@ -229,6 +229,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		s.mode = mode
 		s.ledger = slices.Clone(sess.SubAgentLedger)
 		s.delegationGroups = &groupLedger
+		s.snapshots.Clear()
 		s.skills.Reset()
 		for _, name := range sess.Skills {
 			s.skills.Set(name, true)
