@@ -113,11 +113,11 @@ Phase status values: `pending`, `running`, `done`, `failed`, `skipped`. Resume t
 
 `Orchestrator.Resume` (`resume.go`) serves `steiner oneshot --resume <id>`:
 
-1. Reads `run.json`. Blank `branch` or `worktree_path` is filled from the run identity.
-2. Acquires the run lock before checking the worktree. Stale locks are reclaimed as under Run lock.
+1. Reads `run.json` through `readResumeManifest`, which also fills a blank `branch` or `worktree_path` from the run identity. This copy only feeds validation done before the lock.
+2. Acquires the run lock before checking the worktree, then re-reads the manifest under it, so a manual resolution that lands between the first read and lock acquisition is not overwritten. Stale locks are reclaimed as under Run lock.
 3. If `worktree_base` is blank, it is set to the current start point and saved to the manifest.
 4. `ensureResumeWorktree`: an existing worktree is checked for the expected branch (`verifyWorktree`). A missing worktree is re-provisioned at `worktree_base`.
-5. `resumeFromManifest` restarts the first phase that is neither `done` nor `skipped`, with a new session. Finished phases are never rerun. With no incomplete phase it calls `finalizeRun` only when the report is pending, the closeout outcome is unknown, or a retry is authorised; otherwise it returns an error that the run is already complete. With an unknown outcome `finalizeRun` writes the pending report and returns a manual-resolution error without calling `Closeout`; only a `retry_authorized` manifest reaches the closeout call again.
+5. `resumeFromManifest` restarts the first phase that is neither `done` nor `skipped`, with a new session. Finished phases are never rerun. With no incomplete phase it calls `finalizeRun` only when `reportPending`, `closeoutOutcomeUnknown`, or `closeoutRetryable` holds; otherwise it returns an error that the run is already complete. That gate is the only duplicate-call protection: `finalizeRun` has no settled-state early return. An unknown outcome passes the gate, and `finalizeRun` returns the manual-resolution error without calling `Closeout`; a `retry_authorized` manifest is the only state that reaches the closeout call again.
 
 Before restarting, `reportOrphanedWorktrees` loads the interrupted phase's session (when the session store implements `Load`), reads its `SubAgentLedger`, and emits an `orphaned` phase indicator for each sub-agent entry with a `WorktreePath`.
 
@@ -138,17 +138,24 @@ Resume runs no artifact check before the restarted phase. `CheckBoundary` runs o
 
 ## Final report
 
-Finalization progress lives in three optional manifest keys: `finalization_version` (`1` once a run has started finalization), `report_state` (`pending` when the run is created, `written` once `final-report.json` is on disk), and `closeout_intent` (`pending` while an external closeout may have started without a recorded result).
+Finalization progress lives in three optional manifest keys: `finalization_version` (`1`, stamped when the run is created, before any phase runs), `report_state` (`pending` when the run is created, `written` once `final-report.json` is on disk), and `closeout_intent` (`pending` while an external closeout may have started without a recorded result).
 
-`finalizeRun` generates the report with `GenerateFinalReport`, writes it to the planning dir (mode 0600) through `WriteFinalReport` (`report.go`), and persists progress before each external effect:
+`closeoutOutcomeUnknown` (`orchestrator.go`) is true for a pending `closeout_intent` or a persisted `closeout_state: unknown`. A manifest with `finalization_version` set is otherwise settled. A manifest without it is unknown only when `closeout_state` is empty or `failed`.
 
-1. Persist `report_path` with `report_state: written` and `finalization_version: 1`.
-2. When `closeoutOutcomeUnknown` holds and the state is not `retry_authorized`, persist `closeout_state: unknown` with the manual-resolution note, emit a `boundary` indicator, and return an error naming the run and pointing at `steiner oneshot --resolve`. `Closeout` is not called.
-3. Persist `closeout_intent: pending`.
-4. Call `Closeout` with the manifest, the report, and the planning dir's `overview.md` and `review.md`.
-5. Persist the result and clear `closeout_intent`.
+`finalizeRun` decides `manualRequired := closeoutOutcomeUnknown(*manifest)` before it touches the version fields, because writing them records that an earlier closeout outcome is unknown. It then calls `GenerateFinalReport`, which writes `final-report.json` to the planning dir through `WriteFinalReport` (`report.go`, mode 0600); a generation error returns and persists nothing. Progress is persisted before each external effect:
 
-Every persistence step returns an error when it fails, so closeout is not attempted after a failed intent write. `closeout_state` stays empty until `Closeout` returns; a closeout error records `closeout_state: unknown` and keeps `closeout_intent: pending`, and a result that cannot be persisted leaves the pending intent in place, so the run counts as unknown either way.
+1. One write sets `report_path`, `report_state: written`, and `finalization_version: 1`, and also sets `closeout_intent: pending` when the outcome is not already unknown and `closeoutExternalAttempt` (`closeout.go`) reports that `Closeout` can reach a provider runner. That helper returns false, with the note `Closeout` records instead, when `oneshot.auto_pr` is off or the report is not a completed run. The intent shares the write with the report state, so a crash cannot leave a versioned manifest that looks settled while an external request is still possible.
+2. When `manualRequired` holds, a second write records `closeout_state: unknown` with the manual-resolution note, a `boundary` indicator is emitted, and the call returns an error naming the run and pointing at `steiner oneshot --resolve`. `Closeout` is not called.
+3. `overview.md` and `review.md` are read from the planning dir.
+4. `Closeout` is called with the manifest, the report, and those two documents.
+5. A closeout error records `closeout_state: unknown` with the error as the note and leaves any pending intent in place, then returns the error.
+6. A closeout result records `closeout_url`, `closeout_provider`, `closeout_state`, and `closeout_note`, and clears `closeout_intent`.
+
+A failed write returns its error and stops the sequence, so closeout is not attempted after a failed state write.
+
+For a run whose closeout can reach a provider runner, a written report with neither a pending intent nor a closeout result is unreachable, because both fields land in the same write. A run whose closeout is provably skipped has no intent, so a crash in that window leaves it settled, which is safe because no external request was possible. On a run that could reach a provider, a crash after the combined write and before `Closeout` leaves `closeout_intent: pending`, so an operator must resolve the run manually even though no request may exist; over-reporting is the intended direction.
+
+A closeout error and a closeout result that cannot be persisted both leave the pending intent in place, so the run counts as unknown either way. A provably skipped closeout has no intent, and a result write that fails leaves `closeout_state` empty, so that run stays settled.
 
 Report fields: `run_id`, `slug`, `task_summary`, `branch`, `worktree_path`, `planning_path`, `report_path`, `current_phase`, `status` (`success` or `failure`), `completion`, `phase_sessions`, `git` (`branch`, `commit`, `short_commit`, `dirty`, `files_changed`), `changes_made`, `files_changed`, `validation`, `review_outcome`, `review_fix_iterations`, `assumptions`, `risks`, `unresolved_issues`, `failure` (only when the run did not pass: `attempted`, `blocked`, `changes_left_behind`, `left_behind_summary`), and `generated_at`. List fields hold at most 8 items. Text fields hold at most 240 runes.
 
@@ -164,7 +171,7 @@ Closeout (`closeout.go`) runs on the host, not in the sandbox.
 - GitHub: pushes the branch, then runs `gh pr create` (requires `gh` on `PATH`).
 - GitLab: pushes with `merge_request` push options. It returns no URL, so `closeout_url` stays empty and the note says the merge request was created through push options.
 - Azure DevOps: pushes, then runs `az repos pr create` (requires `az` on `PATH`).
-- States: `created` (with `closeout_url` and `closeout_provider`), `unsupported`, `skipped`, `failed`, `unknown`, and `retry_authorized`. `Closeout` returns the first four. Finalization records `unknown` when the call errors, because the request may have reached the provider, and a result it cannot persist leaves `closeout_intent: pending`, which classifies the run as unknown in the same way. Manual resolution records `created` with an operator-supplied URL or `retry_authorized`. Every closeout error and every persisted `closeout_intent` without a recorded result is an unknown external outcome and is never retried automatically. A manifest without `finalization_version` whose `closeout_state` is empty or `failed` counts as unknown too, since it cannot prove the external request did not happen. Such a run becomes resumable again only through [manual resolution](#manual-closeout-resolution).
+- States: `created` (with `closeout_url` and `closeout_provider`), `unsupported`, `skipped`, `failed`, `unknown`, and `retry_authorized`. `Closeout` returns the first four. Finalization records `unknown` when the call errors, because the request may have reached the provider, and a result it cannot persist leaves any pending `closeout_intent` in place, which classifies the run as unknown in the same way. Manual resolution records `created` with an operator-supplied URL or `retry_authorized`. Every closeout error and every persisted `closeout_intent` without a recorded result is an unknown external outcome and is never retried automatically. A manifest without `finalization_version` whose `closeout_state` is empty or `failed` counts as unknown too, since it cannot prove the external request did not happen. Such a run becomes resumable again only through [manual resolution](#manual-closeout-resolution).
 
 ## Manual closeout resolution
 
@@ -172,7 +179,7 @@ Closeout (`closeout.go`) runs on the host, not in the sandbox.
 
 - Validation (`validateResolution`): a `ResolutionRecordURL` trims the URL and requires an `http` or `https` scheme and a host; a `ResolutionRetry` takes no URL. `resolutionIdentity` rejects a manifest without a run ID and an identity that names a different run.
 - It reads the manifest, acquires the run's exclusive lock through `RunLockFactory` (default `AcquireRunLock`), the same lock `Resume` takes, then re-reads the manifest under the lock so a concurrent run or resolution is not overwritten.
-- It rejects a run whose outcome is not unknown (`closeoutOutcomeUnknown`) with an error naming the run's state, so a recorded result cannot be replaced.
+- It rejects a run whose outcome is not unknown (`closeoutOutcomeUnknown`) with an error naming the run's state, so a recorded result cannot be replaced. A `retry_authorized` run is among the rejected: `closeoutOutcomeUnknown` is false for it, so it cannot be resolved with a URL, and the operator resumes to perform the authorised attempt.
 - It records `created` with `closeout_url` for a URL, or `retry_authorized` for a retry, clears `closeout_intent` and `closeout_note`, and stamps `finalization_version`.
 - It never calls `Closeout`. A `retry_authorized` run reaches closeout through the next resume only.
 
