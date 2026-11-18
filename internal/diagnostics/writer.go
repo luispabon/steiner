@@ -1,11 +1,13 @@
 package diagnostics
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -73,9 +75,10 @@ type Writer struct {
 }
 
 // New opens a Writer over opts.Dir, creating the directory (0o700) and one
-// 0o600 file per enabled stream. Records older than opts.RetentionDays are
-// pruned from existing files before they are opened. Returns a nil Writer,
-// whose methods are no-ops, when no stream is enabled.
+// 0o600 file per enabled stream. Under the stream lock, records older than
+// opts.RetentionDays are pruned from existing files and an unterminated trailing
+// record left by a killed process is removed before the file is opened. Returns
+// a nil Writer, whose methods are no-ops, when no stream is enabled.
 func New(opts Options) (*Writer, error) {
 	if !opts.Streams.any() {
 		return nil, nil
@@ -110,25 +113,102 @@ func New(opts Options) (*Writer, error) {
 		if !opts.Streams.enabled(kind) {
 			continue
 		}
-		path := filepath.Join(dir, kind.fileName())
-		if !cutoff.IsZero() {
-			if err := pruneStaleGenerations(path, cutoff); err != nil {
-				_ = w.Close()
-				return nil, err
-			}
-		}
-		file, err := openStreamFile(path)
-		if err != nil {
+		if err := w.prepareStream(kind, cutoff); err != nil {
 			_ = w.Close()
 			return nil, err
 		}
-		var written int64
-		if info, statErr := file.Stat(); statErr == nil {
-			written = info.Size()
-		}
-		w.files[kind] = &stream{file: file, path: path, written: written}
 	}
 	return w, nil
+}
+
+// prepareStream runs the startup mutations for one stream and opens its file.
+// Retention and tail repair rewrite a file another process may be appending to,
+// so they run under the stream lock. An unavailable lock skips them rather than
+// failing: opening for append is not protected work, and startup contention
+// should not cost the process every later record.
+func (w *Writer) prepareStream(kind Kind, cutoff time.Time) error {
+	path := filepath.Join(w.dir, kind.fileName())
+	if lock, ok := w.lockStream("lock diagnostics stream", kind); ok {
+		defer func() {
+			// Best-effort: the lock file stays; only the descriptor is closed.
+			_ = lock.Release()
+		}()
+		if !cutoff.IsZero() {
+			if err := pruneStaleGenerations(path, cutoff); err != nil {
+				return err
+			}
+		}
+		if err := truncateIncompleteTail(path); err != nil {
+			return err
+		}
+	}
+	file, err := openStreamFile(path)
+	if err != nil {
+		return err
+	}
+	var written int64
+	if info, statErr := file.Stat(); statErr == nil {
+		written = info.Size()
+	}
+	w.files[kind] = &stream{file: file, path: path, written: written}
+	return nil
+}
+
+// tailScanBytes bounds one read while truncateIncompleteTail searches backwards
+// for the last complete line.
+const tailScanBytes = 4096
+
+// truncateIncompleteTail drops a trailing fragment left by a process killed
+// mid-record. Appending after an unterminated line would merge the fragment with
+// the next record and corrupt both, so the file is cut back to the last
+// newline. Complete lines stay, and a file that already ends with a newline is
+// left alone. Caller must hold the stream lock.
+func truncateIncompleteTail(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("repair diagnostics stream tail: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("repair diagnostics stream tail: %w", err)
+	}
+	size := info.Size()
+	if size == 0 {
+		return nil
+	}
+	buf := make([]byte, tailScanBytes)
+	for end := size; end > 0; {
+		start := end - tailScanBytes
+		if start < 0 {
+			start = 0
+		}
+		n := int(end - start)
+		if _, readErr := file.ReadAt(buf[:n], start); readErr != nil && !errors.Is(readErr, io.EOF) {
+			return fmt.Errorf("repair diagnostics stream tail: %w", readErr)
+		}
+		end = start
+		idx := bytes.LastIndexByte(buf[:n], '\n')
+		if idx < 0 {
+			continue
+		}
+		keep := start + int64(idx) + 1
+		if keep == size {
+			return nil
+		}
+		if err := file.Truncate(keep); err != nil {
+			return fmt.Errorf("repair diagnostics stream tail: %w", err)
+		}
+		return nil
+	}
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("repair diagnostics stream tail: %w", err)
+	}
+	return nil
 }
 
 func openStreamFile(path string) (*os.File, error) {
@@ -219,8 +299,11 @@ func (w *Writer) Write(rec Record) {
 	w.append(rec.Kind, data)
 }
 
-// append writes one encoded record to its stream, repairing the stream first.
-// Caller must hold the writer's mutex.
+// append writes one encoded record to its stream, refreshing and rotating the
+// stream first. The stream lock is held for the whole mutation so a cooperating
+// process cannot rotate or retain the file between the refresh and the append;
+// when no usable lock is available the record is dropped instead of written
+// unprotected. Caller must hold the writer's mutex.
 func (w *Writer) append(kind Kind, data []byte) {
 	if w.closed {
 		return
@@ -229,6 +312,15 @@ func (w *Writer) append(kind Kind, data []byte) {
 	if s == nil {
 		return
 	}
+	lock, ok := w.lockStream("lock diagnostics stream", kind)
+	if !ok {
+		return
+	}
+	defer func() {
+		// Best-effort: the descriptor releases the kernel lock, and the record is
+		// already written.
+		_ = lock.Release()
+	}()
 	if err := s.reopenIfNeeded(); err != nil {
 		w.warn("refresh diagnostics stream", err)
 		return

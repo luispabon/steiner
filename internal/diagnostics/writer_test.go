@@ -2,7 +2,9 @@ package diagnostics
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/filelock"
 )
 
 func allStreams() Streams {
@@ -385,5 +389,219 @@ func TestWriterCaptureBodies(t *testing.T) {
 func TestNewEmptyDir(t *testing.T) {
 	if _, err := New(Options{Streams: allStreams()}); err == nil {
 		t.Fatal("New() error = nil, want an error for an empty directory")
+	}
+}
+
+// partialRecord is an encoded record cut off mid-line, as a process killed
+// during a write leaves it.
+const partialRecord = `{"ts":"2026-11-18T00:00:00Z","kind":"cache","agent_id":"frag-`
+
+// failStreamLock replaces the stream lock seam with a failing acquire.
+func failStreamLock(t *testing.T) {
+	t.Helper()
+
+	orig := acquireStreamFileLock
+	acquireStreamFileLock = func(context.Context, string) (*filelock.Lock, error) {
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() { acquireStreamFileLock = orig })
+}
+
+// appendFragment appends raw bytes to path, leaving the file without a trailing
+// newline the way a killed writer does.
+func appendFragment(t *testing.T, path, fragment string) {
+	t.Helper()
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	if _, err := file.WriteString(fragment); err != nil {
+		_ = file.Close()
+		t.Fatalf("write fragment to %s: %v", path, err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close %s: %v", path, err)
+	}
+}
+
+// skipUnlessStreamLocksSupported skips a test whose assertions need real
+// cross-process exclusion, which the platform or filesystem may refuse.
+func skipUnlessStreamLocksSupported(t *testing.T, dir string, kind Kind) {
+	t.Helper()
+
+	lock, err := filelock.Acquire(context.Background(), streamLockPath(dir, kind))
+	if err != nil {
+		t.Fatalf("acquire stream lock: %v", err)
+	}
+	unsupported := lock.Unsupported()
+	// Best-effort: the probe holds nothing but the descriptor.
+	_ = lock.Release()
+	if unsupported {
+		t.Skip("stream locks are unsupported on this platform")
+	}
+}
+
+func TestWriterRepairsIncompleteTrailingRecord(t *testing.T) {
+	tests := []struct {
+		name     string
+		fragment string
+		marker   string
+	}{
+		{
+			// A fragment longer than the backwards scan window must not take the
+			// complete lines before it with it.
+			name:     "fragment longer than the scan window",
+			fragment: `{"ts":"2026-11-18T00:00:00Z","payload":"` + strings.Repeat("x", 2*tailScanBytes),
+			marker:   `"payload":"`,
+		},
+		{name: "short fragment", fragment: partialRecord, marker: `"frag-`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "cache.jsonl")
+			seeded := 2 * 24 * time.Hour
+			seedStream(t, path, seeded)
+			appendFragment(t, path, tt.fragment)
+
+			w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			t.Cleanup(func() { _ = w.Close() })
+			w.Write(Record{Kind: KindCache, AgentID: "after-repair"})
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			if strings.Contains(string(data), tt.marker) {
+				t.Errorf("stream = %q, want the incomplete trailing record removed", string(data))
+			}
+			records := readRecords(t, path)
+			if len(records) != 2 {
+				t.Fatalf("records = %d, want the seeded record plus the new one", len(records))
+			}
+			if records[0].AgentID != ageLabel(seeded) || records[1].AgentID != "after-repair" {
+				t.Errorf("records = %q/%q, want %q/after-repair", records[0].AgentID, records[1].AgentID, ageLabel(seeded))
+			}
+		})
+	}
+}
+
+func TestWriterKeepCompleteTrailingRecord(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache.jsonl")
+	seeded := 2 * 24 * time.Hour
+	seedStream(t, path, seeded)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	w.Write(Record{Kind: KindCache, AgentID: "after-open"})
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if !strings.HasPrefix(string(after), string(before)) {
+		t.Errorf("stream = %q, want the complete seeded record kept verbatim", string(after))
+	}
+	records := readRecords(t, path)
+	if len(records) != 2 || records[0].AgentID != ageLabel(seeded) {
+		t.Fatalf("records = %+v, want the seeded record kept before the new one", records)
+	}
+}
+
+func TestWriterSkipsAppendWhenStreamLockUnavailable(t *testing.T) {
+	failStreamLock(t)
+
+	dir := t.TempDir()
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v, want the stream to open without a lock", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	w.Write(Record{Kind: KindTool, AgentID: "dropped"})
+
+	if !w.warned {
+		t.Error("warned = false, want the unavailable lock reported")
+	}
+	if got := readRecords(t, filepath.Join(dir, "tool.jsonl")); len(got) != 0 {
+		t.Fatalf("records = %+v, want the record dropped while the lock is unavailable", got)
+	}
+}
+
+func TestNewSkipsRetentionWhenStreamLockUnavailable(t *testing.T) {
+	failStreamLock(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache.jsonl")
+	stale := 90 * 24 * time.Hour
+	seedStream(t, path, stale, 2*24*time.Hour)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}, RetentionDays: 30})
+	if err != nil {
+		t.Fatalf("New() error = %v, want a skipped retention to succeed", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	if !w.warned {
+		t.Error("warned = false, want the unavailable lock reported")
+	}
+	records := readRecords(t, path)
+	if len(records) != 2 || records[0].AgentID != ageLabel(stale) {
+		t.Fatalf("records = %+v, want both seeded records kept without the lock", records)
+	}
+}
+
+func TestWriterSerializesAppendsAcrossWriters(t *testing.T) {
+	dir := t.TempDir()
+	skipUnlessStreamLocksSupported(t, dir, KindTool)
+
+	first, err := New(Options{Dir: dir, Streams: Streams{Tool: true}, RunID: "first"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	second, err := New(Options{Dir: dir, Streams: Streams{Tool: true}, RunID: "second"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+
+	const perWriter = 10
+	var wg sync.WaitGroup
+	for i, writer := range []*Writer{first, second} {
+		wg.Add(1)
+		go func(id int, writer *Writer) {
+			defer wg.Done()
+			for j := 0; j < perWriter; j++ {
+				writer.Write(Record{Kind: KindTool, AgentID: fmt.Sprintf("writer-%d-record-%d", id, j)})
+			}
+		}(i, writer)
+	}
+	wg.Wait()
+
+	records := readRecords(t, filepath.Join(dir, "tool.jsonl"))
+	if len(records) != 2*perWriter {
+		t.Fatalf("records = %d, want %d", len(records), 2*perWriter)
+	}
+	seen := make(map[string]bool, len(records))
+	for _, rec := range records {
+		seen[rec.AgentID] = true
+		if rec.RunID != "first" && rec.RunID != "second" {
+			t.Errorf("record %q run id = %q, want one of the two writers", rec.AgentID, rec.RunID)
+		}
+	}
+	if len(seen) != 2*perWriter {
+		t.Errorf("distinct records = %d, want %d", len(seen), 2*perWriter)
 	}
 }
