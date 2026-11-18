@@ -141,6 +141,49 @@ func TestLoadSessionSilentlyDropsUnknownSkills(t *testing.T) {
 	}
 }
 
+func TestLoadSessionClearsSnapshotStore(t *testing.T) {
+	t.Parallel()
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions["load-snapshots"] = session.Session{
+		ID:    "load-snapshots",
+		Title: "Load Snapshots",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations: []agent.ConversationGeneration{
+				{
+					ID:       1,
+					Messages: []agent.Message{{Role: agent.MessageRoleUser, Content: "test"}},
+				},
+			},
+			NextGenerationID: 2,
+		},
+	}
+
+	s := testNewSession(t, Dependencies{SessionStore: mockStore})
+	s.SnapshotStore().Store(RequestContextSnapshot{Model: "previous-parent-model"})
+	s.SnapshotStore().Store(RequestContextSnapshot{Model: "previous-agent-model", AgentID: "agent-1"})
+
+	if err := s.loadSession(context.Background(), "load-snapshots"); err != nil {
+		t.Fatalf("loadSession() = %v, want nil", err)
+	}
+
+	if _, ok := s.SnapshotStore().ParentSnapshot(); ok {
+		t.Fatal("ParentSnapshot() ok = true after load, want false")
+	}
+	if _, ok := s.SnapshotStore().AgentSnapshot("agent-1"); ok {
+		t.Fatal("AgentSnapshot() ok = true after load, want false")
+	}
+
+	s.SnapshotStore().Store(RequestContextSnapshot{Model: "fresh-parent-model"})
+	snapshot, ok := s.SnapshotStore().ParentSnapshot()
+	if !ok {
+		t.Fatal("ParentSnapshot() ok = false after Store, want true")
+	}
+	if snapshot.Model != "fresh-parent-model" {
+		t.Fatalf("parent model = %q, want fresh-parent-model", snapshot.Model)
+	}
+}
+
 func TestForkSessionCarriesEnabledSkills(t *testing.T) {
 	t.Parallel()
 	mockStore := newMockSessionStore()

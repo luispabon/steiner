@@ -6,8 +6,6 @@ import (
 	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
-	"github.com/luispabon/steiner/internal/prompt"
-	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -151,92 +149,6 @@ func (s *Skills) Snapshot() []string {
 		}
 	}
 	return names
-}
-
-// SnapshotStore provides thread-safe storage for the most recent request
-// context snapshot during an interactive session, plus a distinct latest
-// parent-request snapshot.
-type SnapshotStore struct {
-	mu sync.RWMutex
-	// snapshot is the most recent request of any scope, including child
-	// sub-agent requests, and drives context reporting attribution.
-	snapshot *RequestContextSnapshot
-	// parentSnapshot is the most recent unscoped parent (top-level
-	// orchestrator) request. Child sub-agent requests never replace it, so
-	// manual compaction can reuse the parent's tools and cache prefix even
-	// when a child request was the most recent event overall.
-	parentSnapshot *RequestContextSnapshot
-}
-
-// cloneRequestContextSnapshot deep-copies the provider-owned slices and the
-// MaxTokens pointer so a stored or returned snapshot never aliases caller
-// state.
-func cloneRequestContextSnapshot(snapshot RequestContextSnapshot) RequestContextSnapshot {
-	return RequestContextSnapshot{
-		Model:    snapshot.Model,
-		Messages: provider.CloneMessages(snapshot.Messages),
-		Tools:    provider.CloneTools(snapshot.Tools),
-		MaxTokens: func() *int {
-			if snapshot.MaxTokens == nil {
-				return nil
-			}
-			cloned := *snapshot.MaxTokens
-			return &cloned
-		}(),
-		Blocks:                append([]prompt.ContextBlock(nil), snapshot.Blocks...),
-		ModelBudget:           snapshot.ModelBudget,
-		AgentID:               snapshot.AgentID,
-		AgentType:             snapshot.AgentType,
-		Kind:                  snapshot.Kind,
-		EstimatedPromptTokens: snapshot.EstimatedPromptTokens,
-		RawPromptTokens:       snapshot.RawPromptTokens,
-	}
-}
-
-// Store saves a deep copy of the given snapshot. An unscoped snapshot (empty
-// AgentID) is also recorded as the latest parent request snapshot; a scoped
-// child snapshot updates only the latest-overall snapshot.
-func (s *SnapshotStore) Store(snapshot RequestContextSnapshot) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cloned := cloneRequestContextSnapshot(snapshot)
-	s.snapshot = &cloned
-	if cloned.AgentID == "" {
-		parent := cloneRequestContextSnapshot(snapshot)
-		s.parentSnapshot = &parent
-	}
-}
-
-// Snapshot returns the stored snapshot if one exists, with a boolean
-// indicating whether data was available.
-func (s *SnapshotStore) Snapshot() (RequestContextSnapshot, bool) {
-	if s == nil {
-		return RequestContextSnapshot{}, false
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.snapshot == nil {
-		return RequestContextSnapshot{}, false
-	}
-	return cloneRequestContextSnapshot(*s.snapshot), true
-}
-
-// ParentSnapshot returns the latest unscoped parent request snapshot if one
-// exists, with a boolean indicating whether data was available. Child
-// sub-agent requests never replace it.
-func (s *SnapshotStore) ParentSnapshot() (RequestContextSnapshot, bool) {
-	if s == nil {
-		return RequestContextSnapshot{}, false
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.parentSnapshot == nil {
-		return RequestContextSnapshot{}, false
-	}
-	return cloneRequestContextSnapshot(*s.parentSnapshot), true
 }
 
 // pendingApproval represents an outstanding mutation-tool approval that the

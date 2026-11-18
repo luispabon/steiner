@@ -279,23 +279,37 @@ func TestSkillsSetNilSafe(t *testing.T) {
 	s.Set("anything", true)
 }
 
-func TestSnapshotStoreStoreAndSnapshot(t *testing.T) {
+func TestSnapshotStoreStoreAndRead(t *testing.T) {
 	t.Parallel()
 	store := &SnapshotStore{}
-	_, ok := store.Snapshot()
-	if ok {
+	if _, ok := store.ParentSnapshot(); ok {
 		t.Fatal("expected ok=false for empty store")
+	}
+	if _, ok := store.AgentSnapshot("agent-1"); ok {
+		t.Fatal("expected ok=false for empty store agent snapshot")
 	}
 
 	store.Store(RequestContextSnapshot{
 		Model: "test-model",
 	})
-	snapshot, ok := store.Snapshot()
+	snapshot, ok := store.ParentSnapshot()
 	if !ok {
 		t.Fatal("expected ok=true after Store")
 	}
 	if snapshot.Model != "test-model" {
 		t.Fatalf("model = %q, want %q", snapshot.Model, "test-model")
+	}
+
+	store.Store(RequestContextSnapshot{
+		Model:   "agent-model",
+		AgentID: "agent-1",
+	})
+	agentSnapshot, ok := store.AgentSnapshot("agent-1")
+	if !ok {
+		t.Fatal("expected ok=true for agent snapshot")
+	}
+	if agentSnapshot.Model != "agent-model" {
+		t.Fatalf("agent model = %q, want %q", agentSnapshot.Model, "agent-model")
 	}
 }
 
@@ -337,9 +351,9 @@ func TestSnapshotStoreDeepClonesProviderOwnedFields(t *testing.T) {
 	}
 
 	store.Store(snapshot)
-	got, ok := store.Snapshot()
+	got, ok := store.ParentSnapshot()
 	if !ok {
-		t.Fatal("Snapshot() ok = false, want true")
+		t.Fatal("ParentSnapshot() ok = false, want true")
 	}
 
 	got.Messages[0].ToolCalls[0].Arguments["path"] = "b.go"
@@ -354,6 +368,162 @@ func TestSnapshotStoreDeepClonesProviderOwnedFields(t *testing.T) {
 	}
 	if original := snapshot.Tools[0].Function.Parameters["type"]; original != "object" {
 		t.Fatalf("original tool parameter = %v, want object", original)
+	}
+}
+
+func TestSnapshotStoreRetainsAgentSnapshots(t *testing.T) {
+	t.Parallel()
+	store := &SnapshotStore{}
+	store.Store(RequestContextSnapshot{Model: "parent-model"})
+	store.Store(RequestContextSnapshot{Model: "first-agent-model", AgentID: "agent-1"})
+	store.Store(RequestContextSnapshot{Model: "second-agent-model", AgentID: "agent-2"})
+
+	parent, ok := store.ParentSnapshot()
+	if !ok {
+		t.Fatal("ParentSnapshot() ok = false, want true")
+	}
+	if parent.Model != "parent-model" {
+		t.Fatalf("parent model = %q, want parent-model", parent.Model)
+	}
+
+	tests := []struct {
+		name    string
+		agentID string
+		want    string
+	}{
+		{name: "first agent", agentID: "agent-1", want: "first-agent-model"},
+		{name: "second agent", agentID: "agent-2", want: "second-agent-model"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			snapshot, ok := store.AgentSnapshot(tt.agentID)
+			if !ok {
+				t.Fatalf("AgentSnapshot(%q) ok = false, want true", tt.agentID)
+			}
+			if snapshot.Model != tt.want {
+				t.Fatalf("model = %q, want %q", snapshot.Model, tt.want)
+			}
+		})
+	}
+}
+
+func TestSnapshotStoreAgentSnapshotUnknownOrEmpty(t *testing.T) {
+	t.Parallel()
+	store := &SnapshotStore{}
+	store.Store(RequestContextSnapshot{Model: "parent-model"})
+
+	for _, agentID := range []string{"", "missing-agent"} {
+		if _, ok := store.AgentSnapshot(agentID); ok {
+			t.Fatalf("AgentSnapshot(%q) ok = true, want false", agentID)
+		}
+	}
+
+	var nilStore *SnapshotStore
+	if _, ok := nilStore.AgentSnapshot("agent-1"); ok {
+		t.Fatal("nil store AgentSnapshot ok = true, want false")
+	}
+}
+
+func TestSnapshotStoreAgentSnapshotClones(t *testing.T) {
+	t.Parallel()
+	maxTokens := 64
+	store := &SnapshotStore{}
+	store.Store(RequestContextSnapshot{
+		Model:     "agent-model",
+		AgentID:   "agent-1",
+		MaxTokens: &maxTokens,
+		Messages: []provider.Message{
+			{Role: provider.MessageRoleUser, Content: "hello"},
+		},
+	})
+
+	got, ok := store.AgentSnapshot("agent-1")
+	if !ok {
+		t.Fatal("AgentSnapshot() ok = false, want true")
+	}
+	got.Messages[0].Content = "changed"
+	*got.MaxTokens = 1
+
+	again, ok := store.AgentSnapshot("agent-1")
+	if !ok {
+		t.Fatal("second AgentSnapshot() ok = false, want true")
+	}
+	if again.Messages[0].Content != "hello" {
+		t.Fatalf("stored message = %q, want hello", again.Messages[0].Content)
+	}
+	if again.MaxTokens == nil || *again.MaxTokens != 64 {
+		t.Fatalf("stored max tokens = %v, want 64", again.MaxTokens)
+	}
+}
+
+func TestSnapshotStoreEvictsOldestAgentAtCap(t *testing.T) {
+	t.Parallel()
+	store := &SnapshotStore{}
+	for i := range snapshotAgentLimit {
+		store.Store(RequestContextSnapshot{Model: fmt.Sprintf("model-%d", i), AgentID: fmt.Sprintf("agent-%d", i)})
+	}
+	// Refreshing the oldest agent moves it to the end of the last-write order.
+	store.Store(RequestContextSnapshot{Model: "model-0-updated", AgentID: "agent-0"})
+	store.Store(RequestContextSnapshot{Model: "overflow-model", AgentID: "agent-overflow"})
+
+	if _, ok := store.AgentSnapshot("agent-0"); !ok {
+		t.Fatal("agent-0 was evicted, want retained after its refresh")
+	}
+	if refreshed, _ := store.AgentSnapshot("agent-0"); refreshed.Model != "model-0-updated" {
+		t.Fatalf("agent-0 model = %q, want model-0-updated", refreshed.Model)
+	}
+	if _, ok := store.AgentSnapshot("agent-1"); ok {
+		t.Fatal("agent-1 retained, want evicted as the oldest slot")
+	}
+	if _, ok := store.AgentSnapshot("agent-overflow"); !ok {
+		t.Fatal("agent-overflow missing, want retained")
+	}
+	if len(store.agentOrder) != snapshotAgentLimit {
+		t.Fatalf("agentOrder length = %d, want %d", len(store.agentOrder), snapshotAgentLimit)
+	}
+}
+
+func TestSnapshotStoreClear(t *testing.T) {
+	t.Parallel()
+	store := &SnapshotStore{}
+	store.Store(RequestContextSnapshot{Model: "parent-model"})
+	store.Store(RequestContextSnapshot{Model: "agent-model", AgentID: "agent-1"})
+
+	store.Clear()
+
+	if _, ok := store.ParentSnapshot(); ok {
+		t.Fatal("ParentSnapshot() ok = true after Clear, want false")
+	}
+	if _, ok := store.AgentSnapshot("agent-1"); ok {
+		t.Fatal("AgentSnapshot() ok = true after Clear, want false")
+	}
+	if store.agents != nil || store.agentOrder != nil {
+		t.Fatalf("retention state = %v/%v after Clear, want nil", store.agents, store.agentOrder)
+	}
+
+	var nilStore *SnapshotStore
+	nilStore.Clear()
+}
+
+func TestResetConversationClearsSnapshots(t *testing.T) {
+	t.Parallel()
+	s, err := NewSession(Dependencies{})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	s.snapshots.Store(RequestContextSnapshot{Model: "parent-model"})
+	s.snapshots.Store(RequestContextSnapshot{Model: "agent-model", AgentID: "agent-1"})
+
+	s.mu.Lock()
+	s.resetConversationLocked()
+	s.mu.Unlock()
+
+	if _, ok := s.snapshots.ParentSnapshot(); ok {
+		t.Fatal("ParentSnapshot() ok = true after reset, want false")
+	}
+	if _, ok := s.snapshots.AgentSnapshot("agent-1"); ok {
+		t.Fatal("AgentSnapshot() ok = true after reset, want false")
 	}
 }
 

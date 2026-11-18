@@ -151,12 +151,14 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 	s.retireDriver(old)
 }
 
-// resetConversationLocked clears the conversation and its lineage together so
-// the two cannot drift. The caller must hold s.mu.
+// resetConversationLocked clears the conversation, its lineage, and the
+// retained request context snapshots together so they cannot drift. The
+// caller must hold s.mu.
 func (s *Session) resetConversationLocked() {
 	s.conversation = nil
 	s.lineage = agent.ConversationLineage{}
 	s.delegationGroups = newEmptyDelegationGroupLedger()
+	s.snapshots.Clear()
 }
 
 // errRunInProgress is returned when a state-mutating action is dispatched

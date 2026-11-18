@@ -66,7 +66,7 @@ func BenchmarkSnapshotStoreRead(b *testing.B) {
 			b.SetBytes(int64(size))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _ = store.Snapshot()
+				_, _ = store.ParentSnapshot()
 			}
 		})
 	}

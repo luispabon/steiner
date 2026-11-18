@@ -56,7 +56,7 @@ func (s *Session) handleImmediateAction(ctx context.Context, action Action) (boo
 	case CancelAllDelegates:
 		return true, s.cancelAllDelegates()
 	case RequestContextReport:
-		s.emitContextReport(ctx)
+		s.emitContextReport(ctx, a.AgentID)
 		return true, nil
 	case RequestConfigReport:
 		s.emitConfigReport()

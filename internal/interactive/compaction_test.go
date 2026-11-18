@@ -344,11 +344,11 @@ func TestManualCompactionUsesParentSnapshotToolsAfterChildRequest(t *testing.T) 
 	if !reflect.DeepEqual(gotTools, parentTools) {
 		t.Fatalf("Compact tools = %#v, want the parent tools %#v", gotTools, parentTools)
 	}
-	// The latest-overall snapshot still carries the child attribution, so
-	// context reports keep describing the most recent request.
-	snapshot, ok := s.SnapshotStore().Snapshot()
-	if !ok || snapshot.AgentID != "child-1" || snapshot.Model != "child-model" {
-		t.Fatalf("latest snapshot = %#v (ok=%v), want child attribution preserved", snapshot, ok)
+	// The parent snapshot still describes the parent request, so manual
+	// compaction reuses its tools even after a child request.
+	snapshot, ok := s.SnapshotStore().ParentSnapshot()
+	if !ok || snapshot.AgentID != "" || snapshot.Model != "parent-model" {
+		t.Fatalf("parent snapshot = %#v (ok=%v), want parent attribution preserved", snapshot, ok)
 	}
 }
 
@@ -368,6 +368,49 @@ func TestManualCompactionWithoutParentSnapshotPassesNilTools(t *testing.T) {
 	}
 	if gotTools != nil {
 		t.Fatalf("Compact tools = %#v, want nil with no parent snapshot", gotTools)
+	}
+}
+
+// TestManualCompactionAfterLoadPassesNilSnapshotTools pins that loading a
+// session discards the in-process request snapshots, so a manual compaction
+// afterwards runs without snapshot tools: the recorded parent request belonged
+// to the replaced conversation, not the loaded one.
+func TestManualCompactionAfterLoadPassesNilSnapshotTools(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "loaded-session"
+	mockStore := newMockSessionStore()
+	mockStore.loadedSessions[sessionID] = session.Session{
+		ID:    sessionID,
+		Title: "Loaded Session",
+		Model: "test-model",
+		Lineage: agent.ConversationLineage{
+			Generations:      []agent.ConversationGeneration{{ID: 1, Messages: twoTurnConversation()}},
+			NextGenerationID: 2,
+		},
+	}
+
+	called := false
+	var gotTools []provider.ToolSpec
+	runner := &runExecutorFunc{compact: func(_ context.Context, _ []agent.Message, tools []provider.ToolSpec) ([]agent.Message, error) {
+		called = true
+		gotTools = tools
+		return []agent.Message{{Role: agent.MessageRoleAssistant, Content: "summary"}}, nil
+	}}
+	s := testNewSession(t, Dependencies{Runner: runner, SessionStore: mockStore})
+	s.SnapshotStore().Store(RequestContextSnapshot{Tools: []provider.ToolSpec{{Function: provider.ToolFunctionSpec{Name: "read"}}}})
+
+	if err := s.Handle(context.Background(), LoadSession{SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle(LoadSession) = %v, want nil", err)
+	}
+
+	compactAndWait(t, s, "")
+
+	if !called {
+		t.Fatal("Compact was not called")
+	}
+	if gotTools != nil {
+		t.Fatalf("Compact tools = %#v, want nil after a session load cleared the snapshots", gotTools)
 	}
 }
 

@@ -305,6 +305,10 @@ func (m *Model) resetConversationDisplay() {
 	m.convLabelShown = false
 	m.clearStrandedResults()
 	m.roster = subAgentRoster{}
+	// Roster observation is the only other sidebar refresh trigger, so the
+	// reset refreshes it here: an open report overlay would otherwise keep
+	// rows for agents the cleared conversation no longer has.
+	m.refreshContextAgentsIfOpen()
 	m.selection = m.selection.clear()
 	m.clearDragState()
 	m.activity = m.activity.clear()
@@ -478,6 +482,11 @@ func (m *Model) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) 
 		wasAtEnd := m.contextOverlay.atEnd()
 		m.contextOverlay.OverlayShell = m.contextOverlay.WithDimensions(msg.Width, msg.Height)
 		m.contextOverlay = m.contextOverlay.reflow()
+		if m.contextOverlay.reportMode() {
+			// A shorter terminal removes sidebar rows; keep the selected agent
+			// in view and clamp the window to the new capacity.
+			m.contextOverlay = m.contextOverlay.ensureAgentVisible().scrollAgents(0)
+		}
 		if wasAtEnd {
 			m.contextOverlay = m.contextOverlay.scrollToEnd()
 		}

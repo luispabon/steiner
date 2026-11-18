@@ -97,6 +97,18 @@ func (c *testController) countRequestContextReport() int {
 	return c.countByType(interactive.RequestContextReport{})
 }
 
+func (c *testController) contextReportRequests() []interactive.RequestContextReport {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []interactive.RequestContextReport
+	for _, a := range c.actions {
+		if v, ok := a.(interactive.RequestContextReport); ok {
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
 func (c *testController) countRequestConfigReport() int {
 	return c.countByType(interactive.RequestConfigReport{})
 }
@@ -1076,20 +1088,37 @@ func TestModelHandlesContextKeybindLocally(t *testing.T) {
 	if ctrl.countRequestContextReport() != 1 {
 		t.Fatalf("context report count = %d, want 1", ctrl.countRequestContextReport())
 	}
+	requests := ctrl.contextReportRequests()
+	if len(requests) != 1 || requests[0].AgentID != "" {
+		t.Fatalf("context report requests = %+v, want one orchestrator request", requests)
+	}
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("contextOverlay.IsOpen() = false, want the overlay open before the report arrives")
+	}
+	if !strings.Contains(m.contextOverlay.content, contextOverlayPlaceholder) {
+		t.Fatalf("contextOverlay.content = %q, want the loading placeholder", m.contextOverlay.content)
+	}
+	if got := m.contextOverlay.selectedAgentID(); got != "" {
+		t.Fatalf("selected agent = %q, want the orchestrator", got)
+	}
 	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
 		t.Fatalf("content = %q, want no local echo", got)
 	}
 
-	// Simulate the context report arriving as an event (as interactive.go would emit).
+	// Simulate the orchestrator report arriving as an event (as interactive.go would emit).
 	reportContent := "# Last Request Context\nModel: `test`"
-	m = updateModel(t, m, runtimeEventMsg{Event: output.NewOverlayReportEvent("Context Report", reportContent)})
+	event := output.WithContextReportAgent(output.NewOverlayReportEvent("Context Report", reportContent), "")
+	m = updateModel(t, m, runtimeEventMsg{Event: event})
 
-	// Overlay should open immediately with report content, not transcript.
+	// The report fills the selected pane and stays cached for its agent.
 	if !m.contextOverlay.IsOpen() {
-		t.Fatal("contextOverlay.IsOpen() = false, want overlay open after context report event")
+		t.Fatal("contextOverlay.IsOpen() = false, want overlay still open after context report event")
 	}
 	if !strings.Contains(m.contextOverlay.content, "Last Request Context") {
 		t.Fatalf("contextOverlay.content = %q, want report content", m.contextOverlay.content)
+	}
+	if cached := m.contextOverlay.reports[""]; !strings.Contains(cached, "Last Request Context") {
+		t.Fatalf("cached orchestrator report = %q, want report content", cached)
 	}
 	if got := strings.TrimSpace(stripANSI(m.content.String(m.viewport.Width()))); got != "" {
 		t.Fatalf("content = %q, want no transcript insertion for context report", got)

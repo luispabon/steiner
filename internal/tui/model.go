@@ -205,7 +205,8 @@ type Model struct {
 	reflow                       resizeReflow
 	mousePressX                  int
 	mousePressY                  int
-	sidebarPressX, sidebarPressY int // sidebar press cell awaiting release; -1 when none
+	sidebarPressX, sidebarPressY int  // sidebar press cell awaiting release; -1 when none
+	overlayPress                 bool // press inside the context overlay owns the next release
 	selection                    selectionState
 	lastClickTime                time.Time
 	lastClickPos                 selectionPoint

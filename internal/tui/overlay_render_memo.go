@@ -251,12 +251,15 @@ func (m *Model) devLogLineCount() int {
 
 // contextRenderKey covers everything buildContextOverlay reads: the shell with
 // the model's current dimensions, the title, the reflowed lines, the scroll
-// position and the model's styles.
+// position, the selected agent and the agent window, and the model's styles.
 type contextRenderKey struct {
 	OverlayShell
 	title         string
 	renderedLines sliceID[string]
 	scrollOffset  int
+	selected      int
+	agentsScroll  int
+	agentsRev     int
 	styles        *theme.Styles
 }
 
@@ -267,6 +270,9 @@ func (m *Model) contextRenderKey() contextRenderKey {
 		title:         s.title,
 		renderedLines: idOf(s.renderedLines),
 		scrollOffset:  s.scrollOffset,
+		selected:      s.selected,
+		agentsScroll:  s.agentsScroll,
+		agentsRev:     s.agentsRev,
 		styles:        m.styles,
 	}
 }
@@ -280,6 +286,7 @@ type contextMemoEntry struct {
 	key   contextRenderKey
 	out   string
 	w, h  int
+	hit   contextOverlayHit
 }
 
 // contextRenderMemo keeps the last few renders of the context overlay with
@@ -299,8 +306,8 @@ func (c *contextRenderMemo) lookup(key contextRenderKey) *contextMemoEntry {
 	return nil
 }
 
-func (c *contextRenderMemo) store(key contextRenderKey, out string, w, h int) {
-	c.entries[c.next] = contextMemoEntry{valid: true, key: key, out: out, w: w, h: h}
+func (c *contextRenderMemo) store(key contextRenderKey, out string, w, h int, hit contextOverlayHit) {
+	c.entries[c.next] = contextMemoEntry{valid: true, key: key, out: out, w: w, h: h, hit: hit}
 	c.next = (c.next + 1) % contextMemoSlots
 }
 

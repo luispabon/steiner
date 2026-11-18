@@ -105,21 +105,28 @@ func visibleRosterEntries(entries []rosterEntry) ([]rosterEntry, int) {
 	return slices.Concat(active, done), hidden
 }
 
+// rosterStatusGlyph returns the status glyph and its colour for a roster row.
+// The sidebar roster and the context report agent list share it so their glyphs
+// and colours cannot drift apart.
+func rosterStatusGlyph(status string, styles *theme.Styles, tick int) (string, lipgloss.Style) {
+	switch status {
+	case rosterRunning:
+		return spinnerFrames[tick%len(spinnerFrames)], lipgloss.NewStyle().Foreground(styles.AccentColor)
+	case rosterQueued:
+		return "◌", styles.FgMute
+	case rosterDone:
+		return "✓", styles.SuccessStyle
+	case rosterFailed:
+		return "✗", styles.ErrorStyle
+	default:
+		return "?", styles.Warn
+	}
+}
+
 func (s sidebarState) rosterRow(e rosterEntry, prefix string, typeW, width int) string {
 	dim := e.finished()
-	var icon string
-	switch e.status {
-	case rosterRunning:
-		icon = s.styledWithBg(lipgloss.NewStyle().Foreground(s.styles.AccentColor), spinnerFrames[s.tickCount%len(spinnerFrames)])
-	case rosterQueued:
-		icon = s.styledWithBg(s.styles.FgMute, "◌")
-	case rosterDone:
-		icon = s.styledWithBg(s.styles.SuccessStyle, "✓")
-	case rosterFailed:
-		icon = s.styledWithBg(s.styles.ErrorStyle, "✗")
-	default:
-		icon = s.styledWithBg(s.styles.Warn, "?")
-	}
+	glyph, glyphStyle := rosterStatusGlyph(e.status, s.styles, s.tickCount)
+	icon := s.styledWithBg(glyphStyle, glyph)
 	elapsed := ""
 	switch {
 	case e.status == rosterQueued:

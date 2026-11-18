@@ -175,16 +175,19 @@ func (r *subAgentRoster) finishEntry(agentID string, key occurrenceKey) (*roster
 	return e, true
 }
 
-// observe updates the roster from one output event. Sub-agent scoped tool
-// events are ignored: sub-agents cannot nest, so only parent calls carry groups.
-func (r *subAgentRoster) observe(event output.Event, now int64) {
+// observe updates the roster from one output event and reports whether the
+// event can have changed a row, so the caller only rebuilds views that depend
+// on the roster. Sub-agent scoped tool events are ignored: sub-agents cannot
+// nest, so only parent calls carry groups.
+func (r *subAgentRoster) observe(event output.Event, now int64) bool {
 	switch p := event.Payload.(type) {
 	case output.DelegationAcceptedEvent:
 		r.admit(p.CallID, output.DelegationAdmission{Status: tool.DelegationAdmissionAccepted, AgentID: p.AgentID, BatchID: p.BatchID, Group: p.Group})
 	case output.ToolCallFinishedEvent:
-		if p.DelegationAdmission != nil && p.DelegationAdmission.Status == tool.DelegationAdmissionAccepted {
-			r.admit(p.CallID, *p.DelegationAdmission)
+		if p.DelegationAdmission == nil || p.DelegationAdmission.Status != tool.DelegationAdmissionAccepted {
+			return false
 		}
+		r.admit(p.CallID, *p.DelegationAdmission)
 	case output.DelegationQueuedEvent:
 		r.begin(p.DelegationOccurrence, p.AgentType, rosterQueued, now)
 	case output.DelegationStartedEvent:
@@ -198,14 +201,19 @@ func (r *subAgentRoster) observe(event output.Event, now int64) {
 			r.deliver(item, now)
 		}
 	case output.ContextDiagnosticsEvent:
-		if p.Kind == "session_loaded" {
-			r.prune()
+		if p.Kind != "session_loaded" {
+			return false
 		}
+		r.prune()
 	case output.ContextBudgetEvent:
-		if output.ContextDiagnosticKind(p) == "session_loaded" {
-			r.prune()
+		if output.ContextDiagnosticKind(p) != "session_loaded" {
+			return false
 		}
+		r.prune()
+	default:
+		return false
 	}
+	return true
 }
 
 // admit records an accepted admission and applies it to the agent's row when
@@ -372,10 +380,14 @@ func (r *subAgentRoster) activeCount() int {
 	return active
 }
 
-// observeRoster feeds one event into the roster.
+// observeRoster feeds one event into the roster and refreshes the open context
+// report sidebar when the roster changed.
 func (m *Model) observeRoster(event output.Event) {
 	m.roster.replaying = m.devLog.replaying
-	m.roster.observe(event, nanoNow())
+	if !m.roster.observe(event, nanoNow()) {
+		return
+	}
+	m.refreshContextAgentsIfOpen()
 }
 
 // pruneRosterOnPrompt clears delivered, finished entries when the user submits
@@ -383,6 +395,7 @@ func (m *Model) observeRoster(event output.Event) {
 func (m *Model) pruneRosterOnPrompt() {
 	m.roster.pruneDelivered()
 	m.syncRoster()
+	m.refreshContextAgentsIfOpen()
 }
 
 // syncRoster pushes the roster snapshot into the sidebar and status bar. The

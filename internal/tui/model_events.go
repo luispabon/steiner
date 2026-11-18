@@ -47,13 +47,32 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 	// Context report events: display mode is set by the producer; the TUI
 	// honours the hint without re-deciding.
 	if event.Type == output.EventTypeContextReport {
-		if payload, ok := event.Payload.(output.ContextReportEvent); ok && payload.Display == output.ContextReportDisplayOverlay {
-			m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
-			if payload.ScrollToEnd {
-				m.contextOverlay = m.contextOverlay.scrollToEnd()
+		if payload, ok := event.Payload.(output.ContextReportEvent); ok {
+			// Agent-scoped reports belong to the open agent sidebar: cache the
+			// report and only swap the pane when its agent is selected. Without
+			// the sidebar there is no agent row to attribute them to, so they
+			// are dropped instead of replacing a single-pane overlay.
+			if payload.Agent != nil {
+				if !m.contextOverlay.reportMode() {
+					return nil
+				}
+				selected := m.contextOverlay.selectedAgentID() == payload.Agent.ID
+				m.contextOverlay = m.contextOverlay.withReport(payload.Agent.ID, payload.Content)
+				// The event contract allows ScrollToEnd for agent reports, but no
+				// current producer sets it; honour it if one starts to.
+				if payload.ScrollToEnd && selected {
+					m.contextOverlay = m.contextOverlay.scrollToEnd()
+				}
+				return nil
 			}
-			m.syncViewport()
-			return nil
+			if payload.Display == output.ContextReportDisplayOverlay {
+				m.contextOverlay = openContextOverlay(payload.Title, payload.Content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+				if payload.ScrollToEnd {
+					m.contextOverlay = m.contextOverlay.scrollToEnd()
+				}
+				m.syncViewport()
+				return nil
+			}
 		}
 	}
 
