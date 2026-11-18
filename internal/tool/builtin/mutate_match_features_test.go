@@ -377,12 +377,19 @@ func TestComputeMatchFailure_PositionCap(t *testing.T) {
 }
 
 // TestComputeMatchFailure_BoundedOnRepetitiveFile proves the computation stays
-// bounded on a 4 MiB file of 400 repetitive lines, where a naive scan would
-// explode on positions.
+// bounded on a file whose repeated line far exceeds the per-line position cap:
+// the run and prefix scans stop at the cap and report truncation instead of
+// tracking every position.
 func TestComputeMatchFailure_BoundedOnRepetitiveFile(t *testing.T) {
 	t.Parallel()
-	content := strings.Repeat("}\n", 2<<20)
+	// The file repeats one line more often than the position cap and is longer
+	// than the 400-line old_string, so both scans fill their position list and
+	// the prefix scan keeps finding starts until the cap truncates it.
+	content := strings.Repeat("}\n", 400+maxPositionsPerLine)
 	old := strings.Repeat("}\n", 400)
+	if len(content) > maxFeatureFileBytes {
+		t.Fatalf("fixture is %d bytes, want it under the %d-byte scan cap so the position caps are what truncate", len(content), maxFeatureFileBytes)
+	}
 	f := computeMatchFailure(matchFeatureInput{old: old, content: []byte(content)})
 	if !f.Truncated {
 		t.Error("truncated = false, want true when the position cap is hit")

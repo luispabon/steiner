@@ -265,6 +265,9 @@ func TestBashToolZeroEnvUsesFiniteCap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Each case has its own policy, temp dir, and tool instance, so the
+			// real sub-second sleeps can run concurrently instead of serially.
+			t.Parallel()
 			policy := tool.NewPathPolicy(t.TempDir(), config.PathsConfig{})
 			toolDef := NewBashTool(Env{PathPolicy: &policy, BashTimeoutCap: tt.cap})
 
