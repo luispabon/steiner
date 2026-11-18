@@ -37,6 +37,19 @@ func pinSegmentTimestamps(m *Model) *Model {
 	return m
 }
 
+// appendStandaloneCompletedDelegation adds one completed delegation with no
+// group label and no sub-agent scope, the same card populateLongTranscript adds
+// to its sixth message. It keeps a standalone delegation outside the group in
+// the reference transcript without paying for five more markdown messages.
+func appendStandaloneCompletedDelegation(m *Model, agentID string) *Model {
+	occ := agentOcc(agentID)
+	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationStartedEvent(occ, "investigate "+agentID, "", "")})
+	return updateModelDirect(m, runtimeEventMsg{Event: output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
+		DelegationOccurrence: occ, Status: "complete", TurnCount: 3, TokenCount: 900, ToolCallCount: 4,
+		Output: "finding about the module",
+	})})
+}
+
 // groupDiffScript covers tick, progress, transcript, completion, failure,
 // expand and collapse, width, theme, jump flash and a late group
 // label. Each step is replayed from scratch to build the reference render.
@@ -48,7 +61,19 @@ func groupDiffScript() []groupDiffStep {
 		})})
 	}
 	return []groupDiffStep{
-		{"transcript", func(m *Model) *Model { return pinSegmentTimestamps(populateLongTranscript(m, 6)) }},
+		// Six transcript messages normally, one under -race. Every reference
+		// replay rebuilds this transcript, and its length is not what the group
+		// caches under test depend on. The sixth message carries a standalone
+		// completed delegation, so the race build adds that card explicitly;
+		// either way the transcript keeps non-group segments whose joined blocks
+		// can go stale.
+		{"transcript", func(m *Model) *Model {
+			m = populateLongTranscript(m, int(raceSeeds(6)))
+			if raceEnabled {
+				m = appendStandaloneCompletedDelegation(m, "done_5")
+			}
+			return pinSegmentTimestamps(m)
+		}},
 		{"group start", func(m *Model) *Model {
 			for j := 0; j < 3; j++ {
 				m = appendMixedChild(m, j, false)

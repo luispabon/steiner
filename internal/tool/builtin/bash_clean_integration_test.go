@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -133,13 +134,19 @@ func TestBashToolShellFailureKeepsPartials(t *testing.T) {
 
 func TestBashToolTinyBudgetTimeoutMetadata(t *testing.T) {
 	t.Parallel()
+	// Every case still waits out a real one-second deadline; the cases are
+	// independent, so running them concurrently keeps the timeout coverage
+	// without serialising three seconds of sleeping.
 	for _, budget := range []int{1, 8, 60} {
-		res := runBashForTest(t, map[string]any{
-			"command": "echo partial; sleep 30", "timeout_seconds": 1, "max_output_bytes": budget,
+		t.Run(fmt.Sprintf("budget %d", budget), func(t *testing.T) {
+			t.Parallel()
+			res := runBashForTest(t, map[string]any{
+				"command": "echo partial; sleep 30", "timeout_seconds": 1, "max_output_bytes": budget,
+			})
+			if !res.TimedOut || res.ExitCode == 0 || res.Message == "" || len(res.Output) > budget {
+				t.Errorf("budget %d: timedOut=%v exit=%d truncated=%v len=%d", budget, res.TimedOut, res.ExitCode, res.Truncated, len(res.Output))
+			}
 		})
-		if !res.TimedOut || res.ExitCode == 0 || res.Message == "" || len(res.Output) > budget {
-			t.Errorf("budget %d: timedOut=%v exit=%d truncated=%v len=%d", budget, res.TimedOut, res.ExitCode, res.Truncated, len(res.Output))
-		}
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 
 func probeDeps() HandlerDeps {
 	return HandlerDeps{
-		Model:    provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Model:    provider.ResolvedModel{BackendModelID: reductionTestModel},
 		CacheKey: "exhaustion-probe",
 	}
 }

@@ -15,6 +15,34 @@ import (
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
+const (
+	// reductionTestModel is a ctok-active model ID. Reduction tests only need
+	// consistent token counts, and ctok avoids the repeated tiktoken work over
+	// their large fixtures.
+	reductionTestModel = "claude-sonnet-5-5"
+	// tiktokenReductionTestModel is not ctok-active, so it resolves to the
+	// default tiktoken encoding. It keeps one reduction integration test on the
+	// tiktoken path; its payloads stay small and the codec is shared with the
+	// other tiktoken tests in this package.
+	tiktokenReductionTestModel = "advisor-model"
+)
+
+// TestReductionTestModelUsesCtok guards the model the fast reduction tests rely
+// on. internal/provider/token_estimator_claude.go decides which IDs use ctok;
+// if reductionTestModel drops out of that table, those tests silently fall back
+// to tiktoken and lose their speedup, so fail loudly here instead.
+func TestReductionTestModelUsesCtok(t *testing.T) {
+	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: reductionTestModel}}
+	messages := buildMessages([]provider.Message{{Role: provider.MessageRoleUser, Content: "hello"}}, "", nil)
+	estimate := estimateAdvisorMessages(context.Background(), deps, messages)
+	if estimate.strategy != provider.TokenizerStrategyCtok {
+		t.Fatalf("estimator strategy for %q = %q, want %q; pick a model ID listed in internal/provider/token_estimator_claude.go", reductionTestModel, estimate.strategy, provider.TokenizerStrategyCtok)
+	}
+	if estimate.tokens <= 0 {
+		t.Fatalf("estimate = %d, want positive", estimate.tokens)
+	}
+}
+
 func TestResolveReductionTuning(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -392,7 +420,7 @@ func reductionSnapshot() []provider.Message {
 
 func TestHandlerReductionBelowAndAtTrigger(t *testing.T) {
 	snapshot := reductionSnapshot()
-	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: "advisor-model"}}
+	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: reductionTestModel}}
 	baseline := buildMessages(snapshot, "", nil)
 	initial := estimateAdvisorMessages(context.Background(), deps, baseline)
 	if initial.tokens <= 0 {
@@ -430,6 +458,71 @@ func TestHandlerReductionBelowAndAtTrigger(t *testing.T) {
 	})
 }
 
+// smallReductionSnapshot builds a compact transcript with two reducible bash
+// results, so a tiktoken estimate over it stays cheap.
+func smallReductionSnapshot(t *testing.T) []provider.Message {
+	t.Helper()
+	bash := func(callID string) provider.Message {
+		data, err := json.Marshal(builtin.BashResult{ArtifactStatus: "none", Output: strings.Repeat("z", 1024)})
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		return provider.Message{Role: provider.MessageRoleTool, Name: "bash", ToolCallID: callID, Content: string(data)}
+	}
+	return []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "run the checks"},
+		assistantCall("b1", "bash"),
+		bash("b1"),
+		assistantCall("b2", "bash"),
+		bash("b2"),
+	}
+}
+
+// TestHandlerReductionOnTiktokenPath keeps one reduction integration test on
+// the tiktoken path. The payload is a few kilobytes so the estimate stays cheap.
+func TestHandlerReductionOnTiktokenPath(t *testing.T) {
+	snapshot := smallReductionSnapshot(t)
+	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: tiktokenReductionTestModel}}
+	baseline := buildMessages(snapshot, "", nil)
+	initial := estimateAdvisorMessages(context.Background(), deps, baseline)
+	if initial.strategy != provider.TokenizerStrategyTiktoken {
+		t.Fatalf("estimator strategy = %q, want %q", initial.strategy, provider.TokenizerStrategyTiktoken)
+	}
+	if initial.tokens <= 0 {
+		t.Fatalf("initial estimate = %d, want positive", initial.tokens)
+	}
+
+	t.Run("below trigger is legacy", func(t *testing.T) {
+		prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
+		handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: initial.tokens + 1}})
+		ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
+		if _, err := handler(ctx, nil); err != nil {
+			t.Fatalf("handler() error = %v", err)
+		}
+		if len(prov.requests) != 1 || !messagesEqual(prov.requests[0].Messages, baseline) {
+			t.Fatal("below-trigger tiktoken request changed from legacy payload")
+		}
+	})
+
+	t.Run("at trigger reduces", func(t *testing.T) {
+		prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
+		handler := NewHandler(HandlerDeps{Provider: prov, Model: deps.Model, Config: Config{MaxUsesPerRun: 1, ContextReductionThresholdTokens: initial.tokens}})
+		ctx := agent.WithConversationSnapshot(context.Background(), snapshot)
+		if _, err := handler(ctx, nil); err != nil {
+			t.Fatalf("handler() error = %v", err)
+		}
+		if len(prov.requests) != 1 {
+			t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+		}
+		if messagesEqual(prov.requests[0].Messages, baseline) {
+			t.Fatal("at-trigger tiktoken request equal to legacy payload, want reduction")
+		}
+		if !messagesContain(prov.requests[0].Messages) {
+			t.Fatal("tiktoken estimate did not trigger reduction")
+		}
+	})
+}
+
 func messagesEqual(a, b []provider.Message) bool {
 	left, _ := json.Marshal(a)
 	right, _ := json.Marshal(b)
@@ -447,7 +540,7 @@ func messagesContain(messages []provider.Message) bool {
 
 func TestHandlerReductionReplaysAcrossAppend(t *testing.T) {
 	snapshot := reductionSnapshot()
-	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: "advisor-model"}}
+	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: reductionTestModel}}
 	initial := estimateAdvisorMessages(context.Background(), deps, buildMessages(snapshot, "", nil))
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
@@ -528,7 +621,7 @@ func TestHandlerExhaustionAndGrowthReactivation(t *testing.T) {
 		assistantCall("b1", "bash"),
 		bigBashMessage("b1"),
 	}
-	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: "advisor-model"}}
+	deps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: reductionTestModel}}
 	initial := estimateAdvisorMessages(context.Background(), deps, buildMessages(first, "", nil))
 	shared := NewSharedState()
 	prov := &fakeProvider{response: provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "note"}}}
