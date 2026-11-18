@@ -16,6 +16,10 @@ const (
 	closeoutStateUnsupported = "unsupported"
 	closeoutStateCreated     = "created"
 	closeoutStateFailed      = "failed"
+	closeoutStateUnknown     = "unknown"
+	// closeoutStateRetryAuthorized records an operator decision to run closeout
+	// again for a run whose previous outcome was unknown.
+	closeoutStateRetryAuthorized = "retry_authorized"
 
 	// closeoutBodyLimit caps the assembled PR/MR body comfortably under GitHub's
 	// 65536-character limit.

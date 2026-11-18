@@ -46,6 +46,9 @@ func TestOrchestratorResumeSkipsCompletedPhasesAndReclaimsStaleLock(t *testing.T
 		Task:         "Build the parser",
 		Branch:       identity.BranchName(),
 		WorktreePath: worktree.Path,
+		// Match the new-run marker Run writes so the run is not legacy.
+		FinalizationVersion: finalizationVersion,
+		ReportState:         reportStatePending,
 		ModelSnapshot: ModelSnapshot{
 			DefaultModel: "fallback-model",
 			PhaseModels: map[Phase]string{
@@ -341,6 +344,10 @@ func setupResumeTestFixture(t *testing.T, projectRoot string, identity RunIdenti
 			PhaseImplement: PhaseStatusFailed,
 			PhaseReview:    PhaseStatusPending,
 		},
+		// Match the new-run marker Run writes so the fixture is a versioned
+		// manifest rather than a legacy one.
+		FinalizationVersion: finalizationVersion,
+		ReportState:         reportStatePending,
 	}
 	store := NewManifestStore(identity.ManifestPath(projectRoot))
 	if err := store.Write(manifest); err != nil {
@@ -461,6 +468,9 @@ func TestOrchestratorResumeReprovisionsMissingWorktreeFromStoredBase(t *testing.
 		WorktreePath: worktree.Path,
 		WorktreeBase: base,
 		CurrentPhase: PhasePlan,
+		// Match the new-run marker Run writes so the run is not legacy.
+		FinalizationVersion: finalizationVersion,
+		ReportState:         reportStatePending,
 		PhaseStatuses: map[Phase]PhaseStatus{
 			PhasePlan:      PhaseStatusPending,
 			PhaseImplement: PhaseStatusPending,

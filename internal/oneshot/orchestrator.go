@@ -64,6 +64,10 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 			PhaseReview:    PhaseStatusPending,
 		},
 		PhaseSessionIDs: map[Phase]string{},
+		// A new run starts with a report pending so an interrupted
+		// finalization is detectable before any external effect.
+		FinalizationVersion: finalizationVersion,
+		ReportState:         reportStatePending,
 	}
 	if err := store.Write(manifest); err != nil {
 		return Manifest{}, err
@@ -95,7 +99,9 @@ func (o *Orchestrator) Run(ctx context.Context) (manifest Manifest, err error) {
 		previousPhase = phase
 	}
 
-	o.finalizeRun(ctx, store, &manifest, planningPath)
+	if err := o.finalizeRun(ctx, store, &manifest, planningPath); err != nil {
+		return manifest, err
+	}
 
 	return manifest, nil
 }
@@ -355,6 +361,11 @@ func (o *Orchestrator) tryFailureReport(ctx context.Context, store *ManifestStor
 	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
 		return
 	}
+	// The final report is already on disk, so a later closeout or persistence
+	// failure must not overwrite it with a failure report.
+	if manifest.ReportState == reportStateWritten {
+		return
+	}
 	outcome := ReviewOutcome{
 		Passed:    false,
 		Attempted: string(manifest.CurrentPhase),
@@ -372,11 +383,32 @@ func (o *Orchestrator) tryFailureReport(ctx context.Context, store *ManifestStor
 	}
 }
 
-// finalizeRun generates the final report and runs closeout for a successful run.
-func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, manifest *Manifest, planningPath string) {
-	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
-		return
+// closeoutOutcomeUnknown reports whether an external closeout may have run
+// without a recorded result. Legacy manifests with no marker cannot prove it
+// did not run.
+func closeoutOutcomeUnknown(manifest Manifest) bool {
+	if manifest.CloseoutIntent == closeoutIntentPending {
+		return true
 	}
+	if manifest.FinalizationVersion > 0 {
+		return false
+	}
+	return manifest.CloseoutState == "" || manifest.CloseoutState == closeoutStateFailed
+}
+
+// finalizeRun generates the final report and runs closeout for a successful run.
+//
+// Progress is persisted before each external effect: the written report and the
+// closeout intent are on disk before Closeout runs, so an interrupted or failed
+// finalization is never retried blindly.
+func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, manifest *Manifest, planningPath string) error {
+	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
+		return nil
+	}
+	// Decide before upgrading the version fields: writing them records that the
+	// outcome of an earlier closeout is unknown.
+	manualRequired := closeoutOutcomeUnknown(*manifest) && manifest.CloseoutState != closeoutStateRetryAuthorized
+
 	outcome := ReviewOutcome{
 		Passed:  manifest.PhaseStatuses[PhaseReview] == PhaseStatusDone,
 		Summary: "review phase completed",
@@ -388,11 +420,19 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	report, err := GenerateFinalReport(ctx, *manifest, outcome)
 	if err != nil {
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("generate report: %v", err))
-		return
+		return fmt.Errorf("generate final report: %w", err)
 	}
 	manifest.ReportPath = report.ReportPath
+	manifest.ReportState = reportStateWritten
+	manifest.FinalizationVersion = finalizationVersion
 	if err := store.Write(*manifest); err != nil {
-		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with report path: %v", err))
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist report state: %v", err))
+		return fmt.Errorf("persist report state: %w", err)
+	}
+
+	if manualRequired {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, "closeout outcome unknown; manual resolution required")
+		return fmt.Errorf("closeout outcome for run %s is unknown; record it or authorize a retry with steiner oneshot --resolve", manifest.RunID)
 	}
 
 	overview := ""
@@ -404,6 +444,12 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 		review = string(data)
 	}
 
+	manifest.CloseoutIntent = closeoutIntentPending
+	if err := store.Write(*manifest); err != nil {
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist closeout intent: %v", err))
+		return fmt.Errorf("persist closeout intent: %w", err)
+	}
+
 	input := CloseoutInput{
 		Manifest: *manifest,
 		Report:   report,
@@ -413,18 +459,26 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	result, closeoutErr := Closeout(ctx, o.deps.Config, input)
 	if closeoutErr != nil {
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("closeout: %v", closeoutErr))
-		manifest.CloseoutState = closeoutStateFailed
+		// The intent stays pending: closeout may have created the PR/MR before
+		// failing, so only an operator can resolve this run.
+		manifest.CloseoutState = closeoutStateUnknown
 		manifest.CloseoutNote = closeoutErr.Error()
+		closeoutFailure := fmt.Errorf("closeout run %s: %w", manifest.RunID, closeoutErr)
 		if err := store.Write(*manifest); err != nil {
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with failed closeout: %v", err))
+			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist unknown closeout state: %v", err))
+			return errors.Join(closeoutFailure, fmt.Errorf("persist unknown closeout state: %w", err))
 		}
-		return
+		return closeoutFailure
 	}
+
 	manifest.CloseoutURL = result.URL
 	manifest.CloseoutProvider = result.Provider
 	manifest.CloseoutState = result.State
 	manifest.CloseoutNote = result.Note
+	manifest.CloseoutIntent = ""
 	if err := store.Write(*manifest); err != nil {
-		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("write manifest with closeout result: %v", err))
+		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist closeout result: %v", err))
+		return fmt.Errorf("persist closeout result: %w", err)
 	}
+	return nil
 }

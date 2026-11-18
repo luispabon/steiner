@@ -67,10 +67,9 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree, lock *RunLock) (ret Manifest, retErr error) {
 	startPhase, ok := firstIncompletePhase(manifest)
 	if !ok && closeoutRetryable(manifest) {
-		// All phases finished but closeout failed: re-run closeout only.
-		o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path))
-		if closeoutRetryable(manifest) {
-			return manifest, fmt.Errorf("resume run: closeout for %s failed again: %s", manifest.RunID, manifest.CloseoutNote)
+		// All phases finished and closeout may be retried: re-run closeout only.
+		if err := o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path)); err != nil {
+			return manifest, err
 		}
 		return manifest, nil
 	}
@@ -134,7 +133,9 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		previousPhase = phase
 	}
 
-	o.finalizeRun(ctx, store, &manifest, planningPath)
+	if err := o.finalizeRun(ctx, store, &manifest, planningPath); err != nil {
+		return manifest, err
+	}
 
 	return manifest, nil
 }
@@ -189,7 +190,7 @@ func closeoutRetryable(manifest Manifest) bool {
 	if _, incomplete := firstIncompletePhase(manifest); incomplete {
 		return false
 	}
-	return manifest.CloseoutState == closeoutStateFailed
+	return manifest.CloseoutState == closeoutStateFailed || manifest.CloseoutState == closeoutStateRetryAuthorized
 }
 
 func previousPhaseBefore(phase Phase) Phase {
