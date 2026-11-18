@@ -13,19 +13,25 @@ import (
 )
 
 func TestServiceRefreshUsesClaudeSubscriptionDiscoveryTimeout(t *testing.T) {
+	var deadlineFound bool
+	var remaining time.Duration
 	service := NewService(func(_ string, _ *http.Client) (Enumerator, error) {
 		return testEnumerator{enumerate: func(ctx context.Context, _ Endpoint, _ EnumerationOptions) (EnumerationResult, error) {
-			select {
-			case <-time.After(6 * time.Second):
-				return EnumerationResult{Models: []DiscoveredModel{{ID: "model"}}}, nil
-			case <-ctx.Done():
-				return EnumerationResult{}, ctx.Err()
-			}
+			deadline, ok := ctx.Deadline()
+			deadlineFound = ok
+			remaining = time.Until(deadline)
+			return EnumerationResult{Models: []DiscoveredModel{{ID: "model"}}}, nil
 		}}, nil
 	}, NewCache(t.TempDir()), NewStore(""), nil)
 	got := service.RefreshAll(context.Background(), []Endpoint{{Alias: "claude", Type: string(config.ProviderTypeClaudeSubscription)}}, RefreshOptions{Force: true})
 	if got.Results[0].Err != nil {
 		t.Fatalf("Claude subscription refresh error = %v, want nil", got.Results[0].Err)
+	}
+	if !deadlineFound {
+		t.Fatal("enumeration context has no deadline, want the subscription discovery timeout")
+	}
+	if want := 6 * time.Second; remaining < want {
+		t.Fatalf("remaining enumeration deadline = %s, want at least %s (above the %s default)", remaining, want, catalogEnumerationTimeout)
 	}
 }
 
