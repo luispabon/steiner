@@ -401,8 +401,10 @@ func TestNewEmptyDir(t *testing.T) {
 // during a write leaves it.
 const partialRecord = `{"ts":"2026-11-18T00:00:00Z","kind":"cache","agent_id":"frag-`
 
-// failStreamLock replaces the stream lock seam with a failing acquire.
-func failStreamLock(t *testing.T) {
+// failStreamLock replaces the stream lock seam with a failing acquire. The
+// returned function restores the seam, so a test can fail the lock during New
+// and let later appends lock normally.
+func failStreamLock(t *testing.T) (restore func()) {
 	t.Helper()
 
 	orig := acquireStreamFileLock
@@ -410,6 +412,7 @@ func failStreamLock(t *testing.T) {
 		return nil, errors.New("boom")
 	}
 	t.Cleanup(func() { acquireStreamFileLock = orig })
+	return func() { acquireStreamFileLock = orig }
 }
 
 // unsupportedTestLock stands in for the degraded lock filelock returns when the
@@ -638,18 +641,26 @@ func TestWriterSkipsAppendWhenStreamLockUnavailable(t *testing.T) {
 	failStreamLock(t)
 
 	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
 	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
 	if err != nil {
-		t.Fatalf("New() error = %v, want the stream to open without a lock", err)
+		t.Fatalf("New() error = %v, want the stream left unopened without a lock", err)
 	}
 	t.Cleanup(func() { _ = w.Close() })
-	w.Write(Record{Kind: KindTool, AgentID: "dropped"})
-
 	if !w.warned {
 		t.Error("warned = false, want the unavailable lock reported")
 	}
-	if got := readRecords(t, filepath.Join(dir, "tool.jsonl")); len(got) != 0 {
-		t.Fatalf("records = %+v, want the record dropped while the lock is unavailable", got)
+
+	w.Write(Record{Kind: KindTool, AgentID: "dropped"})
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("active stat error = %v, want no active file opened or created without the lock", err)
+	}
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Errorf("rotation artefacts = %v, want none", got)
+	}
+	if err := w.Close(); err != nil {
+		t.Errorf("Close() error = %v, want an unopened stream closed without error", err)
 	}
 }
 
@@ -673,6 +684,118 @@ func TestNewSkipsRetentionWhenStreamLockUnavailable(t *testing.T) {
 	records := readRecords(t, path)
 	if len(records) != 2 || records[0].AgentID != ageLabel(stale) {
 		t.Fatalf("records = %+v, want both seeded records kept without the lock", records)
+	}
+}
+
+func TestWriterOpensStreamUnderLockAfterStartupLockFailure(t *testing.T) {
+	restore := failStreamLock(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if s := w.files[KindTool]; s == nil || s.file != nil {
+		t.Fatalf("stream = %+v, want it registered without a file", s)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created without the lock", err)
+	}
+
+	restore()
+	w.Write(Record{Kind: KindTool, AgentID: "after-lock"})
+
+	records := readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-lock" {
+		t.Fatalf("records = %+v, want the record written once the lock was available", records)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("mode = %v, want 0o600 for a file created under the lock", got)
+	}
+	if s := w.files[KindTool]; s.written != info.Size() {
+		t.Errorf("tracked size = %d, want the %d bytes on disk", s.written, info.Size())
+	}
+}
+
+func TestNewLeavesStreamUnopenedWhenLockUnavailableDuringRecovery(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, recordLine(t, "seed"))
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0}})
+	restore := failStreamLock(t)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v, want the pending rotation to leave the writer usable", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if s := w.files[KindTool]; s == nil || s.file != nil {
+		t.Fatalf("stream = %+v, want it registered without a file", s)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created without the lock", err)
+	}
+
+	// The append completes the rotation under the lock before it writes, so the
+	// installed active file is the one that receives the record.
+	restore()
+	w.Write(Record{Kind: KindTool, AgentID: "after-recovery"})
+
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Fatalf("rotation artefacts = %v, want the recovered transaction cleaned up", got)
+	}
+	if got := readStream(t, path, 1); got != recordLine(t, "seed") {
+		t.Errorf("generation 1 = %q, want the staged active file installed", got)
+	}
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-recovery" {
+		t.Fatalf("active records = %+v, want only the record written after recovery", records)
+	}
+}
+
+func TestNewStartupLockFailureLeavesPeerStagingRecoverable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, recordLine(t, "seed"))
+	// A peer has staged the active file and has not written its rotation marker
+	// yet. Creating the active path here would read as a second generation 0 to
+	// the recovery that marker triggers.
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	restore := failStreamLock(t)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created without the lock", err)
+	}
+
+	restore()
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0}})
+	w.Write(Record{Kind: KindTool, AgentID: "after-recovery"})
+
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Fatalf("rotation artefacts = %v, want the peer's transaction recovered", got)
+	}
+	if got := readStream(t, path, 1); got != recordLine(t, "seed") {
+		t.Errorf("generation 1 = %q, want the peer's staged active file installed", got)
+	}
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-recovery" {
+		t.Fatalf("active records = %+v, want the record appended to the installed active file", records)
 	}
 }
 
