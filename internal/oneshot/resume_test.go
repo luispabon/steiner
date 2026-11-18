@@ -766,6 +766,22 @@ func markCloseoutUnknown(t *testing.T, store *ManifestStore) {
 	}
 }
 
+// markCloseoutRetryAuthorized records an operator-authorised closeout retry
+// for the run.
+func markCloseoutRetryAuthorized(t *testing.T, store *ManifestStore) {
+	t.Helper()
+	manifest, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	manifest.CloseoutState = closeoutStateRetryAuthorized
+	manifest.CloseoutIntent = ""
+	manifest.CloseoutNote = ""
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+}
+
 func TestResumeRefusesUnknownCloseoutWithoutResolution(t *testing.T) {
 	identity := RunIdentity{ID: "unkn0wn1", Slug: "unknown-closeout"}
 	store, orch := finalizedResumeFixture(t, identity)
@@ -942,6 +958,126 @@ func TestResolveCloseoutAuthorisesOneRetry(t *testing.T) {
 	}
 	if *closeoutCalls != 1 {
 		t.Errorf("closeout calls = %d, want no further call", *closeoutCalls)
+	}
+}
+
+func TestResolveCloseoutRecordsURLOverAuthorisedRetry(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve8", Slug: "resolve-retry-url"}
+	store, orch := finalizedResumeFixture(t, identity)
+	markCloseoutRetryAuthorized(t, store)
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	// The operator found the request the authorised retry would have opened, so
+	// recording it supersedes the retry instead of running it.
+	const recorded = "https://github.com/owner/repo/pull/13"
+	resolved, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: recorded})
+	if err != nil {
+		t.Fatalf("ResolveCloseout failed: %v", err)
+	}
+	if resolved.CloseoutState != closeoutStateCreated || resolved.CloseoutURL != recorded {
+		t.Errorf("CloseoutState = %q url = %q, want created with the recorded url", resolved.CloseoutState, resolved.CloseoutURL)
+	}
+	if resolved.CloseoutIntent != "" || resolved.CloseoutNote != "" {
+		t.Errorf("intent = %q note = %q, want both cleared", resolved.CloseoutIntent, resolved.CloseoutNote)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateCreated || persisted.CloseoutURL != recorded {
+		t.Errorf("persisted closeout state = %q url = %q, want created with the recorded url", persisted.CloseoutState, persisted.CloseoutURL)
+	}
+
+	if _, err := orch.Resume(context.Background()); err == nil || !strings.Contains(err.Error(), "already complete") {
+		t.Fatalf("Resume after a recorded resolution error = %v, want already complete", err)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0", *closeoutCalls)
+	}
+}
+
+func TestResolveCloseoutRejectsRetryOnAuthorisedRetry(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve9", Slug: "resolve-retry-retry"}
+	store, orch := finalizedResumeFixture(t, identity)
+	markCloseoutRetryAuthorized(t, store)
+
+	_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRetry})
+	if err == nil {
+		t.Fatal("ResolveCloseout retry on an already authorised retry returned nil error")
+	}
+	if !strings.Contains(err.Error(), identity.ID) || !strings.Contains(err.Error(), closeoutStateRetryAuthorized) {
+		t.Fatalf("ResolveCloseout error = %q, want it to name %s and state %q", err, identity.ID, closeoutStateRetryAuthorized)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateRetryAuthorized {
+		t.Errorf("CloseoutState = %q, want it to stay %q", persisted.CloseoutState, closeoutStateRetryAuthorized)
+	}
+}
+
+func TestResolveCloseoutRejectsURLOnRecordedRun(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve10", Slug: "resolve-recorded-url"}
+	store, orch := finalizedResumeFixture(t, identity)
+	manifest, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	manifest.CloseoutState = closeoutStateCreated
+	manifest.CloseoutURL = "https://github.com/owner/repo/pull/7"
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	_, err = ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: "https://github.com/owner/repo/pull/9"})
+	if err == nil {
+		t.Fatal("ResolveCloseout with a URL on a recorded run returned nil error")
+	}
+	if !strings.Contains(err.Error(), identity.ID) || !strings.Contains(err.Error(), closeoutStateCreated) {
+		t.Fatalf("ResolveCloseout error = %q, want it to name %s and state %q", err, identity.ID, closeoutStateCreated)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateCreated || persisted.CloseoutURL != manifest.CloseoutURL {
+		t.Errorf("persisted state = %q url = %q, want the recorded result unchanged", persisted.CloseoutState, persisted.CloseoutURL)
+	}
+}
+
+func TestResolveCloseoutRejectsInvalidURLForAuthorisedRetry(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{name: "unparseable", url: "not-a-url"},
+		{name: "unsupported scheme", url: "ftp://example.com/x"},
+		{name: "empty", url: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			identity := RunIdentity{ID: "r3solvebad2", Slug: "resolve-bad-retry-url"}
+			store, orch := finalizedResumeFixture(t, identity)
+			markCloseoutRetryAuthorized(t, store)
+
+			_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: c.url})
+			if err == nil {
+				t.Fatalf("ResolveCloseout with URL %q returned nil error", c.url)
+			}
+			if !strings.HasPrefix(err.Error(), "resolve closeout:") {
+				t.Errorf("ResolveCloseout error = %q, want a resolve closeout prefix", err)
+			}
+			persisted, readErr := store.Read()
+			if readErr != nil {
+				t.Fatalf("store.Read failed: %v", readErr)
+			}
+			if persisted.CloseoutState != closeoutStateRetryAuthorized {
+				t.Errorf("CloseoutState = %q, want it to stay %q", persisted.CloseoutState, closeoutStateRetryAuthorized)
+			}
+		})
 	}
 }
 

@@ -116,13 +116,17 @@ func (s *ManifestStore) Read() (Manifest, error) {
 	return manifest, nil
 }
 
+// writeManifestFn performs the manifest write. Tests replace it to inject a
+// write failure at a chosen position in the finalization sequence.
+var writeManifestFn = writeManifestAtomic
+
 // Write stores the manifest atomically.
 func (s *ManifestStore) Write(manifest Manifest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	stampManifest(&manifest)
-	return writeManifestAtomic(s.path, manifest)
+	return writeManifestFn(s.path, manifest)
 }
 
 func ensureManifestMaps(manifest *Manifest) {

@@ -27,8 +27,9 @@ type Resolution struct {
 }
 
 // ResolveCloseout records an explicit resolution for a run whose closeout
-// outcome is unknown. It takes the run's exclusive lock and rejects runs in any
-// other state.
+// outcome is unknown. It takes the run's exclusive lock. Recording a URL is
+// also accepted for an operator-authorised retry, because the request the retry
+// would open may already exist; every other state is rejected.
 func ResolveCloseout(ctx context.Context, deps Dependencies, resolution Resolution) (manifest Manifest, err error) {
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, err
@@ -72,7 +73,10 @@ func ResolveCloseout(ctx context.Context, deps Dependencies, resolution Resoluti
 	if reportPending(manifest) {
 		return manifest, fmt.Errorf("resolve closeout: run %s has no written final report; finish it with --resume first", manifest.RunID)
 	}
-	if !closeoutOutcomeUnknown(manifest) {
+	// A URL supersedes an authorised retry: the operator found the request the
+	// retry would have opened. A retry resolution still requires an unknown
+	// outcome, so it cannot be repeated on a run that already authorised one.
+	if !closeoutOutcomeUnknown(manifest) && (resolution.Kind != ResolutionRecordURL || !closeoutRetryable(manifest)) {
 		return manifest, fmt.Errorf("resolve closeout: run %s closeout state %q is not unknown, nothing to resolve", manifest.RunID, manifest.CloseoutState)
 	}
 

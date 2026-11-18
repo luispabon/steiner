@@ -438,36 +438,36 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	manifest.ReportPath = report.ReportPath
 	manifest.ReportState = reportStateWritten
 	manifest.FinalizationVersion = finalizationVersion
-	if !manualRequired && attemptsExternal {
+	// Every branch records its closeout posture in this single write: an
+	// ambiguous run persists the unknown marker, a run that can reach a provider
+	// runner persists a pending intent, and a run whose closeout is provably
+	// skipped leaves both empty. A versioned manifest can therefore never look
+	// settled while a closeout may have run.
+	if manualRequired {
+		// A pre-existing pending intent is itself why the run is ambiguous, so it
+		// is preserved rather than cleared.
+		manifest.CloseoutState = closeoutStateUnknown
+		manifest.CloseoutNote = "closeout outcome unknown; manual resolution required"
+	} else if attemptsExternal {
 		manifest.CloseoutIntent = closeoutIntentPending
 	}
 	if err := store.Write(*manifest); err != nil {
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist report state: %v", err))
 		return fmt.Errorf("persist report state: %w", err)
 	}
-	// Invariant: for a run that is not already ambiguous (no manualRequired)
-	// and whose closeout can reach a provider runner (attemptsExternal), a
-	// report state of written with no closeout intent and no closeout result is
-	// unreachable, because both fields land in the write above. An ambiguous
-	// run instead proceeds to the second write below that records closeout_state
-	// unknown; a crash inside that narrower window relies on the operator-facing
-	// unknown marker being written next. For a run whose closeout is provably
-	// skipped (no auto_pr or no completed report) a crash right here leaves the
-	// run settled, which is safe: no external request was possible. A crash
-	// after this write but before Closeout leaves the intent pending, so an
-	// operator resolves the run manually even though no request may exist.
-	// Over-reporting is the intended conservative direction.
+	// Invariant: after this write every run is in one of three states, none of
+	// which looks settled while an external request is possible. An ambiguous
+	// run carries the unknown marker (with any pending intent preserved); a run
+	// whose closeout can reach a provider runner carries a pending intent; a run
+	// whose closeout is provably skipped (no auto_pr or no completed report)
+	// carries neither, which is safe because no external request was possible. A
+	// crash after this write but before Closeout leaves the intent pending, so an
+	// operator resolves the run manually even though no request may exist. A
+	// crash before the write leaves the previous report state, and the next
+	// finalization re-derives the same posture. Over-reporting is the intended
+	// conservative direction.
 
 	if manualRequired {
-		// Persist the unknown state before returning: the report write above also
-		// stamped the finalization version, so without this marker a second
-		// attempt would treat the run as settled.
-		manifest.CloseoutState = closeoutStateUnknown
-		manifest.CloseoutNote = "closeout outcome unknown; manual resolution required"
-		if err := store.Write(*manifest); err != nil {
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist unknown closeout state: %v", err))
-			return fmt.Errorf("persist unknown closeout state: %w", err)
-		}
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, "closeout outcome unknown; manual resolution required")
 		return fmt.Errorf("closeout outcome for run %s is unknown; record it or authorize a retry with steiner oneshot --resolve", manifest.RunID)
 	}
