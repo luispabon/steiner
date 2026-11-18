@@ -420,6 +420,75 @@ func TestReplacementClearsRotationDeferral(t *testing.T) {
 	}
 }
 
+func TestWriterRecoveredRotationDoesNotRotateAgain(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	clock := &fakeClock{t: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)}
+	useClock(t, clock)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	// Two failed rotations stall the stream until the retry interval.
+	blockRotation(t, path)
+	padToCap(t, path)
+	payload := strings.Repeat("x", 64*1024)
+	w.Write(Record{Kind: KindTool, AgentID: "past-cap"})
+	for i := 0; i < maxStreamBytes/len(payload)+40; i++ {
+		w.Write(Record{Kind: KindTool, Payload: payload})
+	}
+	if s := w.files[KindTool]; !s.rotateStalled {
+		t.Fatal("setup: stream not stalled after the deferred retry failed")
+	}
+	unblockRotation(t, path)
+	seedGeneration(t, path, 1, recordLine(t, "generation-one"))
+
+	// The stalled retry stages the active file and then fails, so the stream is
+	// left closed with the marker pending and the stall still recorded against a
+	// retry time that has already passed.
+	clock.advance(stallRetryInterval)
+	restore := renameFile
+	renameFile = func(src, dst string) error {
+		if src == generationPath(path, 1) {
+			return errors.New("injected rename failure")
+		}
+		return restore(src, dst)
+	}
+	w.Write(Record{Kind: KindTool, AgentID: "during-interruption"})
+	renameFile = restore
+	if s := w.files[KindTool]; s.file != nil {
+		t.Fatal("setup: stream left open while the transaction is pending")
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); err != nil {
+		t.Fatalf("setup: marker stat error = %v, want the interrupted transaction kept", err)
+	}
+
+	// The next append recovers the rotation and reopens the brand-new active
+	// file. The stall belonged to the generations recovery just replaced, so the
+	// stream must not rotate again and shift them one position early.
+	w.Write(Record{Kind: KindTool, AgentID: "after-recovery"})
+
+	if _, err := os.Stat(generationPath(path, 3)); !os.IsNotExist(err) {
+		t.Errorf("generation 3 stat error = %v, want no extra rotation discarding the oldest generation", err)
+	}
+	if got := readStream(t, path, 2); got != recordLine(t, "generation-one") {
+		t.Errorf("generation 2 = %d bytes, want the recovered generation left in place", len(got))
+	}
+	if got := readStream(t, path, 1); !strings.Contains(got, `"past-cap"`) {
+		t.Errorf("generation 1 = %d bytes, want the recovered active file installed once", len(got))
+	}
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-recovery" {
+		t.Fatalf("records = %+v, want only the record written after recovery", records)
+	}
+	if s := w.files[KindTool]; s.rotateStalled || !s.retryAt.IsZero() {
+		t.Errorf("state = %v/%v after recovery, want the stall cleared", s.rotateStalled, s.retryAt)
+	}
+}
+
 func TestStatErrorKeepsRotationState(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tool.jsonl")

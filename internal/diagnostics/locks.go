@@ -15,9 +15,27 @@ import (
 // less than an append parked behind a peer that holds the lock.
 const streamLockTimeout = 100 * time.Millisecond
 
+// streamLock is the part of a stream file lock the writer uses. It is an
+// interface so a test can present the degraded lock filelock returns only when
+// the platform or filesystem cannot lock.
+type streamLock interface {
+	// Release drops the lock. It is a no-op after the first call.
+	Release() error
+	// Unsupported reports whether the lock excludes other processes.
+	Unsupported() bool
+	// Warning describes why an unsupported lock excludes nothing.
+	Warning() string
+}
+
 // acquireStreamFileLock takes a stream's sibling lock file. Tests replace it to
-// exercise lock failures.
-var acquireStreamFileLock = filelock.Acquire
+// exercise lock failures and degraded locks.
+var acquireStreamFileLock = func(ctx context.Context, path string) (streamLock, error) {
+	lock, err := filelock.Acquire(ctx, path)
+	if lock == nil {
+		return nil, err
+	}
+	return lock, nil
+}
 
 // streamLockPath names the stable lock file guarding one stream. Callers never
 // delete it: every cooperating process must lock the same inode, and a lock
@@ -34,7 +52,7 @@ func streamLockPath(dir string, kind Kind) string {
 // A false result has already warned through w.warn, and the caller must skip the
 // mutation rather than run it unprotected. Caller must hold the writer's mutex,
 // or be New before the writer is shared.
-func (w *Writer) lockStream(action string, kind Kind) (*filelock.Lock, bool) {
+func (w *Writer) lockStream(action string, kind Kind) (streamLock, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), streamLockTimeout)
 	defer cancel()
 

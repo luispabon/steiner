@@ -118,6 +118,11 @@ func TestRetentionPrunesAllGenerations(t *testing.T) {
 			t.Errorf("%s records = %+v, want one fresh record", path, records)
 		}
 	}
+	// Retention rewrites the stream through a temp file and rename, so the lock
+	// file beside it has to survive for the next process to lock.
+	if _, err := os.Stat(streamLockPath(dir, KindCache)); err != nil {
+		t.Errorf("stream lock stat error = %v, want the lock file kept across retention", err)
+	}
 }
 
 func TestRetentionSurvivesUndatableLines(t *testing.T) {
