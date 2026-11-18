@@ -78,8 +78,9 @@ type Writer struct {
 // 0o600 file per enabled stream. Under the stream lock, an interrupted rotation
 // is completed first, then records older than opts.RetentionDays are pruned from
 // existing files and an unterminated trailing record left by a killed process is
-// removed before the file is opened. Returns a nil Writer, whose methods are
-// no-ops, when no stream is enabled.
+// removed before the file is opened. A stream whose rotation is still unfinished
+// stays closed until the recovery succeeds. Returns a nil Writer, whose methods
+// are no-ops, when no stream is enabled.
 func New(opts Options) (*Writer, error) {
 	if !opts.Streams.any() {
 		return nil, nil
@@ -127,18 +128,25 @@ func New(opts Options) (*Writer, error) {
 // so they run under the stream lock. An unavailable lock skips them rather than
 // failing: opening for append is not protected work, and startup contention
 // should not cost the process every later record.
+//
+// An unfinished rotation owns the active path, so while its marker exists the
+// stream is registered without a file instead of creating one that a later
+// recovery would read as a second generation 0. Append opens the file once
+// recovery succeeds.
 func (w *Writer) prepareStream(kind Kind, cutoff time.Time) error {
 	path := filepath.Join(w.dir, kind.fileName())
+	prepared := true
 	if lock, ok := w.lockStream("lock diagnostics stream", kind); ok {
 		defer func() {
 			// Best-effort: the lock file stays; only the descriptor is closed.
 			_ = lock.Release()
 		}()
-		// A failed recovery must not disable the stream: the file still opens and
-		// append retries the recovery under the lock. Retention and tail repair
-		// would rewrite a file the unfinished rotation still owns, so they wait.
+		// A failed recovery must not disable the stream: append retries it under
+		// the lock. Retention and tail repair would rewrite a file the unfinished
+		// rotation still owns, so they wait.
 		if err := recoverRotation(path); err != nil {
 			w.warn("rotate diagnostics stream", err)
+			prepared = false
 		} else {
 			if !cutoff.IsZero() {
 				if err := pruneStaleGenerations(path, cutoff); err != nil {
@@ -148,6 +156,17 @@ func (w *Writer) prepareStream(kind Kind, cutoff time.Time) error {
 			if err := truncateIncompleteTail(path); err != nil {
 				return err
 			}
+		}
+	} else {
+		prepared = false
+	}
+	if !prepared {
+		// A marker means an unfinished rotation still owns the active path. The
+		// lock failure or the recovery failure was already warned, so nothing is
+		// reported here: the record path retries recovery under the lock.
+		if _, statErr := os.Stat(rotationMarkerPath(path)); statErr == nil {
+			w.files[kind] = &stream{path: path}
+			return nil
 		}
 	}
 	file, err := openStreamFile(path)

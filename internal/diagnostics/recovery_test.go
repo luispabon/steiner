@@ -480,6 +480,58 @@ func TestWriterWriteAfterCloseIsDropped(t *testing.T) {
 	}
 }
 
+func TestNewLeavesStreamClosedWhileRotationMarkerPending(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedFile(t, rotationStagePath(path, 0), "staged-active\n")
+	// A marker this build cannot act on keeps the transaction unfinished however
+	// often recovery is retried.
+	data, err := json.Marshal(rotationMarker{Version: rotationMarkerVersion + 1, Phase: rotationPhaseStaging, Generations: []int{0}})
+	if err != nil {
+		t.Fatalf("marshal marker: %v", err)
+	}
+	marker := rotationMarkerPath(path)
+	if err := os.WriteFile(marker, data, 0o600); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v, want the pending rotation to leave the writer usable", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created while the rotation is pending", err)
+	}
+	if s := w.files[KindTool]; s == nil || s.file != nil {
+		t.Fatalf("stream = %+v, want it registered without a file", s)
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "pending"})
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("active stat error = %v, want the dropped record to create nothing", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("marker stat error = %v, want the unfinished transaction kept", err)
+	}
+
+	// Once the marker is gone, the next record opens the active file lazily.
+	if err := os.Remove(marker); err != nil {
+		t.Fatalf("remove marker: %v", err)
+	}
+	w.Write(Record{Kind: KindTool, AgentID: "after-marker"})
+
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-marker" {
+		t.Fatalf("active records = %+v, want only the record written once the marker was gone", records)
+	}
+	if got := readFileContent(t, rotationStagePath(path, 0)); got != "staged-active\n" {
+		t.Errorf("stage = %q, want the unfinished transaction's generation left untouched", got)
+	}
+}
+
 func TestRotateStreamMovesGenerations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tool.jsonl")
