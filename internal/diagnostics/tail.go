@@ -83,11 +83,19 @@ func truncateIncompleteTail(path string) error {
 			start = 0
 		}
 		n := int(end - start)
-		if _, readErr := file.ReadAt(buf[:n], start); readErr != nil && !errors.Is(readErr, io.EOF) {
+		read, readErr := file.ReadAt(buf[:n], start)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return fmt.Errorf("repair diagnostics stream tail: %w", readErr)
 		}
 		end = start
-		idx := bytes.LastIndexByte(buf[:n], '\n')
+		if read == 0 {
+			// A short read after the file shrank means nothing is left to scan.
+			break
+		}
+		// Scan only the bytes actually read: a short read leaves stale bytes from
+		// the previous window in buf, and a newline that is no longer in the file
+		// would truncate the stream back to a larger size.
+		idx := bytes.LastIndexByte(buf[:read], '\n')
 		if idx < 0 {
 			continue
 		}

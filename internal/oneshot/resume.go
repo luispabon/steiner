@@ -37,8 +37,10 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 
 	store := o.manifestStore()
 
-	// This read only feeds the early validation below: nothing after the lock
-	// may act on it, because a concurrent resolution can land in between.
+	// This copy only feeds the early error checks below, so a missing manifest
+	// or a manifest with no run id fails before the lock is taken. The run
+	// itself acts on the copy read under the lock, because a concurrent
+	// resolution can land in between.
 	manifest, err = o.readResumeManifest(store)
 	if err != nil {
 		return Manifest{}, err
