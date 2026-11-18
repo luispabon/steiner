@@ -48,7 +48,13 @@ func groupDiffScript() []groupDiffStep {
 		})})
 	}
 	return []groupDiffStep{
-		{"transcript", func(m *Model) *Model { return pinSegmentTimestamps(populateLongTranscript(m, 6)) }},
+		// Six transcript messages normally, one under -race. Every reference
+		// replay rebuilds this transcript, and its length is not what the group
+		// caches under test depend on; one message still leaves non-group
+		// segments whose joined blocks can go stale.
+		{"transcript", func(m *Model) *Model {
+			return pinSegmentTimestamps(populateLongTranscript(m, int(raceSeeds(6))))
+		}},
 		{"group start", func(m *Model) *Model {
 			for j := 0; j < 3; j++ {
 				m = appendMixedChild(m, j, false)

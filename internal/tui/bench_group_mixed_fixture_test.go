@@ -5,10 +5,18 @@ import (
 	"testing"
 )
 
+// The fixture shape guards below build the full 60-message benchmark fixtures,
+// which cost seconds under race instrumentation. They assert the shape of static
+// test data, not rendering concurrency, so the race build skips them and the
+// non-race job keeps both.
+
 // TestMixedGroupCRFixtureSettledRowsSanitized checks that a settled entry of the
 // CR fixture stores its carriage return, while the rows the group box draws hold
 // no raw CR and keep the visible output text.
 func TestMixedGroupCRFixtureSettledRowsSanitized(t *testing.T) {
+	if raceEnabled {
+		t.Skip("benchmark fixture shape is static; building it under -race costs seconds")
+	}
 	m := mixedGroupCRModel()
 	found := false
 	for _, dd := range mixedEntries(m) {
@@ -33,6 +41,9 @@ func TestMixedGroupCRFixtureSettledRowsSanitized(t *testing.T) {
 // builds one unnamed group of three active entries, the shape it is meant to
 // measure.
 func TestSpinnerAdvanceFixtureIsUnnamedGroup(t *testing.T) {
+	if raceEnabled {
+		t.Skip("benchmark fixture shape is static; building it under -race costs seconds")
+	}
 	m := spinnerAdvanceModel()
 	var groups []*delegationGroupSegment
 	for i := range m.content.segments {

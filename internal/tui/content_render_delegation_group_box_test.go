@@ -7,6 +7,21 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// groupBoxTestWidths covers every width from 0 to 120 in a normal build. Under
+// -race it keeps a spread of narrow, mid and wide widths: wrapping and the line
+// cache are parameterised by width, so race instrumentation only re-runs the
+// same assertions at every intermediate width.
+func groupBoxTestWidths() []int {
+	if raceEnabled {
+		return []int{0, 1, 2, 3, 5, 8, 12, 20, 40, 60, 80, 100, 120}
+	}
+	widths := make([]int, 121)
+	for i := range widths {
+		widths[i] = i
+	}
+	return widths
+}
+
 func TestRenderGroupBoxMatchesStyledBox(t *testing.T) {
 	t.Parallel()
 	border := lipgloss.Color("#ff5f00")
@@ -22,7 +37,7 @@ func TestRenderGroupBoxMatchesStyledBox(t *testing.T) {
 		"tab\tcolumn and\ttabs",
 		"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ text",
 	}
-	for width := range 121 {
+	for _, width := range groupBoxTestWidths() {
 		for _, content := range contents {
 			want := renderStyledBox(content, border, bg, width)
 			var cache groupBoxCache
