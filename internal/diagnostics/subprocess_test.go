@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -97,7 +96,7 @@ func startSubprocessHelper(t *testing.T, dir, runID string, count, payloadBytes 
 	h := &subprocessHelper{label: runID}
 	h.cmd = exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDiagnosticsSubprocessHelper$")
 	spec := fmt.Sprintf("%s|%s|%d|%d", dir, runID, count, payloadBytes)
-	h.cmd.Env = subprocessHelperEnvironment(os.Environ(), spec)
+	h.cmd.Env = append(os.Environ(), subprocessHelperEnv+"="+spec)
 	h.cmd.Stderr = &h.stderr
 	if err := h.cmd.Start(); err != nil {
 		t.Fatalf("start helper %s: %v", runID, err)
@@ -105,46 +104,6 @@ func startSubprocessHelper(t *testing.T, dir, runID string, count, payloadBytes 
 	h.done = make(chan error, 1)
 	go func() { h.done <- h.cmd.Wait() }()
 	return h
-}
-
-// subprocessRaceExitDelayOff disables the race detector's exit sleep in a
-// helper. A race-instrumented binary sleeps atexit_sleep_ms on exit, 1000ms by
-// default, which otherwise costs every helper a second even when the detector
-// reports nothing.
-const subprocessRaceExitDelayOff = "atexit_sleep_ms=0"
-
-// subprocessHelperEnvironment returns env with the helper marker added and the
-// race detector's exit delay disabled. Every GORACE option the parent set is
-// kept, but the exit delay is forced off: an inherited atexit_sleep_ms is
-// dropped and the helper's value is appended last, so its precedence is fixed
-// and the child sees a single GORACE entry.
-func subprocessHelperEnvironment(env []string, spec string) []string {
-	out := make([]string, 0, len(env)+1)
-	var gorace []string
-	seenGorace := false
-	for _, kv := range env {
-		key, value, ok := strings.Cut(kv, "=")
-		if !ok || key != "GORACE" {
-			out = append(out, kv)
-			continue
-		}
-		if !seenGorace {
-			// The child reads the first occurrence of a duplicated key, so only
-			// that entry contributes options and later ones are dropped.
-			gorace = strings.Fields(value)
-			seenGorace = true
-		}
-	}
-	opts := make([]string, 0, len(gorace)+1)
-	for _, opt := range gorace {
-		if strings.HasPrefix(opt, "atexit_sleep_ms=") {
-			continue
-		}
-		opts = append(opts, opt)
-	}
-	opts = append(opts, subprocessRaceExitDelayOff)
-	out = append(out, "GORACE="+strings.Join(opts, " "))
-	return append(out, subprocessHelperEnv+"="+spec)
 }
 
 // wait blocks until the helper exits, killing it and failing with its stderr
@@ -287,51 +246,5 @@ func TestSeparateProcessesRotateWithoutCorruption(t *testing.T) {
 	}
 	if artefacts := rotationArtefacts(t, dir); len(artefacts) > 0 {
 		t.Errorf("leftover rotation artefacts = %v, want a completed transaction", artefacts)
-	}
-}
-
-// TestSubprocessHelperEnvironment pins the helper environment: the parent's
-// GORACE options survive, an inherited exit delay is replaced by the helper's,
-// the child sees exactly one GORACE entry, and the marker is still present.
-func TestSubprocessHelperEnvironment(t *testing.T) {
-	marker := subprocessHelperEnv + "=spec"
-	tests := []struct {
-		name string
-		env  []string
-		want []string
-	}{
-		{
-			name: "no gorace",
-			env:  []string{"PATH=/bin"},
-			want: []string{"PATH=/bin", "GORACE=" + subprocessRaceExitDelayOff, marker},
-		},
-		{
-			name: "keeps user options",
-			env:  []string{"GORACE=halt_on_error=1 history_size=2"},
-			want: []string{"GORACE=halt_on_error=1 history_size=2 " + subprocessRaceExitDelayOff, marker},
-		},
-		{
-			name: "overrides inherited delay",
-			env:  []string{"GORACE=atexit_sleep_ms=500 halt_on_error=0"},
-			want: []string{"GORACE=halt_on_error=0 " + subprocessRaceExitDelayOff, marker},
-		},
-		{
-			name: "drops duplicate gorace",
-			env:  []string{"GORACE=log_path=/tmp/race", "PATH=/bin", "GORACE=halt_on_error=1"},
-			want: []string{"PATH=/bin", "GORACE=log_path=/tmp/race " + subprocessRaceExitDelayOff, marker},
-		},
-		{
-			name: "empty gorace",
-			env:  []string{"GORACE=", "PATH=/bin"},
-			want: []string{"PATH=/bin", "GORACE=" + subprocessRaceExitDelayOff, marker},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := subprocessHelperEnvironment(tt.env, "spec")
-			if !slices.Equal(got, tt.want) {
-				t.Fatalf("env = %q, want %q", got, tt.want)
-			}
-		})
 	}
 }
