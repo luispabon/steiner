@@ -44,7 +44,7 @@ A failed fetch keeps the previous values and shows the error in the header.
 
 A trend row under a window or budget estimates when usage will reach its limit. One of two rules produces it:
 
-- **Claude subscription five-hour window.** The estimate uses the average usage over the window so far: Steiner assumes the window started empty at the reset time and extends the current percentage over the elapsed part of the window. The subscription's weekly windows use the next rule.
+- **Claude subscription five-hour window.** The estimate uses the average usage over the window so far: Steiner assumes the window started empty five hours before the reset, at the start of the current window, and extends the current percentage over the elapsed part of the window. The subscription's weekly windows use the next rule.
 - **Every other window and every budget.** The estimate takes the oldest stored reading in the same reset period and extends it linearly to the limit, using the usage and the time between that reading and the latest one.
 
 The row then reads:

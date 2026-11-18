@@ -95,14 +95,14 @@ The **Phase** column shows the incomplete phase, or one of the finalization labe
 
 ### Resolving an unknown closeout
 
-A run reaches this state when a closeout request was interrupted or failed after it may have reached the provider, so Steiner cannot tell whether a pull or merge request exists. A manifest written before Steiner recorded finalization progress is treated the same way, because it cannot prove closeout did not run. Steiner never checks the provider for an existing request.
+A run reaches this state when a closeout request was interrupted or failed after it may have reached the provider, so Steiner cannot tell whether a pull or merge request exists. A run recorded before Steiner tracked finalization progress counts the same way only when it holds no closeout result or a failed one; one that recorded a closeout outcome, such as a skipped closeout or a created request, counts as finished. Steiner never checks the provider for an existing request.
 
 Check the provider first, then record the outcome:
 
 - `steiner oneshot --resolve <run-id> --url <url>` records a pull or merge request you found. The URL must be `http` or `https` with a host.
 - `steiner oneshot --resolve <run-id> --retry` authorises one more closeout attempt, for when you confirmed that no request exists.
 
-Resolution takes the same exclusive run lock as `--resume`, refuses a run that is not awaiting manual resolution, and never contacts the provider itself. `final-report.json` in the worktree stays valid either way.
+Resolution takes the same exclusive run lock as `--resume`, refuses a run that is not awaiting manual resolution, and never contacts the provider itself. A run already authorised to retry closeout cannot be resolved with `--url`; resume it to perform the authorised attempt. `final-report.json` in the worktree stays valid either way.
 
 ## Failures and interruptions
 
