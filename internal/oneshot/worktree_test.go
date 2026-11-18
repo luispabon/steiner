@@ -163,6 +163,10 @@ func setupLocalGitRepo(t *testing.T) string {
 	runGitTest(t, projectRoot, "init", "-b", "main")
 	runGitTest(t, projectRoot, "config", "user.name", "Steiner Test")
 	runGitTest(t, projectRoot, "config", "user.email", "steiner@example.com")
+	// Keep the temp repo hermetic: a user-level gpg/ssh signing setup would make
+	// every test commit spawn a signer.
+	runGitTest(t, projectRoot, "config", "commit.gpgsign", "false")
+	runGitTest(t, projectRoot, "config", "tag.gpgsign", "false")
 	if err := os.WriteFile(filepath.Join(projectRoot, "README.md"), []byte("base\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
