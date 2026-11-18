@@ -58,6 +58,8 @@ func (m *Model) applyEvent(event output.Event) tea.Cmd {
 				}
 				selected := m.contextOverlay.selectedAgentID() == payload.Agent.ID
 				m.contextOverlay = m.contextOverlay.withReport(payload.Agent.ID, payload.Content)
+				// The event contract allows ScrollToEnd for agent reports, but no
+				// current producer sets it; honour it if one starts to.
 				if payload.ScrollToEnd && selected {
 					m.contextOverlay = m.contextOverlay.scrollToEnd()
 				}

@@ -195,6 +195,68 @@ func TestContextReportNarrowCycler(t *testing.T) {
 	}
 }
 
+// TestContextOverlayDropsReportForUnknownAgent pins the report cache guard: a
+// report for an agent the sidebar has no row for can never render, so it is
+// dropped instead of held in the cache.
+func TestContextOverlayDropsReportForUnknownAgent(t *testing.T) {
+	t.Parallel()
+	m, _ := contextReportModel(t, map[string]*rosterEntry{
+		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
+	})
+	m.contextOverlay = m.contextOverlay.withReport("", longAgentReport())
+	reports, content := len(m.contextOverlay.reports), m.contextOverlay.content
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.WithContextReportAgent(
+		output.NewOverlayReportEvent("Context Report", "ghost report"), "ghost-agent")})
+
+	if _, ok := m.contextOverlay.reports["ghost-agent"]; ok {
+		t.Fatalf("reports = %v, want no key for the agent that has no sidebar row", m.contextOverlay.reports)
+	}
+	if got := len(m.contextOverlay.reports); got != reports {
+		t.Fatalf("cached reports = %d after the unknown agent report, want the %d unchanged", got, reports)
+	}
+	if m.contextOverlay.content != content {
+		t.Fatal("detail pane changed on a report for an unknown agent, want the selected report kept")
+	}
+}
+
+// TestContextOverlayRefreshesOnConversationReset pins the reset path: the
+// reset drops the roster, so an open sidebar must rebuild to the orchestrator
+// and fall back from a selection the cleared conversation no longer has.
+func TestContextOverlayRefreshesOnConversationReset(t *testing.T) {
+	t.Parallel()
+	m, _ := contextReportModel(t, map[string]*rosterEntry{
+		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
+		"agent-2": rosterAgent("agent-2", "code", rosterRunning, 20, 0, 2),
+	})
+	m.contextOverlay = m.contextOverlay.selectAgentAt(2)
+	if got := m.contextOverlay.selectedAgentID(); got != "agent-2" {
+		t.Fatalf("selected agent before the reset = %q, want agent-2", got)
+	}
+
+	m = updateModel(t, m, runtimeEventMsg{Event: output.NewConversationResetEvent()})
+
+	if !m.contextOverlay.IsOpen() {
+		t.Fatal("context overlay closed on conversation reset, want it kept open")
+	}
+	if agents := m.contextOverlay.agents; len(agents) != 1 || agents[0].id != "" {
+		t.Fatalf("agents after the reset = %v, want the orchestrator only", agentIDs(agents))
+	}
+	if got := m.contextOverlay.selected; got != 0 {
+		t.Fatalf("selected = %d after the reset, want the orchestrator fallback", got)
+	}
+	if got := m.contextOverlay.selectedAgentID(); got != "" {
+		t.Fatalf("selected agent = %q after the reset, want the orchestrator", got)
+	}
+	view := stripANSI(m.renderContextOverlay())
+	if strings.Contains(view, "agent-1") || strings.Contains(view, "agent-2") {
+		t.Fatalf("overlay = %q, want no stale agent rows after the reset", view)
+	}
+	if !strings.Contains(view, "orchestrator") {
+		t.Fatalf("overlay = %q, want the orchestrator row", view)
+	}
+}
+
 func TestContextReportDetailWrapsToPaneWidth(t *testing.T) {
 	t.Parallel()
 	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{

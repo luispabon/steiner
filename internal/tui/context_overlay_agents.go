@@ -101,8 +101,12 @@ func (s contextOverlayState) agentContent(agentID string) string {
 }
 
 // withReport caches a report for its agent and, when that agent is selected,
-// displays it while holding the current scroll position.
+// displays it while holding the current scroll position. A report for an agent
+// with no sidebar row can never be rendered, so it is dropped.
 func (s contextOverlayState) withReport(agentID, content string) contextOverlayState {
+	if !slices.ContainsFunc(s.agents, func(a contextOverlayAgent) bool { return a.id == agentID }) {
+		return s
+	}
 	reports := make(map[string]string, len(s.reports)+1)
 	maps.Copy(reports, s.reports)
 	reports[agentID] = content

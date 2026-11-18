@@ -201,6 +201,111 @@ func TestClassifyMouseWheelIncludesCoordinates(t *testing.T) {
 	}
 }
 
+// TestContextOverlayHitMapEdges pins the sidebar cell boundaries: the last
+// sidebar column still selects its agent, the pane divider beside it belongs to
+// the overlay but no agent, and the rule, the "Sub-agents" label and the clipped
+// overflow indicator select nothing.
+func TestContextOverlayHitMapEdges(t *testing.T) {
+	t.Parallel()
+	m, _ := contextReportModel(t, contextOverlayManyAgents(15))
+	if !m.contextOverlay.twoPane() {
+		t.Fatal("want the two-pane layout")
+	}
+	_, w, h := m.contextOverlayRendered()
+	entry := m.overlayMemos.context.lookup(m.contextRenderKey())
+	if entry == nil {
+		t.Fatal("no cached context overlay render, want the rendered overlay memoized")
+	}
+	hit := entry.hit
+	if hit.narrow || len(hit.targets) == 0 {
+		t.Fatalf("hit map = %+v, want the two-pane sidebar rows", hit)
+	}
+	originX, originY := (m.width-w)/2, (m.height-h)/2
+	cell := func(localX, bodyRow int) (int, int) {
+		return originX + localX, originY + hit.bodyTop + bodyRow
+	}
+
+	x, y := cell(hit.sidebarRight-1, 4)
+	if got, ok := m.contextOverlayHitAt(x, y); !ok || !got.inSidebar || got.agent != 1 {
+		t.Fatalf("last sidebar cell (%d,%d) hit = %+v, %v; want sidebar agent 1", x, y, got, ok)
+	}
+	x, y = cell(hit.sidebarRight, 4)
+	if got, ok := m.contextOverlayHitAt(x, y); !ok || !got.inside || got.inSidebar || got.agent != -1 {
+		t.Fatalf("pane divider cell (%d,%d) hit = %+v, %v; want inside without a sidebar agent", x, y, got, ok)
+	}
+
+	for _, row := range []int{2, 3} {
+		x, y = cell(hit.sidebarLeft, row)
+		if got, ok := m.contextOverlayHitAt(x, y); !ok || !got.inSidebar || got.agent != -1 {
+			t.Fatalf("sidebar row %d at (%d,%d) hit = %+v, %v; want no agent", row, x, y, got, ok)
+		}
+	}
+
+	lines := strings.Split(stripANSI(m.renderContextOverlay()), "\n")
+	indicatorRow := -1
+	for row := range hit.targets {
+		if strings.Contains(lines[hit.bodyTop+row], "↓") {
+			indicatorRow = row
+			break
+		}
+	}
+	if indicatorRow < 0 {
+		t.Fatal("no down overflow indicator drawn, want the 15 agents to overflow the sidebar window")
+	}
+	x, y = cell(hit.sidebarLeft, indicatorRow)
+	if got, ok := m.contextOverlayHitAt(x, y); !ok || !got.inSidebar || got.agent != -1 {
+		t.Fatalf("overflow indicator row %d at (%d,%d) hit = %+v, %v; want no agent", indicatorRow, x, y, got, ok)
+	}
+}
+
+// TestContextOverlayClippedClick pins pointer handling when the overlay is
+// taller than the terminal: a click on the visibly drawn part is swallowed and
+// starts no transcript selection, while a click outside the clipped bounds is
+// handled by the transcript as usual.
+func TestContextOverlayClippedClick(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+	m := newModel(Config{Model: "gpt-test"}, nil)
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 8})
+	m.roster.entries = map[string]*rosterEntry{
+		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
+	}
+	m.contextOverlay = openContextReportOverlay(
+		contextAgentsFromRoster(m.roster.snapshot()), m.width, m.height, m.styles, m.content.glamourStyleSheet)
+	_, _, overlayHeight := m.contextOverlayRendered()
+	if overlayHeight <= m.height {
+		t.Fatalf("overlay height = %d at terminal height %d, want a vertically clipped overlay", overlayHeight, m.height)
+	}
+	boundsX, boundsY, boundsW, boundsH := m.contextOverlayBounds()
+	if boundsH != m.height {
+		t.Fatalf("clipped overlay height = %d, want the whole terminal height %d", boundsH, m.height)
+	}
+
+	insideX, insideY := boundsX+2, boundsY+boundsH/2
+	if !m.contextOverlayCapturesMouse(insideX, insideY) {
+		t.Fatalf("cell (%d,%d) not captured, want it inside the visibly drawn overlay", insideX, insideY)
+	}
+	m = updateModel(t, m, mouseClickMsg{x: insideX, y: insideY})
+	if !m.overlayPress {
+		t.Fatalf("overlayPress = false after a click at (%d,%d), want the overlay to own the press", insideX, insideY)
+	}
+	if m.mousePressX >= 0 || m.selection.hasSelection() {
+		t.Fatalf("press state = mousePressX %d, selection %+v; want no transcript selection inside the overlay", m.mousePressX, m.selection)
+	}
+
+	outsideX, outsideY := boundsX+boundsW, insideY
+	if m.contextOverlayCapturesMouse(outsideX, outsideY) {
+		t.Fatalf("cell (%d,%d) captured, want it outside the clipped overlay bounds", outsideX, outsideY)
+	}
+	m = updateModel(t, m, mouseClickMsg{x: outsideX, y: outsideY})
+	if m.overlayPress {
+		t.Fatalf("overlayPress = true after a click at (%d,%d), want the transcript to handle it", outsideX, outsideY)
+	}
+	if got := m.mousePressX; got != outsideX {
+		t.Fatalf("mousePressX = %d, want %d from the transcript press outside the overlay", got, outsideX)
+	}
+}
+
 func newContextOverlayMouseTestModel(t *testing.T) *Model {
 	t.Helper()
 	m := newModel(Config{}, nil)
