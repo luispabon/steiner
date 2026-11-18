@@ -331,6 +331,124 @@ func TestFinalizeRunAmbiguousBranchPersistsUnknownInOneWrite(t *testing.T) {
 	}
 }
 
+func TestFinalizeRunAmbiguousBranchPreservesPendingIntent(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "ambintent", Slug: "ambiguous-pending-intent"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	// The run is ambiguous because a closeout intent was recorded without a
+	// result, so finalization must stop at manual resolution and keep the intent
+	// that explains why.
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = filepath.Join(identity.PlanningPath(manifest.WorktreePath), finalReportFileName)
+	manifest.CloseoutState = ""
+	manifest.CloseoutNote = ""
+	manifest.CloseoutIntent = closeoutIntentPending
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	writes, _ := failManifestWritesAfter(t, 1)
+
+	finalizeErr := orch.finalizeRun(context.Background(), store, &manifest, identity.PlanningPath(manifest.WorktreePath))
+	if finalizeErr == nil {
+		t.Fatal("finalizeRun on an ambiguous outcome returned nil error")
+	}
+	if want := "closeout outcome for run " + identity.ID + " is unknown"; !strings.Contains(finalizeErr.Error(), want) {
+		t.Fatalf("finalizeRun error = %q, want one containing %q", finalizeErr, want)
+	}
+	if *writes != 1 {
+		t.Errorf("manifest writes = %d, want the ambiguous branch to persist in exactly 1 write", *writes)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0 for an ambiguous outcome", *closeoutCalls)
+	}
+
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("persisted CloseoutState = %q, want %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+	if persisted.CloseoutIntent != closeoutIntentPending {
+		t.Errorf("persisted CloseoutIntent = %q, want the pending intent preserved as %q", persisted.CloseoutIntent, closeoutIntentPending)
+	}
+}
+
+func TestFinalizeRunFailedReportWriteLeavesRunAmbiguous(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "ambwritefail", Slug: "ambiguous-write-failure"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	// A legacy run with a failed closeout: its outcome cannot be proven, so a
+	// failed persistence must leave it ambiguous rather than settled-looking.
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = filepath.Join(identity.PlanningPath(manifest.WorktreePath), finalReportFileName)
+	manifest.CloseoutState = closeoutStateFailed
+	manifest.CloseoutNote = "gh auth expired"
+	manifest.CloseoutIntent = ""
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	seeded, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	// The combined report-state write fails, so nothing from this finalization
+	// reaches disk and the run must still read as ambiguous.
+	writes, _ := failManifestWritesAfter(t, 0)
+
+	finalizeErr := orch.finalizeRun(context.Background(), store, &manifest, identity.PlanningPath(manifest.WorktreePath))
+	if finalizeErr == nil {
+		t.Fatal("finalizeRun with a failing report-state write returned nil error")
+	}
+	if want := "persist report state"; !strings.Contains(finalizeErr.Error(), want) {
+		t.Fatalf("finalizeRun error = %q, want one containing %q", finalizeErr, want)
+	}
+	if *writes != 1 {
+		t.Errorf("manifest write attempts = %d, want 1", *writes)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0 when the report state cannot persist", *closeoutCalls)
+	}
+
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if !closeoutOutcomeUnknown(persisted) {
+		t.Errorf("persisted manifest is settled-looking: version = %d state = %q intent = %q", persisted.FinalizationVersion, persisted.CloseoutState, persisted.CloseoutIntent)
+	}
+	if persisted.FinalizationVersion != 0 {
+		t.Errorf("persisted FinalizationVersion = %d, want 0 from before the failed write", persisted.FinalizationVersion)
+	}
+	if persisted.CloseoutState != seeded.CloseoutState || persisted.ReportState != seeded.ReportState || persisted.ReportPath != seeded.ReportPath {
+		t.Errorf("persisted state %q report %q path %q, want the seeded state %q report %q path %q unchanged",
+			persisted.CloseoutState, persisted.ReportState, persisted.ReportPath,
+			seeded.CloseoutState, seeded.ReportState, seeded.ReportPath)
+	}
+}
+
 func TestFinalizeRunLegacyMissingStateRequiresResolution(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "legacynone", Slug: "legacy-missing"}

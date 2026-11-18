@@ -441,8 +441,9 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	// Every branch records its closeout posture in this single write: an
 	// ambiguous run persists the unknown marker, a run that can reach a provider
 	// runner persists a pending intent, and a run whose closeout is provably
-	// skipped leaves both empty. A versioned manifest can therefore never look
-	// settled while a closeout may have run.
+	// skipped records no intent and leaves any existing closeout state
+	// unchanged. A versioned manifest can therefore never look settled while a
+	// closeout may have run.
 	if manualRequired {
 		// A pre-existing pending intent is itself why the run is ambiguous, so it
 		// is preserved rather than cleared.
@@ -460,12 +461,12 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	// run carries the unknown marker (with any pending intent preserved); a run
 	// whose closeout can reach a provider runner carries a pending intent; a run
 	// whose closeout is provably skipped (no auto_pr or no completed report)
-	// carries neither, which is safe because no external request was possible. A
-	// crash after this write but before Closeout leaves the intent pending, so an
-	// operator resolves the run manually even though no request may exist. A
-	// crash before the write leaves the previous report state, and the next
-	// finalization re-derives the same posture. Over-reporting is the intended
-	// conservative direction.
+	// records no intent and leaves any existing closeout state unchanged, which
+	// is safe because no external request was possible. A crash after this write
+	// but before Closeout leaves the intent pending, so an operator resolves the
+	// run manually even though no request may exist. A crash before the write
+	// leaves the previous report state, and the next finalization re-derives the
+	// same posture. Over-reporting is the intended conservative direction.
 
 	if manualRequired {
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, "closeout outcome unknown; manual resolution required")
