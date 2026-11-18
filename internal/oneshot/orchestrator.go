@@ -390,6 +390,12 @@ func closeoutOutcomeUnknown(manifest Manifest) bool {
 	if manifest.CloseoutIntent == closeoutIntentPending {
 		return true
 	}
+	// A persisted unknown state outranks the version marker: a versioned run
+	// records it when a manual-required finalization aborts, and the status must
+	// survive later attempts.
+	if manifest.CloseoutState == closeoutStateUnknown {
+		return true
+	}
 	if manifest.FinalizationVersion > 0 {
 		return false
 	}
@@ -431,6 +437,15 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	}
 
 	if manualRequired {
+		// Persist the unknown state before returning: the report write above also
+		// stamped the finalization version, so without this marker a second
+		// attempt would treat the run as settled.
+		manifest.CloseoutState = closeoutStateUnknown
+		manifest.CloseoutNote = "closeout outcome unknown; manual resolution required"
+		if err := store.Write(*manifest); err != nil {
+			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist unknown closeout state: %v", err))
+			return fmt.Errorf("persist unknown closeout state: %w", err)
+		}
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, "closeout outcome unknown; manual resolution required")
 		return fmt.Errorf("closeout outcome for run %s is unknown; record it or authorize a retry with steiner oneshot --resolve", manifest.RunID)
 	}

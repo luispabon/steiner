@@ -125,7 +125,7 @@ func TestFirstIncompletePhaseClassifiesEveryStatus(t *testing.T) {
 	}
 }
 
-func TestCloseoutRetryableOnlyForFinishedPhasesAndFailedCloseout(t *testing.T) {
+func TestCloseoutRetryableOnlyForFinishedPhasesAndAuthorisedRetry(t *testing.T) {
 	cases := []struct {
 		name     string
 		statuses map[Phase]PhaseStatus
@@ -133,17 +133,17 @@ func TestCloseoutRetryableOnlyForFinishedPhasesAndFailedCloseout(t *testing.T) {
 		want     bool
 	}{
 		{
-			name:     "failed closeout after done phases",
+			name:     "authorised retry after done phases",
 			statuses: allPhasesDone(),
-			state:    closeoutStateFailed,
+			state:    closeoutStateRetryAuthorized,
 			want:     true,
 		},
 		{
-			name: "failed closeout after skipped phases",
+			name: "authorised retry after skipped phases",
 			statuses: map[Phase]PhaseStatus{
 				PhasePlan: PhaseStatusSkipped, PhaseImplement: PhaseStatusSkipped, PhaseReview: PhaseStatusSkipped,
 			},
-			state: closeoutStateFailed,
+			state: closeoutStateRetryAuthorized,
 			want:  true,
 		},
 		{
@@ -151,7 +151,7 @@ func TestCloseoutRetryableOnlyForFinishedPhasesAndFailedCloseout(t *testing.T) {
 			statuses: map[Phase]PhaseStatus{
 				PhasePlan: PhaseStatusDone, PhaseImplement: PhaseStatusFailed, PhaseReview: PhaseStatusDone,
 			},
-			state: closeoutStateFailed,
+			state: closeoutStateRetryAuthorized,
 			want:  false,
 		},
 		{
@@ -159,14 +159,16 @@ func TestCloseoutRetryableOnlyForFinishedPhasesAndFailedCloseout(t *testing.T) {
 			statuses: map[Phase]PhaseStatus{
 				PhasePlan: PhaseStatusDone, PhaseImplement: PhaseStatus("interrupted"), PhaseReview: PhaseStatusDone,
 			},
-			state: closeoutStateFailed,
+			state: closeoutStateRetryAuthorized,
 			want:  false,
 		},
+		// A legacy failed state is ambiguous: it may hide a created request, so
+		// only an explicit operator resolution can authorise another attempt.
+		{name: "legacy failed closeout is ambiguous", statuses: allPhasesDone(), state: closeoutStateFailed, want: false},
 		{name: "created closeout is terminal", statuses: allPhasesDone(), state: closeoutStateCreated, want: false},
 		{name: "missing closeout state is terminal", statuses: allPhasesDone(), state: "", want: false},
 		{name: "skipped closeout is terminal", statuses: allPhasesDone(), state: closeoutStateSkipped, want: false},
 		{name: "unsupported closeout is terminal", statuses: allPhasesDone(), state: closeoutStateUnsupported, want: false},
-		{name: "retry authorized closeout is retryable", statuses: allPhasesDone(), state: closeoutStateRetryAuthorized, want: true},
 		{name: "unknown closeout outcome is not retried automatically", statuses: allPhasesDone(), state: closeoutStateUnknown, want: false},
 	}
 
@@ -177,6 +179,104 @@ func TestCloseoutRetryableOnlyForFinishedPhasesAndFailedCloseout(t *testing.T) {
 				t.Errorf("closeoutRetryable = %t, want %t", got, c.want)
 			}
 		})
+	}
+}
+
+func TestFinalizeRunLegacyFailedOutcomeRequiresResolution(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "legacyfail", Slug: "legacy-failed"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	// A legacy manifest recorded a failed closeout before the finalization
+	// fields existed, so its outcome cannot be proven either way.
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = filepath.Join(identity.PlanningPath(manifest.WorktreePath), finalReportFileName)
+	manifest.CloseoutState = closeoutStateFailed
+	manifest.CloseoutNote = "gh auth expired"
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+	planningPath := identity.PlanningPath(manifest.WorktreePath)
+
+	// Both attempts must abort: the first records the unknown state that the
+	// report write alone would have hidden, the second must still see it.
+	for attempt := 1; attempt <= 2; attempt++ {
+		loaded, err := store.Read()
+		if err != nil {
+			t.Fatalf("store.Read failed: %v", err)
+		}
+		if err := orch.finalizeRun(context.Background(), store, &loaded, planningPath); err == nil {
+			t.Fatalf("finalizeRun attempt %d on a legacy failed outcome returned nil error", attempt)
+		}
+
+		persisted, err := store.Read()
+		if err != nil {
+			t.Fatalf("store.Read failed: %v", err)
+		}
+		if persisted.CloseoutState != closeoutStateUnknown {
+			t.Fatalf("attempt %d CloseoutState = %q, want %q", attempt, persisted.CloseoutState, closeoutStateUnknown)
+		}
+		if persisted.CloseoutNote != "closeout outcome unknown; manual resolution required" {
+			t.Errorf("attempt %d CloseoutNote = %q, want the manual-resolution note", attempt, persisted.CloseoutNote)
+		}
+		if persisted.ReportState != reportStateWritten || persisted.ReportPath == "" {
+			t.Errorf("attempt %d report state = %q path = %q, want a written report", attempt, persisted.ReportState, persisted.ReportPath)
+		}
+		if *closeoutCalls != 0 {
+			t.Fatalf("attempt %d closeout calls = %d, want 0", attempt, *closeoutCalls)
+		}
+	}
+}
+
+func TestFinalizeRunLegacyMissingStateRequiresResolution(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "legacynone", Slug: "legacy-missing"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = ""
+	manifest.CloseoutState = ""
+	manifest.CloseoutIntent = ""
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	if err := orch.finalizeRun(context.Background(), store, &manifest, identity.PlanningPath(manifest.WorktreePath)); err == nil {
+		t.Fatal("finalizeRun on a legacy manifest with no closeout state returned nil error")
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("CloseoutState = %q, want %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+	if persisted.ReportState != reportStateWritten || persisted.ReportPath == "" {
+		t.Errorf("report state = %q path = %q, want the report written", persisted.ReportState, persisted.ReportPath)
+	}
+	if _, statErr := os.Stat(persisted.ReportPath); statErr != nil {
+		t.Errorf("stat persisted report: %v", statErr)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0 for an unknown outcome", *closeoutCalls)
 	}
 }
 
@@ -277,6 +377,10 @@ func TestResumeRefusesCompletedRunWithoutRetryableCloseout(t *testing.T) {
 		PhasePlan: PhaseStatusDone, PhaseImplement: PhaseStatusSkipped, PhaseReview: PhaseStatusDone,
 	}
 	manifest.CurrentPhase = PhaseReview
+	// A completed run needs a written report; a pending one is finished by the
+	// next resume instead of being rejected as complete.
+	manifest.ReportState = reportStateWritten
+	manifest.ReportPath = filepath.Join(identity.PlanningPath(manifest.WorktreePath), finalReportFileName)
 	manifest.CloseoutState = closeoutStateCreated
 	if err := store.Write(manifest); err != nil {
 		t.Fatalf("store.Write failed: %v", err)

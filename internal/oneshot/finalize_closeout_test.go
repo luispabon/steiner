@@ -24,8 +24,13 @@ func TestFailedCloseoutIsPersistedAsUnknownOutcomeAndNotRetried(t *testing.T) {
 	}
 	orch.deps.Config.OneShot.AutoPR = true
 
+	closeoutFailures := 0
 	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
-		return "", "", errors.New("gh auth expired")
+		closeoutFailures++
+		if closeoutFailures == 1 {
+			return "", "", errors.New("gh auth expired")
+		}
+		return "https://github.com/owner/repo/pull/9", "", nil
 	})
 
 	// A run that finished its phases reaches closeout, which fails. The outcome
@@ -58,17 +63,24 @@ func TestFailedCloseoutIsPersistedAsUnknownOutcomeAndNotRetried(t *testing.T) {
 		t.Errorf("CloseoutIntent = %q, want %q", persisted.CloseoutIntent, closeoutIntentPending)
 	}
 
-	// An unknown outcome is not offered as an automatic retry. The explicit
-	// resolution entry point (steiner oneshot --resolve) and its listing status
-	// arrive with the resume/list classification task.
+	// An unknown outcome is listed for manual resolution, never as an automatic
+	// closeout retry.
 	runs, err := ListResumableRuns(projectRoot)
 	if err != nil {
 		t.Fatalf("ListResumableRuns failed: %v", err)
 	}
+	listed := false
 	for _, run := range runs {
-		if run.RunID == identity.ID {
-			t.Errorf("run %s is listed as retryable (%q), want manual resolution only", identity.ID, run.Status)
+		if run.RunID != identity.ID {
+			continue
 		}
+		listed = true
+		if run.ResumePhase != phaseResolve || run.Status != "resolve closeout" {
+			t.Errorf("run listed as phase %q status %q, want resolve closeout", run.ResumePhase, run.Status)
+		}
+	}
+	if !listed {
+		t.Fatalf("run %s is not listed for manual resolution", identity.ID)
 	}
 
 	// Neither a resume nor a repeated finalization may call closeout again.
@@ -88,5 +100,33 @@ func TestFailedCloseoutIsPersistedAsUnknownOutcomeAndNotRetried(t *testing.T) {
 	factory.mu.Unlock()
 	if phaseCalls != 0 {
 		t.Errorf("resume re-ran %d phases, want none", phaseCalls)
+	}
+
+	// The explicit resolution authorises exactly one further closeout attempt.
+	resolved, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRetry})
+	if err != nil {
+		t.Fatalf("ResolveCloseout failed: %v", err)
+	}
+	if resolved.CloseoutState != closeoutStateRetryAuthorized {
+		t.Fatalf("resolved CloseoutState = %q, want %q", resolved.CloseoutState, closeoutStateRetryAuthorized)
+	}
+	if _, err := orch.Resume(context.Background()); err != nil {
+		t.Fatalf("Resume after an authorised retry failed: %v", err)
+	}
+	if *closeoutCalls != 2 {
+		t.Fatalf("closeout calls after the authorised retry = %d, want 2", *closeoutCalls)
+	}
+	retried, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if retried.CloseoutState != closeoutStateCreated || retried.CloseoutURL == "" {
+		t.Errorf("retried closeout state = %q url = %q, want created with a url", retried.CloseoutState, retried.CloseoutURL)
+	}
+	if _, err := orch.Resume(context.Background()); err == nil {
+		t.Fatal("Resume after a created closeout returned nil error")
+	}
+	if *closeoutCalls != 2 {
+		t.Errorf("closeout calls = %d, want no further call", *closeoutCalls)
 	}
 }

@@ -66,15 +66,17 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 //nolint:gocyclo
 func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree, lock *RunLock) (ret Manifest, retErr error) {
 	startPhase, ok := firstIncompletePhase(manifest)
-	if !ok && closeoutRetryable(manifest) {
-		// All phases finished and closeout may be retried: re-run closeout only.
+	if !ok {
+		if !reportPending(manifest) && !closeoutOutcomeUnknown(manifest) && !closeoutRetryable(manifest) {
+			return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
+		}
+		// All phases finished: re-run finalization only. finalizeRun writes a
+		// pending report, refuses an unknown closeout outcome, and runs closeout
+		// only when an operator authorised a retry.
 		if err := o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path)); err != nil {
 			return manifest, err
 		}
 		return manifest, nil
-	}
-	if !ok {
-		return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
 	}
 
 	o.reportOrphanedWorktrees(manifest, startPhase)
@@ -181,16 +183,37 @@ func firstIncompletePhase(manifest Manifest) (Phase, bool) {
 	return "", false
 }
 
-// phaseCloseout labels the closeout-only resume step in run listings.
-const phaseCloseout Phase = "closeout"
+// Synthetic resume phases label finalization-only work in run listings. They
+// are listing labels only and never run as phases.
+const (
+	// phaseCloseout labels an operator-authorised closeout retry.
+	phaseCloseout Phase = "closeout"
+	// phaseReport labels a run whose final report still has to be written.
+	phaseReport Phase = "report"
+	// phaseResolve labels a run whose closeout outcome is unknown and needs an
+	// explicit manual resolution.
+	phaseResolve Phase = "resolve"
+)
 
-// closeoutRetryable reports whether every phase is finished but closeout
-// failed, so resume can re-run just the closeout step.
+// reportPending reports whether the final report still has to be written.
+func reportPending(manifest Manifest) bool {
+	if manifest.ReportState == reportStateWritten {
+		return false
+	}
+	if manifest.FinalizationVersion > 0 {
+		return manifest.ReportState == reportStatePending
+	}
+	return strings.TrimSpace(manifest.ReportPath) == ""
+}
+
+// closeoutRetryable reports whether every phase is finished and an operator
+// authorised one more closeout attempt. A legacy failed state is ambiguous, so
+// it is not retried automatically.
 func closeoutRetryable(manifest Manifest) bool {
 	if _, incomplete := firstIncompletePhase(manifest); incomplete {
 		return false
 	}
-	return manifest.CloseoutState == closeoutStateFailed || manifest.CloseoutState == closeoutStateRetryAuthorized
+	return manifest.CloseoutState == closeoutStateRetryAuthorized
 }
 
 func previousPhaseBefore(phase Phase) Phase {

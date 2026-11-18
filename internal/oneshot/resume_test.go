@@ -621,8 +621,14 @@ func TestListResumableRuns(t *testing.T) {
 			PhaseImplement: PhaseStatusDone,
 			PhaseReview:    PhaseStatusDone,
 		},
-		CreatedAt: now.Add(-3 * time.Hour),
-		UpdatedAt: now.Add(-2 * time.Minute),
+		// A settled run: written report and a recorded closeout, so it is not
+		// listed as resumable.
+		FinalizationVersion: finalizationVersion,
+		ReportState:         reportStateWritten,
+		ReportPath:          filepath.Join(completeIdentity.PlanningPath(completeIdentity.WorktreePath(projectRoot)), finalReportFileName),
+		CloseoutState:       closeoutStateCreated,
+		CreatedAt:           now.Add(-3 * time.Hour),
+		UpdatedAt:           now.Add(-2 * time.Minute),
 	})
 
 	liveIdentity := RunIdentity{ID: "ddd444", Slug: "delta"}
@@ -722,5 +728,322 @@ func TestResumeReportsOrphanedWorktreesAndRestartsPhase(t *testing.T) {
 	}
 	if got := updated.PhaseSessionIDs[PhaseImplement]; got == "old-session" || got == "" {
 		t.Fatalf("implement session id = %q, want a fresh session", got)
+	}
+}
+
+// finalizedResumeFixture provisions a run whose phases are all done and whose
+// final report is written, so resume starts at finalization. auto_pr is enabled
+// and origin points at GitHub so closeout reaches the stubbed runner.
+func finalizedResumeFixture(t *testing.T, identity RunIdentity) (*ManifestStore, *Orchestrator) {
+	t.Helper()
+	projectRoot := setupGitRepo(t)
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	manifest.ReportState = reportStateWritten
+	manifest.ReportPath = filepath.Join(identity.PlanningPath(manifest.WorktreePath), finalReportFileName)
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	return store, orch
+}
+
+// markCloseoutUnknown records an unresolved closeout outcome for the run.
+func markCloseoutUnknown(t *testing.T, store *ManifestStore) {
+	t.Helper()
+	manifest, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	manifest.CloseoutState = closeoutStateUnknown
+	manifest.CloseoutIntent = ""
+	manifest.CloseoutNote = "closeout outcome unknown; manual resolution required"
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+}
+
+func TestResumeRefusesUnknownCloseoutWithoutResolution(t *testing.T) {
+	identity := RunIdentity{ID: "unkn0wn1", Slug: "unknown-closeout"}
+	store, orch := finalizedResumeFixture(t, identity)
+	markCloseoutUnknown(t, store)
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	_, err := orch.Resume(context.Background())
+	if err == nil {
+		t.Fatal("Resume on an unknown closeout outcome returned nil error")
+	}
+	// finalizeRun's manual-resolution error names the only accepted resolution
+	// path, so the operator must record the outcome or authorise a retry.
+	if !strings.Contains(err.Error(), "unknown") || !strings.Contains(err.Error(), "steiner oneshot --resolve") {
+		t.Fatalf("Resume error = %q, want the manual-resolution error", err)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0", *closeoutCalls)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("CloseoutState = %q, want it to stay %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+	if persisted.CloseoutIntent != "" {
+		t.Errorf("CloseoutIntent = %q, want it to stay empty", persisted.CloseoutIntent)
+	}
+}
+
+func TestResumeRegeneratesPendingReportForUnknownCloseout(t *testing.T) {
+	identity := RunIdentity{ID: "unkn0wn2", Slug: "unknown-report"}
+	store, orch := finalizedResumeFixture(t, identity)
+	loading, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	loading.CloseoutState = closeoutStateUnknown
+	loading.CloseoutIntent = ""
+	loading.ReportState = reportStatePending
+	loading.ReportPath = ""
+	if err := store.Write(loading); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	if _, err := orch.Resume(context.Background()); err == nil {
+		t.Fatal("Resume with an unknown outcome and a pending report returned nil error")
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.ReportState != reportStateWritten || persisted.ReportPath == "" {
+		t.Errorf("report state = %q path = %q, want the report written", persisted.ReportState, persisted.ReportPath)
+	}
+	if _, statErr := os.Stat(persisted.ReportPath); statErr != nil {
+		t.Errorf("stat regenerated report: %v", statErr)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("CloseoutState = %q, want %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0", *closeoutCalls)
+	}
+}
+
+func TestResumeRetriesAfterAuthorisedResolution(t *testing.T) {
+	identity := RunIdentity{ID: "auth0rized", Slug: "authorised-retry"}
+	store, orch := finalizedResumeFixture(t, identity)
+	loading, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	loading.CloseoutState = closeoutStateRetryAuthorized
+	loading.CloseoutIntent = ""
+	if err := store.Write(loading); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	updated, err := orch.Resume(context.Background())
+	if err != nil {
+		t.Fatalf("Resume after an authorised retry failed: %v", err)
+	}
+	if *closeoutCalls != 1 {
+		t.Errorf("closeout calls = %d, want 1", *closeoutCalls)
+	}
+	if updated.CloseoutState != closeoutStateCreated {
+		t.Errorf("CloseoutState = %q, want %q", updated.CloseoutState, closeoutStateCreated)
+	}
+	if updated.CloseoutURL == "" {
+		t.Error("CloseoutURL is empty after a successful retry")
+	}
+}
+
+func TestResolveCloseoutRecordsURLClearsAmbiguity(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve1", Slug: "resolve-url"}
+	store, orch := finalizedResumeFixture(t, identity)
+	markCloseoutUnknown(t, store)
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	const recorded = "https://github.com/owner/repo/pull/9"
+	resolved, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: "  " + recorded + "\n"})
+	if err != nil {
+		t.Fatalf("ResolveCloseout failed: %v", err)
+	}
+	if resolved.CloseoutState != closeoutStateCreated {
+		t.Errorf("CloseoutState = %q, want %q", resolved.CloseoutState, closeoutStateCreated)
+	}
+	if resolved.CloseoutURL != recorded {
+		t.Errorf("CloseoutURL = %q, want %q", resolved.CloseoutURL, recorded)
+	}
+	if resolved.CloseoutIntent != "" {
+		t.Errorf("CloseoutIntent = %q, want it cleared", resolved.CloseoutIntent)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateCreated || persisted.CloseoutURL != recorded {
+		t.Errorf("persisted closeout state = %q url = %q, want created with the recorded url", persisted.CloseoutState, persisted.CloseoutURL)
+	}
+
+	_, err = orch.Resume(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "already complete") {
+		t.Fatalf("Resume after a recorded resolution error = %v, want already complete", err)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0", *closeoutCalls)
+	}
+}
+
+func TestResolveCloseoutAuthorisesOneRetry(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve2", Slug: "resolve-retry"}
+	store, orch := finalizedResumeFixture(t, identity)
+	markCloseoutUnknown(t, store)
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	resolved, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRetry})
+	if err != nil {
+		t.Fatalf("ResolveCloseout failed: %v", err)
+	}
+	if resolved.CloseoutState != closeoutStateRetryAuthorized {
+		t.Fatalf("CloseoutState = %q, want %q", resolved.CloseoutState, closeoutStateRetryAuthorized)
+	}
+	if *closeoutCalls != 0 {
+		t.Fatalf("closeout calls after resolving = %d, want 0", *closeoutCalls)
+	}
+
+	updated, err := orch.Resume(context.Background())
+	if err != nil {
+		t.Fatalf("Resume after an authorised retry failed: %v", err)
+	}
+	if *closeoutCalls != 1 {
+		t.Fatalf("closeout calls = %d, want exactly 1", *closeoutCalls)
+	}
+	if updated.CloseoutState != closeoutStateCreated {
+		t.Errorf("CloseoutState = %q, want %q", updated.CloseoutState, closeoutStateCreated)
+	}
+
+	if _, err := orch.Resume(context.Background()); err == nil {
+		t.Fatal("second Resume after a created closeout returned nil error")
+	}
+	if *closeoutCalls != 1 {
+		t.Errorf("closeout calls = %d, want no further call", *closeoutCalls)
+	}
+}
+
+func TestResolveCloseoutRejectsResolvedRun(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve3", Slug: "resolve-resolved"}
+	store, orch := finalizedResumeFixture(t, identity)
+	manifest, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	manifest.CloseoutState = closeoutStateCreated
+	manifest.CloseoutURL = "https://github.com/owner/repo/pull/7"
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	_, err = ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRetry})
+	if err == nil {
+		t.Fatal("ResolveCloseout on a resolved run returned nil error")
+	}
+	if !strings.Contains(err.Error(), identity.ID) || !strings.Contains(err.Error(), closeoutStateCreated) {
+		t.Fatalf("ResolveCloseout error = %q, want it to name %s and state %q", err, identity.ID, closeoutStateCreated)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateCreated {
+		t.Errorf("CloseoutState = %q, want it to stay %q", persisted.CloseoutState, closeoutStateCreated)
+	}
+}
+
+func TestResolveCloseoutRejectsInvalidURL(t *testing.T) {
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{name: "unparseable", url: "not-a-url"},
+		{name: "unsupported scheme", url: "ftp://example.com/x"},
+		{name: "empty", url: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			identity := RunIdentity{ID: "r3solvebad", Slug: "resolve-bad-url"}
+			store, orch := finalizedResumeFixture(t, identity)
+			markCloseoutUnknown(t, store)
+
+			_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: c.url})
+			if err == nil {
+				t.Fatalf("ResolveCloseout with URL %q returned nil error", c.url)
+			}
+			if !strings.HasPrefix(err.Error(), "resolve closeout:") {
+				t.Errorf("ResolveCloseout error = %q, want a resolve closeout prefix", err)
+			}
+			persisted, readErr := store.Read()
+			if readErr != nil {
+				t.Fatalf("store.Read failed: %v", readErr)
+			}
+			if persisted.CloseoutState != closeoutStateUnknown {
+				t.Errorf("CloseoutState = %q, want it to stay %q", persisted.CloseoutState, closeoutStateUnknown)
+			}
+		})
+	}
+}
+
+func TestResolveCloseoutRejectsConcurrentLock(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve4", Slug: "resolve-lock"}
+	store, orch := finalizedResumeFixture(t, identity)
+	markCloseoutUnknown(t, store)
+	orch.deps.RunLockFactory = func(string, RunIdentity) (*RunLock, error) {
+		return nil, errLockHeld
+	}
+
+	_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRetry})
+	if !errors.Is(err, errLockHeld) {
+		t.Fatalf("ResolveCloseout error = %v, want errLockHeld", err)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("CloseoutState = %q, want it to stay %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+}
+
+func TestResolveCloseoutRejectsVersionedRunAwaitingNothing(t *testing.T) {
+	identity := RunIdentity{ID: "res0lve5", Slug: "resolve-nothing"}
+	store, orch := finalizedResumeFixture(t, identity)
+
+	_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRetry})
+	if err == nil {
+		t.Fatal("ResolveCloseout on a versioned run with nothing pending returned nil error")
+	}
+	if !strings.Contains(err.Error(), identity.ID) {
+		t.Errorf("ResolveCloseout error = %q, want it to name %s", err, identity.ID)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != "" || persisted.CloseoutIntent != "" {
+		t.Errorf("closeout state = %q intent = %q, want both unchanged", persisted.CloseoutState, persisted.CloseoutIntent)
 	}
 }
