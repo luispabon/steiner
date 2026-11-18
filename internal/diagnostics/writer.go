@@ -73,12 +73,13 @@ type Writer struct {
 }
 
 // New opens a Writer over opts.Dir, creating the directory (0o700) and one
-// 0o600 file per enabled stream. Under the stream lock, an interrupted rotation
-// is completed first, then records older than opts.RetentionDays are pruned from
-// existing files and an unterminated trailing record left by a killed process is
-// removed before the file is opened. A stream whose rotation is still unfinished
-// stays closed until the recovery succeeds. Returns a nil Writer, whose methods
-// are no-ops, when no stream is enabled.
+// 0o600 file per enabled stream as its locked preparation succeeds. Under the
+// stream lock, an interrupted rotation is completed first, then records older
+// than opts.RetentionDays are pruned from existing files and an unterminated
+// trailing record left by a killed process is removed before the file is opened.
+// A stream whose rotation is still unfinished, or whose stream lock was
+// unavailable, stays closed until append prepares and opens it under the lock.
+// Returns a nil Writer, whose methods are no-ops, when no stream is enabled.
 func New(opts Options) (*Writer, error) {
 	if !opts.Streams.any() {
 		return nil, nil
@@ -123,14 +124,17 @@ func New(opts Options) (*Writer, error) {
 
 // prepareStream runs the startup mutations for one stream and opens its file.
 // Retention and tail repair rewrite a file another process may be appending to,
-// so they run under the stream lock. An unavailable lock skips them rather than
-// failing: opening for append is not protected work, and startup contention
-// should not cost the process every later record.
+// so they run under the stream lock. An unavailable lock or a failed recovery
+// skips them rather than failing, so startup contention does not cost the
+// process every later record.
 //
-// An unfinished rotation owns the active path, so while its marker exists the
-// stream is registered without a file instead of creating one that a later
-// recovery would read as a second generation 0. Append opens the file once
-// recovery succeeds.
+// Startup never creates or opens the active file without the lock: opening for
+// append creates the path, and a peer that staged the active file between that
+// check and the open would leave a second generation 0 that every later
+// recovery rejects. When preparation did not complete under the lock the stream
+// is registered without a descriptor and append reopens it under the lock once
+// preparation is possible. The same holds while a rotation marker exists, since
+// the unfinished rotation owns the active path.
 func (w *Writer) prepareStream(kind Kind, cutoff time.Time) error {
 	path := filepath.Join(w.dir, kind.fileName())
 	prepared := true
@@ -159,13 +163,12 @@ func (w *Writer) prepareStream(kind Kind, cutoff time.Time) error {
 		prepared = false
 	}
 	if !prepared {
-		// A marker means an unfinished rotation still owns the active path. The
-		// lock failure or the recovery failure was already warned, so nothing is
-		// reported here: the record path retries recovery under the lock.
-		if _, statErr := os.Stat(rotationMarkerPath(path)); statErr == nil {
-			w.files[kind] = &stream{path: path}
-			return nil
-		}
+		// Opening the active path here would mutate it without the lock. The lock
+		// failure or the recovery failure was already warned once, so nothing is
+		// reported here: the record path retries the recovery and the open under
+		// the lock.
+		w.files[kind] = &stream{path: path}
+		return nil
 	}
 	file, err := openStreamFile(path)
 	if err != nil {
