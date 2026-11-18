@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/delegation"
@@ -25,6 +26,10 @@ type phaseDriverHost struct {
 	maxTokensPerEpisode int
 	// steers is the queue the driver reads user steers from; nil when headless.
 	steers *agent.SteerQueue
+	// images is the phase runtime's image store. Queued and submitted steer
+	// images are imported into it, because their markers name the launching
+	// session's store instead.
+	images *agent.ImageStore
 	// canceller cancels sub-agents on the user's behalf.
 	canceller phaseCanceller
 }
@@ -37,27 +42,87 @@ type phaseCanceller interface {
 
 // phaseControl is the user's handle on a running phase: its driver takes
 // prompts, steers and stop-turn, its supervisor takes sub-agent cancellation.
+// It is registered as a pointer so control routing compares identities instead
+// of values: the value holds sinks whose dynamic types need not be comparable.
 type phaseControl struct {
 	driver    *agent.ConversationDriver
 	canceller phaseCanceller
+	images    *agent.ImageStore
+	events    output.EventSink
+	gate      *phaseControlGate
 }
 
-func (c phaseControl) Submit(text string, images []agent.ImageBlock) {
-	c.driver.Submit(text, images, agent.SubmitMeta{})
+// phaseControlGate admits submits until the phase starts tearing down, so a
+// late submit cannot import images into a store that is about to be cleaned
+// up. A nil gate admits every submit.
+type phaseControlGate struct {
+	mu     sync.Mutex
+	closed bool
 }
 
-func (c phaseControl) NotifySteer() { c.driver.NotifySteer() }
+// phaseSteerClosedWarning is emitted when a submit arrives after the phase has
+// finished, instead of dropping the input silently.
+const phaseSteerClosedWarning = "oneshot steer was not delivered: the phase had already finished"
 
-func (c phaseControl) StopTurn() { c.driver.StopTurn() }
+// enter runs fn under the gate unless the phase has closed. It reports whether
+// fn ran.
+func (g *phaseControlGate) enter(fn func()) bool {
+	if g == nil {
+		fn()
+		return true
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return false
+	}
+	fn()
+	return true
+}
 
-func (c phaseControl) CancelAgent(agentID string, discard bool) error {
+func (g *phaseControlGate) close() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.closed = true
+	g.mu.Unlock()
+}
+
+func (c *phaseControl) Submit(text string, images []agent.ImageBlock) {
+	run := c.gate.enter(func() {
+		steer := importPhaseSteer(agent.SteerMessage{Text: text, Images: images}, c.images, c.warn)
+		c.driver.Submit(steer.Text, steer.Images, agent.SubmitMeta{})
+	})
+	if !run {
+		// Only this closed-phase warning is emitted outside the gate; import
+		// warnings are emitted inside it by the import path. Emitting it after
+		// enter returns keeps a sink that calls back into control from
+		// deadlocking on the gate.
+		c.warn(phaseSteerClosedWarning)
+	}
+}
+
+// warn emits a steer delivery warning to the launching session.
+func (c *phaseControl) warn(message string) {
+	if c.events == nil {
+		return
+	}
+	c.events.Emit(output.NewConversationWarningEvent(output.ConversationWarningKindRun, message))
+}
+
+func (c *phaseControl) NotifySteer() { c.driver.NotifySteer() }
+
+func (c *phaseControl) StopTurn() { c.driver.StopTurn() }
+
+func (c *phaseControl) CancelAgent(agentID string, discard bool) error {
 	if c.canceller == nil {
 		return errors.New("no active delegate cancellation available")
 	}
 	return c.canceller.CancelAgent(agentID, discard)
 }
 
-func (c phaseControl) CancelAll() error {
+func (c *phaseControl) CancelAll() error {
 	if c.canceller == nil {
 		return errors.New("no active delegate cancellation available")
 	}
@@ -78,10 +143,12 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 	defer failHost(nil)
 	host.record.onFailure = failHost
 
+	gate := &phaseControlGate{}
 	driver := agent.NewConversationDriver(agent.DriverOptions{
 		Run:                 host.run,
 		Background:          host.background,
 		Steers:              host.steers,
+		ProcessSteers:       phaseSteerImporter(host.images),
 		Save:                in.Session.Save,
 		Events:              phaseDriverEvents(host.events, in.RegisterControl != nil),
 		MaxTokensPerEpisode: host.maxTokensPerEpisode,
@@ -95,7 +162,7 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 	if in.RegisterControl != nil {
 		// The release runs when this function returns, after Close, so control stays with
 		// this phase until its driver has settled.
-		release := in.RegisterControl(phaseControl{driver: driver, canceller: host.canceller})
+		release := in.RegisterControl(&phaseControl{driver: driver, canceller: host.canceller, images: host.images, events: host.events, gate: gate})
 		defer release()
 	}
 	driver.Submit(prompt.Content, prompt.Images, agent.SubmitMeta{})
@@ -114,6 +181,7 @@ func runPhaseOnDriver(ctx context.Context, in oneshot.PhaseRunInput, host phaseD
 		failure = waitErr
 	}
 
+	gate.close()
 	settleCtx := context.WithoutCancel(ctx)
 	if failure != nil {
 		host.shutdown(settleCtx, delegation.CancelCauseSystem)

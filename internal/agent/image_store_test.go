@@ -45,6 +45,43 @@ func TestImageStoreRegisterAssignsSequentialIDs(t *testing.T) {
 	}
 }
 
+func TestImageStoreImportWritesFileAndRegisters(t *testing.T) {
+	store := NewImageStore(t.TempDir())
+	ref, err := store.Import([]byte("pasted bytes"), "image/jpeg", 12, 34)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if ref.ID != "img-1" {
+		t.Fatalf("ID = %q, want img-1", ref.ID)
+	}
+	if !pathWithin(store.Dir(), ref.FilePath) {
+		t.Fatalf("file %q is outside store dir %q", ref.FilePath, store.Dir())
+	}
+	if ext := filepath.Ext(ref.FilePath); ext != ".jpg" {
+		t.Fatalf("extension = %q, want .jpg", ext)
+	}
+	data, err := os.ReadFile(ref.FilePath)
+	if err != nil || string(data) != "pasted bytes" {
+		t.Fatalf("stored bytes = %q, err = %v", data, err)
+	}
+	if ref.MediaType != "image/jpeg" || ref.Width != 12 || ref.Height != 34 || ref.SizeBytes != len("pasted bytes") {
+		t.Fatalf("ref = %+v", ref)
+	}
+	if got, ok := store.Get(ref.ID); !ok || got.FilePath != ref.FilePath {
+		t.Fatalf("Get(%q) = %+v, %v", ref.ID, got, ok)
+	}
+}
+
+func TestImageStoreImportRejectsEmptyData(t *testing.T) {
+	store := NewImageStore(t.TempDir())
+	if _, err := store.Import(nil, "image/png", 0, 0); err == nil {
+		t.Fatal("Import(nil) error = nil")
+	}
+	if all := store.All(); len(all) != 0 {
+		t.Fatalf("empty import registered images: %+v", all)
+	}
+}
+
 func TestImageStoreRegisterEmptyPathStillAssignsID(t *testing.T) {
 	store := NewImageStore(t.TempDir())
 	ref := store.Register("", "image/png", 1, 1, 1)

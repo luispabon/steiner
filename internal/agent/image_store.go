@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -276,6 +277,50 @@ func rewriteIndexPaths(data []byte, srcDir, dstDir string) []byte {
 		return data
 	}
 	return rewritten
+}
+
+// Import writes decoded image bytes into the store's current folder under a
+// unique name carrying the extension for mediaType, registers them, and returns
+// the new ref. A write failure returns an error and registers no ID.
+func (s *ImageStore) Import(data []byte, mediaType string, width, height int) (ImageRef, error) {
+	if len(data) == 0 {
+		return ImageRef{}, errors.New("import image: empty image data")
+	}
+	dir := s.Dir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ImageRef{}, fmt.Errorf("import image: create directory: %w", err)
+	}
+	file, err := os.CreateTemp(dir, "image-*"+imageFileExtension(mediaType))
+	if err != nil {
+		return ImageRef{}, fmt.Errorf("import image: create file: %w", err)
+	}
+	path := file.Name()
+	if _, err := file.Write(data); err != nil {
+		// Best-effort cleanup: the partial file is not registered.
+		_ = file.Close()
+		_ = os.Remove(path)
+		return ImageRef{}, fmt.Errorf("import image: write file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return ImageRef{}, fmt.Errorf("import image: write file: %w", err)
+	}
+	return s.Register(path, mediaType, width, height, len(data)), nil
+}
+
+// imageFileExtension returns the file extension to store an image under for
+// mediaType. Unknown types keep the png extension the clipboard path uses.
+func imageFileExtension(mediaType string) string {
+	switch strings.ToLower(strings.TrimSpace(mediaType)) {
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".png"
+	}
 }
 
 // Register assigns the next img-N ID in the current binding, records the ref,

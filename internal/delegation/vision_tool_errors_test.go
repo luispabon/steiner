@@ -1,12 +1,34 @@
 package delegation
 
 import (
+	"encoding/base64"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
 )
+
+func TestLoadVisionImageBlockResolvesImportedImage(t *testing.T) {
+	t.Parallel()
+	store := agent.NewImageStore(t.TempDir())
+	ref, err := store.Import([]byte("imported bytes"), "image/png", 8, 9)
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	block, err := loadVisionImageBlock(ref.ID, store)
+	if err != nil {
+		t.Fatalf("loadVisionImageBlock: %v", err)
+	}
+	data, err := base64.StdEncoding.DecodeString(block.Data)
+	if err != nil || string(data) != "imported bytes" {
+		t.Fatalf("vision data = %q, err = %v", data, err)
+	}
+	if block.MediaType != "image/png" || block.Width != 8 || block.Height != 9 {
+		t.Fatalf("vision block = %+v", block)
+	}
+}
 
 func TestLoadVisionImageBlockErrors(t *testing.T) {
 	t.Parallel()
