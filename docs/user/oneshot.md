@@ -45,7 +45,7 @@ When the run finishes, the CLI prints the report path and the manifest as JSON.
 
 ## Steering input
 
-While a run started with `/oneshot` is active, the composer sends your input to the current phase as a steering message instead of starting a new turn. Only exact `/exit`, `/thinking`, `/accent`, and `/accent <preset>` run as commands; any other input, including other slash commands, is steering.
+While a run started with `/oneshot` is active, the composer sends your input to the current phase as a steering message instead of starting a new turn. A pasted image in a steer is copied into the phase's image store, and the marker for that attachment is rewritten to the phase copy's ID. An image whose copy fails is shown as unavailable with a visible warning while the rest of the steer is still delivered. Other image references in the text are left unchanged; image IDs are phase-local. Only exact `/exit`, `/thinking`, `/accent`, and `/accent <preset>` run as commands; any other input, including other slash commands, is steering.
 
 ## Pull request closeout
 

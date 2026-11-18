@@ -4,7 +4,56 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/luispabon/steiner/internal/output"
 )
+
+func TestConversationDriverProcessSteersRewritesDelivery(t *testing.T) {
+	t.Parallel()
+	h := newDriverHarnessOpts(t, nil, nil, func(opts *DriverOptions) {
+		opts.ProcessSteers = func(steers []SteerMessage) ([]SteerMessage, []string) {
+			processed := make([]SteerMessage, len(steers))
+			for i, steer := range steers {
+				steer.Text = strings.ReplaceAll(steer.Text, "[img-1]", "[img-2]")
+				steer.Images = []ImageBlock{{ID: "img-2", FilePath: "/phase/two.png"}}
+				processed[i] = steer
+			}
+			return processed, []string{"oneshot steer image img-9 was not delivered"}
+		}
+	})
+	h.start()
+
+	h.steers.Add(SteerMessage{Text: "look at [img-1]", Images: []ImageBlock{{ID: "img-1", FilePath: "/launch/one.png"}}})
+	h.d.NotifySteer()
+	call := h.nextRun()
+	last := call.in.Conversation[len(call.in.Conversation)-1]
+	if last.Content != "look at [img-2]" {
+		t.Fatalf("delivered content = %q, want the rewritten marker only", last.Content)
+	}
+	if len(last.Images) != 1 || last.Images[0].ID != "img-2" || last.Images[0].FilePath != "/phase/two.png" {
+		t.Fatalf("delivered images = %+v, want the rewritten image", last.Images)
+	}
+	call.finish()
+	h.waitQuiescent()
+
+	timeout := time.After(driverTestTimeout)
+	for {
+		select {
+		case event := <-h.events:
+			payload, ok := event.Payload.(output.ConversationWarningEvent)
+			if !ok || payload.Kind != output.ConversationWarningKindRun {
+				continue
+			}
+			if payload.Message != "oneshot steer image img-9 was not delivered" {
+				t.Fatalf("warning = %q", payload.Message)
+			}
+			return
+		case <-timeout:
+			t.Fatal("no warning event for the processed steer")
+		}
+	}
+}
 
 func TestConversationDriverTakeBackRacingDrain(t *testing.T) {
 	t.Parallel()

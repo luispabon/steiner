@@ -87,6 +87,13 @@ type DriverOptions struct {
 	SnapshotDelegationGroups func() DelegationGroupLedger
 	// Steers may be nil (headless oneshot).
 	Steers *SteerQueue
+	// ProcessSteers rewrites queued steering messages before delivery and
+	// returns warnings for the driver to emit, for hosts whose receiving
+	// conversation has its own image store. It runs under the driver lock, so
+	// it must not emit events and must keep the work bounded: no network calls,
+	// no user input, and no file access beyond the small writes needed to land
+	// a steer's images in the receiving store.
+	ProcessSteers func([]SteerMessage) ([]SteerMessage, []string)
 	// Save persists a snapshot. A save error is reported as a warning event
 	// and never stops the loop: losing one durability point is better than
 	// wedging the conversation.

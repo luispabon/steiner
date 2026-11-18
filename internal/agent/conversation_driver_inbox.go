@@ -118,6 +118,20 @@ func (d *ConversationDriver) drainForRun() InboxDrain {
 	return d.drainLocked(DeliveryParts{})
 }
 
+// processSteersLocked applies the host's steer rewrite to the steers drained
+// from the queue and queues the warnings it returns. The caller must hold
+// d.mu.
+func (d *ConversationDriver) processSteersLocked(steers []SteerMessage) []SteerMessage {
+	if d.opts.ProcessSteers == nil || len(steers) == 0 {
+		return steers
+	}
+	processed, warnings := d.opts.ProcessSteers(steers)
+	for _, warning := range warnings {
+		d.warnLocked(output.ConversationWarningKindRun, warning)
+	}
+	return processed
+}
+
 // drainLocked takes every buffered prompt, steer and completion into one
 // message, prefixed by prefix. It returns the zero value when nothing was
 // buffered. Steers.Drain is atomic, so a take-back racing this drain gets each
@@ -140,6 +154,7 @@ func (d *ConversationDriver) drainItemsLocked(prefix DeliveryParts) (InboxDrain,
 	d.users = nil
 	d.userBlocks = nil
 	steers := d.opts.Steers.Drain()
+	steers = d.processSteersLocked(steers)
 	items = append(items, steers...)
 	completions := d.completions
 	d.completions = nil

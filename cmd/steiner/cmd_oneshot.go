@@ -167,6 +167,7 @@ func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (on
 		events:              rt.events,
 		maxTokensPerEpisode: rt.cfg.Limits.MaxTokens,
 		steers:              r.steers,
+		images:              rt.imageStore,
 	}
 	if sup := rt.delegationSupervisor; sup != nil {
 		host.background = sup
