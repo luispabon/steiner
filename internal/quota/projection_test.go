@@ -3,6 +3,8 @@ package quota
 import (
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 func windowAt(key string, at time.Time, used float64, reset time.Time) Snapshot {
@@ -190,12 +192,41 @@ func TestProjectClaudeSubscriptionWindowFromStart(t *testing.T) {
 			wantBeforeReset: true,
 		},
 		{
+			name:            "average forecasts past the reset",
+			current:         claudeSubWindowAt(testBase, 10, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     360 * time.Minute, // 40m elapsed at 10%: 40m * 90 / 10, reset in 260m.
+			wantBeforeReset: false,
+		},
+		{
 			name:    "span under 15m after the window start is rejected",
 			current: claudeSubWindowAt(testBase, 27, resetFor(5*time.Minute), full),
 		},
 		{
 			name:    "usage under 2 percent after the window start is rejected",
 			current: claudeSubWindowAt(testBase, 1, resetFor(40*time.Minute), full),
+		},
+		{
+			name:            "exact minimum span after the window start is accepted",
+			current:         claudeSubWindowAt(testBase, 50, resetFor(15*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     15 * time.Minute, // 15m elapsed at 50%: 15m * 50 / 50.
+			wantBeforeReset: true,
+		},
+		{
+			name:            "exact minimum rise after the window start is accepted",
+			current:         claudeSubWindowAt(testBase, 2, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     1960 * time.Minute, // 40m elapsed at 2%: 40m * 98 / 2, reset in 260m.
+			wantBeforeReset: false,
+		},
+		{
+			name:    "zero usage after the window start projects nothing",
+			current: claudeSubWindowAt(testBase, 0, resetFor(40*time.Minute), full),
+		},
+		{
+			name:    "negative usage after the window start projects nothing",
+			current: claudeSubWindowAt(testBase, -5, resetFor(40*time.Minute), full),
 		},
 		{
 			name:            "unusable average falls back to history",
@@ -211,6 +242,14 @@ func TestProjectClaudeSubscriptionWindowFromStart(t *testing.T) {
 			current:         claudeSubWindowAt(testBase, 20, testBase.Add(full+10*time.Minute), full),
 			wantOK:          true,
 			wantEmptyIn:     240 * time.Minute,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "sample at the window start falls back to history",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, testBase.Add(full))},
+			current:         claudeSubWindowAt(testBase, 20, testBase.Add(full), full),
+			wantOK:          true,
+			wantEmptyIn:     240 * time.Minute, // History: 30m rose 10 points, 80 points left.
 			wantBeforeReset: true,
 		},
 		{
@@ -246,6 +285,13 @@ func TestProjectClaudeSubscriptionWindowFromStart(t *testing.T) {
 		{
 			name:            "full usage is empty now",
 			current:         claudeSubWindowAt(testBase, 100, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     0,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "usage over capacity is empty now",
+			current:         claudeSubWindowAt(testBase, 120, resetFor(40*time.Minute), full),
 			wantOK:          true,
 			wantEmptyIn:     0,
 			wantBeforeReset: true,
@@ -359,5 +405,13 @@ func TestProjectBudget(t *testing.T) {
 			got := ProjectBudget(tt.history, tt.current, tt.index)
 			checkProjection(t, got, tt.wantOK, tt.wantEmptyAt, tt.wantBeforeReset)
 		})
+	}
+}
+
+// TestClaudeSubscriptionProviderTypeMatchesConfig pins the provider literal
+// duplicated in projection.go to the config constant it mirrors.
+func TestClaudeSubscriptionProviderTypeMatchesConfig(t *testing.T) {
+	if claudeSubscriptionProviderType != string(config.ProviderTypeClaudeSubscription) {
+		t.Errorf("claudeSubscriptionProviderType = %q, config.ProviderTypeClaudeSubscription = %q", claudeSubscriptionProviderType, config.ProviderTypeClaudeSubscription)
 	}
 }

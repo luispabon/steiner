@@ -82,8 +82,15 @@ func TestViewsProjectClaudeSubscriptionWindowFromStart(t *testing.T) {
 	if len(views) != 1 {
 		t.Fatalf("Views returned %d rows, want 1", len(views))
 	}
-	if got := views[0].WindowProjections; len(got) != 1 || !got[0].OK || !got[0].BeforeReset {
-		t.Errorf("WindowProjections = %+v, want one OK projection before reset", got)
+	got := views[0].WindowProjections
+	if len(got) != 1 || !got[0].OK || !got[0].BeforeReset {
+		t.Fatalf("WindowProjections = %+v, want one OK projection before reset", got)
+	}
+	// The five-hour window started 39 minutes before the sample, so 39m at
+	// 27% projects 39m * 73 / 27, about 105.4 minutes.
+	wantEmptyAt := testBase.Add(2847 * time.Minute / 27)
+	if diff := got[0].EmptyAt.Sub(wantEmptyAt); diff > time.Minute || diff < -time.Minute {
+		t.Errorf("WindowProjections[0].EmptyAt = %s, want within a minute of %s", got[0].EmptyAt, wantEmptyAt)
 	}
 }
 
