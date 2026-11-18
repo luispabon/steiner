@@ -2,7 +2,9 @@ package diagnostics
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/filelock"
 )
 
 func allStreams() Streams {
@@ -348,6 +352,11 @@ func TestWriterRotation(t *testing.T) {
 	if active.Mode().Perm() != 0o600 {
 		t.Errorf("active mode = %o, want 600", active.Mode().Perm())
 	}
+	// Every cooperating process must lock the same inode, so the lock file stays
+	// put when the generations it guards move.
+	if _, err := os.Stat(streamLockPath(dir, KindTool)); err != nil {
+		t.Errorf("stream lock stat error = %v, want the lock file kept across rotation", err)
+	}
 }
 
 func TestNilWriterMethodsAreNoOps(t *testing.T) {
@@ -385,5 +394,504 @@ func TestWriterCaptureBodies(t *testing.T) {
 func TestNewEmptyDir(t *testing.T) {
 	if _, err := New(Options{Streams: allStreams()}); err == nil {
 		t.Fatal("New() error = nil, want an error for an empty directory")
+	}
+}
+
+// partialRecord is an encoded record cut off mid-line, as a process killed
+// during a write leaves it.
+const partialRecord = `{"ts":"2026-11-18T00:00:00Z","kind":"cache","agent_id":"frag-`
+
+// failStreamLock replaces the stream lock seam with a failing acquire. The
+// returned function restores the seam, so a test can fail the lock during New
+// and let later appends lock normally.
+func failStreamLock(t *testing.T) (restore func()) {
+	t.Helper()
+
+	orig := acquireStreamFileLock
+	acquireStreamFileLock = func(context.Context, string) (streamLock, error) {
+		return nil, errors.New("boom")
+	}
+	t.Cleanup(func() { acquireStreamFileLock = orig })
+	return func() { acquireStreamFileLock = orig }
+}
+
+// unsupportedTestLock stands in for the degraded lock filelock returns when the
+// platform or filesystem cannot lock a stream.
+type unsupportedTestLock struct {
+	released bool
+}
+
+func (l *unsupportedTestLock) Release() error {
+	l.released = true
+	return nil
+}
+
+func (l *unsupportedTestLock) Unsupported() bool { return true }
+
+func (l *unsupportedTestLock) Warning() string { return "stream lock unavailable in test" }
+
+// appendFragment appends raw bytes to path, leaving the file without a trailing
+// newline the way a killed writer does.
+func appendFragment(t *testing.T, path, fragment string) {
+	t.Helper()
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	if _, err := file.WriteString(fragment); err != nil {
+		_ = file.Close()
+		t.Fatalf("write fragment to %s: %v", path, err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close %s: %v", path, err)
+	}
+}
+
+// skipUnlessStreamLocksSupported skips a test whose assertions need real
+// cross-process exclusion, which the platform or filesystem may refuse.
+func skipUnlessStreamLocksSupported(t *testing.T, dir string, kind Kind) {
+	t.Helper()
+
+	lock, err := filelock.Acquire(context.Background(), streamLockPath(dir, kind))
+	if err != nil {
+		t.Fatalf("acquire stream lock: %v", err)
+	}
+	unsupported := lock.Unsupported()
+	// Best-effort: the probe holds nothing but the descriptor.
+	_ = lock.Release()
+	if unsupported {
+		t.Skip("stream locks are unsupported on this platform")
+	}
+}
+
+func TestWriterRepairsIncompleteTrailingRecord(t *testing.T) {
+	tests := []struct {
+		name     string
+		fragment string
+		marker   string
+	}{
+		{
+			// A fragment longer than the backwards scan window must not take the
+			// complete lines before it with it.
+			name:     "fragment longer than the scan window",
+			fragment: `{"ts":"2026-11-18T00:00:00Z","payload":"` + strings.Repeat("x", 2*tailScanBytes),
+			marker:   `"payload":"`,
+		},
+		{name: "short fragment", fragment: partialRecord, marker: `"frag-`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "cache.jsonl")
+			seeded := 2 * 24 * time.Hour
+			seedStream(t, path, seeded)
+			appendFragment(t, path, tt.fragment)
+
+			w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}})
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			t.Cleanup(func() { _ = w.Close() })
+			w.Write(Record{Kind: KindCache, AgentID: "after-repair"})
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			if strings.Contains(string(data), tt.marker) {
+				t.Errorf("stream = %q, want the incomplete trailing record removed", string(data))
+			}
+			records := readRecords(t, path)
+			if len(records) != 2 {
+				t.Fatalf("records = %d, want the seeded record plus the new one", len(records))
+			}
+			if records[0].AgentID != ageLabel(seeded) || records[1].AgentID != "after-repair" {
+				t.Errorf("records = %q/%q, want %q/after-repair", records[0].AgentID, records[1].AgentID, ageLabel(seeded))
+			}
+		})
+	}
+}
+
+func TestWriterKeepCompleteTrailingRecord(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache.jsonl")
+	seeded := 2 * 24 * time.Hour
+	seedStream(t, path, seeded)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	w.Write(Record{Kind: KindCache, AgentID: "after-open"})
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if !strings.HasPrefix(string(after), string(before)) {
+		t.Errorf("stream = %q, want the complete seeded record kept verbatim", string(after))
+	}
+	records := readRecords(t, path)
+	if len(records) != 2 || records[0].AgentID != ageLabel(seeded) {
+		t.Fatalf("records = %+v, want the seeded record kept before the new one", records)
+	}
+}
+
+func TestWriterRepairsFragmentAppendedAfterOpen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	w.Write(Record{Kind: KindTool, AgentID: "before"})
+	// A peer is killed mid-append after this writer opened, so the fragment
+	// appears in the stream the writer already holds.
+	appendFragment(t, path, `{"partial":`)
+
+	w.Write(Record{Kind: KindTool, AgentID: "after"})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if strings.Contains(string(data), `"partial"`) {
+		t.Errorf("stream = %q, want the fragment removed before the append", string(data))
+	}
+	records := readRecords(t, path)
+	if len(records) != 2 || records[0].AgentID != "before" || records[1].AgentID != "after" {
+		t.Fatalf("records = %+v, want the two complete records", records)
+	}
+	if got, written := fileSize(t, path), w.files[KindTool].written; got != written {
+		t.Errorf("tracked size = %d, want the repaired file size %d", written, got)
+	}
+}
+
+func TestWriterRepairsStreamThatIsOnlyAFragment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	// Nothing in the file is a complete line, so the repair has to empty it.
+	appendFragment(t, path, `{"partial":`)
+	w.Write(Record{Kind: KindTool, AgentID: "sole"})
+
+	if got := readFileContent(t, path); strings.Contains(got, `"partial"`) {
+		t.Errorf("stream = %q, want the fragment-only file emptied", got)
+	}
+	records := readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "sole" {
+		t.Fatalf("records = %+v, want only the record written after the repair", records)
+	}
+	if got, written := fileSize(t, path), w.files[KindTool].written; got != written {
+		t.Errorf("tracked size = %d, want the repaired file size %d", written, got)
+	}
+}
+
+func TestWriterDropsRecordWhenTailRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	appendFragment(t, path, `{"partial":`)
+	if err := os.Chmod(path, 0o200); err != nil {
+		t.Fatalf("chmod %s: %v", path, err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	// Root and filesystems without enforced permissions cannot make the tail
+	// unreadable, so the repair cannot be shown to fail here.
+	if probe, err := os.Open(path); err == nil {
+		_ = probe.Close()
+		t.Skip("file permissions are not enforced, so an unreadable tail cannot be set up")
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "dropped"})
+
+	if !w.warned {
+		t.Error("warned = false, want the failed repair reported")
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("chmod %s: %v", path, err)
+	}
+	if got := readFileContent(t, path); got != `{"partial":` {
+		t.Errorf("stream = %q, want the record dropped rather than appended to the fragment", got)
+	}
+	if s := w.files[KindTool]; s.written != int64(len(`{"partial":`)) {
+		t.Errorf("tracked size = %d, want it unchanged for a dropped record", s.written)
+	}
+}
+
+func TestWriterSkipsAppendWhenStreamLockUnavailable(t *testing.T) {
+	failStreamLock(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v, want the stream left unopened without a lock", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if !w.warned {
+		t.Error("warned = false, want the unavailable lock reported")
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "dropped"})
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("active stat error = %v, want no active file opened or created without the lock", err)
+	}
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Errorf("rotation artefacts = %v, want none", got)
+	}
+	if err := w.Close(); err != nil {
+		t.Errorf("Close() error = %v, want an unopened stream closed without error", err)
+	}
+}
+
+func TestNewSkipsRetentionWhenStreamLockUnavailable(t *testing.T) {
+	failStreamLock(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cache.jsonl")
+	stale := 90 * 24 * time.Hour
+	seedStream(t, path, stale, 2*24*time.Hour)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Cache: true}, RetentionDays: 30})
+	if err != nil {
+		t.Fatalf("New() error = %v, want a skipped retention to succeed", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	if !w.warned {
+		t.Error("warned = false, want the unavailable lock reported")
+	}
+	records := readRecords(t, path)
+	if len(records) != 2 || records[0].AgentID != ageLabel(stale) {
+		t.Fatalf("records = %+v, want both seeded records kept without the lock", records)
+	}
+}
+
+func TestWriterOpensStreamUnderLockAfterStartupLockFailure(t *testing.T) {
+	restore := failStreamLock(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if s := w.files[KindTool]; s == nil || s.file != nil {
+		t.Fatalf("stream = %+v, want it registered without a file", s)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created without the lock", err)
+	}
+
+	restore()
+	w.Write(Record{Kind: KindTool, AgentID: "after-lock"})
+
+	records := readRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-lock" {
+		t.Fatalf("records = %+v, want the record written once the lock was available", records)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("mode = %v, want 0o600 for a file created under the lock", got)
+	}
+	if s := w.files[KindTool]; s.written != info.Size() {
+		t.Errorf("tracked size = %d, want the %d bytes on disk", s.written, info.Size())
+	}
+}
+
+func TestNewLeavesStreamUnopenedWhenLockUnavailableDuringRecovery(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, recordLine(t, "seed"))
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0}})
+	restore := failStreamLock(t)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v, want the pending rotation to leave the writer usable", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if s := w.files[KindTool]; s == nil || s.file != nil {
+		t.Fatalf("stream = %+v, want it registered without a file", s)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created without the lock", err)
+	}
+
+	// The append completes the rotation under the lock before it writes, so the
+	// installed active file is the one that receives the record.
+	restore()
+	w.Write(Record{Kind: KindTool, AgentID: "after-recovery"})
+
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Fatalf("rotation artefacts = %v, want the recovered transaction cleaned up", got)
+	}
+	if got := readStream(t, path, 1); got != recordLine(t, "seed") {
+		t.Errorf("generation 1 = %q, want the staged active file installed", got)
+	}
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-recovery" {
+		t.Fatalf("active records = %+v, want only the record written after recovery", records)
+	}
+}
+
+func TestNewStartupLockFailureLeavesPeerStagingRecoverable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, recordLine(t, "seed"))
+	// A peer has staged the active file and has not written its rotation marker
+	// yet. Creating the active path here would read as a second generation 0 to
+	// the recovery that marker triggers.
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	restore := failStreamLock(t)
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("active stat error = %v, want no active file created without the lock", err)
+	}
+
+	restore()
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0}})
+	w.Write(Record{Kind: KindTool, AgentID: "after-recovery"})
+
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Fatalf("rotation artefacts = %v, want the peer's transaction recovered", got)
+	}
+	if got := readStream(t, path, 1); got != recordLine(t, "seed") {
+		t.Errorf("generation 1 = %q, want the peer's staged active file installed", got)
+	}
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-recovery" {
+		t.Fatalf("active records = %+v, want the record appended to the installed active file", records)
+	}
+}
+
+func TestWriterSkipsMutationsWhenStreamLockDegrades(t *testing.T) {
+	tests := []struct {
+		name        string
+		unsupported bool
+	}{
+		{name: "no lock returned"},
+		{name: "unsupported lock", unsupported: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orig := acquireStreamFileLock
+			var degraded *unsupportedTestLock
+			acquireStreamFileLock = func(context.Context, string) (streamLock, error) {
+				if !tt.unsupported {
+					return nil, nil
+				}
+				degraded = &unsupportedTestLock{}
+				return degraded, nil
+			}
+			t.Cleanup(func() { acquireStreamFileLock = orig })
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "tool.jsonl")
+			w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+			if err != nil {
+				t.Fatalf("New() error = %v, want the degraded lock to leave the writer usable", err)
+			}
+			t.Cleanup(func() { _ = w.Close() })
+			// Opening the writer already warned; this asserts the append warns too.
+			w.warned = false
+			padToCap(t, path)
+
+			w.Write(Record{Kind: KindTool, AgentID: "dropped"})
+
+			if !w.warned {
+				t.Error("warned = false, want the degraded lock reported")
+			}
+			if got := fileSize(t, path); got != maxStreamBytes {
+				t.Errorf("size = %d, want the padded file untouched at %d", got, maxStreamBytes)
+			}
+			if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+				t.Errorf("generation 1 stat error = %v, want no rotation without the lock", err)
+			}
+			if got := rotationArtefacts(t, dir); len(got) != 0 {
+				t.Errorf("rotation artefacts = %v, want no rotation without the lock", got)
+			}
+			if tt.unsupported && (degraded == nil || !degraded.released) {
+				t.Error("unsupported lock was not released, want the degradation handled without holding it")
+			}
+		})
+	}
+}
+
+func TestWriterSerializesAppendsAcrossWriters(t *testing.T) {
+	dir := t.TempDir()
+	skipUnlessStreamLocksSupported(t, dir, KindTool)
+
+	first, err := New(Options{Dir: dir, Streams: Streams{Tool: true}, RunID: "first"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	second, err := New(Options{Dir: dir, Streams: Streams{Tool: true}, RunID: "second"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+
+	const perWriter = 10
+	var wg sync.WaitGroup
+	for i, writer := range []*Writer{first, second} {
+		wg.Add(1)
+		go func(id int, writer *Writer) {
+			defer wg.Done()
+			for j := 0; j < perWriter; j++ {
+				writer.Write(Record{Kind: KindTool, AgentID: fmt.Sprintf("writer-%d-record-%d", id, j)})
+			}
+		}(i, writer)
+	}
+	wg.Wait()
+
+	records := readRecords(t, filepath.Join(dir, "tool.jsonl"))
+	if len(records) != 2*perWriter {
+		t.Fatalf("records = %d, want %d", len(records), 2*perWriter)
+	}
+	seen := make(map[string]bool, len(records))
+	for _, rec := range records {
+		seen[rec.AgentID] = true
+		if rec.RunID != "first" && rec.RunID != "second" {
+			t.Errorf("record %q run id = %q, want one of the two writers", rec.AgentID, rec.RunID)
+		}
+	}
+	if len(seen) != 2*perWriter {
+		t.Errorf("distinct records = %d, want %d", len(seen), 2*perWriter)
 	}
 }

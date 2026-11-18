@@ -60,12 +60,17 @@ func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 		}
 
 		resumePhase, ok := firstIncompletePhase(manifest)
-		retryCloseout := !ok && closeoutRetryable(manifest)
-		if !ok && !retryCloseout {
-			continue
-		}
-		if retryCloseout {
-			resumePhase = phaseCloseout
+		if !ok {
+			switch {
+			case reportPending(manifest):
+				resumePhase = phaseReport
+			case closeoutOutcomeUnknown(manifest):
+				resumePhase = phaseResolve
+			case closeoutRetryable(manifest):
+				resumePhase = phaseCloseout
+			default:
+				continue
+			}
 		}
 
 		identity := RunIdentity{ID: manifest.RunID, Slug: manifest.Slug}
@@ -87,7 +92,7 @@ func ListResumableRuns(projectRoot string) ([]ResumableRun, error) {
 			ResumePhase:   resumePhase,
 			PhaseStatuses: clonePhaseStatuses(manifest.PhaseStatuses),
 			LockState:     lockState.String(),
-			Status:        resumableRunStatus(resumePhase, lockState, retryCloseout),
+			Status:        resumableRunStatus(resumePhase, lockState),
 			CreatedAt:     manifest.CreatedAt,
 			UpdatedAt:     manifest.UpdatedAt,
 		})
@@ -142,19 +147,22 @@ func resumableRunLockState(path string) (lockState, error) {
 	return lockStateLive, nil
 }
 
-func resumableRunStatus(phase Phase, state lockState, retryCloseout bool) string {
-	if retryCloseout {
-		if state == lockStateStale {
-			return "retry closeout (stale lock)"
-		}
-		return "retry closeout"
-	}
-	switch state {
-	case lockStateStale:
-		return fmt.Sprintf("resume at %s (stale lock)", phase)
+func resumableRunStatus(phase Phase, state lockState) string {
+	status := ""
+	switch phase {
+	case phaseReport:
+		status = "finish report"
+	case phaseResolve:
+		status = "resolve closeout"
+	case phaseCloseout:
+		status = "retry closeout"
 	default:
-		return fmt.Sprintf("resume at %s", phase)
+		status = fmt.Sprintf("resume at %s", phase)
 	}
+	if state == lockStateStale {
+		return status + " (stale lock)"
+	}
+	return status
 }
 
 func clonePhaseStatuses(statuses map[Phase]PhaseStatus) map[Phase]PhaseStatus {

@@ -436,6 +436,64 @@ func TestOrchestratorStopsOnBoundaryFailure(t *testing.T) {
 	}
 }
 
+func TestOrchestratorRunPersistsVersionedPendingReportBeforeFirstPhase(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}
+	t.Cleanup(func() {
+		_ = CleanupWorktree(context.Background(), projectRoot, identity)
+	})
+
+	store := NewManifestStore(identity.ManifestPath(projectRoot))
+	runnerFactory := &recordingRunnerFactory{
+		planningPath: identity.PlanningPath(identity.WorktreePath(projectRoot)),
+		runners: map[Phase]*phaseRunnerStub{
+			// Without plan artifacts the first phase fails its boundary, so the run
+			// stops right after the manifest Run creates.
+			PhasePlan: {writePlan: false},
+		},
+	}
+	var creation Manifest
+	var captureErr error
+	captured := false
+	orch, err := NewOrchestrator(Dependencies{
+		ProjectRoot:   projectRoot,
+		Identity:      identity,
+		Task:          "Build the parser",
+		Config:        configWithEffectiveModels("fallback-model", nil),
+		SessionStore:  &recordingSessionStore{},
+		RunnerFactory: runnerFactory,
+		ManifestStore: store,
+		// Run writes the manifest before it emits any event, so the first event
+		// observes exactly the creation-time state.
+		Events: output.SinkFunc(func(output.Event) {
+			if captured {
+				return
+			}
+			captured = true
+			creation, captureErr = store.Read()
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewOrchestrator failed: %v", err)
+	}
+
+	if _, err := orch.Run(context.Background()); err == nil {
+		t.Fatal("Run succeeded, want the plan phase boundary failure")
+	}
+	if captureErr != nil {
+		t.Fatalf("read manifest at the first event failed: %v", captureErr)
+	}
+	if !captured {
+		t.Fatal("Run emitted no event, want the plan phase to start after the creation write")
+	}
+	if creation.ReportState != reportStatePending {
+		t.Errorf("creation ReportState = %q, want %q", creation.ReportState, reportStatePending)
+	}
+	if creation.FinalizationVersion != finalizationVersion {
+		t.Errorf("creation FinalizationVersion = %d, want %d", creation.FinalizationVersion, finalizationVersion)
+	}
+}
+
 func TestOrchestratorCancelsAndReleasesLock(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "abc123", Slug: "build-parser"}

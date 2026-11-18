@@ -12,6 +12,12 @@ const (
 	// projectionResetSlop is how far apart two reset times may be and still
 	// describe the same window or budget period.
 	projectionResetSlop = time.Minute
+	// claudeSubscriptionProviderType mirrors config.ProviderTypeClaudeSubscription;
+	// internal/quota is a leaf package and does not import internal/config.
+	claudeSubscriptionProviderType = "claude_subscription"
+	// claudeSubscriptionWindowDuration is the rolling five-hour window whose
+	// usage starts at zero when the window resets.
+	claudeSubscriptionWindowDuration = 5 * time.Hour
 )
 
 // Projection estimates when a window or budget is used up at the rate seen
@@ -28,8 +34,10 @@ type Projection struct {
 // ProjectWindow projects the window at windowIndex of current against the
 // oldest history point for the same account, label, and reset period. It
 // returns a zero Projection when there is no such point, the window has no
-// reset time, or the span or rise is below threshold. Times are computed from
-// current.FetchedAt, never the wall clock.
+// reset time, or the span or rise is below threshold. A Claude subscription
+// five-hour window instead projects from its average usage since the inferred
+// window start, unless the window has reset or that average is unusable.
+// Times are computed from current.FetchedAt, never the wall clock.
 func ProjectWindow(history []Snapshot, current Snapshot, windowIndex int) Projection {
 	if windowIndex < 0 || windowIndex >= len(current.Windows) {
 		return Projection{}
@@ -37,6 +45,18 @@ func ProjectWindow(history []Snapshot, current Snapshot, windowIndex int) Projec
 	cur := current.Windows[windowIndex]
 	if cur.ResetsAt.IsZero() {
 		return Projection{}
+	}
+	if current.ProviderType == claudeSubscriptionProviderType && cur.Duration == claudeSubscriptionWindowDuration {
+		if !current.FetchedAt.Before(cur.ResetsAt) {
+			// The window has reset; usage now belongs to the next window.
+			return Projection{}
+		}
+		if start := cur.ResetsAt.Add(-cur.Duration); current.FetchedAt.After(start) {
+			if projection, ok := projectFromWindowStart(cur, current.FetchedAt); ok {
+				return projection
+			}
+			// The window average is unusable; fall back to stored history.
+		}
 	}
 	base, baseUsed, ok := oldestMatch(history, current.AccountKey, func(h Snapshot) (float64, bool) {
 		for _, w := range h.Windows {
@@ -54,6 +74,20 @@ func ProjectWindow(history []Snapshot, current Snapshot, windowIndex int) Projec
 		return Projection{}
 	}
 	return Projection{OK: true, EmptyAt: emptyAt, BeforeReset: emptyAt.Before(cur.ResetsAt)}
+}
+
+// projectFromWindowStart projects exhaustion from the average usage of the
+// current window, assuming zero usage at the window start. The start is
+// inferred from the reset time, not observed.
+func projectFromWindowStart(cur Window, now time.Time) (Projection, bool) {
+	span := now.Sub(cur.ResetsAt.Add(-cur.Duration))
+	if span < projectionMinSpan || cur.UsedPercent < projectionMinRise {
+		return Projection{}, false
+	}
+	remaining := max(100-cur.UsedPercent, 0)
+	elapsed := time.Duration(float64(span) * remaining / cur.UsedPercent)
+	emptyAt := now.Add(elapsed)
+	return Projection{OK: true, EmptyAt: emptyAt, BeforeReset: emptyAt.Before(cur.ResetsAt)}, true
 }
 
 // ProjectBudget projects the budget at budgetIndex of current against the oldest

@@ -84,3 +84,59 @@ func TestManifestStoreReadNonexistent(t *testing.T) {
 		t.Fatal("Read on nonexistent path: expected error, got nil")
 	}
 }
+
+func TestManifestStoreFinalizationFieldsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	store := NewManifestStore(filepath.Join(dir, "run.json"))
+
+	manifest := Manifest{
+		RunID:               "abc123",
+		Slug:                "finalize",
+		Task:                "Finalize the run",
+		Branch:              "oneshot/finalize-abc123",
+		WorktreePath:        filepath.Join(dir, "worktree"),
+		FinalizationVersion: finalizationVersion,
+		ReportState:         reportStateWritten,
+		CloseoutIntent:      closeoutIntentPending,
+	}
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	loaded, err := store.Read()
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if got := loaded.FinalizationVersion; got != finalizationVersion {
+		t.Errorf("FinalizationVersion = %d, want %d", got, finalizationVersion)
+	}
+	if got := loaded.ReportState; got != reportStateWritten {
+		t.Errorf("ReportState = %q, want %q", got, reportStateWritten)
+	}
+	if got := loaded.CloseoutIntent; got != closeoutIntentPending {
+		t.Errorf("CloseoutIntent = %q, want %q", got, closeoutIntentPending)
+	}
+}
+
+func TestManifestStoreLegacyFinalizationDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.json")
+	legacy := `{"run_id":"abc123","slug":"legacy","task":"legacy task","branch":"oneshot/legacy-abc123","worktree_path":"/tmp/worktree","report_path":"/tmp/worktree/final-report.json","closeout_state":"failed","closeout_note":"gh auth expired","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
+		t.Fatalf("write legacy manifest: %v", err)
+	}
+
+	manifest, err := NewManifestStore(path).Read()
+	if err != nil {
+		t.Fatalf("Read legacy manifest failed: %v", err)
+	}
+	if manifest.FinalizationVersion != 0 {
+		t.Errorf("FinalizationVersion = %d, want 0", manifest.FinalizationVersion)
+	}
+	if manifest.ReportState != "" {
+		t.Errorf("ReportState = %q, want empty", manifest.ReportState)
+	}
+	if manifest.CloseoutIntent != "" {
+		t.Errorf("CloseoutIntent = %q, want empty", manifest.CloseoutIntent)
+	}
+}

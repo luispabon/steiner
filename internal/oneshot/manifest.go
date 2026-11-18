@@ -47,6 +47,19 @@ type CommitMilestone struct {
 	RecordedAt time.Time `json:"recorded_at"`
 }
 
+// finalizationVersion stamps the finalization progress fields. Manifests
+// without it are legacy and cannot prove an external closeout did not run.
+const finalizationVersion = 1
+
+const (
+	reportStatePending = "pending"
+	reportStateWritten = "written"
+)
+
+// closeoutIntentPending marks an external closeout that may have started
+// without a recorded result.
+const closeoutIntentPending = "pending"
+
 // Manifest is the durable on-disk record for a oneshot run.
 type Manifest struct {
 	RunID            string                `json:"run_id"`
@@ -65,8 +78,13 @@ type Manifest struct {
 	CloseoutProvider string                `json:"closeout_provider,omitempty"`
 	CloseoutState    string                `json:"closeout_state,omitempty"`
 	CloseoutNote     string                `json:"closeout_note,omitempty"`
-	CreatedAt        time.Time             `json:"created_at"`
-	UpdatedAt        time.Time             `json:"updated_at"`
+	// The finalization fields are optional, so manifests written before they
+	// existed still decode; their zero values mark a legacy run.
+	FinalizationVersion int       `json:"finalization_version,omitempty"`
+	ReportState         string    `json:"report_state,omitempty"`
+	CloseoutIntent      string    `json:"closeout_intent,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // ManifestStore reads and writes a manifest atomically.
@@ -98,13 +116,17 @@ func (s *ManifestStore) Read() (Manifest, error) {
 	return manifest, nil
 }
 
+// writeManifestFn performs the manifest write. Tests replace it to inject a
+// write failure at a chosen position in the finalization sequence.
+var writeManifestFn = writeManifestAtomic
+
 // Write stores the manifest atomically.
 func (s *ManifestStore) Write(manifest Manifest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	stampManifest(&manifest)
-	return writeManifestAtomic(s.path, manifest)
+	return writeManifestFn(s.path, manifest)
 }
 
 func ensureManifestMaps(manifest *Manifest) {

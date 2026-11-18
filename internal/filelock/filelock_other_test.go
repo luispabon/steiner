@@ -1,4 +1,4 @@
-//go:build !unix || aix
+//go:build (!unix && !windows) || aix
 
 package filelock
 

@@ -1,7 +1,8 @@
 // Package diagnostics writes structured, config-gated instrumentation records
-// to per-stream JSONL files. It imports stdlib only so provider, delegation,
-// tool, agent and usagestats can all depend on it without import cycles; the
-// composition root translates configuration into Options.
+// to per-stream JSONL files. It imports the standard library plus
+// internal/filelock so provider, delegation, tool, agent and usagestats can all
+// depend on it without import cycles; the composition root translates
+// configuration into Options.
 package diagnostics
 
 import "time"

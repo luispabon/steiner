@@ -18,9 +18,11 @@ steiner oneshot "<task>"
 steiner --profile careful oneshot "<task>"
 steiner oneshot --resume <run-id>
 steiner oneshot --list
+steiner oneshot --resolve <run-id> --url <url>
+steiner oneshot --resolve <run-id> --retry
 ```
 
-`--list`, `--resume`, and a task are mutually exclusive.
+`--list`, `--resume`, `--resolve`, and a task are mutually exclusive. `--url` and `--retry` require `--resolve`, exclude each other, and exactly one of them is required.
 
 From an interactive session:
 
@@ -35,7 +37,7 @@ From an interactive session:
 ## What a run does
 
 - **Worktree and branch.** The run works in `.steiner/worktrees/oneshot-<run-id>` on branch `oneshot/<slug>-<run-id>`. It starts from `origin/main` when that ref exists, otherwise from the repository's local `HEAD`. Your working tree is not touched.
-- **Run state.** The manifest and lock live in `.steiner/oneshot/<run-id>/`. Planning artifacts and the final report (`final-report.json`) are written inside the worktree under `.steiner/plans/oneshot-<run-id>/`.
+- **Run state.** The manifest and lock live in `.steiner/oneshot/<run-id>/`. Planning artifacts and the final report (`final-report.json`) are written inside the worktree under `.steiner/plans/oneshot-<run-id>/`. The manifest also carries finalization progress: `finalization_version`, `report_state`, and `closeout_intent`.
 - **Approvals.** Oneshot never prompts and never approves. Edits inside the run worktree need no approval, and every approval request is denied: a `mutate` or `bash` path outside the worktree is refused instead of approved, and a sandbox denial is returned to the model without an unsandboxed retry. Because `paths.project_root_only` defaults to `true`, this refusal is what keeps a run inside its worktree. Setting it to `false` explicitly turns the refusal off, and then a run can write outside the worktree; keep the default for autonomous runs. MCP tools that require approval are denied.
 - **Advisor.** The advisor is always available to oneshot phases, using the profile's `advisor` model or `default_model`.
 - **Sub-agents.** Children run in the background while the phase continues. A phase finishes only after every child it started has finished and its result is recorded.
@@ -78,12 +80,33 @@ See [Provider and model setup](provider-and-model-setup.md).
 #    Run ID           Phase                Status             Lock         Updated            Task
 ```
 
-A run is listed when its manifest is readable, its lock is absent or stale (no update for 15 minutes), and either a phase is incomplete or a failed closeout can be retried. **Status** reads `resume at <phase>` or `retry closeout`, with `(stale lock)` appended when a stale lock will be reclaimed. Runs held by a live process are not listed.
+A run is listed when its manifest is readable, its lock is absent or stale (no update for 15 minutes), and work remains: a phase is incomplete, the final report still has to be written, the closeout outcome is unknown, or you authorised one more closeout attempt. **Status** reads one of:
 
-`--resume <run-id>` continues from the first incomplete phase without re-running finished ones. If every phase finished but closeout failed, it re-runs only closeout.
+- `resume at <phase>`: a phase is incomplete.
+- `finish report`: every phase is done and `final-report.json` still has to be written.
+- `resolve closeout`: the closeout outcome is unknown and needs [manual resolution](#resolving-an-unknown-closeout).
+- `retry closeout`: you authorised one closeout attempt, which the next resume runs.
+
+`(stale lock)` is appended when a stale lock will be reclaimed. Runs held by a live process are not listed, and neither are runs with a recorded closeout result and a written report.
+
+The **Phase** column shows the incomplete phase, or one of the finalization labels: `report` when the final report still has to be written, `resolve` when the closeout outcome needs manual resolution, and `closeout` when you authorised a retry.
+
+`--resume <run-id>` continues from the first incomplete phase without re-running finished ones. When every phase is done, resume only finalizes: it writes the final report, and it runs closeout again only for a run you authorised with `--resolve <run-id> --retry`. An unknown closeout outcome is never retried automatically; resume returns an error naming the run and points at resolution instead.
+
+### Resolving an unknown closeout
+
+A run reaches this state when a closeout request was interrupted or failed after it may have reached the provider, so Steiner cannot tell whether a pull or merge request exists. A run recorded before Steiner tracked finalization progress counts the same way only when it holds no closeout result or a failed one; one that recorded a closeout outcome, such as a skipped closeout or a created request, counts as finished. Steiner never checks the provider for an existing request.
+
+Check the provider first, then record the outcome:
+
+- `steiner oneshot --resolve <run-id> --url <url>` records a pull or merge request you found, whether the outcome is unknown or you already authorised a retry. The URL must be `http` or `https` with a host.
+- `steiner oneshot --resolve <run-id> --retry` authorises one more closeout attempt, for when you confirmed that no request exists. It applies only to an unknown outcome.
+
+Resolution takes the same exclusive run lock as `--resume`, refuses a run that is unfinished or whose closeout outcome is already recorded, and never contacts the provider itself. If you already authorised a retry and then find the request, record it with `--url`: the URL supersedes the retry, and the run counts as complete without another closeout attempt. `final-report.json` in the worktree stays valid either way.
 
 ## Failures and interruptions
 
+- A final report that cannot be persisted, an unknown closeout outcome, or a failed closeout call makes the command exit with an error. An unknown outcome stays unknown until you resolve it explicitly with `--resolve`; nothing retries it automatically.
 - A failed phase is recorded in the manifest with a timestamp. Inspect the worktree, fix what you need, then resume.
 - SIGINT stops the run; resume picks up at the interrupted phase.
 - If a phase is interrupted while children are running, resume restarts the phase and does not recover their results. It lists the worktree of each `code` or `documentor` child that was still running so you can salvage uncommitted work.

@@ -107,34 +107,41 @@ func (m *Model) executeLaunchOneshotAction(task string) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		return m, nil
 	}
-
+	oneshotSessionStore, ok := sessionStore.(oneshot.SessionStore)
+	if !ok {
+		m.content.AppendLine("status: oneshot unavailable: session store does not implement required oneshot interface")
+		m.oneshotRunning = false
+		m.syncViewport()
+		return m, nil
+	}
+	deps := oneshot.Dependencies{
+		ProjectRoot:      sess.ProjectRoot(),
+		Identity:         runIdentity,
+		Task:             strings.TrimSpace(task),
+		Config:           sess.Config(),
+		SessionStore:     oneshotSessionStore,
+		RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
+		Events:           sess.EventSink(),
+		InterruptFactory: context.WithCancel,
+	}
 	register, releaseControl := routeControlToOneshot(sess)
+	deps.RegisterControl = register
+	orchestrator, err := oneshot.NewOrchestrator(deps)
+	if err != nil {
+		releaseControl()
+		m.content.AppendLine(fmt.Sprintf("status: oneshot failed: %v", err))
+		m.oneshotRunning = false
+		m.syncInputChrome()
+		m.syncSidebar()
+		m.syncViewport()
+		return m, nil
+	}
+	if err := sess.Handle(context.Background(), interactive.RecordPromptHistory{Text: "/oneshot " + strings.TrimSpace(task)}); err != nil {
+		m.appendError(err)
+	}
+
 	sess.RunBackground(func(ctx context.Context) {
 		defer releaseControl()
-		oneshotSessionStore, ok := oneshotSessionStoreOrEmit(sessionStore, sess.EventSink(), runIdentity.ID)
-		if !ok {
-			return
-		}
-
-		deps := oneshot.Dependencies{
-			ProjectRoot:      sess.ProjectRoot(),
-			Identity:         runIdentity,
-			Task:             strings.TrimSpace(task),
-			Config:           sess.Config(),
-			SessionStore:     oneshotSessionStore,
-			RunnerFactory:    m.oneshotRunnerFactory(runIdentity),
-			Events:           sess.EventSink(),
-			RegisterControl:  register,
-			InterruptFactory: context.WithCancel,
-		}
-
-		orchestrator, err := oneshot.NewOrchestrator(deps)
-		if err != nil {
-			sess.EventSink().Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("oneshot failed: %v", err)))
-			sess.EventSink().Emit(output.NewOneshotFinishedEvent(runIdentity.ID, err))
-			return
-		}
-
 		runOrchestratorAndReport(sess.EventSink(), runIdentity.ID, "oneshot run failed", func() (oneshot.Manifest, error) {
 			return orchestrator.Run(ctx)
 		})

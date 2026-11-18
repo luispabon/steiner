@@ -3,6 +3,8 @@ package quota
 import (
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 func windowAt(key string, at time.Time, used float64, reset time.Time) Snapshot {
@@ -10,6 +12,15 @@ func windowAt(key string, at time.Time, used float64, reset time.Time) Snapshot 
 		AccountKey: key,
 		FetchedAt:  at,
 		Windows:    []Window{{Label: "5h", UsedPercent: used, ResetsAt: reset}},
+	}
+}
+
+func claudeSubWindowAt(at time.Time, used float64, reset time.Time, dur time.Duration) Snapshot {
+	return Snapshot{
+		AccountKey:   "a",
+		ProviderType: claudeSubscriptionProviderType,
+		FetchedAt:    at,
+		Windows:      []Window{{Label: "5h", Duration: dur, UsedPercent: used, ResetsAt: reset}},
 	}
 }
 
@@ -138,6 +149,175 @@ func TestProjectWindow(t *testing.T) {
 	}
 }
 
+func TestProjectClaudeSubscriptionWindowFromStart(t *testing.T) {
+	const full = 5 * time.Hour
+	// resetFor returns the reset time of a five-hour window that started
+	// elapsed before testBase.
+	resetFor := func(elapsed time.Duration) time.Time { return testBase.Add(full - elapsed) }
+	otherProvider := claudeSubWindowAt(testBase, 27, resetFor(40*time.Minute), full)
+	otherProvider.ProviderType = "anthropic"
+
+	tests := []struct {
+		name            string
+		history         []Snapshot
+		current         Snapshot
+		wantOK          bool
+		wantEmptyIn     time.Duration
+		wantBeforeReset bool
+	}{
+		{
+			name:            "average forecasts when history alone is below threshold",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 26.5, resetFor(40*time.Minute))},
+			current:         claudeSubWindowAt(testBase, 27, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     108 * time.Minute, // 40m elapsed at 27%: 40m * 73 / 27.
+			wantBeforeReset: true,
+		},
+		{
+			name:            "average forecasts without history",
+			current:         claudeSubWindowAt(testBase, 27, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     108 * time.Minute,
+			wantBeforeReset: true,
+		},
+		{
+			name: "average overrides history that projects differently",
+			history: []Snapshot{
+				windowAt("a", testBase.Add(-30*time.Minute), 5, resetFor(40*time.Minute)),
+				windowAt("a", testBase.Add(-10*time.Minute), 20, resetFor(40*time.Minute)),
+			},
+			current:         claudeSubWindowAt(testBase, 27, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     108 * time.Minute, // History would project 99.5m ahead.
+			wantBeforeReset: true,
+		},
+		{
+			name:            "average forecasts past the reset",
+			current:         claudeSubWindowAt(testBase, 10, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     360 * time.Minute, // 40m elapsed at 10%: 40m * 90 / 10, reset in 260m.
+			wantBeforeReset: false,
+		},
+		{
+			name:    "span under 15m after the window start is rejected",
+			current: claudeSubWindowAt(testBase, 27, resetFor(5*time.Minute), full),
+		},
+		{
+			name:    "usage under 2 percent after the window start is rejected",
+			current: claudeSubWindowAt(testBase, 1, resetFor(40*time.Minute), full),
+		},
+		{
+			name:            "exact minimum span after the window start is accepted",
+			current:         claudeSubWindowAt(testBase, 50, resetFor(15*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     15 * time.Minute, // 15m elapsed at 50%: 15m * 50 / 50.
+			wantBeforeReset: true,
+		},
+		{
+			name:            "exact minimum rise after the window start is accepted",
+			current:         claudeSubWindowAt(testBase, 2, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     1960 * time.Minute, // 40m elapsed at 2%: 40m * 98 / 2, reset in 260m.
+			wantBeforeReset: false,
+		},
+		{
+			name:    "zero usage after the window start projects nothing",
+			current: claudeSubWindowAt(testBase, 0, resetFor(40*time.Minute), full),
+		},
+		{
+			name:    "negative usage after the window start projects nothing",
+			current: claudeSubWindowAt(testBase, -5, resetFor(40*time.Minute), full),
+		},
+		{
+			name:            "unusable average falls back to history",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, resetFor(5*time.Minute))},
+			current:         claudeSubWindowAt(testBase, 20, resetFor(5*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     240 * time.Minute,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "sample before the window start falls back to history",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, testBase.Add(full+10*time.Minute))},
+			current:         claudeSubWindowAt(testBase, 20, testBase.Add(full+10*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     240 * time.Minute,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "sample at the window start falls back to history",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, testBase.Add(full))},
+			current:         claudeSubWindowAt(testBase, 20, testBase.Add(full), full),
+			wantOK:          true,
+			wantEmptyIn:     240 * time.Minute, // History: 30m rose 10 points, 80 points left.
+			wantBeforeReset: true,
+		},
+		{
+			name:    "sample at the reset projects nothing",
+			history: []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, testBase)},
+			current: claudeSubWindowAt(testBase, 20, testBase, full),
+		},
+		{
+			name:    "sample after the reset projects nothing",
+			history: []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, testBase.Add(-5*time.Minute))},
+			current: claudeSubWindowAt(testBase, 20, testBase.Add(-5*time.Minute), full),
+		},
+		{
+			name:    "other provider falls back to history",
+			current: otherProvider,
+		},
+		{
+			name:            "seven-day window falls back to history",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, testBase.Add(6*24*time.Hour))},
+			current:         claudeSubWindowAt(testBase, 20, testBase.Add(6*24*time.Hour), 7*24*time.Hour),
+			wantOK:          true,
+			wantEmptyIn:     240 * time.Minute,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "zero duration falls back to history",
+			history:         []Snapshot{windowAt("a", testBase.Add(-30*time.Minute), 10, resetFor(40*time.Minute))},
+			current:         claudeSubWindowAt(testBase, 20, resetFor(40*time.Minute), 0),
+			wantOK:          true,
+			wantEmptyIn:     240 * time.Minute,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "full usage is empty now",
+			current:         claudeSubWindowAt(testBase, 100, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     0,
+			wantBeforeReset: true,
+		},
+		{
+			name:            "usage over capacity is empty now",
+			current:         claudeSubWindowAt(testBase, 120, resetFor(40*time.Minute), full),
+			wantOK:          true,
+			wantEmptyIn:     0,
+			wantBeforeReset: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ProjectWindow(tt.history, tt.current, 0)
+			if !tt.wantOK {
+				checkProjection(t, got, false, time.Time{}, false)
+				return
+			}
+			if !got.OK {
+				t.Fatalf("Projection = %+v, want OK", got)
+			}
+			if got.BeforeReset != tt.wantBeforeReset {
+				t.Errorf("BeforeReset = %v, want %v", got.BeforeReset, tt.wantBeforeReset)
+			}
+			want := tt.current.FetchedAt.Add(tt.wantEmptyIn)
+			if diff := got.EmptyAt.Sub(want); diff > time.Minute || diff < -time.Minute {
+				t.Errorf("EmptyAt = %s, want within a minute of %s", got.EmptyAt, want)
+			}
+		})
+	}
+}
+
 func TestProjectBudget(t *testing.T) {
 	limit := ptr(100.0)
 	reset := ptr(testBase.Add(30 * 24 * time.Hour))
@@ -225,5 +405,13 @@ func TestProjectBudget(t *testing.T) {
 			got := ProjectBudget(tt.history, tt.current, tt.index)
 			checkProjection(t, got, tt.wantOK, tt.wantEmptyAt, tt.wantBeforeReset)
 		})
+	}
+}
+
+// TestClaudeSubscriptionProviderTypeMatchesConfig pins the provider literal
+// duplicated in projection.go to the config constant it mirrors.
+func TestClaudeSubscriptionProviderTypeMatchesConfig(t *testing.T) {
+	if claudeSubscriptionProviderType != string(config.ProviderTypeClaudeSubscription) {
+		t.Errorf("claudeSubscriptionProviderType = %q, config.ProviderTypeClaudeSubscription = %q", claudeSubscriptionProviderType, config.ProviderTypeClaudeSubscription)
 	}
 }

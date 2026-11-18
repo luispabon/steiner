@@ -10,15 +10,9 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 )
 
-// Resume reopens the run described by the manifest and restarts from the first incomplete phase.
-func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error) {
-	if o == nil {
-		return Manifest{}, fmt.Errorf("orchestrator is required")
-	}
-
-	store := o.manifestStore()
-
-	manifest, err = store.Read()
+// readResumeManifest loads the manifest and applies the defaults Resume needs.
+func (o *Orchestrator) readResumeManifest(store *ManifestStore) (Manifest, error) {
+	manifest, err := store.Read()
 	if err != nil {
 		return Manifest{}, fmt.Errorf("load manifest: %w", err)
 	}
@@ -32,6 +26,25 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 	if strings.TrimSpace(manifest.WorktreePath) == "" {
 		manifest.WorktreePath = o.deps.Identity.WorktreePath(o.deps.ProjectRoot)
 	}
+	return manifest, nil
+}
+
+// Resume reopens the run described by the manifest and restarts from the first incomplete phase.
+func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error) {
+	if o == nil {
+		return Manifest{}, fmt.Errorf("orchestrator is required")
+	}
+
+	store := o.manifestStore()
+
+	// This copy only feeds the early error checks below, so a missing manifest
+	// or a manifest with no run id fails before the lock is taken. The run
+	// itself acts on the copy read under the lock, because a concurrent
+	// resolution can land in between.
+	manifest, err = o.readResumeManifest(store)
+	if err != nil {
+		return Manifest{}, err
+	}
 
 	lock, err := o.deps.RunLockFactory(o.deps.ProjectRoot, o.deps.Identity)
 	if err != nil {
@@ -42,6 +55,13 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 			err = errors.Join(err, releaseErr)
 		}
 	}()
+
+	// Re-read under the lock so a resolution that landed since the first read
+	// is not reverted by writing this copy back.
+	manifest, err = o.readResumeManifest(store)
+	if err != nil {
+		return Manifest{}, err
+	}
 
 	if strings.TrimSpace(manifest.WorktreeBase) == "" {
 		base, err := resolveWorktreeStartPoint(ctx, o.deps.ProjectRoot)
@@ -66,16 +86,17 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 //nolint:gocyclo
 func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestStore, manifest Manifest, worktree Worktree, lock *RunLock) (ret Manifest, retErr error) {
 	startPhase, ok := firstIncompletePhase(manifest)
-	if !ok && closeoutRetryable(manifest) {
-		// All phases finished but closeout failed: re-run closeout only.
-		o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path))
-		if closeoutRetryable(manifest) {
-			return manifest, fmt.Errorf("resume run: closeout for %s failed again: %s", manifest.RunID, manifest.CloseoutNote)
+	if !ok {
+		if !reportPending(manifest) && !closeoutOutcomeUnknown(manifest) && !closeoutRetryable(manifest) {
+			return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
+		}
+		// All phases finished: re-run finalization only. finalizeRun writes a
+		// pending report, refuses an unknown closeout outcome, and runs closeout
+		// only when an operator authorised a retry.
+		if err := o.finalizeRun(ctx, store, &manifest, o.deps.Identity.PlanningPath(worktree.Path)); err != nil {
+			return manifest, err
 		}
 		return manifest, nil
-	}
-	if !ok {
-		return Manifest{}, fmt.Errorf("resume run: %s is already complete", manifest.RunID)
 	}
 
 	o.reportOrphanedWorktrees(manifest, startPhase)
@@ -134,7 +155,9 @@ func (o *Orchestrator) resumeFromManifest(ctx context.Context, store *ManifestSt
 		previousPhase = phase
 	}
 
-	o.finalizeRun(ctx, store, &manifest, planningPath)
+	if err := o.finalizeRun(ctx, store, &manifest, planningPath); err != nil {
+		return manifest, err
+	}
 
 	return manifest, nil
 }
@@ -180,16 +203,37 @@ func firstIncompletePhase(manifest Manifest) (Phase, bool) {
 	return "", false
 }
 
-// phaseCloseout labels the closeout-only resume step in run listings.
-const phaseCloseout Phase = "closeout"
+// Synthetic resume phases label finalization-only work in run listings. They
+// are listing labels only and never run as phases.
+const (
+	// phaseCloseout labels an operator-authorised closeout retry.
+	phaseCloseout Phase = "closeout"
+	// phaseReport labels a run whose final report still has to be written.
+	phaseReport Phase = "report"
+	// phaseResolve labels a run whose closeout outcome is unknown and needs an
+	// explicit manual resolution.
+	phaseResolve Phase = "resolve"
+)
 
-// closeoutRetryable reports whether every phase is finished but closeout
-// failed, so resume can re-run just the closeout step.
+// reportPending reports whether the final report still has to be written.
+func reportPending(manifest Manifest) bool {
+	if manifest.ReportState == reportStateWritten {
+		return false
+	}
+	if manifest.FinalizationVersion > 0 {
+		return manifest.ReportState == reportStatePending
+	}
+	return strings.TrimSpace(manifest.ReportPath) == ""
+}
+
+// closeoutRetryable reports whether every phase is finished and an operator
+// authorised one more closeout attempt. A legacy failed state is ambiguous, so
+// it is not retried automatically.
 func closeoutRetryable(manifest Manifest) bool {
 	if _, incomplete := firstIncompletePhase(manifest); incomplete {
 		return false
 	}
-	return manifest.CloseoutState == closeoutStateFailed
+	return manifest.CloseoutState == closeoutStateRetryAuthorized
 }
 
 func previousPhaseBefore(phase Phase) Phase {
