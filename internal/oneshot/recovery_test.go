@@ -237,6 +237,100 @@ func TestFinalizeRunLegacyFailedOutcomeRequiresResolution(t *testing.T) {
 	}
 }
 
+// failManifestWritesAfter swaps the manifest write seam so the first allowed
+// writes reach disk and every later one fails. It returns the live write count
+// and a restore func; the seam is also restored when the test finishes.
+func failManifestWritesAfter(t *testing.T, allowed int) (writes *int, restore func()) {
+	t.Helper()
+	orig := writeManifestFn
+	count := 0
+	writeManifestFn = func(path string, manifest Manifest) error {
+		count++
+		if count > allowed {
+			return fmt.Errorf("injected manifest write failure %d", count)
+		}
+		return writeManifestAtomic(path, manifest)
+	}
+	restore = func() { writeManifestFn = orig }
+	t.Cleanup(restore)
+	return &count, restore
+}
+
+func TestFinalizeRunAmbiguousBranchPersistsUnknownInOneWrite(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "ambsingle", Slug: "ambiguous-single-write"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	// A legacy run whose closeout outcome cannot be proven, so finalization must
+	// stop at manual resolution.
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = filepath.Join(identity.PlanningPath(manifest.WorktreePath), finalReportFileName)
+	manifest.CloseoutState = closeoutStateFailed
+	manifest.CloseoutNote = "gh auth expired"
+	manifest.CloseoutIntent = ""
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	// The ambiguous branch must persist its unknown marker together with the
+	// report state. A second write would fail here, so any regression to a
+	// two-write sequence leaves the run looking settled.
+	writes, restoreWrites := failManifestWritesAfter(t, 1)
+
+	finalizeErr := orch.finalizeRun(context.Background(), store, &manifest, identity.PlanningPath(manifest.WorktreePath))
+	if finalizeErr == nil {
+		t.Fatal("finalizeRun on an ambiguous outcome returned nil error")
+	}
+	if want := "closeout outcome for run " + identity.ID + " is unknown"; !strings.Contains(finalizeErr.Error(), want) {
+		t.Fatalf("finalizeRun error = %q, want one containing %q", finalizeErr, want)
+	}
+	if *writes != 1 {
+		t.Errorf("manifest writes = %d, want the ambiguous branch to persist in exactly 1 write", *writes)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0 for an ambiguous outcome", *closeoutCalls)
+	}
+
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if !closeoutOutcomeUnknown(persisted) {
+		t.Fatalf("persisted manifest is settled-looking: version = %d state = %q intent = %q", persisted.FinalizationVersion, persisted.CloseoutState, persisted.CloseoutIntent)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("persisted CloseoutState = %q, want %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+	if persisted.CloseoutNote != "closeout outcome unknown; manual resolution required" {
+		t.Errorf("persisted CloseoutNote = %q, want the manual-resolution note", persisted.CloseoutNote)
+	}
+	if persisted.ReportState != reportStateWritten || persisted.ReportPath == "" {
+		t.Errorf("persisted report state = %q path = %q, want a written report", persisted.ReportState, persisted.ReportPath)
+	}
+	if persisted.FinalizationVersion != finalizationVersion {
+		t.Errorf("persisted FinalizationVersion = %d, want %d", persisted.FinalizationVersion, finalizationVersion)
+	}
+
+	// The durable state must still route the operator to manual resolution
+	// instead of reporting the run complete.
+	restoreWrites()
+	if _, resumeErr := orch.Resume(context.Background()); resumeErr == nil || !strings.Contains(resumeErr.Error(), "unknown") {
+		t.Fatalf("Resume error = %v, want the manual-resolution error", resumeErr)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls after resume = %d, want 0", *closeoutCalls)
+	}
+}
+
 func TestFinalizeRunLegacyMissingStateRequiresResolution(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "legacynone", Slug: "legacy-missing"}
