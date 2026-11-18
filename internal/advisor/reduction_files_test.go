@@ -40,7 +40,7 @@ func TestHandlerRequestedFileReappearsWhenReadReduced(t *testing.T) {
 		assistantCall("b1", "bash"),
 		bigBashMessage("b1"),
 	}
-	deps := HandlerDeps{WorkDir: workDir, PathPolicy: policy, Model: provider.ResolvedModel{BackendModelID: "advisor-model"}}
+	deps := HandlerDeps{WorkDir: workDir, PathPolicy: policy, Model: provider.ResolvedModel{BackendModelID: reductionTestModel}}
 	legacyFiles := dedupeAgainstSnapshot([]advisorFile{{DisplayPath: "main.go", Content: fileContent, TotalBytes: len(fileContent)}}, snapshot, workDir)
 	if !legacyFiles[0].Deduped {
 		t.Fatal("test setup: requested file should start deduped")

@@ -245,7 +245,7 @@ func TestFallbackRequestTokensArithmetic(t *testing.T) {
 
 func TestHandlerConcurrentReductionPlanCAS(t *testing.T) {
 	snapshot := reductionSnapshot()
-	baseDeps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: "advisor-model"}, TransportSession: "main-advisor"}
+	baseDeps := HandlerDeps{Model: provider.ResolvedModel{BackendModelID: reductionTestModel}, TransportSession: "main-advisor"}
 	initial := estimateAdvisorMessages(context.Background(), baseDeps, buildMessages(snapshot, "", nil))
 	cfg := Config{MaxUsesPerRun: 32, ContextReductionThresholdTokens: initial.tokens}
 	shared := NewSharedState()

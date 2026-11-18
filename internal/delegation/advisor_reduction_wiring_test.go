@@ -15,9 +15,24 @@ import (
 	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
+// advisorReductionTestModel is a ctok-active model ID. The reduction wiring
+// tests only need consistent token counts, and ctok avoids the repeated
+// tiktoken work over their multi-kilobyte fixtures.
+const advisorReductionTestModel = "claude-sonnet-5-5"
+
+// advisorReductionTestConfig derives the shared advisor test config with the
+// advisor model switched to advisorReductionTestModel.
+func advisorReductionTestConfig() config.Config {
+	cfg := advisorTestConfig()
+	model := cfg.Models.Definitions["advisor"]
+	model.ID = advisorReductionTestModel
+	cfg.Models.Definitions["advisor"] = model
+	return cfg
+}
+
 func TestBuildAdvisorToolsPassesReductionTrigger(t *testing.T) {
 	prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "ok"}, FinishReason: "stop"}}}
-	cfg := advisorTestConfig()
+	cfg := advisorReductionTestConfig()
 	reg, err := BuildDelegateRegistry(DelegateDeps{
 		BaseRegistry:    tool.NewRegistry(),
 		AdvisorCfg:      config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, ContextReductionThresholdTokens: 50},
@@ -79,7 +94,7 @@ func TestAdvisorReductionProtectsDelegationToolNames(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			prov := &fakeProvider{responses: []provider.ChatResponse{{Message: provider.Message{Content: "ok"}, FinishReason: "stop"}}}
-			cfg := advisorTestConfig()
+			cfg := advisorReductionTestConfig()
 			reg, err := BuildDelegateRegistry(DelegateDeps{
 				BaseRegistry:    tool.NewRegistry(),
 				AdvisorCfg:      config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 1, ContextReductionThresholdTokens: 50},
