@@ -2,6 +2,7 @@ package diagnostics
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,7 +26,7 @@ const subprocessHelperTimeout = 120 * time.Second
 // TestDiagnosticsSubprocessHelper is the child half of the cross-process tests.
 // The parent re-executes this binary with subprocessHelperEnv set; without it
 // the test returns immediately and the normal suite ignores it.
-func TestDiagnosticsSubprocessHelper(t *testing.T) {
+func TestDiagnosticsSubprocessHelper(_ *testing.T) {
 	spec := os.Getenv(subprocessHelperEnv)
 	if spec == "" {
 		return
@@ -87,8 +88,13 @@ type subprocessHelper struct {
 // records of payloadBytes to dir's tool stream under runID.
 func startSubprocessHelper(t *testing.T, dir, runID string, count, payloadBytes int) *subprocessHelper {
 	t.Helper()
+	// The process context carries the same bound as wait's timer guard, so the
+	// two agree on when the child is out of time. Its cancel runs when the test
+	// ends: cancelling here would kill a helper that is still meant to run.
+	ctx, cancel := context.WithTimeout(context.Background(), subprocessHelperTimeout)
+	t.Cleanup(cancel)
 	h := &subprocessHelper{label: runID}
-	h.cmd = exec.Command(os.Args[0], "-test.run=^TestDiagnosticsSubprocessHelper$")
+	h.cmd = exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDiagnosticsSubprocessHelper$")
 	spec := fmt.Sprintf("%s|%s|%d|%d", dir, runID, count, payloadBytes)
 	h.cmd.Env = append(os.Environ(), subprocessHelperEnv+"="+spec)
 	h.cmd.Stderr = &h.stderr
