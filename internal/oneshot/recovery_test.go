@@ -783,6 +783,83 @@ func TestFinalizeRunKeepsFinalReportOnResultWriteFailure(t *testing.T) {
 	}
 }
 
+func TestResumeAfterSuccessfulCloseoutWithLostResultCallsCloseoutOnce(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "onelc0se", Slug: "one-closeout"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	manifestPath := identity.ManifestPath(projectRoot)
+	backupPath := manifestPath + ".before"
+
+	runGitTest(t, projectRoot, "remote", "set-url", "origin", "git@github.com:owner/repo.git")
+	orch.deps.Config.OneShot.AutoPR = true
+	var sabotageErr error
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		// The provider request succeeds, then the write that records its result
+		// fails, leaving only the combined report/intent write on disk.
+		if err := blockManifestWrites(manifestPath, backupPath); err != nil {
+			sabotageErr = err
+			return "", "", err
+		}
+		return "https://github.com/owner/repo/pull/7", "", nil
+	})
+
+	finalizeErr := orch.finalizeRun(context.Background(), store, &manifest, identity.PlanningPath(manifest.WorktreePath))
+	if sabotageErr != nil {
+		t.Fatalf("manifest sabotage failed: %v", sabotageErr)
+	}
+	if finalizeErr == nil {
+		t.Fatal("finalizeRun with an unpersistable closeout result returned nil error")
+	}
+	if !strings.Contains(finalizeErr.Error(), "persist closeout result") {
+		t.Fatalf("finalizeRun error = %q, want a closeout result persistence failure", finalizeErr)
+	}
+	if *closeoutCalls != 1 {
+		t.Fatalf("closeout calls = %d, want 1", *closeoutCalls)
+	}
+
+	// Restore the last durable manifest: the written report plus a pending intent.
+	if err := os.Remove(manifestPath); err != nil {
+		t.Fatalf("remove manifest blocker failed: %v", err)
+	}
+	if err := os.Rename(backupPath, manifestPath); err != nil {
+		t.Fatalf("restore manifest failed: %v", err)
+	}
+
+	// The provider request may have created the PR/MR, but its result was lost,
+	// so every later resume must stop at manual resolution and never repeat the
+	// closeout.
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, err := orch.Resume(context.Background())
+		if err == nil {
+			t.Fatalf("resume %d after a successful closeout with a lost result returned nil error", attempt)
+		}
+		want := fmt.Sprintf("closeout outcome for run %s is unknown", identity.ID)
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("resume %d error = %q, want one containing %q", attempt, err, want)
+		}
+	}
+	if *closeoutCalls != 1 {
+		t.Errorf("closeout calls = %d, want exactly 1 across finalization and both resumes", *closeoutCalls)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutIntent != closeoutIntentPending {
+		t.Errorf("CloseoutIntent = %q, want %q", persisted.CloseoutIntent, closeoutIntentPending)
+	}
+	if persisted.CloseoutState != closeoutStateUnknown {
+		t.Errorf("CloseoutState = %q, want %q", persisted.CloseoutState, closeoutStateUnknown)
+	}
+}
+
 func TestFailureReportDoesNotOverwriteWrittenFinalReport(t *testing.T) {
 	projectRoot := setupGitRepo(t)
 	identity := RunIdentity{ID: "failureguard", Slug: "failure-guard"}

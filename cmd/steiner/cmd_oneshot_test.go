@@ -737,6 +737,16 @@ func TestOneshotCommandResolveFlagValidation(t *testing.T) {
 			wantErr: "--resolve requires exactly one of --url or --retry",
 		},
 		{
+			name:    "retry explicitly false with resolve",
+			args:    []string{"oneshot", "--resolve", "run-1", "--retry=false"},
+			wantErr: "--resolve requires exactly one of --url or --retry",
+		},
+		{
+			name:    "retry explicitly false without resolve",
+			args:    []string{"oneshot", "--retry=false"},
+			wantErr: "oneshot requires a task, --resume <id>, --list, or --resolve <id>",
+		},
+		{
 			name:    "url and retry without resolve",
 			args:    []string{"oneshot", "--url", recordedURL, "--retry"},
 			wantErr: "--url cannot be combined with --retry",
@@ -763,6 +773,23 @@ func TestOneshotCommandResolveFlagValidation(t *testing.T) {
 				t.Error("buildRuntime was called, want validation to reject before any work")
 			}
 		})
+	}
+}
+
+func TestOneshotCommandRequiresAMode(t *testing.T) {
+	built := stubOneshotResolveRuntime(t, t.TempDir())
+
+	_, _, err := executeOneshotArgs(t, "oneshot")
+	if err == nil {
+		t.Fatal("Execute() error = nil, want a mode validation error")
+	}
+	for _, want := range []string{"task", "--resume <id>", "--list", "--resolve <id>"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Execute() error = %q, want it to mention %q", err, want)
+		}
+	}
+	if *built {
+		t.Error("buildRuntime was called, want validation to reject before any work")
 	}
 }
 
