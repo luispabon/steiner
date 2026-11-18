@@ -130,12 +130,12 @@ func (s contextOverlayState) sidebarCells(segments []sidebarSegment, selected bo
 	var styled strings.Builder
 	for _, seg := range segments {
 		plain.WriteString(seg.text)
-		styled.WriteString(seg.style.Background(lipgloss.Color(theme.BgElev2)).Render(seg.text))
+		styled.WriteString(seg.style.Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(seg.text))
 	}
 	text := plain.String()
 	if pad := width - lipgloss.Width(text); pad > 0 {
 		text += strings.Repeat(" ", pad)
-		styled.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(theme.BgElev2)).Render(strings.Repeat(" ", pad)))
+		styled.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(s.styles.Palette.SidebarBG)).Render(strings.Repeat(" ", pad)))
 	}
 	if selected {
 		return s.styles.AccentBg.Render(text)

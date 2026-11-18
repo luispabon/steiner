@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/tui/theme"
 )
 
 func rosterAgent(id, agentType, status string, startTime, finishTime int64, seq int) *rosterEntry {
@@ -476,5 +477,21 @@ func TestCacheStatsOverlayStaysSinglePane(t *testing.T) {
 		if strings.Contains(view, unwanted) {
 			t.Fatalf("overlay = %q, want no %q", view, unwanted)
 		}
+	}
+}
+
+func TestContextOverlaySidebarUsesPaletteSidebarBackground(t *testing.T) {
+	t.Parallel()
+	palette := theme.Palette{SidebarBG: "#112233", ContentBG: "#000000"}
+	styles := theme.BuildStyles(theme.AccentAmber, palette)
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
+		"agent-1": rosterAgent("agent-1", "code", rosterRunning, 10, 0, 1),
+	})
+	m.styles = &styles
+	m.contextOverlay.styles = &styles
+
+	// 48;2;17;34;51 is #112233 in truecolor, the configured sidebar background.
+	if rendered := m.renderContextOverlay(); !strings.Contains(rendered, "48;2;17;34;51") {
+		t.Fatalf("context overlay = %q, want the sidebar to paint the palette background", stripANSI(rendered))
 	}
 }
