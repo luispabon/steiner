@@ -3,6 +3,7 @@ package quota
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestViewsShowOnlyRegisteredAccounts(t *testing.T) {
@@ -53,6 +54,36 @@ func TestViewsShowOnlyRegisteredAccounts(t *testing.T) {
 		if !have[key] {
 			t.Errorf("stored snapshot for %s missing after Views", key)
 		}
+	}
+}
+
+func TestViewsProjectClaudeSubscriptionWindowFromStart(t *testing.T) {
+	key := "claude_subscription:acct-1"
+	store := NewStore(filepath.Join(t.TempDir(), "quota-history.json"))
+	seeded := Snapshot{
+		AccountKey:   key,
+		ProviderType: "claude_subscription",
+		FetchedAt:    testBase,
+		Windows: []Window{{
+			Label:       "5h",
+			Duration:    5 * time.Hour,
+			UsedPercent: 27,
+			ResetsAt:    testBase.Add(4*time.Hour + 21*time.Minute),
+		}},
+	}
+	if err := store.Append(seeded, testBase); err != nil {
+		t.Fatalf("seed Append: %v", err)
+	}
+
+	svc, _ := newTestService(t, store)
+	svc.Register(Account{Key: key, ProviderType: "claude_subscription", Aliases: []string{"claude"}})
+
+	views := svc.Views("")
+	if len(views) != 1 {
+		t.Fatalf("Views returned %d rows, want 1", len(views))
+	}
+	if got := views[0].WindowProjections; len(got) != 1 || !got[0].OK || !got[0].BeforeReset {
+		t.Errorf("WindowProjections = %+v, want one OK projection before reset", got)
 	}
 }
 
