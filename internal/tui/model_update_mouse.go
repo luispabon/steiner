@@ -121,6 +121,12 @@ func (m *Model) handleMouseClickMsg(msg mouseClickMsg) (tea.Model, tea.Cmd) {
 	m.dragScrollDir = 0
 	m.dragScrollTicking = false
 	m.dragScrollEpoch++
+	m.overlayPress = false
+	// A press inside the context overlay belongs to it: it selects a sidebar
+	// agent row and never starts a transcript selection or drag.
+	if m.handleContextOverlayClick(msg.x, msg.y) {
+		return m, nil
+	}
 
 	clickPos := selectionPoint{line: msg.y, col: msg.x}
 	clickTime := time.Now()
@@ -199,6 +205,13 @@ func (m *Model) handleMouseMotionMsg(msg mouseMotionMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) handleMouseReleaseMsg(msg mouseReleaseMsg) (tea.Model, tea.Cmd) {
 	m.dragScrollEpoch++
+	// The release that ends a press owned by the context overlay is swallowed
+	// with it, so it cannot click a transcript or sidebar row under the modal.
+	if m.overlayPress {
+		m.overlayPress = false
+		m.sidebarPressX, m.sidebarPressY = -1, -1
+		return m, nil
+	}
 	if m.activeRegion == regionSidebar && m.sidebarPressX >= 0 && msg.x == m.sidebarPressX && msg.y == m.sidebarPressY {
 		m.sidebarPressX, m.sidebarPressY = -1, -1
 		return m, m.sidebarRosterClick(msg.x, msg.y)
@@ -290,13 +303,7 @@ func (m *Model) handleDragAutoScrollTick(msg dragAutoScrollTickMsg) (tea.Model, 
 // visible effect.
 func (m *Model) handleMouseWheelMsg(msg mouseWheelMsg) (tea.Model, tea.Cmd) {
 	m.lastWheelMouseAt = time.Now()
-	if m.contextOverlayCapturesMouse(msg.x, msg.y) {
-		switch msg.direction {
-		case "up":
-			m.contextOverlay = m.contextOverlay.scrollUp(m.viewport.mouseWheelDelta)
-		case "down":
-			m.contextOverlay = m.contextOverlay.scrollDown(m.viewport.mouseWheelDelta)
-		}
+	if m.handleContextOverlayWheel(msg) {
 		return m, nil
 	}
 

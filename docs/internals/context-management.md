@@ -63,6 +63,9 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 - `ToolsBytes` is the encoded length of the tool definitions, computed by `json.Marshal` on every request. Tools are re-cloned into each request, so the encoding is not memoized by slice identity: an in-place edit of a reused slice would otherwise report a stale size.
 - Messages, tools, blocks, and the `MaxTokens` value are deep-copied into the event, so later mutation of the conversation cannot reach it. `snapshotSink` then stores its own deep copy through `SnapshotStore.Store`, because every later sink receives the same payload and nothing guarantees it stays unmodified.
 - `Snapshot` and `ParentSnapshot` clone before returning, so a reader cannot mutate stored state.
+- `SnapshotStore` (`internal/interactive/state.go`) keeps the newest snapshot of the session, a distinct parent snapshot that child requests never replace, and one retained snapshot per sub-agent keyed by agent ID. At most `snapshotAgentLimit` (32) agents are retained, evicted in last-write order, and `Clear` drops all three.
+- `RequestContextReport` (`internal/interactive/actions.go`) carries the `AgentID` its report describes. An empty ID reports the parent snapshot, a non-empty one that sub-agent's retained snapshot; `emitContextReport` (`internal/interactive/reports.go`) marks every emission with `output.WithContextReportAgent`, and a missing snapshot still emits a report body that says so.
+- The TUI caches agent-marked reports per agent for the context report overlay's sidebar and replaces the detail pane only when that agent is selected (`internal/tui/context_overlay_agents.go`). Agent-marked reports arriving without the sidebar are dropped rather than replacing a single-pane overlay.
 
 ## Session date assembly
 

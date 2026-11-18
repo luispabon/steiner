@@ -14,6 +14,12 @@ func (m *Model) handleContextOverlayKey(msg tea.KeyPressMsg) tea.Model {
 	switch msg.Code {
 	case tea.KeyEsc:
 		m.contextOverlay = m.contextOverlay.closeContextOverlay()
+	case tea.KeyTab:
+		delta := 1
+		if msg.Mod&tea.ModShift != 0 {
+			delta = -1
+		}
+		return m.cycleContextAgent(delta)
 	case tea.KeyUp:
 		m.contextOverlay = m.contextOverlay.scrollUp(1)
 	case tea.KeyDown:

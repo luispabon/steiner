@@ -17,11 +17,11 @@ func rosterAgent(id, agentType, status string, startTime, finishTime int64, seq 
 
 // contextAgentRosterModel returns a model with the context report overlay open
 // over the given roster entries.
-func contextAgentRosterModel(t *testing.T, width, height int, entries map[string]*rosterEntry) *Model {
+func contextAgentRosterModel(t *testing.T, width int, entries map[string]*rosterEntry) *Model {
 	t.Helper()
 	useTrueColor(t)
 	m := newModel(Config{Model: "gpt-test"}, nil)
-	m = updateModel(t, m, tea.WindowSizeMsg{Width: width, Height: height})
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: width, Height: 24})
 	m.roster.entries = entries
 	m.contextOverlay = openContextReportOverlay(
 		contextAgentsFromRoster(m.roster.snapshot()), m.width, m.height, m.styles, m.content.glamourStyleSheet)
@@ -100,7 +100,7 @@ func TestOpenContextReportOverlaySelectsOrchestrator(t *testing.T) {
 
 func TestContextReportSidebarRendersAgents(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 130, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 		"agent-2": rosterAgent("agent-2", "code", rosterDone, 5, 65_000_000_005, 0),
 	})
@@ -131,7 +131,7 @@ func TestContextReportSidebarRendersAgents(t *testing.T) {
 
 func TestContextReportRoutesToSelectedAgent(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 130, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 		"agent-2": rosterAgent("agent-2", "code", rosterRunning, 20, 0, 2),
 	})
@@ -172,7 +172,7 @@ func TestContextReportRoutesToSelectedAgent(t *testing.T) {
 
 func TestContextReportNarrowCycler(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 80, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 80, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 	})
 	if m.contextOverlay.twoPane() {
@@ -197,7 +197,7 @@ func TestContextReportNarrowCycler(t *testing.T) {
 
 func TestContextReportDetailWrapsToPaneWidth(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 130, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 	})
 	if !m.contextOverlay.twoPane() {
@@ -224,7 +224,7 @@ func TestContextReportDetailWrapsToPaneWidth(t *testing.T) {
 
 func TestContextOverlayHitAtMapsSidebarRows(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 130, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 		"agent-2": rosterAgent("agent-2", "code", rosterRunning, 20, 0, 2),
 	})
@@ -261,25 +261,39 @@ func TestContextOverlayHitAtMapsSidebarRows(t *testing.T) {
 	}
 }
 
-func TestContextOverlayHitAtUsesUnclippedOriginWhenClipped(t *testing.T) {
+func TestContextOverlayHitMapMatchesRenderedRows(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 80, 8, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
+		"agent-2": rosterAgent("agent-2", "code", rosterDone, 5, 65_000_000_005, 0),
 	})
 	_, w, h := m.contextOverlayRendered()
 	originX, originY := (m.width-w)/2, (m.height-h)/2
-	if originY >= 0 {
-		t.Fatalf("originY = %d, want the overlay taller than the %d-row terminal", originY, m.height)
+	lines := strings.Split(m.renderContextOverlay(), "\n")
+	if len(lines) != h {
+		t.Fatalf("rendered lines = %d, want the measured height %d", len(lines), h)
 	}
-	if result, ok := m.contextOverlayHitAt(originX, 0); !ok || !result.inside {
-		t.Fatalf("cell at the unclipped origin column = %+v, %v; want inside", result, ok)
+
+	matched := 0
+	for row := range h {
+		y := originY + row
+		if y < 0 || y >= m.height {
+			continue
+		}
+		if hit, ok := m.contextOverlayHitAt(originX+3, y); ok && hit.inside && hit.inSidebar && hit.agent >= 0 {
+			want := m.contextOverlay.agents[hit.agent].label()
+			if got := stripANSI(lines[row]); !strings.Contains(got, want) {
+				t.Fatalf("sidebar cell in row %d selects agent %d (%q) but renders %q", row, hit.agent, want, got)
+			}
+			matched++
+			continue
+		}
+		if hit, ok := m.contextOverlayHitAt(originX+40, y); !ok || !hit.inside || hit.inSidebar || hit.agent != -1 {
+			t.Fatalf("detail cell in row %d = %+v, %v; want inside the pane without a sidebar agent", row, hit, ok)
+		}
 	}
-	result, ok := m.contextOverlayHitAt(originX+2, -originY+4)
-	if !ok || !result.inside {
-		t.Fatalf("body cell = %+v, %v; want inside the clipped overlay", result, ok)
-	}
-	if result.inSidebar || result.agent != -1 {
-		t.Fatalf("narrow body hit = %+v, want no sidebar agent", result)
+	if matched != 3 {
+		t.Fatalf("rows selecting an agent = %d, want the orchestrator and two sub-agents", matched)
 	}
 }
 
@@ -290,7 +304,7 @@ func TestContextSidebarOverflowIndicators(t *testing.T) {
 		id := fmt.Sprintf("agent-%02d", i)
 		entries[id] = rosterAgent(id, "code", rosterRunning, int64(i), 0, i)
 	}
-	m := contextAgentRosterModel(t, 130, 24, entries)
+	m := contextAgentRosterModel(t, 130, entries)
 	if !m.contextOverlay.twoPane() {
 		t.Fatal("want two-pane layout")
 	}
@@ -320,7 +334,7 @@ func TestContextSidebarOverflowIndicators(t *testing.T) {
 
 func TestRefreshContextAgentsBumpsRevisionOnlyOnRowChange(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 130, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 	})
 	rev := m.contextOverlay.agentsRev
@@ -339,7 +353,7 @@ func TestRefreshContextAgentsBumpsRevisionOnlyOnRowChange(t *testing.T) {
 
 func TestRefreshContextAgentsKeepsSelectionAndFallsBack(t *testing.T) {
 	t.Parallel()
-	m := contextAgentRosterModel(t, 130, 24, map[string]*rosterEntry{
+	m := contextAgentRosterModel(t, 130, map[string]*rosterEntry{
 		"agent-1": rosterAgent("agent-1", "review", rosterRunning, 10, 0, 1),
 		"agent-2": rosterAgent("agent-2", "code", rosterRunning, 20, 0, 2),
 	})

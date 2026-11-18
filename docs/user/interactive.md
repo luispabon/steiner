@@ -36,7 +36,7 @@ Open the help overlay with `ctrl+f1` for a short list of key bindings.
 | Key | Action |
 |-----|--------|
 | `ctrl+b` | Toggle the sidebar |
-| `ctrl+t` | Open the context overlay |
+| `ctrl+t` | Open the context report overlay with the agent sidebar (see [Overlays and pickers](#overlays-and-pickers)) |
 | `ctrl+o` | Open or close the usage dashboard (`r` refreshes; see [Usage](usage.md)) |
 | `ctrl+x` | Expand or collapse the latest delegation output |
 | `ctrl+g` | Take queued steers back into the composer |
@@ -65,6 +65,8 @@ If delegation worktrees remain when you exit, Steiner asks whether to clean them
 ### Overlays and pickers
 
 Scrollable overlays (usage, error log, MCP, LSP and similar reports) scroll with `up`/`down`, `j`/`k`, `pgup`/`pgdn` and `home`/`end`, and close with `esc` or `enter`. The context overlay (`ctrl+t`) scrolls with `up`/`down` and `pgup`/`pgdn`, and closes with `esc`. Pickers filter as you type, move with `up`/`down`, select with `enter` and close with `esc`.
+
+The context overlay reports the latest request context and lists the orchestrator and the turn's sub-agents in a sidebar. `tab` selects the next agent and `shift+tab` the previous one (instead of toggling the mode), and both wrap at either end; clicking an agent row selects it too. The report of the selected agent fills the pane beside the sidebar, and the rows follow sub-agents as they queue, start, finish or fail. The mouse wheel scrolls the agent list while the pointer is over the sidebar and the report while it is over the pane. On narrow terminals a single-line agent cycler replaces the sidebar.
 
 ## Slash commands
 
