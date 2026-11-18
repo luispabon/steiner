@@ -69,8 +69,13 @@ func manualCompactionHasSource(messages []agent.Message) bool {
 // sub-agent requests carry restricted tool sets and must not change the
 // compaction prefix, so this reads the parent-only snapshot. The runExecutor
 // seam (cliRunner.CompactWithLineage) clones them before handing them to the
-// agent runner; here we pass the reference without duplicating it. Returns nil
-// when no parent request has been recorded.
+// agent runner; here we pass the reference without duplicating it.
+//
+// Snapshots live in memory only and are never persisted. They are cleared when
+// a session is loaded or the conversation is cleared, so a nil return means no
+// snapshot is available in this process, which covers both a fresh session and
+// a session resumed from disk. Manual compaction proceeds without snapshot
+// tools in that case.
 func snapshotTools(store *SnapshotStore) []provider.ToolSpec {
 	snapshot, ok := store.ParentSnapshot()
 	if !ok {
