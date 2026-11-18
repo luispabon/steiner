@@ -42,15 +42,22 @@ A failed fetch keeps the previous values and shows the error in the header.
 
 ### Trends
 
-A trend row under a window or budget projects when usage will reach its limit, using a straight line from the oldest stored reading in the same reset period to the latest one:
+A trend row under a window or budget estimates when usage will reach its limit. One of two rules produces it:
+
+- **Claude subscription five-hour window.** The estimate uses the average usage over the window so far: Steiner assumes the window started empty at the reset time and extends the current percentage over the elapsed part of the window. The subscription's weekly windows use the next rule.
+- **Every other window and every budget.** The estimate takes the oldest stored reading in the same reset period and extends it linearly to the limit, using the usage and the time between that reading and the latest one.
+
+The row then reads:
 
 - `└─ trend: empty by <time> (before reset) ✗` means that at this rate the limit is reached before the reset.
 - `└─ trend: lasts past reset ✓` means usage lasts until the reset.
 - `└─ trend: limit reached ✗` means the window already shows 100% used, so there is nothing left to forecast. It replaces the other rows even when no projection is available, and it appears whenever the shown percentage rounds up to 100 as well as at or above 100.
 
-A trend appears only when the readings are at least 15 minutes apart, usage rose by at least 2 percentage points (2% of the limit for budgets), and the window or budget has a reset time. The projection uses two points, so one large turn can move it noticeably.
+A trend appears only when the readings are at least 15 minutes apart, usage rose by at least 2 percentage points (2% of the limit for budgets), and the window or budget has a reset time. For the five-hour average, the two readings are the inferred window start and the current reading, so the window must be at least 15 minutes old and show at least 2% used; a younger window or a smaller rise falls back to stored readings when they allow an estimate.
 
-An `empty by` time is not shown once it has passed: a window whose projected limit time is at or before the current time shows no trend row instead.
+An `empty by` time is not shown once it has passed: a window whose projected limit time is at or before the current time shows no trend row instead. Once the five-hour window's reset time has passed or arrived, no forecast appears, because the reading then belongs to the next window.
+
+The window start is inferred from the reset time and is not observed. The five-hour average therefore describes the steady pace of the window so far: a recent spike can leave it understating current usage, and it says nothing about what the next request will cost. The history rule uses two points, so one large turn can move it noticeably.
 
 ### When usage refreshes
 
