@@ -219,47 +219,16 @@ func TestClaudeTokenAuditLedgerRejectsInvalidExtras(t *testing.T) {
 	}
 }
 
-// claudeAuditCloneEvidence returns a deep copy of ev, so a case can change its own
-// attempts without touching the template other cases read.
-func claudeAuditCloneEvidence(ev claudeGateEvidence) claudeGateEvidence {
-	out := ev
-	out.PayloadSHA256 = make(map[string]string, len(ev.PayloadSHA256))
-	for name, sum := range ev.PayloadSHA256 {
-		out.PayloadSHA256[name] = sum
-	}
-	out.Report = slices.Clone(ev.Report)
-	out.Attempts = make([]claudeLedgerRecord, len(ev.Attempts))
-	for i, rec := range ev.Attempts {
-		rec.Request = slices.Clone(rec.Request)
-		if rec.Usage != nil {
-			usage := *rec.Usage
-			usage.Input = claudeAuditCloneInt(rec.Usage.Input)
-			usage.CacheCreation = claudeAuditCloneInt(rec.Usage.CacheCreation)
-			usage.CacheRead = claudeAuditCloneInt(rec.Usage.CacheRead)
-			usage.OutputTokens = claudeAuditCloneInt(rec.Usage.OutputTokens)
-			rec.Usage = &usage
-		}
-		out.Attempts[i] = rec
-	}
-	return out
-}
-
-// claudeAuditCloneInt copies an optional count so a case never writes the one it shares.
-func claudeAuditCloneInt(p *int) *int {
-	if p == nil {
-		return nil
-	}
-	v := *p
-	return &v
-}
-
 // The gates give identical reports whatever output and thinking the attempts carry.
+// The synthetic evidence is built once: claudeGateEvaluate only reads it, so the
+// template serves the base case, and each case copies the attempt slice and its
+// usage values before it changes output and thinking.
 func TestClaudeTokenAuditGatesIgnoreExtras(t *testing.T) {
 	t.Parallel()
 	set := loadClaudeFixtureForTest(t)
 	ctx := context.Background()
 	template := claudeGateSyntheticEvidence(t, set)
-	base, err := claudeGateEvaluate(ctx, set, claudeAuditCloneEvidence(template))
+	base, err := claudeGateEvaluate(ctx, set, template)
 	if err != nil {
 		t.Fatalf("evaluate base evidence: %v", err)
 	}
@@ -277,9 +246,12 @@ func TestClaudeTokenAuditGatesIgnoreExtras(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ev := claudeAuditCloneEvidence(template)
+			ev := template
+			ev.Attempts = slices.Clone(template.Attempts)
 			for i := range ev.Attempts {
-				ev.Attempts[i].Usage.OutputTokens = tt.output
+				usage := *ev.Attempts[i].Usage
+				usage.OutputTokens = tt.output
+				ev.Attempts[i].Usage = &usage
 				ev.Attempts[i].ThinkingBlocksObserved = tt.thinking
 			}
 			reports, err := claudeGateEvaluate(ctx, set, ev)
