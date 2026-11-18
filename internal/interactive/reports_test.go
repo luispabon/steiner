@@ -76,6 +76,9 @@ func TestRequestContextReportWithSnapshot(t *testing.T) {
 	if !strings.Contains(reportEvent.Content, "Prompt tokens") {
 		t.Fatalf("report content = %q, want Prompt tokens", reportEvent.Content)
 	}
+	if reportEvent.Agent == nil || reportEvent.Agent.ID != "" {
+		t.Fatalf("agent marker = %+v, want non-nil with empty ID", reportEvent.Agent)
+	}
 }
 
 func TestRequestContextReportNoSnapshot(t *testing.T) {
@@ -104,6 +107,9 @@ func TestRequestContextReportNoSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(reportEvent.Content, "No request recorded yet") {
 		t.Fatalf("report content = %q, want 'No request recorded yet'", reportEvent.Content)
+	}
+	if reportEvent.Agent == nil || reportEvent.Agent.ID != "" {
+		t.Fatalf("agent marker = %+v, want non-nil with empty ID", reportEvent.Agent)
 	}
 }
 
@@ -143,6 +149,114 @@ func TestRequestContextReportBuildError(t *testing.T) {
 	}
 	if !strings.Contains(reportEvent.Content, "Context report unavailable") {
 		t.Fatalf("report content = %q, want 'Context report unavailable'", reportEvent.Content)
+	}
+	if reportEvent.Agent == nil || reportEvent.Agent.ID != "" {
+		t.Fatalf("agent marker = %+v, want non-nil with empty ID", reportEvent.Agent)
+	}
+}
+
+func TestRequestContextReportOrchestratorUsesParentSnapshot(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s, err := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	s.snapshots.Store(RequestContextSnapshot{Model: "parent-model"})
+	s.snapshots.Store(RequestContextSnapshot{Model: "child-model", AgentID: "agent-1"})
+
+	handleErr := s.Handle(context.Background(), RequestContextReport{})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestContextReport) = %v, want nil", handleErr)
+	}
+
+	if len(events) < 1 {
+		t.Fatal("expected at least one event")
+	}
+	reportEvent, ok := events[0].Payload.(output.ContextReportEvent)
+	if !ok {
+		t.Fatalf("event payload = %T, want output.ContextReportEvent", events[0].Payload)
+	}
+	if !strings.Contains(reportEvent.Content, "parent-model") {
+		t.Fatalf("report content = %q, want parent-model", reportEvent.Content)
+	}
+	if strings.Contains(reportEvent.Content, "child-model") {
+		t.Fatalf("report content = %q, want the parent request, not the latest child", reportEvent.Content)
+	}
+	if reportEvent.Agent == nil || reportEvent.Agent.ID != "" {
+		t.Fatalf("agent marker = %+v, want non-nil with empty ID", reportEvent.Agent)
+	}
+}
+
+func TestRequestContextReportAgentSnapshot(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s, err := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	s.snapshots.Store(RequestContextSnapshot{Model: "parent-model"})
+	s.snapshots.Store(RequestContextSnapshot{Model: "agent-model", AgentID: "agent-1"})
+
+	handleErr := s.Handle(context.Background(), RequestContextReport{AgentID: "agent-1"})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestContextReport) = %v, want nil", handleErr)
+	}
+
+	if len(events) < 1 {
+		t.Fatal("expected at least one event")
+	}
+	reportEvent, ok := events[0].Payload.(output.ContextReportEvent)
+	if !ok {
+		t.Fatalf("event payload = %T, want output.ContextReportEvent", events[0].Payload)
+	}
+	if !strings.Contains(reportEvent.Content, "agent-model") {
+		t.Fatalf("report content = %q, want agent-model", reportEvent.Content)
+	}
+	if reportEvent.Agent == nil || reportEvent.Agent.ID != "agent-1" {
+		t.Fatalf("agent marker = %+v, want non-nil with ID agent-1", reportEvent.Agent)
+	}
+}
+
+func TestRequestContextReportMissingAgentSnapshot(t *testing.T) {
+	t.Parallel()
+	var events []output.Event
+	s, err := NewSession(Dependencies{
+		BaseEvents: output.SinkFunc(func(event output.Event) {
+			events = append(events, event)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	s.snapshots.Store(RequestContextSnapshot{Model: "parent-model"})
+
+	handleErr := s.Handle(context.Background(), RequestContextReport{AgentID: "agent-9"})
+	if handleErr != nil {
+		t.Fatalf("Handle(RequestContextReport) = %v, want nil", handleErr)
+	}
+
+	if len(events) < 1 {
+		t.Fatal("expected at least one event")
+	}
+	reportEvent, ok := events[0].Payload.(output.ContextReportEvent)
+	if !ok {
+		t.Fatalf("event payload = %T, want output.ContextReportEvent", events[0].Payload)
+	}
+	want := "# No retained request context\n\nNo request context is retained for `agent-9`. It may not have made a request yet, or the snapshot was evicted or belongs to a resumed session."
+	if reportEvent.Content != want {
+		t.Fatalf("report content = %q, want %q", reportEvent.Content, want)
+	}
+	if reportEvent.Agent == nil || reportEvent.Agent.ID != "agent-9" {
+		t.Fatalf("agent marker = %+v, want non-nil with ID agent-9", reportEvent.Agent)
 	}
 }
 

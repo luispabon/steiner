@@ -13,17 +13,38 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 )
 
-func (s *Session) emitContextReport(ctx context.Context) {
-	if snapshot, ok := s.snapshots.Snapshot(); ok {
-		report, err := BuildContextReport(ctx, snapshot)
-		if err != nil {
-			s.events.Emit(output.NewOverlayReportEvent("Context Report", "Context report unavailable.\n\n"+err.Error()))
+// emitContextReport emits the context report for the request scope identified
+// by agentID. An empty agentID reports the orchestrator's latest parent
+// request; a non-empty agentID reports that sub-agent's retained request.
+func (s *Session) emitContextReport(ctx context.Context, agentID string) {
+	snapshot, ok := s.contextReportSnapshot(agentID)
+	if !ok {
+		if agentID == "" {
+			s.emitContextReportEvent(agentID, "No request recorded yet in this interactive session.")
 			return
 		}
-		s.events.Emit(output.NewOverlayReportEvent("Context Report", report))
+		s.emitContextReportEvent(agentID, fmt.Sprintf("# No retained request context\n\nNo request context is retained for `%s`. It may not have made a request yet, or the snapshot was evicted or belongs to a resumed session.", agentID))
 		return
 	}
-	s.events.Emit(output.NewOverlayReportEvent("Context Report", "No request recorded yet in this interactive session."))
+	report, err := BuildContextReport(ctx, snapshot)
+	if err != nil {
+		s.emitContextReportEvent(agentID, "Context report unavailable.\n\n"+err.Error())
+		return
+	}
+	s.emitContextReportEvent(agentID, report)
+}
+
+// contextReportSnapshot returns the snapshot a context report for agentID reads.
+func (s *Session) contextReportSnapshot(agentID string) (RequestContextSnapshot, bool) {
+	if agentID == "" {
+		return s.snapshots.ParentSnapshot()
+	}
+	return s.snapshots.AgentSnapshot(agentID)
+}
+
+// emitContextReportEvent emits a context report event marked with its agent scope.
+func (s *Session) emitContextReportEvent(agentID, content string) {
+	s.events.Emit(output.WithContextReportAgent(output.NewOverlayReportEvent("Context Report", content), agentID))
 }
 
 func (s *Session) emitConfigReport() {

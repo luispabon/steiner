@@ -22,6 +22,28 @@ type ContextReportEvent struct {
 	Display string `json:"display,omitempty"`
 	// ScrollToEnd asks the TUI to open an overlay scrolled to its end.
 	ScrollToEnd bool `json:"scroll_to_end,omitempty"`
+	// Agent names the request scope the report describes. It is nil for
+	// reports that are not agent-scoped.
+	Agent *ContextReportAgent `json:"agent,omitempty"`
+}
+
+// ContextReportAgent identifies the request scope of a context report. An
+// empty ID marks the orchestrator.
+type ContextReportAgent struct {
+	ID string `json:"id,omitempty"`
+}
+
+// WithContextReportAgent marks a context report event with the agent scope it
+// describes. An empty agentID marks the orchestrator. Events whose payload is
+// not a ContextReportEvent are returned unchanged.
+func WithContextReportAgent(event Event, agentID string) Event {
+	report, ok := event.Payload.(ContextReportEvent)
+	if !ok {
+		return event
+	}
+	report.Agent = &ContextReportAgent{ID: agentID}
+	event.Payload = report
+	return event
 }
 
 // classifyContextReportDisplay determines the display mode for a context report.

@@ -44,8 +44,11 @@ type RecordPromptHistory struct {
 func (RecordPromptHistory) isInteractiveAction() {}
 
 // RequestContextReport represents a user request to view the current context
-// report during an interactive session.
-type RequestContextReport struct{}
+// report during an interactive session. An empty AgentID reports the
+// orchestrator; a non-empty AgentID reports that sub-agent.
+type RequestContextReport struct {
+	AgentID string
+}
 
 func (RequestContextReport) isInteractiveAction() {}
 
