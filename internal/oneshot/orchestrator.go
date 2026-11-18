@@ -445,9 +445,13 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist report state: %v", err))
 		return fmt.Errorf("persist report state: %w", err)
 	}
-	// Invariant: for a run that can reach a provider, a report state of written
-	// with no closeout intent and no closeout result is unreachable, because
-	// both fields land in the write above. For a run whose closeout is provably
+	// Invariant: for a run that is not already ambiguous (no manualRequired)
+	// and whose closeout can reach a provider runner (attemptsExternal), a
+	// report state of written with no closeout intent and no closeout result is
+	// unreachable, because both fields land in the write above. An ambiguous
+	// run instead proceeds to the second write below that records closeout_state
+	// unknown; a crash inside that narrower window relies on the operator-facing
+	// unknown marker being written next. For a run whose closeout is provably
 	// skipped (no auto_pr or no completed report) a crash right here leaves the
 	// run settled, which is safe: no external request was possible. A crash
 	// after this write but before Closeout leaves the intent pending, so an
