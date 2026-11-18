@@ -429,13 +429,30 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("generate report: %v", err))
 		return fmt.Errorf("generate final report: %w", err)
 	}
+	// Decide whether closeout can reach a provider runner before persisting:
+	// the intent belongs in the same write as the report state, so a crash
+	// cannot leave a versioned manifest that looks settled while an external
+	// request is still possible.
+	attemptsExternal, _ := closeoutExternalAttempt(o.deps.Config, report)
+
 	manifest.ReportPath = report.ReportPath
 	manifest.ReportState = reportStateWritten
 	manifest.FinalizationVersion = finalizationVersion
+	if !manualRequired && attemptsExternal {
+		manifest.CloseoutIntent = closeoutIntentPending
+	}
 	if err := store.Write(*manifest); err != nil {
 		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist report state: %v", err))
 		return fmt.Errorf("persist report state: %w", err)
 	}
+	// Invariant: for a run that can reach a provider, a report state of written
+	// with no closeout intent and no closeout result is unreachable, because
+	// both fields land in the write above. For a run whose closeout is provably
+	// skipped (no auto_pr or no completed report) a crash right here leaves the
+	// run settled, which is safe: no external request was possible. A crash
+	// after this write but before Closeout leaves the intent pending, so an
+	// operator resolves the run manually even though no request may exist.
+	// Over-reporting is the intended conservative direction.
 
 	if manualRequired {
 		// Persist the unknown state before returning: the report write above also
@@ -458,18 +475,6 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 	review := ""
 	if data, readErr := os.ReadFile(filepath.Join(planningPath, "review.md")); readErr == nil {
 		review = string(data)
-	}
-
-	// An intent is only meaningful for a closeout that can reach a provider
-	// runner: a skipped closeout creates no external request, so recording an
-	// intent for it would force manual resolution of a run that could not have
-	// opened a PR/MR.
-	if attemptsExternal, _ := closeoutExternalAttempt(o.deps.Config, report); attemptsExternal {
-		manifest.CloseoutIntent = closeoutIntentPending
-		if err := store.Write(*manifest); err != nil {
-			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist closeout intent: %v", err))
-			return fmt.Errorf("persist closeout intent: %w", err)
-		}
 	}
 
 	input := CloseoutInput{

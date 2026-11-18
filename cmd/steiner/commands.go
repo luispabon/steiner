@@ -101,7 +101,9 @@ func newOneshotCommand(flags *cliFlags) *cobra.Command {
 			resumeSet := cmd.Flags().Changed("resume")
 			resolveSet := cmd.Flags().Changed("resolve")
 			urlSet := cmd.Flags().Changed("url")
-			retrySet := cmd.Flags().Changed("retry")
+			// An explicit --retry=false supplies no outcome, so it must not count
+			// as the retry half of the resolve flag pair.
+			retrySet := resolveRetry && cmd.Flags().Changed("retry")
 
 			if urlSet && retrySet {
 				return errors.New("--url cannot be combined with --retry")
@@ -151,7 +153,7 @@ func newOneshotCommand(flags *cliFlags) *cobra.Command {
 			}
 
 			if task == "" {
-				return fmt.Errorf("oneshot requires a task, --resume <id>, or --list")
+				return errors.New("oneshot requires a task, --resume <id>, --list, or --resolve <id>")
 			}
 			return runOneshotTask(cmd, flags, task)
 		},

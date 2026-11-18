@@ -10,15 +10,9 @@ import (
 	"github.com/luispabon/steiner/internal/session"
 )
 
-// Resume reopens the run described by the manifest and restarts from the first incomplete phase.
-func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error) {
-	if o == nil {
-		return Manifest{}, fmt.Errorf("orchestrator is required")
-	}
-
-	store := o.manifestStore()
-
-	manifest, err = store.Read()
+// readResumeManifest loads the manifest and applies the defaults Resume needs.
+func (o *Orchestrator) readResumeManifest(store *ManifestStore) (Manifest, error) {
+	manifest, err := store.Read()
 	if err != nil {
 		return Manifest{}, fmt.Errorf("load manifest: %w", err)
 	}
@@ -32,6 +26,23 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 	if strings.TrimSpace(manifest.WorktreePath) == "" {
 		manifest.WorktreePath = o.deps.Identity.WorktreePath(o.deps.ProjectRoot)
 	}
+	return manifest, nil
+}
+
+// Resume reopens the run described by the manifest and restarts from the first incomplete phase.
+func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error) {
+	if o == nil {
+		return Manifest{}, fmt.Errorf("orchestrator is required")
+	}
+
+	store := o.manifestStore()
+
+	// This read only feeds the early validation below: nothing after the lock
+	// may act on it, because a concurrent resolution can land in between.
+	manifest, err = o.readResumeManifest(store)
+	if err != nil {
+		return Manifest{}, err
+	}
 
 	lock, err := o.deps.RunLockFactory(o.deps.ProjectRoot, o.deps.Identity)
 	if err != nil {
@@ -42,6 +53,13 @@ func (o *Orchestrator) Resume(ctx context.Context) (manifest Manifest, err error
 			err = errors.Join(err, releaseErr)
 		}
 	}()
+
+	// Re-read under the lock so a resolution that landed since the first read
+	// is not reverted by writing this copy back.
+	manifest, err = o.readResumeManifest(store)
+	if err != nil {
+		return Manifest{}, err
+	}
 
 	if strings.TrimSpace(manifest.WorktreeBase) == "" {
 		base, err := resolveWorktreeStartPoint(ctx, o.deps.ProjectRoot)
