@@ -75,10 +75,11 @@ type Writer struct {
 }
 
 // New opens a Writer over opts.Dir, creating the directory (0o700) and one
-// 0o600 file per enabled stream. Under the stream lock, records older than
-// opts.RetentionDays are pruned from existing files and an unterminated trailing
-// record left by a killed process is removed before the file is opened. Returns
-// a nil Writer, whose methods are no-ops, when no stream is enabled.
+// 0o600 file per enabled stream. Under the stream lock, an interrupted rotation
+// is completed first, then records older than opts.RetentionDays are pruned from
+// existing files and an unterminated trailing record left by a killed process is
+// removed before the file is opened. Returns a nil Writer, whose methods are
+// no-ops, when no stream is enabled.
 func New(opts Options) (*Writer, error) {
 	if !opts.Streams.any() {
 		return nil, nil
@@ -133,13 +134,20 @@ func (w *Writer) prepareStream(kind Kind, cutoff time.Time) error {
 			// Best-effort: the lock file stays; only the descriptor is closed.
 			_ = lock.Release()
 		}()
-		if !cutoff.IsZero() {
-			if err := pruneStaleGenerations(path, cutoff); err != nil {
+		// A failed recovery must not disable the stream: the file still opens and
+		// append retries the recovery under the lock. Retention and tail repair
+		// would rewrite a file the unfinished rotation still owns, so they wait.
+		if err := recoverRotation(path); err != nil {
+			w.warn("rotate diagnostics stream", err)
+		} else {
+			if !cutoff.IsZero() {
+				if err := pruneStaleGenerations(path, cutoff); err != nil {
+					return err
+				}
+			}
+			if err := truncateIncompleteTail(path); err != nil {
 				return err
 			}
-		}
-		if err := truncateIncompleteTail(path); err != nil {
-			return err
 		}
 	}
 	file, err := openStreamFile(path)
@@ -321,12 +329,19 @@ func (w *Writer) append(kind Kind, data []byte) {
 		// already written.
 		_ = lock.Release()
 	}()
+	// An interrupted rotation is finished before anything else touches the
+	// stream. When it cannot be, the record is dropped rather than appended to a
+	// stream whose generations are in an unknown state.
+	if err := recoverRotation(s.path); err != nil {
+		w.warn("rotate diagnostics stream", err)
+		return
+	}
 	if err := s.reopenIfNeeded(); err != nil {
 		w.warn("refresh diagnostics stream", err)
 		return
 	}
 	if next := int64(len(data)); s.rotationDue(timeNow(), next) {
-		if err := rotate(s); err != nil {
+		if err := rotateStream(s); err != nil {
 			w.warn("rotate diagnostics stream", err)
 		}
 	}
@@ -425,36 +440,6 @@ func (s *stream) reopen() error {
 	s.written = 0
 	if info, statErr := file.Stat(); statErr == nil {
 		s.written = info.Size()
-	}
-	return nil
-}
-
-// rotate shifts existing generations, renames the active file to <file>.1 and
-// opens a fresh one. A failed rotation leaves the stream appending to the active
-// path past the cap instead of dropping every later record for the run;
-// deferRotation bounds that growth. Caller must hold the writer's mutex.
-func rotate(s *stream) error {
-	if err := s.file.Close(); err != nil {
-		s.file = nil
-		return s.deferRotation(fmt.Errorf("close diagnostics stream for rotation: %w", err))
-	}
-	s.file = nil
-	for i := maxStreamGenerations; i >= 1; i-- {
-		src := fmt.Sprintf("%s.%d", s.path, i)
-		if i == maxStreamGenerations {
-			_ = os.Remove(src)
-			continue
-		}
-		if _, err := os.Stat(src); err == nil {
-			_ = os.Rename(src, fmt.Sprintf("%s.%d", s.path, i+1))
-		}
-	}
-	if err := os.Rename(s.path, s.path+".1"); err != nil && !os.IsNotExist(err) {
-		return s.deferRotation(fmt.Errorf("rotate diagnostics stream: %w", err))
-	}
-	s.resetRotation()
-	if err := s.reopen(); err != nil {
-		return s.deferRotation(err)
 	}
 	return nil
 }

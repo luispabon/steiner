@@ -97,19 +97,71 @@ func useClock(t *testing.T, c *fakeClock) {
 	t.Cleanup(func() { timeNow = restore })
 }
 
-// blockRotation makes every generation name a non-empty directory, so a
-// rotation can neither shift a generation nor rename the active file.
+// blockRotation makes the active file's stage path a non-empty directory, so the
+// first staging rename fails before any generation moves. The obstruction sits
+// before the transaction records any progress, so the failed rotation is
+// abandoned and the deferred retry and stall tests can still append past the
+// cap.
 func blockRotation(t *testing.T, path string) {
 	t.Helper()
-	for generation := 1; generation <= maxStreamGenerations; generation++ {
-		blocker := fmt.Sprintf("%s.%d", path, generation)
-		if err := os.Mkdir(blocker, 0o700); err != nil {
-			t.Fatalf("create blocker %s: %v", blocker, err)
-		}
-		if err := os.WriteFile(filepath.Join(blocker, "keep"), []byte("x"), 0o600); err != nil {
-			t.Fatalf("seed blocker %s: %v", blocker, err)
+	blocker := rotationStagePath(path, 0)
+	if err := os.Mkdir(blocker, 0o700); err != nil {
+		t.Fatalf("create blocker %s: %v", blocker, err)
+	}
+	if err := os.WriteFile(filepath.Join(blocker, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed blocker %s: %v", blocker, err)
+	}
+}
+
+// rotationArtefacts lists the marker and stage files left in dir.
+func rotationArtefacts(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var out []string
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), rotationStageSuffix) || strings.HasSuffix(entry.Name(), rotationMarkerSuffix) {
+			out = append(out, entry.Name())
 		}
 	}
+	return out
+}
+
+// seedGeneration writes content to one generation of a stream, where generation
+// 0 is the active file.
+func seedGeneration(t *testing.T, path string, generation int, content string) {
+	t.Helper()
+	seedFile(t, generationPath(path, generation), content)
+}
+
+// seedFile writes content to target.
+func seedFile(t *testing.T, target, content string) {
+	t.Helper()
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("seed %s: %v", target, err)
+	}
+}
+
+// readFileContent returns the contents of target.
+func readFileContent(t *testing.T, target string) string {
+	t.Helper()
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read %s: %v", target, err)
+	}
+	return string(data)
+}
+
+// recordLine encodes one tool record as the JSONL line a stream file holds.
+func recordLine(t *testing.T, agentID string) string {
+	t.Helper()
+	data, err := json.Marshal(Record{Kind: KindTool, AgentID: agentID, RunID: "run"})
+	if err != nil {
+		t.Fatalf("marshal record: %v", err)
+	}
+	return string(data) + "\n"
 }
 
 // fileSize returns the size of path.
@@ -122,14 +174,11 @@ func fileSize(t *testing.T, path string) int64 {
 	return info.Size()
 }
 
-// unblockRotation removes the directories blockRotation created.
+// unblockRotation removes the directory blockRotation created.
 func unblockRotation(t *testing.T, path string) {
 	t.Helper()
-	for generation := 1; generation <= maxStreamGenerations; generation++ {
-		p := fmt.Sprintf("%s.%d", path, generation)
-		if err := os.RemoveAll(p); err != nil {
-			t.Fatalf("remove blocker %s: %v", p, err)
-		}
+	if err := os.RemoveAll(rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("remove blocker %s: %v", rotationStagePath(path, 0), err)
 	}
 }
 
@@ -428,5 +477,336 @@ func TestWriterWriteAfterCloseIsDropped(t *testing.T) {
 	}
 	if got := readStream(t, path, 0); got != "" {
 		t.Errorf("active file = %q, want nothing written after Close", got)
+	}
+}
+
+func TestRotateStreamMovesGenerations(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, "active\n")
+	seedGeneration(t, path, 1, "one\n")
+	seedGeneration(t, path, 2, "two\n")
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	if err := rotateStream(w.files[KindTool]); err != nil {
+		t.Fatalf("rotateStream() error = %v", err)
+	}
+
+	for generation, want := range map[int]string{1: "active\n", 2: "one\n", 3: "two\n"} {
+		if got := readStream(t, path, generation); got != want {
+			t.Errorf("generation %d = %q, want %q", generation, got, want)
+		}
+	}
+	if got := fileSize(t, path); got != 0 {
+		t.Errorf("active size = %d, want a fresh empty file", got)
+	}
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Errorf("rotation artefacts = %v, want none", got)
+	}
+}
+
+func TestRotateStreamDiscardsOldestGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, "active\n")
+	seedGeneration(t, path, 1, "one\n")
+	seedGeneration(t, path, 2, "two\n")
+	seedGeneration(t, path, 3, "three\n")
+
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	if err := rotateStream(w.files[KindTool]); err != nil {
+		t.Fatalf("rotateStream() error = %v", err)
+	}
+
+	if got := readStream(t, path, 3); got != "two\n" {
+		t.Errorf("generation 3 = %q, want the previous generation 2", got)
+	}
+	if _, err := os.Stat(generationPath(path, maxStreamGenerations+1)); !os.IsNotExist(err) {
+		t.Errorf("generation %d stat error = %v, want the rotation never to keep past the policy", maxStreamGenerations+1, err)
+	}
+	for generation := 1; generation <= maxStreamGenerations; generation++ {
+		if got := readStream(t, path, generation); strings.Contains(got, "three") {
+			t.Errorf("generation %d = %q, want the oldest generation discarded", generation, got)
+		}
+	}
+}
+
+func TestRecoverRotationCompletesStaging(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, "active\n")
+	seedGeneration(t, path, 1, "one\n")
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0, 1}})
+
+	if err := recoverRotation(path); err != nil {
+		t.Fatalf("recoverRotation() error = %v", err)
+	}
+
+	if got := readStream(t, path, 1); got != "active\n" {
+		t.Errorf("generation 1 = %q, want the staged active file installed", got)
+	}
+	if got := readStream(t, path, 2); got != "one\n" {
+		t.Errorf("generation 2 = %q, want the old generation shifted up", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("active stat error = %v, want recovery to leave opening the file to the writer", err)
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); !os.IsNotExist(err) {
+		t.Errorf("marker stat error = %v, want the completed transaction removed", err)
+	}
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Errorf("rotation artefacts = %v, want none", got)
+	}
+}
+
+func TestRecoverRotationCompletesInstallation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, "staged-active\n")
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	seedGeneration(t, path, 2, "installed-one\n")
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseInstalling, Generations: []int{0, 1}})
+
+	if err := recoverRotation(path); err != nil {
+		t.Fatalf("recoverRotation() error = %v", err)
+	}
+
+	if got := readStream(t, path, 1); got != "staged-active\n" {
+		t.Errorf("generation 1 = %q, want the staged active file installed", got)
+	}
+	if got := readStream(t, path, 2); got != "installed-one\n" {
+		t.Errorf("generation 2 = %q, want the already installed generation left alone", got)
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); !os.IsNotExist(err) {
+		t.Errorf("marker stat error = %v, want the completed transaction removed", err)
+	}
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Errorf("rotation artefacts = %v, want none", got)
+	}
+	if err := recoverRotation(path); err != nil {
+		t.Errorf("repeated recoverRotation() error = %v, want the recovery idempotent", err)
+	}
+}
+
+func TestRecoverRotationRejectsAmbiguousGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedFile(t, path, "active\n")
+	seedFile(t, rotationStagePath(path, 0), "staged-active\n")
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0}})
+
+	err := recoverRotation(path)
+	if err == nil {
+		t.Fatal("recoverRotation() error = nil, want the ambiguous generation rejected")
+	}
+	if !strings.Contains(err.Error(), "generation 0") || !strings.Contains(err.Error(), "both source and stage") {
+		t.Errorf("error = %v, want it to name generation 0 and the conflicting states", err)
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); err != nil {
+		t.Errorf("marker stat error = %v, want the marker left in place", err)
+	}
+	if got := readStream(t, path, 0); got != "active\n" {
+		t.Errorf("active file = %q, want no rename performed", got)
+	}
+	if got := readFileContent(t, rotationStagePath(path, 0)); got != "staged-active\n" {
+		t.Errorf("generation 1 stage = %q, want no rename performed", got)
+	}
+}
+
+func TestRecoverRotationRejectsMissingGeneration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 0, "active\n")
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion, Phase: rotationPhaseStaging, Generations: []int{0, 1}})
+
+	err := recoverRotation(path)
+	if err == nil {
+		t.Fatal("recoverRotation() error = nil, want the missing generation rejected")
+	}
+	if !strings.Contains(err.Error(), "generation 1 is missing") {
+		t.Errorf("error = %v, want it to name the missing generation", err)
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); err != nil {
+		t.Errorf("marker stat error = %v, want the marker left in place", err)
+	}
+}
+
+func TestRecoverRotationRejectsUnknownMarkerVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	seedGeneration(t, path, 1, "one\n")
+	data, err := json.Marshal(rotationMarker{Version: rotationMarkerVersion + 1, Phase: rotationPhaseStaging, Generations: []int{1}})
+	if err != nil {
+		t.Fatalf("marshal marker: %v", err)
+	}
+	if err := os.WriteFile(rotationMarkerPath(path), data, 0o600); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	err = recoverRotation(path)
+	if err == nil {
+		t.Fatal("recoverRotation() error = nil, want the unknown version rejected")
+	}
+	if !strings.Contains(err.Error(), "unsupported version") {
+		t.Errorf("error = %v, want it to name the unsupported version", err)
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); err != nil {
+		t.Errorf("marker stat error = %v, want the marker left in place", err)
+	}
+	if got := readStream(t, path, 1); got != "one\n" {
+		t.Errorf("generation 1 = %q, want the generations untouched", got)
+	}
+	if _, err := os.Stat(rotationStagePath(path, 1)); !os.IsNotExist(err) {
+		t.Errorf("stage stat error = %v, want no staging performed", err)
+	}
+}
+
+func TestAppendRecoversInterruptedRotation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	// The active file is already past the cap, so the next record rotates.
+	padded := strings.Repeat("\n", maxStreamBytes) + recordLine(t, "seed")
+	if err := os.WriteFile(path, []byte(padded), 0o600); err != nil {
+		t.Fatalf("pad %s: %v", path, err)
+	}
+	seedGeneration(t, path, 1, recordLine(t, "generation-one"))
+
+	// Staging the active file succeeds and staging generation 1 fails, leaving
+	// the transaction half staged with the marker in place.
+	restore := renameFile
+	renameFile = func(src, dst string) error {
+		if src == generationPath(path, 1) {
+			return errors.New("injected rename failure")
+		}
+		return restore(src, dst)
+	}
+	t.Cleanup(func() { renameFile = restore })
+
+	w.Write(Record{Kind: KindTool, AgentID: "during-interruption"})
+	renameFile = restore
+
+	if !w.warned {
+		t.Error("warned = false, want the interrupted rotation reported")
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); err != nil {
+		t.Fatalf("marker stat error = %v, want the interrupted transaction left in place", err)
+	}
+	if got := readFileContent(t, rotationStagePath(path, 0)); !strings.Contains(got, `"seed"`) {
+		t.Fatalf("staged active file = %d bytes, want the padded stream with its seed record intact", len(got))
+	}
+	if got := readStream(t, path, 1); !strings.Contains(got, "generation-one") {
+		t.Fatalf("generation 1 = %q, want the old generation untouched by the failed staging", got)
+	}
+	if s := w.files[KindTool]; s.file != nil {
+		t.Fatal("stream file is open, want the record dropped while the transaction is pending")
+	}
+
+	// The next append completes the transaction before writing.
+	w.Write(Record{Kind: KindTool, AgentID: "after-recovery"})
+
+	if _, err := os.Stat(rotationMarkerPath(path)); !os.IsNotExist(err) {
+		t.Fatalf("marker stat error = %v, want the recovery to remove it", err)
+	}
+	if got := rotationArtefacts(t, dir); len(got) != 0 {
+		t.Errorf("rotation artefacts = %v, want none", got)
+	}
+	if got := readStream(t, path, 1); !strings.Contains(got, `"seed"`) {
+		t.Errorf("generation 1 = %d bytes, want the interrupted active file installed", len(got))
+	}
+	if got := readStream(t, path, 2); !strings.Contains(got, "generation-one") {
+		t.Errorf("generation 2 = %q, want the old generation shifted up", got)
+	}
+	records := readTailRecords(t, path)
+	if len(records) != 1 || records[0].AgentID != "after-recovery" {
+		t.Fatalf("active records = %+v, want only the record written after recovery", records)
+	}
+}
+
+func TestAppendDropsRecordWhenRotationCannotProceed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	w, err := New(Options{Dir: dir, Streams: Streams{Tool: true}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+
+	padded := strings.Repeat("\n", maxStreamBytes) + recordLine(t, "seed")
+	if err := os.WriteFile(path, []byte(padded), 0o600); err != nil {
+		t.Fatalf("pad %s: %v", path, err)
+	}
+	seedGeneration(t, path, 1, recordLine(t, "generation-one"))
+	seedGeneration(t, path, 2, recordLine(t, "generation-two"))
+
+	// The oldest generation is a non-empty directory, so the transaction can
+	// install every generation but can never discard that one: the marker stays
+	// and no later append can finish or restart the rotation.
+	oldest := generationPath(path, maxStreamGenerations)
+	if err := os.Mkdir(oldest, 0o700); err != nil {
+		t.Fatalf("create oldest generation %s: %v", oldest, err)
+	}
+	if err := os.WriteFile(filepath.Join(oldest, "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed oldest generation %s: %v", oldest, err)
+	}
+
+	w.Write(Record{Kind: KindTool, AgentID: "blocked"})
+	w.Write(Record{Kind: KindTool, AgentID: "dropped"})
+
+	if !w.warned {
+		t.Error("warned = false, want the rotation failure reported")
+	}
+	if _, err := os.Stat(rotationMarkerPath(path)); err != nil {
+		t.Fatalf("marker stat error = %v, want the stuck transaction left in place", err)
+	}
+	if s := w.files[KindTool]; s.file != nil {
+		t.Error("stream file is open, want the records dropped while the transaction is stuck")
+	}
+	if got := readStream(t, path, 1); got != padded {
+		t.Errorf("generation 1 = %d bytes, want the previous active file intact", len(got))
+	}
+	if got := readStream(t, path, 2); got != recordLine(t, "generation-one") {
+		t.Errorf("generation 2 = %q, want the previous generation 1 intact", got)
+	}
+	if got := readStream(t, path, 3); got != recordLine(t, "generation-two") {
+		t.Errorf("generation 3 = %q, want the previous generation 2 intact", got)
+	}
+	for generation := 0; generation <= maxStreamGenerations; generation++ {
+		target := generationPath(path, generation)
+		if _, err := os.Stat(target); err != nil {
+			continue
+		}
+		got := readFileContent(t, target)
+		if strings.Contains(got, "blocked") || strings.Contains(got, "dropped") {
+			t.Errorf("generation %d = %q, want the records dropped, not appended", generation, got)
+		}
+	}
+}
+
+// writeMarker writes m as the rotation marker for path.
+func writeMarker(t *testing.T, path string, m rotationMarker) {
+	t.Helper()
+	if err := writeRotationMarker(path, m); err != nil {
+		t.Fatalf("write rotation marker: %v", err)
 	}
 }
