@@ -154,6 +154,8 @@ func TestOverlayRenderKeys(t *testing.T) {
 			"renderer":          "only used by reflow",
 			"renderWidth":       "only used by reflow",
 			"styles":            "the render reads Model.styles, keyed separately",
+			"agents":            "the sidebar rows are keyed by agentsRev, which bumps whenever a rebuilt list differs",
+			"reports":           "only the selected report is reflowed into renderedLines",
 		}
 		assertRenderKeyParity(t, contextOverlayState{}, contextRenderKey{}, ign)
 		assertRenderKeyCopiesEveryField(t, contextOverlayState{}, ign, func(s contextOverlayState) any {
@@ -167,6 +169,18 @@ func TestOverlayRenderKeys(t *testing.T) {
 		w := &Model{styles: styles, width: 10}
 		if a.contextRenderKey() == w.contextRenderKey() {
 			t.Error("context render key ignores Model dimensions")
+		}
+		selected := &Model{styles: styles, contextOverlay: contextOverlayState{selected: 1}}
+		if a.contextRenderKey() == selected.contextRenderKey() {
+			t.Error("context render key ignores the selected agent")
+		}
+		agentScroll := &Model{styles: styles, contextOverlay: contextOverlayState{agentsScroll: 1}}
+		if a.contextRenderKey() == agentScroll.contextRenderKey() {
+			t.Error("context render key ignores the agent scroll offset")
+		}
+		agentsRev := &Model{styles: styles, contextOverlay: contextOverlayState{agentsRev: 1}}
+		if a.contextRenderKey() == agentsRev.contextRenderKey() {
+			t.Error("context render key ignores the agent rows revision")
 		}
 	})
 }
@@ -325,7 +339,7 @@ func memoCases() []memoCase {
 				m.contextOverlay = openContextOverlay("Context", benchContextReport(), m.width, m.height, m.styles, m.content.glamourStyleSheet)
 			},
 			frame:  func(m *Model) string { return m.renderContextOverlay() },
-			view:   func(m *Model) string { return m.buildContextOverlay(&contextStyledLines{}) },
+			view:   buildContextOverlayOnly,
 			poison: func(m *Model) { poisonContextMemo(m, 0, 0) },
 			mutations: append([]memoMutation{
 				keyMutation("down", benchKeyDown, true),
@@ -432,7 +446,7 @@ func TestHelpKeepsViewportCacheAndMemoisesPanel(t *testing.T) {
 func TestContextOverlayBoundsMatchUncachedMeasurement(t *testing.T) {
 	t.Parallel()
 	oracle := func(m *Model) (x, y, w, h int) {
-		lines := strings.Split(m.buildContextOverlay(&contextStyledLines{}), "\n")
+		lines := strings.Split(buildContextOverlayOnly(m), "\n")
 		h = len(lines)
 		for _, line := range lines {
 			w = max(w, lipgloss.Width(line))
@@ -459,7 +473,7 @@ func TestContextOverlayBoundsMatchUncachedMeasurement(t *testing.T) {
 				if [4]int{gx, gy, gw, gh} != [4]int{wx, wy, ww, wh} {
 					t.Errorf("size %v items %d offset %d: bounds = %v, want %v", size, items, offset, [4]int{gx, gy, gw, gh}, [4]int{wx, wy, ww, wh})
 				}
-				if got, want := m.renderContextOverlay(), m.buildContextOverlay(&contextStyledLines{}); got != want {
+				if got, want := m.renderContextOverlay(), buildContextOverlayOnly(m); got != want {
 					t.Errorf("size %v items %d offset %d: memoised render differs from a fresh render", size, items, offset)
 				}
 			}
@@ -494,6 +508,13 @@ func TestCacheStatsOverlayBoundsReuseRender(t *testing.T) {
 	if m.renderContextOverlay() != memoSentinel {
 		t.Error("cache stats overlay re-rendered with unchanged state")
 	}
+}
+
+// buildContextOverlayOnly returns the rendered overlay without the sidebar hit
+// map, for tests that compare it with the memoised render.
+func buildContextOverlayOnly(m *Model) string {
+	out, _ := m.buildContextOverlay(&contextStyledLines{})
+	return out
 }
 
 func poisonContextMemo(m *Model, w, h int) {

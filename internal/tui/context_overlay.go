@@ -27,6 +27,17 @@ type contextOverlayState struct {
 	glamourStyleSheet glamour.TermRendererOption
 	renderer          *glamour.TermRenderer
 	renderWidth       int
+	// agents lists the orchestrator (index 0) followed by the session's
+	// sub-agents. An empty list marks a single-pane report such as cache
+	// stats.
+	agents       []contextOverlayAgent
+	selected     int
+	agentsScroll int
+	// agentsRev increments whenever the rebuilt agent rows differ, so the
+	// render memo can ignore the slice identity.
+	agentsRev int
+	// reports caches agent reports by agent ID; "" is the orchestrator.
+	reports map[string]string
 }
 
 // openContextOverlay returns a copy of the state with the overlay open and
@@ -44,7 +55,11 @@ func openContextOverlay(title, content string, width, height int, styles *theme.
 }
 
 // visibleHeight returns the number of body rows that fit the terminal height.
+// The narrow layout spends two extra rows on its agent cycler.
 func (s contextOverlayState) visibleHeight() int {
+	if s.narrowMode() {
+		return s.bodyVisibleHeight(contextOverlayChromeLines + contextOverlayNarrowChromeLines)
+	}
 	return s.bodyVisibleHeight(contextOverlayChromeLines)
 }
 
@@ -63,7 +78,7 @@ func (s contextOverlayState) atEnd() bool {
 func (s contextOverlayState) reflow() contextOverlayState {
 	rendered, _ := renderMarkdownBlock(markdownBlockParams{
 		block:       s.content,
-		width:       s.InnerWidth(),
+		width:       s.reportWidth(),
 		styles:      s.styles,
 		styleSheet:  s.glamourStyleSheet,
 		renderer:    &s.renderer,
@@ -130,9 +145,10 @@ func (m *Model) contextOverlayRendered() (out string, w, h int) {
 	if e := memo.lookup(key); e != nil {
 		return e.out, e.w, e.h
 	}
-	out = m.buildContextOverlay(&memo.styled)
+	var hit contextOverlayHit
+	out, hit = m.buildContextOverlay(&memo.styled)
 	w, h = measureOverlay(out)
-	memo.store(key, out, w, h)
+	memo.store(key, out, w, h, hit)
 	return out, w, h
 }
 
@@ -146,9 +162,9 @@ func measureOverlay(rendered string) (w, h int) {
 	return w, len(lines)
 }
 
-// buildContextOverlay renders the overlay string. styled caches the per-line
-// styling across scroll steps.
-func (m *Model) buildContextOverlay(styled *contextStyledLines) string {
+// buildContextOverlay renders the overlay string and the sidebar hit map.
+// styled caches the per-line styling across scroll steps.
+func (m *Model) buildContextOverlay(styled *contextStyledLines) (string, contextOverlayHit) {
 	s := m.contextOverlay
 	s.OverlayShell = s.WithDimensions(m.width, m.height)
 
@@ -166,38 +182,131 @@ func (m *Model) buildContextOverlay(styled *contextStyledLines) string {
 	headerLine := titleStyle.Render(title)
 	divider := s.Divider()
 
-	// Slice rendered markdown lines for the scroll window.
-	lines := s.renderedLines
-	start := s.scrollOffset
-	end := start + s.visibleHeight()
-	if end > len(lines) {
-		end = len(lines)
-	}
+	rows := s.visibleHeight()
+	styled.reset(s.renderedLines, s.reportWidth())
 
-	styled.reset(lines, innerWidth)
-	renderedLines := make([]string, 0, end-start)
-	for i := start; i < end; i++ {
-		renderedLines = append(renderedLines, styled.line(i, lines[i]))
+	hit := contextOverlayHit{
+		narrow:       s.narrowMode(),
+		bodyTop:      4,
+		sidebarLeft:  2,
+		sidebarRight: 2 + contextOverlaySidebarWidth,
 	}
-	body := strings.Join(renderedLines, "\n")
+	var bodyLines []string
+	switch {
+	case s.twoPane():
+		detail := s.detailLines(styled, rows)
+		sidebar, targets := s.sidebarLines()
+		hit.targets = targets
+		paneDivider := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.BorderSoft)).Render("│")
+		bodyLines = make([]string, rows)
+		for i := range rows {
+			bodyLines[i] = sidebar[i] + paneDivider + " " + detail[i]
+		}
+	case s.reportMode():
+		bodyLines = s.detailLines(styled, rows)
+		// Narrow mode inserts the cycler line and its divider above the body.
+		hit.bodyTop += contextOverlayNarrowChromeLines
+	default:
+		bodyLines = s.singlePaneLines(styled)
+	}
 
 	footerText := FooterChip("↑↓") + " scroll   " + FooterChip("esc") + " close"
-	footer := s.RenderFooter(footerText)
+	parts := []string{headerLine, divider}
+	if s.reportMode() {
+		footerText = FooterChip("↑↓") + " scroll   " + FooterChip("tab") + " agent   " + FooterChip("esc") + " close"
+	}
+	if s.narrowMode() {
+		parts = append(parts, s.narrowCyclerLine(innerWidth), s.Divider())
+	}
+	parts = append(parts, strings.Join(bodyLines, "\n"), s.Divider(), s.RenderFooter(footerText))
 
-	full := lipgloss.JoinVertical(lipgloss.Left,
-		headerLine,
-		divider,
-		body,
-		s.Divider(),
-		footer,
-	)
+	full := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	boxStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BgElev)).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(theme.BorderSoft)).
 		Padding(1, 2)
 
-	return s.RenderWithBg(boxStyle, full, theme.BgElev)
+	return s.RenderWithBg(boxStyle, full, theme.BgElev), hit
+}
+
+// detailLines returns exactly rows styled report lines for the scroll window,
+// padding past the end of the report with blank rows.
+func (s contextOverlayState) detailLines(styled *contextStyledLines, rows int) []string {
+	width := s.reportWidth()
+	out := make([]string, rows)
+	for i := range out {
+		index := s.scrollOffset + i
+		if index >= 0 && index < len(s.renderedLines) {
+			out[i] = styled.line(index, s.renderedLines[index])
+			continue
+		}
+		out[i] = strings.Repeat(" ", width)
+	}
+	return out
+}
+
+// singlePaneLines returns the styled report lines in the scroll window without
+// padding, so a single-pane report keeps its natural height.
+func (s contextOverlayState) singlePaneLines(styled *contextStyledLines) []string {
+	start := min(max(0, s.scrollOffset), len(s.renderedLines))
+	end := min(start+s.visibleHeight(), len(s.renderedLines))
+	out := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		out = append(out, styled.line(i, s.renderedLines[i]))
+	}
+	return out
+}
+
+// contextOverlayHit maps rendered body rows to the agent index each row
+// selects. Narrow mode has no sidebar, so it carries no targets.
+type contextOverlayHit struct {
+	narrow       bool
+	bodyTop      int
+	sidebarLeft  int
+	sidebarRight int
+	targets      []int
+}
+
+// contextOverlayHitResult is the outcome of a pointer lookup on the context
+// overlay. agent is -1 when the cell selects no agent.
+type contextOverlayHitResult struct {
+	inside    bool
+	inSidebar bool
+	agent     int
+}
+
+// contextOverlayHitAt maps a terminal cell to the agent row drawn under it. It
+// uses the unclipped overlay origin because composeCenteredOverlay positions
+// the overlay unclipped while contextOverlayBounds clamps it.
+func (m *Model) contextOverlayHitAt(x, y int) (contextOverlayHitResult, bool) {
+	if !m.contextOverlay.IsOpen() {
+		return contextOverlayHitResult{}, false
+	}
+	_, w, h := m.contextOverlayRendered()
+	entry := m.overlayMemos.context.lookup(m.contextRenderKey())
+	if entry == nil || w <= 0 || h <= 0 {
+		return contextOverlayHitResult{}, false
+	}
+	localX := x - (m.width-w)/2
+	localY := y - (m.height-h)/2
+	if localX < 0 || localX >= w || localY < 0 || localY >= h {
+		return contextOverlayHitResult{}, false
+	}
+	result := contextOverlayHitResult{inside: true, agent: -1}
+	hit := entry.hit
+	if hit.narrow {
+		return result, true
+	}
+	row := localY - hit.bodyTop
+	if row < 0 || row >= len(hit.targets) || localX < hit.sidebarLeft || localX >= hit.sidebarRight {
+		return result, true
+	}
+	result.inSidebar = true
+	if target := hit.targets[row]; target >= 0 {
+		result.agent = target
+	}
+	return result, true
 }
 
 // contextOverlayBounds returns the centered context overlay rectangle clipped

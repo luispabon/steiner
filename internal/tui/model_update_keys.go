@@ -225,9 +225,11 @@ func (m *Model) openContextOverlayImmediate() {
 	if m.controller == nil {
 		return
 	}
-	if err := m.controller.Handle(context.Background(), interactive.RequestContextReport{}); err != nil {
-		m.appendError(err)
-	}
+	m.contextOverlay = openContextReportOverlay(
+		contextAgentsFromRoster(m.roster.snapshot()),
+		m.width, m.height, m.styles, m.content.glamourStyleSheet,
+	)
+	m.requestContextReport(m.contextOverlay.selectedAgentID())
 }
 
 func (m *Model) handleComposerKeyMsg(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
