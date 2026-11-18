@@ -32,6 +32,8 @@ var newOneshotOrchestrator = func(deps oneshot.Dependencies) (oneshotOrchestrato
 
 var listOneshotRuns = oneshot.ListRuns
 
+var resolveOneshotCloseout = oneshot.ResolveCloseout
+
 type phaseRunner struct {
 	runner cliRunner
 	// steers is the launching session's steer queue, or nil when headless.
@@ -277,6 +279,51 @@ func runOneshotResume(cmd *cobra.Command, flags *cliFlags, resumeID string) erro
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "report: %s\n", updated.ReportPath); err != nil {
 			return err
 		}
+	}
+	return oneshot.PrintManifest(cmd.OutOrStdout(), updated)
+}
+
+// runOneshotResolve records an explicit closeout resolution for a run whose
+// outcome is unknown. Resolution only writes the manifest, so no phase runner
+// wiring or model preflight is needed; the engine validates the resolution and
+// takes the run lock.
+func runOneshotResolve(cmd *cobra.Command, flags *cliFlags, runID, outcomeURL string, retry bool) error {
+	rt, err := buildRuntime(cmd.Context(), cmd, flags)
+	if err != nil {
+		return err
+	}
+	defer closeRuntime(&rt)
+
+	store := oneshot.NewManifestStore(oneshot.RunIdentity{ID: strings.TrimSpace(runID)}.ManifestPath(rt.projectRoot))
+	manifest, err := store.Read()
+	if err != nil {
+		return fmt.Errorf("load oneshot manifest: %w", err)
+	}
+	if strings.TrimSpace(manifest.RunID) == "" {
+		return errors.New("load oneshot manifest: run id is required")
+	}
+
+	resolution := oneshot.Resolution{Kind: oneshot.ResolutionRecordURL, URL: outcomeURL}
+	if retry {
+		resolution = oneshot.Resolution{Kind: oneshot.ResolutionRetry}
+	}
+	updated, err := resolveOneshotCloseout(cmd.Context(), oneshot.Dependencies{
+		ProjectRoot:   rt.projectRoot,
+		Identity:      oneshot.RunIdentity{ID: manifest.RunID, Slug: manifest.Slug},
+		Task:          manifest.Task,
+		Config:        rt.cfg,
+		ManifestStore: store,
+	}, resolution)
+	if err != nil {
+		return fmt.Errorf("resolve oneshot closeout: %w", err)
+	}
+
+	line := fmt.Sprintf("closeout: %s", updated.CloseoutState)
+	if updated.CloseoutURL != "" {
+		line = fmt.Sprintf("%s %s", line, updated.CloseoutURL)
+	}
+	if _, err := fmt.Fprintln(cmd.OutOrStdout(), line); err != nil {
+		return err
 	}
 	return oneshot.PrintManifest(cmd.OutOrStdout(), updated)
 }

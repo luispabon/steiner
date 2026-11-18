@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,16 +87,38 @@ func newRootCommand() *cobra.Command {
 func newOneshotCommand(flags *cliFlags) *cobra.Command {
 	var listRuns bool
 	var resumeID string
+	var resolveID string
+	var resolveURL string
+	var resolveRetry bool
 
 	cmd := &cobra.Command{
 		Use:   "oneshot [task]",
 		Short: "Run an autonomous oneshot task",
-		Long:  "Run the autonomous oneshot engine headlessly, resume a saved run, or list resumable runs.",
+		Long:  "Run the autonomous oneshot engine headlessly, resume a saved run, list resumable runs, or resolve the closeout outcome of a run awaiting manual resolution.",
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if listRuns {
-				if cmd.Flags().Changed("resume") {
+			listSet := listRuns
+			resumeSet := cmd.Flags().Changed("resume")
+			resolveSet := cmd.Flags().Changed("resolve")
+			urlSet := cmd.Flags().Changed("url")
+			retrySet := cmd.Flags().Changed("retry")
+
+			if urlSet && retrySet {
+				return errors.New("--url cannot be combined with --retry")
+			}
+			if urlSet && !resolveSet {
+				return errors.New("--url requires --resolve")
+			}
+			if retrySet && !resolveSet {
+				return errors.New("--retry requires --resolve")
+			}
+
+			if listSet {
+				if resumeSet {
 					return fmt.Errorf("--list cannot be combined with --resume")
+				}
+				if resolveSet {
+					return errors.New("--list cannot be combined with --resolve")
 				}
 				if len(args) > 0 {
 					return fmt.Errorf("--list does not take a task")
@@ -104,7 +127,10 @@ func newOneshotCommand(flags *cliFlags) *cobra.Command {
 			}
 
 			task := strings.TrimSpace(strings.Join(args, " "))
-			if cmd.Flags().Changed("resume") {
+			if resumeSet {
+				if resolveSet {
+					return errors.New("--resume cannot be combined with --resolve")
+				}
 				if task != "" {
 					return fmt.Errorf("--resume cannot be combined with a task")
 				}
@@ -112,6 +138,16 @@ func newOneshotCommand(flags *cliFlags) *cobra.Command {
 					return fmt.Errorf("--resume requires a run id")
 				}
 				return runOneshotResume(cmd, flags, resumeID)
+			}
+
+			if resolveSet {
+				if task != "" {
+					return errors.New("--resolve cannot be combined with a task")
+				}
+				if urlSet == retrySet {
+					return errors.New("--resolve requires exactly one of --url or --retry")
+				}
+				return runOneshotResolve(cmd, flags, resolveID, resolveURL, resolveRetry)
 			}
 
 			if task == "" {
@@ -123,6 +159,9 @@ func newOneshotCommand(flags *cliFlags) *cobra.Command {
 
 	cmd.Flags().BoolVar(&listRuns, "list", false, "list resumable oneshot runs")
 	cmd.Flags().StringVar(&resumeID, "resume", "", "resume a oneshot run by ID")
+	cmd.Flags().StringVar(&resolveID, "resolve", "", "resolve the closeout outcome of a oneshot run by ID")
+	cmd.Flags().StringVar(&resolveURL, "url", "", "record an existing pull or merge request URL when resolving a run")
+	cmd.Flags().BoolVar(&resolveRetry, "retry", false, "authorise one more closeout attempt when resolving a run")
 	return cmd
 }
 

@@ -549,6 +549,291 @@ func TestPromptAssemblyCarriesPhasePrompt(t *testing.T) {
 	})
 }
 
+// oneshotResolveCall records one call to the resolve seam.
+type oneshotResolveCall struct {
+	deps       oneshot.Dependencies
+	resolution oneshot.Resolution
+}
+
+// oneshotResolveSpy replaces the resolve seam and records each call.
+type oneshotResolveSpy struct {
+	manifest oneshot.Manifest
+	err      error
+	calls    []oneshotResolveCall
+}
+
+func (s *oneshotResolveSpy) install(t *testing.T) {
+	t.Helper()
+	old := resolveOneshotCloseout
+	t.Cleanup(func() { resolveOneshotCloseout = old })
+	resolveOneshotCloseout = func(_ context.Context, deps oneshot.Dependencies, resolution oneshot.Resolution) (oneshot.Manifest, error) {
+		s.calls = append(s.calls, oneshotResolveCall{deps: deps, resolution: resolution})
+		return s.manifest, s.err
+	}
+}
+
+// stubOneshotResolveRuntime replaces buildRuntime with a runtime rooted at
+// projectRoot. The returned flag reports whether it was called.
+func stubOneshotResolveRuntime(t *testing.T, projectRoot string) *bool {
+	t.Helper()
+	built := false
+	old := buildRuntime
+	t.Cleanup(func() { buildRuntime = old })
+	buildRuntime = func(_ context.Context, _ *cobra.Command, _ *cliFlags) (cliRuntime, error) {
+		built = true
+		cfg := testRuntimeConfig("test-model")
+		cfg.SubAgent.Enabled = true
+		return cliRuntime{cfg: cfg, projectRoot: projectRoot, events: output.NoopSink{}}, nil
+	}
+	return &built
+}
+
+// writeOneshotRunManifest writes manifest at runID's manifest path.
+func writeOneshotRunManifest(t *testing.T, projectRoot, runID string, manifest oneshot.Manifest) {
+	t.Helper()
+	path := oneshot.RunIdentity{ID: runID}.ManifestPath(projectRoot)
+	mustMkdirAll(t, filepath.Dir(path))
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	writeFile(t, path, string(data))
+}
+
+// executeOneshotArgs runs the root command with args and returns its output.
+func executeOneshotArgs(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	cmd := newRootCommand()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return out.String(), errOut.String(), err
+}
+
+func TestOneshotCommandResolveRecordsURL(t *testing.T) {
+	const recordedURL = "https://example.com/pr/1"
+	projectRoot := t.TempDir()
+	writeOneshotRunManifest(t, projectRoot, "run-1", oneshot.Manifest{RunID: "run-1", Slug: "build-parser", Task: "Build parser"})
+	stubOneshotResolveRuntime(t, projectRoot)
+	spy := &oneshotResolveSpy{manifest: oneshot.Manifest{
+		RunID:         "run-1",
+		Slug:          "build-parser",
+		Task:          "Build parser",
+		CloseoutState: "created",
+		CloseoutURL:   recordedURL,
+	}}
+	spy.install(t)
+
+	stdout, stderr, err := executeOneshotArgs(t, "oneshot", "--resolve", "run-1", "--url", recordedURL)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(spy.calls) != 1 {
+		t.Fatalf("resolve calls = %d, want 1", len(spy.calls))
+	}
+	call := spy.calls[0]
+	if got, want := call.resolution.Kind, oneshot.ResolutionRecordURL; got != want {
+		t.Errorf("resolution kind = %q, want %q", got, want)
+	}
+	if got, want := call.resolution.URL, recordedURL; got != want {
+		t.Errorf("resolution URL = %q, want %q", got, want)
+	}
+	if got, want := call.deps.Identity, (oneshot.RunIdentity{ID: "run-1", Slug: "build-parser"}); got != want {
+		t.Errorf("dependency identity = %+v, want %+v", got, want)
+	}
+	if got, want := call.deps.ProjectRoot, projectRoot; got != want {
+		t.Errorf("dependency project root = %q, want %q", got, want)
+	}
+	if call.deps.ManifestStore == nil {
+		t.Error("dependency manifest store is nil, want the run's store")
+	}
+	if !strings.Contains(stdout, "closeout: created "+recordedURL) {
+		t.Errorf("stdout missing closeout line:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, `"run_id": "run-1"`) {
+		t.Errorf("stdout missing manifest JSON:\n%s", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestOneshotCommandResolveAuthorisesRetry(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeOneshotRunManifest(t, projectRoot, "run-1", oneshot.Manifest{RunID: "run-1", Slug: "build-parser", Task: "Build parser"})
+	stubOneshotResolveRuntime(t, projectRoot)
+	spy := &oneshotResolveSpy{manifest: oneshot.Manifest{
+		RunID:         "run-1",
+		Slug:          "build-parser",
+		Task:          "Build parser",
+		CloseoutState: "retry_authorized",
+	}}
+	spy.install(t)
+
+	stdout, stderr, err := executeOneshotArgs(t, "oneshot", "--resolve", "run-1", "--retry")
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(spy.calls) != 1 {
+		t.Fatalf("resolve calls = %d, want 1", len(spy.calls))
+	}
+	call := spy.calls[0]
+	if got, want := call.resolution.Kind, oneshot.ResolutionRetry; got != want {
+		t.Errorf("resolution kind = %q, want %q", got, want)
+	}
+	if call.resolution.URL != "" {
+		t.Errorf("resolution URL = %q, want empty", call.resolution.URL)
+	}
+	if !strings.Contains(stdout, "closeout: retry_authorized") {
+		t.Errorf("stdout missing closeout line:\n%s", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestOneshotCommandResolveFlagValidation(t *testing.T) {
+	const recordedURL = "https://example.com/pr/1"
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "resolve with list",
+			args:    []string{"oneshot", "--resolve", "run-1", "--url", recordedURL, "--list"},
+			wantErr: "--list cannot be combined with --resolve",
+		},
+		{
+			name:    "resolve with resume",
+			args:    []string{"oneshot", "--resolve", "run-1", "--retry", "--resume", "run-2"},
+			wantErr: "--resume cannot be combined with --resolve",
+		},
+		{
+			name:    "resolve with task",
+			args:    []string{"oneshot", "Build parser", "--resolve", "run-1", "--url", recordedURL},
+			wantErr: "--resolve cannot be combined with a task",
+		},
+		{
+			name:    "url without resolve",
+			args:    []string{"oneshot", "--url", recordedURL},
+			wantErr: "--url requires --resolve",
+		},
+		{
+			name:    "retry without resolve",
+			args:    []string{"oneshot", "--retry"},
+			wantErr: "--retry requires --resolve",
+		},
+		{
+			name:    "url and retry together",
+			args:    []string{"oneshot", "--resolve", "run-1", "--url", recordedURL, "--retry"},
+			wantErr: "--url cannot be combined with --retry",
+		},
+		{
+			name:    "resolve without outcome",
+			args:    []string{"oneshot", "--resolve", "run-1"},
+			wantErr: "--resolve requires exactly one of --url or --retry",
+		},
+		{
+			name:    "url and retry without resolve",
+			args:    []string{"oneshot", "--url", recordedURL, "--retry"},
+			wantErr: "--url cannot be combined with --retry",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			built := stubOneshotResolveRuntime(t, projectRoot)
+			spy := &oneshotResolveSpy{manifest: oneshot.Manifest{RunID: "run-1", CloseoutState: "created"}}
+			spy.install(t)
+
+			_, _, err := executeOneshotArgs(t, tt.args...)
+			if err == nil {
+				t.Fatalf("Execute() error = nil, want a flag validation error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Execute() error = %q, want it to contain %q", err, tt.wantErr)
+			}
+			if len(spy.calls) != 0 {
+				t.Errorf("resolve calls = %d, want 0", len(spy.calls))
+			}
+			if *built {
+				t.Error("buildRuntime was called, want validation to reject before any work")
+			}
+		})
+	}
+}
+
+func TestOneshotCommandResolvePropagatesError(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeOneshotRunManifest(t, projectRoot, "run-1", oneshot.Manifest{RunID: "run-1", Slug: "build-parser", Task: "Build parser"})
+	stubOneshotResolveRuntime(t, projectRoot)
+	sentinel := errors.New(`run run-1 closeout state "created" is not unknown, nothing to resolve`)
+	spy := &oneshotResolveSpy{err: sentinel}
+	spy.install(t)
+
+	stdout, _, err := executeOneshotArgs(t, "oneshot", "--resolve", "run-1", "--retry")
+	if err == nil {
+		t.Fatal("Execute() error = nil, want the engine error")
+	}
+	if !strings.Contains(err.Error(), "resolve oneshot closeout:") {
+		t.Errorf("Execute() error = %q, want it to name the resolve step", err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Errorf("Execute() error = %v, want it to wrap %v", err, sentinel)
+	}
+	if len(spy.calls) != 1 {
+		t.Errorf("resolve calls = %d, want 1", len(spy.calls))
+	}
+	if strings.Contains(stdout, "closeout:") {
+		t.Errorf("stdout = %q, want no closeout line on failure", stdout)
+	}
+}
+
+func TestOneshotCommandResolveMissingManifest(t *testing.T) {
+	tests := []struct {
+		name    string
+		write   func(*testing.T, string)
+		wantErr string
+	}{
+		{
+			name:    "no manifest",
+			write:   func(*testing.T, string) {},
+			wantErr: "load oneshot manifest:",
+		},
+		{
+			name: "manifest without run id",
+			write: func(t *testing.T, projectRoot string) {
+				t.Helper()
+				writeOneshotRunManifest(t, projectRoot, "run-1", oneshot.Manifest{Slug: "build-parser", Task: "Build parser"})
+			},
+			wantErr: "load oneshot manifest: run id is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			tt.write(t, projectRoot)
+			stubOneshotResolveRuntime(t, projectRoot)
+			spy := &oneshotResolveSpy{manifest: oneshot.Manifest{RunID: "run-1"}}
+			spy.install(t)
+
+			_, _, err := executeOneshotArgs(t, "oneshot", "--resolve", "run-1", "--retry")
+			if err == nil {
+				t.Fatal("Execute() error = nil, want a manifest load error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Execute() error = %q, want it to contain %q", err, tt.wantErr)
+			}
+			if len(spy.calls) != 0 {
+				t.Errorf("resolve calls = %d, want 0", len(spy.calls))
+			}
+		})
+	}
+}
+
 func TestNewPhaseRunnerBlocksOnMCPReadiness(t *testing.T) {
 	sentinel := errors.New("stop after capture")
 	var seen []bool
