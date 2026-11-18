@@ -62,6 +62,16 @@ func ResolveCloseout(ctx context.Context, deps Dependencies, resolution Resoluti
 	if err != nil {
 		return Manifest{}, fmt.Errorf("resolve closeout: reload manifest: %w", err)
 	}
+	// A resolution records the outcome of a closeout that already ran. A run
+	// that has not finished its phases, or has not written its report, reaches
+	// its own finalization on resume, so resolving it here could stamp a result
+	// that a later closeout duplicates or overwrites.
+	if phase, incomplete := firstIncompletePhase(manifest); incomplete {
+		return manifest, fmt.Errorf("resolve closeout: run %s still has incomplete phases (next: %s); finish it with --resume first", manifest.RunID, phase)
+	}
+	if reportPending(manifest) {
+		return manifest, fmt.Errorf("resolve closeout: run %s has no written final report; finish it with --resume first", manifest.RunID)
+	}
 	if !closeoutOutcomeUnknown(manifest) {
 		return manifest, fmt.Errorf("resolve closeout: run %s closeout state %q is not unknown, nothing to resolve", manifest.RunID, manifest.CloseoutState)
 	}

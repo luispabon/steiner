@@ -71,6 +71,20 @@ type CloseoutResult struct {
 	Note         string `json:"note,omitempty"`
 }
 
+// closeoutExternalAttempt reports whether Closeout can reach a provider runner
+// for report, and, when it cannot, the note Closeout records instead. A false
+// result means the attempt creates no external request, so a caller that
+// persists a closeout intent around the call must skip that write.
+func closeoutExternalAttempt(cfg config.Config, report FinalReport) (attempts bool, skipNote string) {
+	if !cfg.OneShot.AutoPR {
+		return false, "oneshot.auto_pr is disabled"
+	}
+	if !report.Completion {
+		return false, "review did not pass"
+	}
+	return true, ""
+}
+
 // Closeout runs on the host process, not inside the model sandbox.
 //
 // That keeps the user's existing git credentials, SSH agent, gh auth state, and
@@ -78,16 +92,10 @@ type CloseoutResult struct {
 //
 //nolint:gocyclo
 func Closeout(ctx context.Context, cfg config.Config, input CloseoutInput) (CloseoutResult, error) {
-	if !cfg.OneShot.AutoPR {
+	if attempts, note := closeoutExternalAttempt(cfg, input.Report); !attempts {
 		return CloseoutResult{
 			State: closeoutStateSkipped,
-			Note:  "oneshot.auto_pr is disabled",
-		}, nil
-	}
-	if !input.Report.Completion {
-		return CloseoutResult{
-			State: closeoutStateSkipped,
-			Note:  "review did not pass",
+			Note:  note,
 		}, nil
 	}
 

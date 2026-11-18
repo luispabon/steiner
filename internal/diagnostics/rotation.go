@@ -300,7 +300,15 @@ func completeRotation(path string, m rotationMarker) error {
 // Caller must hold the stream lock and the writer's mutex.
 func rotateStream(s *stream) error {
 	if err := recoverRotation(s.path); err != nil {
-		return s.deferRotation(err)
+		// Recovery may already have staged a generation, so reopening the active
+		// path here would create a second generation 0 that every later staging
+		// attempt rejects: leave the stream closed until recovery succeeds.
+		if s.file != nil {
+			// Best-effort: the descriptor names a file recovery may have moved.
+			_ = s.file.Close()
+			s.file = nil
+		}
+		return err
 	}
 	gens, err := existingGenerations(s.path)
 	if err != nil {

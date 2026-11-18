@@ -862,3 +862,38 @@ func writeMarker(t *testing.T, path string, m rotationMarker) {
 		t.Fatalf("write rotation marker: %v", err)
 	}
 }
+
+func TestRotateStreamKeepsActiveUnopenedWhenRecoveryFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.jsonl")
+	file, err := openStreamFile(path)
+	if err != nil {
+		t.Fatalf("openStreamFile() error = %v", err)
+	}
+	if _, err := file.WriteString("active\n"); err != nil {
+		t.Fatalf("write active file: %v", err)
+	}
+	// A recovery that staged generation 0 and then failed leaves the active file
+	// at its stage path, so reopening the active path here would create a second
+	// generation 0 and every later staging attempt would be rejected.
+	if err := os.Rename(path, rotationStagePath(path, 0)); err != nil {
+		t.Fatalf("stage active file: %v", err)
+	}
+	// A marker this build cannot act on keeps the transaction unfinished however
+	// often recovery is retried.
+	writeMarker(t, path, rotationMarker{Version: rotationMarkerVersion + 1, Phase: rotationPhaseStaging, Generations: []int{0}})
+	s := &stream{file: file, path: path}
+
+	if err := rotateStream(s); err == nil {
+		t.Fatal("rotateStream() error = nil, want the unfinished recovery reported")
+	}
+	if s.file != nil {
+		t.Errorf("stream file = %v, want it closed so nothing appends to a staged generation", s.file)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("active stat error = %v, want no active file created", err)
+	}
+	if got := readFileContent(t, rotationStagePath(path, 0)); got != "active\n" {
+		t.Errorf("stage = %q, want the staged generation left untouched", got)
+	}
+}

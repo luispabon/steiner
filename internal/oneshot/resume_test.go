@@ -1047,3 +1047,162 @@ func TestResolveCloseoutRejectsVersionedRunAwaitingNothing(t *testing.T) {
 		t.Errorf("closeout state = %q intent = %q, want both unchanged", persisted.CloseoutState, persisted.CloseoutIntent)
 	}
 }
+
+func TestResolveCloseoutRejectsIncompleteRun(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "res0lve6", Slug: "resolve-incomplete"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	// A legacy run killed mid-phase: no finalization marker and no closeout state,
+	// so its closeout outcome looks unknown even though none ever ran.
+	manifest.CurrentPhase = PhaseImplement
+	manifest.PhaseStatuses = map[Phase]PhaseStatus{
+		PhasePlan:      PhaseStatusDone,
+		PhaseImplement: PhaseStatusRunning,
+		PhaseReview:    PhaseStatusPending,
+	}
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = ""
+	manifest.CloseoutState = ""
+	manifest.CloseoutIntent = ""
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/9", "", nil
+	})
+
+	_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: "https://github.com/owner/repo/pull/9"})
+	if err == nil {
+		t.Fatal("ResolveCloseout on a run with an incomplete phase returned nil error")
+	}
+	if !strings.Contains(err.Error(), string(PhaseImplement)) || !strings.Contains(err.Error(), "--resume") {
+		t.Errorf("ResolveCloseout error = %q, want it to name the incomplete phase %q and --resume", err, PhaseImplement)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.FinalizationVersion != 0 || persisted.CloseoutState != "" || persisted.CloseoutURL != "" {
+		t.Errorf("manifest version = %d state = %q url = %q, want the resolution to leave it unchanged", persisted.FinalizationVersion, persisted.CloseoutState, persisted.CloseoutURL)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0", *closeoutCalls)
+	}
+
+	// The refused resolution must not have settled the run: resume still runs the
+	// remaining phases instead of reporting it complete.
+	resumed, resumeErr := orch.Resume(context.Background())
+	if resumeErr != nil && strings.Contains(resumeErr.Error(), "already complete") {
+		t.Fatalf("Resume after a refused resolution error = %v, want it to continue the phases", resumeErr)
+	}
+	if got := resumed.PhaseStatuses[PhaseReview]; got != PhaseStatusDone {
+		t.Errorf("resumed review status = %q, want the remaining phases finished", got)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0 with auto_pr disabled", *closeoutCalls)
+	}
+}
+
+func TestResolveCloseoutRejectsPendingReport(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "res0lve7", Slug: "resolve-no-report"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	// Every phase is done, but a legacy run never wrote its final report.
+	manifest.CurrentPhase = PhaseReview
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.FinalizationVersion = 0
+	manifest.ReportState = ""
+	manifest.ReportPath = ""
+	manifest.CloseoutState = ""
+	manifest.CloseoutIntent = ""
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+
+	_, err := ResolveCloseout(context.Background(), orch.deps, Resolution{Kind: ResolutionRecordURL, URL: "https://github.com/owner/repo/pull/9"})
+	if err == nil {
+		t.Fatal("ResolveCloseout on a run without a written report returned nil error")
+	}
+	if !strings.Contains(err.Error(), "final report") || !strings.Contains(err.Error(), "--resume") {
+		t.Errorf("ResolveCloseout error = %q, want it to name the missing final report and --resume", err)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.FinalizationVersion != 0 || persisted.CloseoutState != "" || persisted.CloseoutURL != "" || persisted.ReportPath != "" {
+		t.Errorf("manifest version = %d state = %q url = %q report = %q, want the resolution to leave it unchanged", persisted.FinalizationVersion, persisted.CloseoutState, persisted.CloseoutURL, persisted.ReportPath)
+	}
+}
+
+func TestCloseoutExternalAttemptGatesOnPreRunState(t *testing.T) {
+	cases := []struct {
+		name       string
+		autoPR     bool
+		completion bool
+		want       bool
+		wantNote   string
+	}{
+		{name: "auto pr disabled", autoPR: false, completion: true, want: false, wantNote: "oneshot.auto_pr is disabled"},
+		{name: "review did not pass", autoPR: true, completion: false, want: false, wantNote: "review did not pass"},
+		{name: "auto pr enabled and review passed", autoPR: true, completion: true, want: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := configWithEffectiveModels("fallback-model", nil)
+			cfg.OneShot.AutoPR = c.autoPR
+			attempts, note := closeoutExternalAttempt(cfg, FinalReport{Completion: c.completion})
+			if attempts != c.want {
+				t.Errorf("closeoutExternalAttempt() = %t, want %t", attempts, c.want)
+			}
+			if note != c.wantNote {
+				t.Errorf("closeoutExternalAttempt() note = %q, want %q", note, c.wantNote)
+			}
+		})
+	}
+}
+
+func TestFinalizeRunSkipsCloseoutIntentWhenNoExternalCallIsPossible(t *testing.T) {
+	projectRoot := setupGitRepo(t)
+	identity := RunIdentity{ID: "sk1pintent", Slug: "skip-intent"}
+	manifest, store, _, orch := setupResumeTestFixture(t, projectRoot, identity)
+	manifest.PhaseStatuses = allPhasesDone()
+	manifest.CurrentPhase = PhaseReview
+	manifest.WorktreeBase = strings.TrimSpace(mustGitOutput(t, projectRoot, "rev-parse", "HEAD"))
+	if err := store.Write(manifest); err != nil {
+		t.Fatalf("store.Write failed: %v", err)
+	}
+	// oneshot.auto_pr stays disabled, so closeout reaches no provider runner and
+	// an interrupted finalization cannot have opened a PR/MR.
+	closeoutCalls := stubGitHubCloseout(t, func(context.Context, closeoutRequest) (string, string, error) {
+		return "https://github.com/owner/repo/pull/9", "", nil
+	})
+
+	if err := orch.finalizeRun(context.Background(), store, &manifest, identity.PlanningPath(manifest.WorktreePath)); err != nil {
+		t.Fatalf("finalizeRun failed: %v", err)
+	}
+	if *closeoutCalls != 0 {
+		t.Errorf("closeout calls = %d, want 0 with auto_pr disabled", *closeoutCalls)
+	}
+	persisted, err := store.Read()
+	if err != nil {
+		t.Fatalf("store.Read failed: %v", err)
+	}
+	if persisted.CloseoutState != closeoutStateSkipped {
+		t.Errorf("CloseoutState = %q, want %q", persisted.CloseoutState, closeoutStateSkipped)
+	}
+	if persisted.CloseoutNote != "oneshot.auto_pr is disabled" {
+		t.Errorf("CloseoutNote = %q, want the auto_pr note", persisted.CloseoutNote)
+	}
+	if persisted.CloseoutIntent != "" {
+		t.Errorf("CloseoutIntent = %q, want none for a skipped closeout", persisted.CloseoutIntent)
+	}
+	data, err := os.ReadFile(identity.ManifestPath(projectRoot))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if strings.Contains(string(data), "closeout_intent") {
+		t.Errorf("persisted manifest = %s, want no closeout intent for a closeout that cannot reach a provider", data)
+	}
+}

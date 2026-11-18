@@ -404,16 +404,17 @@ func closeoutOutcomeUnknown(manifest Manifest) bool {
 
 // finalizeRun generates the final report and runs closeout for a successful run.
 //
-// Progress is persisted before each external effect: the written report and the
-// closeout intent are on disk before Closeout runs, so an interrupted or failed
-// finalization is never retried blindly.
+// Progress is persisted before each external effect: the written report is
+// always on disk before closeout runs, and a closeout that can reach a provider
+// runner records its intent first, so an interrupted or failed finalization is
+// never retried blindly.
 func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, manifest *Manifest, planningPath string) error {
 	if manifest == nil || strings.TrimSpace(manifest.RunID) == "" {
 		return nil
 	}
 	// Decide before upgrading the version fields: writing them records that the
 	// outcome of an earlier closeout is unknown.
-	manualRequired := closeoutOutcomeUnknown(*manifest) && manifest.CloseoutState != closeoutStateRetryAuthorized
+	manualRequired := closeoutOutcomeUnknown(*manifest)
 
 	outcome := ReviewOutcome{
 		Passed:  manifest.PhaseStatuses[PhaseReview] == PhaseStatusDone,
@@ -459,10 +460,16 @@ func (o *Orchestrator) finalizeRun(ctx context.Context, store *ManifestStore, ma
 		review = string(data)
 	}
 
-	manifest.CloseoutIntent = closeoutIntentPending
-	if err := store.Write(*manifest); err != nil {
-		emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist closeout intent: %v", err))
-		return fmt.Errorf("persist closeout intent: %w", err)
+	// An intent is only meaningful for a closeout that can reach a provider
+	// runner: a skipped closeout creates no external request, so recording an
+	// intent for it would force manual resolution of a run that could not have
+	// opened a PR/MR.
+	if attemptsExternal, _ := closeoutExternalAttempt(o.deps.Config, report); attemptsExternal {
+		manifest.CloseoutIntent = closeoutIntentPending
+		if err := store.Write(*manifest); err != nil {
+			emitPhaseIndicator(o.deps.Events, manifest.RunID, "", phaseIndicatorBoundary, fmt.Sprintf("persist closeout intent: %v", err))
+			return fmt.Errorf("persist closeout intent: %w", err)
+		}
 	}
 
 	input := CloseoutInput{

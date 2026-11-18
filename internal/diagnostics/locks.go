@@ -52,7 +52,7 @@ func (w *Writer) lockStream(action string, kind Kind) (*filelock.Lock, bool) {
 		// Best-effort: an unsupported lock holds no kernel lock, but release it
 		// so the caller never keeps a descriptor open.
 		_ = lock.Release()
-		w.warn(action, errors.New(warning))
+		w.warn(action, fmt.Errorf("lock diagnostics stream: %s", warning))
 		return nil, false
 	}
 	return lock, true
