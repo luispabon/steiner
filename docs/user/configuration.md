@@ -347,7 +347,7 @@ Several processes can write the same directory: the parent run, its sub-agents a
 
 Rotation is restartable. A crash during rotation leaves `<kind>.jsonl.rotate.json` and `.rot` stage files beside the stream only while the transaction is pending, and the next write finishes the rotation before appending. A crash during a record leaves an unterminated last line, which the next open trims back to the previous newline. Retention runs under the same lock. A rotation that fails keeps appending past the cap for at most one more cap worth of records; if the next attempt fails too, it drops records and retries every few seconds, so a stuck rotation cannot grow a stream file without bound.
 
-Limits remain. Only writers that take the lock exclude each other, so another program touching the files can still lose or interleave records, and power loss can lose the most recent records. A failed rotation, write or lock logs `diagnostics writer degraded` once per writer, to the `.slog` file beside the log file (`--log-file`, or `logging.file` when logging is enabled); without a log file the warning is discarded.
+Limits remain. Only writers that take the lock exclude each other, so another program touching the files can still lose or interleave records, power loss can lose the most recent records, and an interrupted record is trimmed only the next time a writer opens the stream. A failed rotation, write or lock logs `diagnostics writer degraded` once per writer, to the `.slog` file beside the log file (`--log-file`, or `logging.file` when logging is enabled); without a log file the warning is discarded.
 
 ## `context_management` block
 

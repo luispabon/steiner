@@ -89,6 +89,8 @@ A run is listed when its manifest is readable, its lock is absent or stale (no u
 
 `(stale lock)` is appended when a stale lock will be reclaimed. Runs held by a live process are not listed, and neither are runs with a recorded closeout result and a written report.
 
+The **Phase** column shows the incomplete phase, or one of the finalization labels: `report` when the final report still has to be written, `resolve` when the closeout outcome needs manual resolution, and `closeout` when you authorised a retry.
+
 `--resume <run-id>` continues from the first incomplete phase without re-running finished ones. When every phase is done, resume only finalizes: it writes the final report, and it runs closeout again only for a run you authorised with `--resolve <run-id> --retry`. An unknown closeout outcome is never retried automatically; resume returns an error naming the run and points at resolution instead.
 
 ### Resolving an unknown closeout
@@ -104,6 +106,7 @@ Resolution takes the same exclusive run lock as `--resume`, refuses a run that i
 
 ## Failures and interruptions
 
+- A final report that cannot be persisted, an unknown closeout outcome, or a failed closeout call makes the command exit with an error. An unknown outcome stays unknown until you resolve it explicitly with `--resolve`; nothing retries it automatically.
 - A failed phase is recorded in the manifest with a timestamp. Inspect the worktree, fix what you need, then resume.
 - SIGINT stops the run; resume picks up at the interrupted phase.
 - If a phase is interrupted while children are running, resume restarts the phase and does not recover their results. It lists the worktree of each `code` or `documentor` child that was still running so you can salvage uncommitted work.

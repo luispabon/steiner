@@ -13,7 +13,7 @@ Steiner serializes writes that more than one process can make to the same file w
 
 These locks need a filesystem that supports kernel file locking. Linux, macOS and other Unix systems except AIX use `flock`; Windows uses `LockFileEx`. AIX and filesystems that report locking as unsupported (some NFS and SMB mounts, for example) are exceptions: Steiner continues without cross-process exclusion, so two processes writing at the same moment can lose session index entries or trust decisions. Neither store reports a degraded lock.
 
-Diagnostics streams are not locked. Processes sharing a diagnostics directory write best-effort: a writer reopens the active file when another process replaced it, and a run can still lose or interleave records. See the [`diagnostics` block](configuration.md#diagnostics-block).
+Diagnostics streams are locked per stream through a stable sibling lock file, `<kind>.jsonl.lock`, which coordinates cooperating processes. A writer that cannot take that lock within a short timeout, or that runs where file locking does not work, warns and drops records instead of writing unlocked. See the [`diagnostics` block](configuration.md#diagnostics-block).
 
 ## Download a release binary
 

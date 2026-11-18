@@ -53,7 +53,7 @@ At startup a pending marker means an unfinished rotation owns the active path, s
 
 Retention runs only when a writer opens a directory with `retention_days` positive, and holds the stream lock, so it no longer rewrites a stream another cooperating process is appending to.
 
-The remaining limits: only writers that take the lock exclude each other; on a platform or filesystem where `filelock` reports no working lock the writer warns and skips protected mutations instead of excluding anyone; power-loss durability is not guaranteed; and a third party that deletes or rewrites the transaction files on disk is not recovered from.
+The remaining limits: only writers that take the lock exclude each other; on a platform or filesystem where `filelock` reports no working lock the writer warns and skips protected mutations instead of excluding anyone; power-loss durability is not guaranteed; and a third party that deletes or rewrites the transaction files on disk is not recovered from. Tail repair runs only while a writer opens a stream, so a fragment left by another process that dies mid-record after this writer opened is not repaired until the next writer opens that stream.
 
 ## TUI frame stats
 
