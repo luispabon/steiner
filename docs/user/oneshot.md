@@ -99,10 +99,10 @@ A run reaches this state when a closeout request was interrupted or failed after
 
 Check the provider first, then record the outcome:
 
-- `steiner oneshot --resolve <run-id> --url <url>` records a pull or merge request you found. The URL must be `http` or `https` with a host.
-- `steiner oneshot --resolve <run-id> --retry` authorises one more closeout attempt, for when you confirmed that no request exists.
+- `steiner oneshot --resolve <run-id> --url <url>` records a pull or merge request you found, whether the outcome is unknown or you already authorised a retry. The URL must be `http` or `https` with a host.
+- `steiner oneshot --resolve <run-id> --retry` authorises one more closeout attempt, for when you confirmed that no request exists. It applies only to an unknown outcome.
 
-Resolution takes the same exclusive run lock as `--resume`, refuses a run that is not awaiting manual resolution, and never contacts the provider itself. A run already authorised to retry closeout cannot be resolved with `--url`; resume it to perform the authorised attempt. `final-report.json` in the worktree stays valid either way.
+Resolution takes the same exclusive run lock as `--resume`, refuses a run that is unfinished or whose closeout outcome is already recorded, and never contacts the provider itself. If you already authorised a retry and then find the request, record it with `--url`: the URL supersedes the retry, and the run counts as complete without another closeout attempt. `final-report.json` in the worktree stays valid either way.
 
 ## Failures and interruptions
 
