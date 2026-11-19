@@ -23,7 +23,9 @@ func runInteractiveSession(cmd *cobra.Command, sess *interactive.Session, p *tea
 	wait := startInteractiveProgram(p, rt.events, stop)
 	startModelCatalogRefresh(ctx, *rt, sess, rt.modelEntriesUpdates)
 	if rt.mcpInit != nil {
-		go rt.mcpInit.once.Do(func() { rt.mcpInit.run(ctx, *rt) })
+		// Best effort: a failed or cancelled initialization surfaces through
+		// the next run or compaction, which retries it.
+		go func() { _ = rt.mcpInit.wait(ctx, *rt) }()
 	}
 	err := sess.Run(ctx)
 	stop()

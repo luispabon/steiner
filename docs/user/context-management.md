@@ -50,7 +50,7 @@ When the main model's prompt cache has probably expired, a compaction can run it
 
 If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, history counts, summary size and budget, and cache components. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
 
-A resumed or forked session keeps the last main request it saved, so the cold-cache decision uses the real idle time rather than assuming no request. The record is dropped when it names another model or another prompt cache key.
+A resumed or forked session keeps the last main request it saved, so the cold-cache decision uses the real idle time rather than assuming no request. A request recorded for another model is ignored when the session resumes on the current model; the stored record is replaced by the next successful main request. A record whose prompt cache key no longer matches the session is discarded.
 
 ### Cache expiry indicator
 

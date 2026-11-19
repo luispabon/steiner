@@ -468,25 +468,47 @@ func invalidExplicitModelWarnings(cfg config.Config, flags *cliFlags) []string {
 	return warnings
 }
 
-// mcpInitOnce runs the one-shot MCP wait and registry re-registration exactly
-// once in the background, protected by sync.Once. The tool registry is not
-// thread-safe, so this initialization must complete before any agent turn
-// accesses the registry. A concurrent turn submission that calls once.Do while
-// the background goroutine is running blocks until the init completes, then
-// observes the error.
+// mcpInitOnce runs the MCP wait and registry re-registration once. The tool
+// registry is not thread-safe, so wait serializes its callers and the
+// initialization completes before any agent turn or compaction touches the
+// registry.
 type mcpInitOnce struct {
-	once sync.Once
+	mu   sync.Mutex
+	done bool
 	err  error
 }
 
+// wait runs the initialization unless it already succeeded. A cancelled
+// attempt is not final: it is abandoned and the next caller retries with its
+// own context, so a run or compaction cancelled while MCP servers are still
+// connecting does not disable later requests. Any other error is final and is
+// reported to every later caller, because the manager's server set has
+// resolved.
+func (i *mcpInitOnce) wait(ctx context.Context, rt cliRuntime) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.done {
+		return i.err
+	}
+	err := i.run(ctx, rt)
+	if err == nil {
+		i.done = true
+		return nil
+	}
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		i.done = true
+		i.err = err
+	}
+	return err
+}
+
 // run executes WaitInit, registers the connected tool defs in place, and arms
-// the MCP state producer. If WaitInit returns an error, run returns early
-// without arming (preserving the states-only snapshot mode indefinitely).
-func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) {
+// the MCP state producer. A failed or cancelled wait returns before registering
+// or arming anything.
+func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) error {
 	if rt.mcpManager != nil {
-		i.err = rt.mcpManager.WaitInit(ctx)
-		if i.err != nil {
-			return
+		if err := rt.mcpManager.WaitInit(ctx); err != nil {
+			return err
 		}
 		// Register in place: Registry.Register overwrites by name, so a
 		// server that already connected before the interactive registry
@@ -500,6 +522,7 @@ func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) {
 	if rt.mcpState != nil {
 		rt.mcpState.arm()
 	}
+	return nil
 }
 
 // sessionRunner adapts cliRunner to the runExecutor interface expected by
@@ -519,15 +542,15 @@ func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []ag
 	return r.runner.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, nil, tools, steering)
 }
 
-// waitMCPInit runs the one-shot MCP wait and registry re-registration, blocking
-// until it finishes. The tool registry is not thread-safe, so every path that
-// reads or rebuilds it calls this first.
+// waitMCPInit runs the MCP wait and registry re-registration, blocking until it
+// finishes. The tool registry is not thread-safe, so every path that reads or
+// rebuilds it calls this first. A cancellation of the caller's context abandons
+// its attempt without blocking a later caller from retrying.
 func (r sessionRunner) waitMCPInit(ctx context.Context) error {
 	if r.mcpInit == nil {
 		return nil
 	}
-	r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
-	return r.mcpInit.err
+	return r.mcpInit.wait(ctx, r.runner.runtime)
 }
 
 func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
