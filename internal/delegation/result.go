@@ -33,6 +33,9 @@ func countToolCalls(conversation []agent.Message) int {
 func countAdvisorUsage(conversation []agent.Message) (uses, denied int) {
 	attempts := 0
 	denied = 0
+	// A pending-investigation refusal is not an error and never reaches the
+	// provider, so it counts against neither uses nor denied.
+	refused := 0
 
 	for _, msg := range conversation {
 		if msg.Role == agent.MessageRoleAssistant {
@@ -45,11 +48,13 @@ func countAdvisorUsage(conversation []agent.Message) (uses, denied int) {
 		if msg.Role == agent.MessageRoleTool && msg.Name == advisor.ToolName {
 			if strings.HasPrefix(msg.Content, advisor.BudgetExhaustedMessagePrefix) {
 				denied++
+			} else if strings.HasPrefix(msg.Content, advisor.PendingInvestigationsMessagePrefix) {
+				refused++
 			}
 		}
 	}
 
-	uses = attempts - denied
+	uses = attempts - denied - refused
 	if uses < 0 {
 		uses = 0
 	}

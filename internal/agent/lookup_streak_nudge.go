@@ -52,8 +52,8 @@ func (p *turnProgressor) resetLookupStreak() {
 // lookup streak, on the lookup that reaches lookupStreakThreshold, when the
 // run is an async orchestrator with a running or queued sub-agent. It never
 // blocks anything: the tool result is returned unchanged in every other case.
-// Child runs and runs without a pending-sub-agent source (exec, oneshot) are
-// left alone and keep no streak.
+// Child runs and runs without a pending-sub-agent source (exec) are left alone
+// and keep no streak.
 func (p *turnProgressor) applyLookupStreakNudge(name, content string) string {
 	if !p.request.Prompt.AsyncSubAgents || p.request.AgentID != "" || p.request.PendingSubAgents == nil {
 		return content

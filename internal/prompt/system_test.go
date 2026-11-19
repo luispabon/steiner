@@ -440,9 +440,50 @@ func TestSystemPreambleOutputVoiceMode(t *testing.T) {
 func TestSystemPreambleAdvisorGuidance(t *testing.T) {
 	t.Parallel()
 
-	content := systemPreambleWithAdvisor(SystemPreambleParams{Override: "", DelegationEnabled: false, AdvisorEnabled: true, Mode: workflowModeParent, SystemSuffix: ""}).Content
-	if !strings.Contains(content, "## Advisor") {
-		t.Fatalf("advisor preamble missing %q in %q", "## Advisor", content)
+	const waitMarker = "wait for their results first"
+	cases := []struct {
+		name       string
+		override   string
+		delegation bool
+		async      bool
+		advisor    bool
+		wantWait   bool
+	}{
+		{name: "advisor only", advisor: true},
+		{name: "advisor with blocking delegation", advisor: true, delegation: true},
+		{name: "advisor with async delegation", advisor: true, delegation: true, async: true, wantWait: true},
+		{name: "advisor with async delegation and override", override: "Custom override content", advisor: true, delegation: true, async: true, wantWait: true},
+		{name: "advisor disabled with async delegation", delegation: true, async: true},
+		{name: "async flag without delegation", advisor: true, async: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := systemPreambleWithAdvisor(SystemPreambleParams{
+				Override:          tc.override,
+				DelegationEnabled: tc.delegation,
+				AsyncSubAgents:    tc.async,
+				AdvisorEnabled:    tc.advisor,
+				Mode:              workflowModeParent,
+			}).Content
+
+			if got := strings.Contains(content, "## Advisor"); got != tc.advisor {
+				t.Fatalf("advisor section present = %v, want %v in %q", got, tc.advisor, content)
+			}
+			if got := strings.Contains(content, waitMarker); got != tc.wantWait {
+				t.Fatalf("pending-investigation guidance present = %v, want %v in %q", got, tc.wantWait, content)
+			}
+		})
+	}
+}
+
+func TestSystemPreambleAdvisorWaitGuidanceByteStable(t *testing.T) {
+	t.Parallel()
+
+	params := SystemPreambleParams{DelegationEnabled: true, AsyncSubAgents: true, AdvisorEnabled: true, Mode: workflowModeParent}
+	first := systemPreambleWithAdvisor(params).Content
+	second := systemPreambleWithAdvisor(params).Content
+	if first != second {
+		t.Fatalf("preamble not byte-identical across builds:\nfirst:\n%s\n\nsecond:\n%s", first, second)
 	}
 }
 

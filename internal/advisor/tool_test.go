@@ -207,6 +207,74 @@ func TestNewHandlerRequiresConversationSnapshot(t *testing.T) {
 	}
 }
 
+// TestNewHandlerRefusesWhileInvestigationsPending verifies the pending guard is
+// a normal result: it names the pending sub-agents, spends no budget, calls no
+// provider, and emits no events, so a later call with nothing pending works.
+func TestNewHandlerRefusesWhileInvestigationsPending(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{
+		response: provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "Proceed with option B."},
+		},
+	}
+	sink := &toolSink{}
+	shared := NewSharedState()
+	pending := []string{"explore abc123", "review def456"}
+	handler := NewHandler(HandlerDeps{
+		Provider:              prov,
+		Model:                 provider.ResolvedModel{BackendModelID: "advisor-model"},
+		Events:                sink,
+		Config:                Config{MaxUsesPerRun: 1},
+		SharedState:           shared,
+		PendingInvestigations: func() []string { return pending },
+	})
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "fix it"},
+	})
+
+	got, err := handler(ctx, map[string]any{"question": "which option?"})
+	if err != nil {
+		t.Fatalf("refused handler() error = %v, want nil", err)
+	}
+	want := PendingInvestigationsMessage([]string{"explore abc123", "review def456"})
+	if got != want {
+		t.Fatalf("refused handler() = %#v, want %q", got, want)
+	}
+	if !strings.HasPrefix(want, PendingInvestigationsMessagePrefix) {
+		t.Fatalf("refusal message %q missing prefix %q", want, PendingInvestigationsMessagePrefix)
+	}
+	if strings.HasPrefix(want, BudgetExhaustedMessagePrefix) {
+		t.Fatalf("refusal message %q collides with budget denial prefix", want)
+	}
+	if len(prov.requests) != 0 {
+		t.Fatalf("provider calls = %d, want 0", len(prov.requests))
+	}
+	if len(sink.events) != 0 {
+		t.Fatalf("events = %d, want 0", len(sink.events))
+	}
+	shared.mu.Lock()
+	used := shared.uses
+	shared.mu.Unlock()
+	if used != 0 {
+		t.Fatalf("advisor uses after refusal = %d, want 0", used)
+	}
+
+	// With nothing pending the same handler serves a normal call and still has
+	// its full budget.
+	pending = nil
+	note, err := handler(ctx, nil)
+	if err != nil {
+		t.Fatalf("second handler() error = %v", err)
+	}
+	if note != "Proceed with option B." {
+		t.Fatalf("second handler() = %#v, want advisor note", note)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+	}
+}
+
 func TestNewHandlerEmitsCompleteEventOnProviderError(t *testing.T) {
 	t.Parallel()
 

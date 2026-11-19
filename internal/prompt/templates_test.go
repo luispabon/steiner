@@ -26,7 +26,7 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 				Async       bool
 			}{Specialists: specialistViews(), Orchestrate: true, Async: true},
 		},
-		{name: templateAdvisor},
+		{name: templateAdvisor, data: struct{ WaitForInvestigations bool }{WaitForInvestigations: true}},
 		{name: templateCodeChild},
 		{name: templateDocumentorChild},
 		{name: "child_worktree.md.tmpl"},

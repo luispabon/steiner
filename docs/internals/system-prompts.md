@@ -259,7 +259,7 @@ Use: "Bug in auth middleware. Expiry check uses < instead of <=. Fix:"
 - Orchestration level `low` omits `Your role` and `Delegation vs direct work` from the delegation section. Other levels include them.
 - Blocking mode replaces `Async results` with the block below and removes the async-only sentences in `Your role` and `Continuing sub-agents`.
 - Disabling delegation removes the delegation section and the `Complete independent deliverables in parallel` workflow bullet.
-- Enabling advisor adds the orchestrator guidance reproduced under Advisor. Disabling it omits that section.
+- Enabling advisor adds the orchestrator guidance reproduced under Advisor. Disabling it omits that section. The pending-investigation paragraph inside it renders only when delegation is enabled and sub-agents run asynchronously.
 - Enabling LSP adds the section below. Disabling it omits the section.
 - Disabling sandbox omits `Sandbox`. When enabled, additional writable mount paths are appended to its last line as ` Additional writable paths: ` followed by paths joined with `, `.
 - The workflow section's ambiguity instruction is role-specific: `code` and `documentor` say to stop and report the blocker, and the parent says to ask the user. Writers report overcomplicated requests and work in the assigned worktree; the parent pushes back on them and treats the current folder as the codebase root.
@@ -416,6 +416,12 @@ Orchestrator guidance, `internal/prompt/templates/advisor.md.tmpl` (audience: or
 ## Advisor
 
 The `advisor` is a special sub-agent that has your full context which you can use for strategic guidance. Use sparingly for ambiguity, risk, or a final sanity check. The advisor sees the conversation but cannot read files itself. Use `files` only for artifacts whose contents are not already present in your context; re-passing visible contents duplicates them. State what you want judged via `question`. You must heed its guidance.
+```
+
+When delegation is enabled and sub-agents run asynchronously, the same template appends this paragraph (`sectionAdvisor` in `internal/prompt/system.go` passes `WaitForInvestigations`):
+
+```text
+Do not call the advisor while `explore`, `research`, `evaluate` or `review` sub-agents are in flight: wait for their results first. Such calls are refused.
 ```
 
 Sub-agent suffix, `internal/delegation/templates/advisor_suffix.txt` (audience: eligible sub-agents when the advisor tool is in the child's allowlist and an advisor is wired for children):

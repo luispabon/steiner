@@ -111,6 +111,8 @@ A child that stops because the same tool error repeats also returns `failed`. Wh
 
 In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return immediately with status `running` (or `queued`) and the `agent_id`. The result arrives later as a separate message, and the harness resumes the orchestrator then; it ends its turn while waiting unless it has work outside the pending agents' scope or a question from you to answer, and you can keep talking to it. `--exec` runs wait for each child.
 
+While an `explore`, `research`, `evaluate`, or `review` child is pending, the orchestrator's advisor calls are refused with a note naming the pending children. See [Advisor](advisor.md#while-investigation-sub-agents-are-pending).
+
 - At most `sub_agent.max_parallel` children run at once (default `3`); further ones queue in order. More than twice that many running plus queued is an error.
 - Calls in one response that share a `group` name are delivered together once all have finished. A group name cannot be reused later in the same conversation.
 - A failing child does not stop its siblings.
