@@ -1020,8 +1020,10 @@ func TestWorkflowGeneralRulesAndAmbiguityByMode(t *testing.T) {
 			for _, rule := range []string{
 				"### General",
 				"Do only the assigned task.",
+				"### Choosing the change",
 				"Prefer the smallest correct change.",
-				"Match existing project style.",
+				"  1. Skip what the task does not need",
+				"Match existing project style and structure:",
 				"The codebase root is the current folder.",
 				"Use at most one `bash` call per turn",
 			} {

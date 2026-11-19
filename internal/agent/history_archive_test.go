@@ -19,7 +19,7 @@ const testHistoryNote = HistoryNoteMarker + " archived at /data/history.md"
 // denseHistoryBudget is small enough that the 1200-word normal summary in
 // denseHistoryConversation overflows and forces an emergency stage.
 var denseHistoryBudget = prompt.ModelTokenBudget{
-	ContextSize:               6000,
+	ContextSize:               7500,
 	MaxCompletionTokens:       128,
 	SafetyMarginTokens:        0,
 	SummaryMaxTokens:          64,
