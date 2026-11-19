@@ -108,6 +108,40 @@ func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
 	}
 }
 
+// TestSyncSidebarLabelsCompactionLatestRequest proves the sidebar marks the
+// latest-request rate as a compaction only when the newest parent call was a
+// compaction, and drops the label after a later normal request.
+func TestSyncSidebarLabelsCompactionLatestRequest(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := time.Unix(1000, 0)
+	rec := newUsageRecorder(t, func() time.Time { return now })
+	rec.Record(usagestats.Observation{
+		PromptTokens:    100,
+		CacheReadTokens: 50,
+		Source:          usagestats.SourceParent,
+		CallKind:        usagestats.CallKindCompaction,
+		At:              now,
+	})
+
+	m := newSidebarTestModel(t)
+	m.recorder = rec
+	m.syncSidebar()
+	if !m.sidebar.lastRequestCompaction {
+		t.Fatal("lastRequestCompaction = false, want true after a compaction call")
+	}
+
+	rec.Record(usagestats.Observation{
+		PromptTokens:    100,
+		CacheReadTokens: 50,
+		Source:          usagestats.SourceParent,
+		At:              now,
+	})
+	m.syncSidebar()
+	if m.sidebar.lastRequestCompaction {
+		t.Error("lastRequestCompaction = true, want false after a normal call")
+	}
+}
+
 // TestClearConversationStateResetsCacheStats covers the /clear action path,
 // which owns the session cache reset. Workflow handoff uses the shared clear
 // implementation directly and must retain its cache stats.

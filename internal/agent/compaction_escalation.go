@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 type compactionEscalation struct {
@@ -247,7 +248,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 		}
 	}
 	if err == nil {
-		recordModelUsage(req, response.Usage)
+		recordModelUsage(req, response.Usage, usagestats.CallKindCompaction)
 		emitCacheDiagnostic(req, response, "compaction", turn, stats)
 	}
 	return response, err

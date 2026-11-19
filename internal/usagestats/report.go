@@ -75,6 +75,9 @@ type SessionReport struct {
 	// for a source-scoped report; blended reports leave them zero.
 	LastCacheReadTokens  int64
 	LastTotalInputTokens int64
+	// LastCallKind is the kind of the latest request for a source-scoped
+	// report. Blended reports leave it at the zero value, CallKindNormal.
+	LastCallKind CallKind
 }
 
 // LastHitRate returns the latest request's hit rate. When its input total is

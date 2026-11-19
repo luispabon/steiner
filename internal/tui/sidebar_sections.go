@@ -268,13 +268,17 @@ func (s sidebarState) repositorySection(width int) []string {
 func (s sidebarState) performanceSection(width int) []string {
 	w := width - 7
 	const keyW = 10
+	latestLong, latestShort := "latest req", "req"
+	if s.lastRequestCompaction {
+		latestLong, latestShort = "compaction req", "compact"
+	}
 	lines := []string{
 		"",
 		cardLabel("performance", s.styles),
 		cardFieldN("duration", keyW, s.styles.FgDim, fitText(formatDuration(s.perfDurationMs), w-keyW+7), s.styles),
 		cardFieldN("ttft", keyW, s.styles.FgDim, fitText(formatDuration(s.perfTTFTMs), w-keyW+7), s.styles),
 		cardFieldN("tps", keyW, s.styles.FgDim, fitText(formatTPS(s.perfOutputTPS), w-keyW+7), s.styles),
-		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, "latest req", "req", w-keyW+7), w-keyW+7), s.styles),
+		cardFieldN("cache hit", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.lastRequestCacheRate, s.lastRequestCacheRateOK, latestLong, latestShort, w-keyW+7), w-keyW+7), s.styles),
 		cardFieldN("", keyW, s.styles.FgDim, fitText(formatCacheHitWithScope(s.sessionCacheHitRate, s.sessionCacheHitRateOK, "session", "sess", w-keyW+7), w-keyW+7), s.styles),
 	}
 	if cache := s.cacheValueLine(w); cache != "" {

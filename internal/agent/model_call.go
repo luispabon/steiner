@@ -22,7 +22,7 @@ var errRetryTurnForVision = errors.New("retry turn for vision capability change"
 
 type chatExecOptions struct{ prefit *prompt.RequestTokenBudget }
 
-func recordModelUsage(req RunRequest, usage *provider.UsageStats) {
+func recordModelUsage(req RunRequest, usage *provider.UsageStats, kind usagestats.CallKind) {
 	if req.UsageRecorder == nil || usage == nil {
 		return
 	}
@@ -32,7 +32,7 @@ func recordModelUsage(req RunRequest, usage *provider.UsageStats) {
 		BackendModelID: req.ResolvedModel.BackendModelID,
 		PromptTokens:   usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
 		CacheReadTokens: usage.CacheReadInputTokens, CacheCreateTokens: usage.CacheCreationInputTokens,
-		Source: req.UsageSource,
+		Source: req.UsageSource, CallKind: kind,
 	})
 }
 
@@ -219,7 +219,7 @@ func completeModelCallWithOptions(ctx context.Context, req RunRequest, turn int,
 	onIssue := func(messages []provider.Message) { stats = computeRequestCacheStats(req, messages) }
 	response, firstChunkTime, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, opts, onIssue)
 	if err == nil {
-		recordModelUsage(req, response.Usage)
+		recordModelUsage(req, response.Usage, usagestats.CallKindNormal)
 		emitCacheDiagnostic(req, response, "", turn, stats)
 		promoteRequestCacheStats(req, stats)
 		return response, firstChunkTime, nil
@@ -247,7 +247,7 @@ func completeModelCallWithOptions(ctx context.Context, req RunRequest, turn int,
 	chatRequest.Messages = stripped
 	retryResp, retryFirst, retryErr := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, chatExecOptions{}, onIssue)
 	if retryErr == nil {
-		recordModelUsage(req, retryResp.Usage)
+		recordModelUsage(req, retryResp.Usage, usagestats.CallKindNormal)
 		emitCacheDiagnostic(req, retryResp, "", turn, stats)
 		promoteRequestCacheStats(req, stats)
 	}

@@ -406,6 +406,7 @@ func (m *Model) syncSidebarAt(now time.Time) {
 		lastRate, lastOK := sr.LastHitRate()
 		m.sidebar.lastRequestCacheRate = lastRate
 		m.sidebar.lastRequestCacheRateOK = lastOK
+		m.sidebar.lastRequestCompaction = sr.LastCallKind == usagestats.CallKindCompaction
 	}
 	m.syncRoster()
 	m.syncSessionClockAt(now)
