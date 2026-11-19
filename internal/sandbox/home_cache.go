@@ -11,8 +11,9 @@ import (
 )
 
 // homeCacheMaxAge is how long a sandbox cache file may go unwritten before it
-// is removed. Content-addressed caches do not touch mtimes on hits, so this
-// measures time since the entry was produced, not since it was last used.
+// is removed. Go's build cache refreshes the mtime of an action file (-a) on a
+// read at most once an hour, while output files (-d) keep their write time, so
+// a hot compile output is still pruned 48 hours after it was produced.
 const homeCacheMaxAge = 48 * time.Hour
 
 // homeCacheTargets are the tool cache directories under

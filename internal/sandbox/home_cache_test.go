@@ -232,6 +232,74 @@ func TestPruneHomeCache_SymlinkedFileEntry(t *testing.T) {
 	requirePresent(t, payload)
 }
 
+func TestPruneHomeCache_SymlinkedShardDir(t *testing.T) {
+	root := t.TempDir()
+	cacheDir := filepath.Join(root, ".steiner", "home", "cache")
+	if err := os.MkdirAll(filepath.Join(cacheDir, "go-build"), 0o755); err != nil {
+		t.Fatalf("mkdir go-build: %v", err)
+	}
+	outside := t.TempDir()
+	now := time.Now()
+	outsideFile := filepath.Join(outside, cacheShardName("a", "-a"))
+	writeCacheFile(t, outsideFile, 64, now.Add(-72*time.Hour))
+	shard := filepath.Join(cacheDir, "go-build", "ab")
+	if err := os.Symlink(outside, shard); err != nil {
+		t.Fatalf("symlink shard: %v", err)
+	}
+
+	removed, freed, err := pruneHomeCache(root, now)
+	if err != nil {
+		t.Fatalf("pruneHomeCache() error = %v", err)
+	}
+	if removed != 0 || freed != 0 {
+		t.Errorf("removed, freed = %d, %d, want 0, 0", removed, freed)
+	}
+	requirePresent(t, shard)
+	requirePresent(t, outsideFile)
+}
+
+func TestPruneHomeCache_DirectoryNamedLikeShardFile(t *testing.T) {
+	root := t.TempDir()
+	cacheDir := filepath.Join(root, ".steiner", "home", "cache")
+	now := time.Now()
+	dir := filepath.Join(cacheDir, "go-build", "ab", cacheShardName("a", "-a"))
+	inner := filepath.Join(dir, "inner")
+	writeCacheFile(t, inner, 32, now.Add(-72*time.Hour))
+
+	removed, freed, err := pruneHomeCache(root, now)
+	if err != nil {
+		t.Fatalf("pruneHomeCache() error = %v", err)
+	}
+	if removed != 0 || freed != 0 {
+		t.Errorf("removed, freed = %d, %d, want 0, 0", removed, freed)
+	}
+	requirePresent(t, dir)
+	requirePresent(t, inner)
+}
+
+func TestIsCacheShardFile(t *testing.T) {
+	hash := cacheShardName("a", "-a")
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "root level file", path: "trim.txt", want: false},
+		{name: "two hex parent", path: "ab/" + hash, want: true},
+		{name: "uppercase two hex parent", path: "AB/" + hash, want: false},
+		{name: "one character parent", path: "a/" + hash, want: false},
+		{name: "three character parent", path: "abc/" + hash, want: false},
+		{name: "nested non-hex parent", path: "steiner/lsp/" + hash, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isCacheShardFile(tc.path); got != tc.want {
+				t.Errorf("isCacheShardFile(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRemoveStaleFile(t *testing.T) {
 	root := t.TempDir()
 	cacheDir := filepath.Join(root, ".steiner", "home", "cache")

@@ -153,16 +153,47 @@ func TestFormatCacheBytes(t *testing.T) {
 		in   int64
 		want string
 	}{
-		{name: "zero", in: 0, want: "0 KiB"},
-		{name: "under one kib", in: 400, want: "0 KiB"},
-		{name: "kib", in: 2048, want: "2 KiB"},
+		{name: "zero", in: 0, want: "0.0 KiB"},
+		{name: "under one kib", in: 400, want: "0.4 KiB"},
+		{name: "kib", in: 2048, want: "2.0 KiB"},
+		{name: "just under one mib", in: (1 << 20) - 1024, want: "1023.0 KiB"},
 		{name: "mib", in: 3 << 20, want: "3.0 MiB"},
+		{name: "just under one gib", in: (1 << 30) - 1024*1024, want: "1023.0 MiB"},
 		{name: "gib", in: 1 << 30, want: "1.0 GiB"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := formatCacheBytes(tc.in); got != tc.want {
 				t.Errorf("formatCacheBytes(%d) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHomeCacheStatusLine(t *testing.T) {
+	tests := []struct {
+		name    string
+		removed int
+		freed   int64
+		want    string
+	}{
+		{
+			name:    "singular file",
+			removed: 1,
+			freed:   2048,
+			want:    "Cleaned 1 stale cache file (2.0 KiB) from .steiner/home.",
+		},
+		{
+			name:    "plural files",
+			removed: 2,
+			freed:   3 << 20,
+			want:    "Cleaned 2 stale cache files (3.0 MiB) from .steiner/home.",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := homeCacheStatusLine(tc.removed, tc.freed); got != tc.want {
+				t.Errorf("homeCacheStatusLine(%d, %d) = %q, want %q", tc.removed, tc.freed, got, tc.want)
 			}
 		})
 	}

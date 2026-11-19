@@ -71,11 +71,16 @@ func pruneSandboxHomeCache(projectRoot string, bindHostCache bool) {
 	if removed == 0 {
 		return
 	}
+	fmt.Fprintln(os.Stderr, homeCacheStatusLine(removed, freed))
+}
+
+// homeCacheStatusLine renders the startup report for a completed prune.
+func homeCacheStatusLine(removed int, freed int64) string {
 	noun := "files"
 	if removed == 1 {
 		noun = "file"
 	}
-	fmt.Fprintf(os.Stderr, "Cleaned %d stale cache %s (%s) from .steiner/home.\n", removed, noun, formatCacheBytes(freed))
+	return fmt.Sprintf("Cleaned %d stale cache %s (%s) from .steiner/home.", removed, noun, formatCacheBytes(freed))
 }
 
 // formatCacheBytes renders a byte count for the sandbox cache status line.
@@ -91,7 +96,7 @@ func formatCacheBytes(n int64) string {
 	case n >= mib:
 		return fmt.Sprintf("%.1f MiB", float64(n)/mib)
 	default:
-		return fmt.Sprintf("%.0f KiB", float64(n)/kib)
+		return fmt.Sprintf("%.1f KiB", float64(n)/kib)
 	}
 }
 
