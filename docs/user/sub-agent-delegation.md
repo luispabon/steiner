@@ -89,7 +89,11 @@ With delegation enabled, the orchestrator gets two tools. The model fills them i
 
 A child returns its `output`, a `status`, and a `reason` on failure or cancellation. `code` and `documentor` results also carry `worktree_path`, a project-relative path such as `.steiner/worktrees/<process>/<branch>/<agent-id>`, so the orchestrator can read the worktree directly.
 
+When a child's session was saved, the result also carries its saved session identifier (`continuation.agent_id`). The identifier is not a guarantee of resumption: `follow_up` still needs a remaining follow-up budget, the workspace available, its worktree, if applicable, still present, and the execution mode allowing further work.
+
 When a child's model call ends mid-message, the text it streamed is kept as its output instead of being discarded. A failed or partial result then returns that partial text, and the `reason` says it may be truncated. Follow-up messages can still resume the child session, which continues from the truncated turn.
+
+A child that stops because the same tool error repeats also returns `failed`. When its session was saved and follow-ups remain, the `reason` says to call `follow_up` with the same `agent_id` and a message correcting the error, that the prior conversation is retained, that this works only if, where applicable, its worktree still exists and the execution mode allows it, and to delegate a fresh sub-agent if `follow_up` is refused. When the follow-up limit is exhausted, the `reason` instead says to delegate a fresh sub-agent, and notes that a `follow_up` is also refused when its worktree, if applicable, is gone or the execution mode blocks the work. An unsaved session, a usage-limit stop, and a cancellation carry no such hint.
 
 `follow_up` is for continuing the same deliverable in the same live workspace: a related correction by the implementing child, or a narrow re-review by the same reviewer. Use a fresh `sub_agent` when the scope changes, the worktree is gone, or the work needs an independent view.
 

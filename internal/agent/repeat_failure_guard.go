@@ -1,16 +1,15 @@
 package agent
 
 import (
-	"context"
+	"cmp"
 	"errors"
 	"fmt"
-
-	"github.com/luispabon/steiner/internal/provider"
+	"slices"
 )
 
-// maxIdenticalToolFailures is the number of consecutive tool failures with the
-// same tool, kind, and message that stops the run.
-const maxIdenticalToolFailures = 3
+// maxRepeatedFailureResponses is the number of consecutive model responses
+// that must report the same tool failure signature before the run stops.
+const maxRepeatedFailureResponses = 3
 
 // toolFailureSignature identifies a tool failure for repeat detection.
 type toolFailureSignature struct {
@@ -27,42 +26,103 @@ func toolFailureSignatureOf(name string, err error) toolFailureSignature {
 	return toolFailureSignature{tool: name, kind: kind, message: message}
 }
 
-// observeToolOutcome records one tool outcome for repeat detection. Calls that
-// were never dispatched are ignored. A success clears the streak. Once a
-// signature reaches maxIdenticalToolFailures it stays latched for the run.
+// responseFailureLog collects the distinct failure signatures of the tool
+// calls in one model response.
+type responseFailureLog struct {
+	dispatched bool
+	signatures map[toolFailureSignature]struct{}
+}
+
+// observeToolOutcome records one tool outcome from the model response being
+// executed. Calls that were never dispatched are ignored. A success marks the
+// response as dispatched but does not clear failures recorded earlier in the
+// same response.
 func (p *turnProgressor) observeToolOutcome(name string, err error) {
 	if errors.Is(err, errNotDispatched) {
 		return
 	}
+	p.responseFailures.dispatched = true
 	if err == nil {
-		p.identicalFailures = 0
 		return
 	}
-	sig := toolFailureSignatureOf(name, err)
-	if sig == p.lastFailure {
-		p.identicalFailures++
-	} else {
-		p.lastFailure = sig
-		p.identicalFailures = 1
+	if p.responseFailures.signatures == nil {
+		p.responseFailures.signatures = map[toolFailureSignature]struct{}{}
 	}
-	if p.identicalFailures >= maxIdenticalToolFailures && p.tripped == nil {
-		tripped := p.lastFailure
+	p.responseFailures.signatures[toolFailureSignatureOf(name, err)] = struct{}{}
+}
+
+// beginToolResponse starts failure collection for one model response.
+func (p *turnProgressor) beginToolResponse() {
+	p.responseFailures = responseFailureLog{}
+}
+
+// commitToolResponse advances the consecutive-response counts with the
+// signatures reported by the completed response. A signature present in the
+// response starts at one or advances its count; a signature absent from the
+// response is dropped. A response with no dispatched call is neutral and
+// leaves the counts unchanged. The caller must commit only after every tool
+// call in the response has run.
+func (p *turnProgressor) commitToolResponse() {
+	if !p.responseFailures.dispatched || p.tripped != nil {
+		return
+	}
+	counts := make(map[toolFailureSignature]int, len(p.responseFailures.signatures))
+	for sig := range p.responseFailures.signatures {
+		counts[sig] = p.failureCounts[sig] + 1
+	}
+	p.failureCounts = counts
+	for _, sig := range sortedFailureSignatures(counts) {
+		if counts[sig] < maxRepeatedFailureResponses {
+			continue
+		}
+		tripped := sig
 		p.tripped = &tripped
+		return
 	}
 }
 
-// stopOnRepeatedFailure ends the turn once the failure guard has tripped. The
-// calls that have not run are recorded as not dispatched so every tool call
-// keeps its tool result.
-func (p *turnProgressor) stopOnRepeatedFailure(ctx context.Context, state RunState, turn int, remaining []provider.ToolCall) (turnOutcome, bool) {
+// sortedFailureSignatures orders signatures by tool, kind, then message so a
+// response that trips several signatures stops on a deterministic one.
+func sortedFailureSignatures(counts map[toolFailureSignature]int) []toolFailureSignature {
+	sigs := make([]toolFailureSignature, 0, len(counts))
+	for sig := range counts {
+		sigs = append(sigs, sig)
+	}
+	slices.SortFunc(sigs, func(a, b toolFailureSignature) int {
+		if c := cmp.Compare(a.tool, b.tool); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.kind, b.kind); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.message, b.message)
+	})
+	return sigs
+}
+
+// RepeatedToolFailureError reports that the repeat failure guard stopped a run
+// because the same tool failure signature appeared in
+// maxRepeatedFailureResponses consecutive model responses. Detect it with
+// errors.As; ReportedError unwraps to it.
+type RepeatedToolFailureError struct {
+	sig toolFailureSignature
+}
+
+// Error returns the guard's stop message.
+func (e *RepeatedToolFailureError) Error() string {
+	return fmt.Sprintf("tool %q failed with the same error in %d consecutive model responses: %s", e.sig.tool, maxRepeatedFailureResponses, e.sig.message)
+}
+
+// stopOnRepeatedFailure ends the run once the failure guard has tripped. Every
+// tool call in the response has already run by then.
+func (p *turnProgressor) stopOnRepeatedFailure(state RunState) (turnOutcome, bool) {
 	if p.tripped == nil {
 		return turnOutcome{}, false
 	}
-	state = p.appendNotDispatched(ctx, state, turn, remaining)
 	state.StopReason = StopReasonError
 	return turnOutcome{
 		State: state,
 		Stop:  true,
-		Error: fmt.Errorf("tool %q failed %d times in a row with the same error: %s", p.tripped.tool, maxIdenticalToolFailures, p.tripped.message),
+		Error: &RepeatedToolFailureError{sig: *p.tripped},
 	}, true
 }

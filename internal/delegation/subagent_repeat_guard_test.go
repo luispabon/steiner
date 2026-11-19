@@ -135,8 +135,9 @@ func TestSubAgentRepeatedChildFailureDoesNotTripParentGuard(t *testing.T) {
 		t.Fatalf("parent model calls = %d, want %d", prov.parentCalls, repeatGuardSubAgentCalls+1)
 	}
 
-	// Each child stops after maxIdenticalToolFailures read failures, so the
-	// child model is called three times per sub_agent call.
+	// Each child's repeat failure guard stops it after the same failure in
+	// three consecutive model responses, so the child model is called three
+	// times per sub_agent call.
 	wantChildCalls := repeatGuardSubAgentCalls * 3
 	if prov.childCalls != wantChildCalls {
 		t.Fatalf("child model calls = %d, want %d", prov.childCalls, wantChildCalls)
@@ -157,6 +158,10 @@ func TestSubAgentRepeatedChildFailureDoesNotTripParentGuard(t *testing.T) {
 		}
 		if envelope["status"] != "failed" {
 			t.Fatalf("sub_agent result %s status = %v, want failed (content %q)", msg.ToolCallID, envelope["status"], msg.Content)
+		}
+		reason, _ := envelope["reason"].(string)
+		if !strings.Contains(reason, repeatedToolFailureFollowUpHint) {
+			t.Errorf("sub_agent result %s reason = %q, want repeated-failure follow-up guidance", msg.ToolCallID, reason)
 		}
 	}
 	if subAgentResults != repeatGuardSubAgentCalls {
