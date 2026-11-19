@@ -51,7 +51,7 @@ func (d *ConversationDriver) Snapshot() DriverSnapshot {
 }
 
 func (d *ConversationDriver) snapshotLocked() DriverSnapshot {
-	snap := DriverSnapshot{Conversation: slices.Clone(d.conv), Lineage: d.lineage.Clone()}
+	snap := DriverSnapshot{Conversation: slices.Clone(d.conv), Lineage: d.lineage.Clone(), LastMainRequest: d.lastMainRequest}
 	if d.opts.Background != nil {
 		snap.Ledger = d.opts.Background.Ledger()
 	}

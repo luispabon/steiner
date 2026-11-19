@@ -510,16 +510,29 @@ type sessionRunner struct {
 }
 
 // CompactWithLineage compacts against the run's lineage and last main request.
+// It waits for MCP initialization before the runner rebuilds a missing parent
+// tool registry, so a resumed session sends the tools a run would have sent.
 func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
+	if err := r.waitMCPInit(ctx); err != nil {
+		return nil, false, false, err
+	}
 	return r.runner.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, nil, tools, steering)
 }
 
+// waitMCPInit runs the one-shot MCP wait and registry re-registration, blocking
+// until it finishes. The tool registry is not thread-safe, so every path that
+// reads or rebuilds it calls this first.
+func (r sessionRunner) waitMCPInit(ctx context.Context) error {
+	if r.mcpInit == nil {
+		return nil
+	}
+	r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
+	return r.mcpInit.err
+}
+
 func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
-	if r.mcpInit != nil {
-		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
-		if r.mcpInit.err != nil {
-			return interactive.RunResult{}, r.mcpInit.err
-		}
+	if err := r.waitMCPInit(ctx); err != nil {
+		return interactive.RunResult{}, err
 	}
 	result, err := r.runner.RunWithHooks(ctx, in.Conversation, nil, runHooks{
 		drainInbox:           in.DrainInbox,

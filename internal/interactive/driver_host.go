@@ -80,7 +80,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 	if s.deps.OpenGroupScope != nil {
 		scope, release = s.deps.OpenGroupScope(groupLedger.Clone())
 	}
-	h := &driverHandle{epoch: epoch, groupScope: scope, releaseScope: release, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone()}}
+	h := &driverHandle{epoch: epoch, groupScope: scope, releaseScope: release, lastSaved: &agent.DriverSnapshot{Conversation: conv, Lineage: lineage, Ledger: slices.Clone(s.ledger), GroupLedger: groupLedger.Clone(), LastMainRequest: s.lastMainRequest}}
 	options := agent.DriverOptions{
 		GroupLedger: groupLedger,
 		Run: func(ctx context.Context, in agent.DriverRunInput) (agent.DriverRunOutput, error) {
@@ -93,6 +93,7 @@ func (s *Session) newDriverLocked(conv []agent.Message, lineage agent.Conversati
 		PrepareTurn:         s.prepareTurn,
 		Clock:               s.deps.Clock,
 		MaxTokensPerEpisode: s.deps.MaxTokensPerEpisode,
+		LastMainRequest:     s.lastMainRequest,
 	}
 	if s.deps.SnapshotGroupLedger != nil && scope != "" {
 		options.SnapshotDelegationGroups = func() agent.DelegationGroupLedger { return s.deps.SnapshotGroupLedger(scope) }
@@ -228,6 +229,7 @@ func (s *Session) driverSave(h *driverHandle) func(context.Context, agent.Driver
 			s.conversation = snap.Conversation
 			s.lineage = snap.Lineage
 			s.ledger = slices.Clone(snap.Ledger)
+			s.lastMainRequest = snap.LastMainRequest
 			groupLedger := snap.GroupLedger.Clone()
 			s.delegationGroups = &groupLedger
 		}
@@ -280,6 +282,9 @@ func snapshotUnchanged(previous *agent.DriverSnapshot, snap agent.DriverSnapshot
 	if !reflect.DeepEqual(previous.GroupLedger, snap.GroupLedger) {
 		return false
 	}
+	if previous.LastMainRequest != snap.LastMainRequest {
+		return false
+	}
 	if len(previous.Conversation) == 0 && len(snap.Conversation) == 0 && previous.Lineage.Empty() && snap.Lineage.Empty() {
 		return true
 	}
@@ -329,6 +334,7 @@ func (s *Session) writeLineageAs(meta runSessionMeta, snap agent.DriverSnapshot)
 	}
 	sess.ReasoningOverrides = meta.reasoningOverrides
 	sess.SubAgentLedger = slices.Clone(snap.Ledger)
+	sess.LastMainRequest = storedLastMainRequest(snap.LastMainRequest)
 	groups := snap.GroupLedger.Clone()
 	sess.DelegationGroups = &groups
 	return s.deps.SessionStore.Save(sess)

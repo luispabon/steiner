@@ -45,6 +45,10 @@ type Session struct {
 	// so a resumed or forked session reproduces the exact date line including the
 	// zone abbreviation. Nil on records written before this field existed.
 	SessionDate *StartDate `json:"session_date,omitempty"`
+	// LastMainRequest records the most recent successful main model request, so
+	// a resumed session keeps its prompt-cache age. Nil on records written
+	// before this field existed.
+	LastMainRequest *LastMainRequest `json:"last_main_request,omitempty"`
 }
 
 // StartDate is a session's recorded start date, stored as rendered parts
@@ -81,6 +85,25 @@ func cloneReasoningOverrides(src map[string]ReasoningOverride) map[string]Reason
 		clone[ref] = override
 	}
 	return clone
+}
+
+// LastMainRequest is the persisted form of a session's most recent successful
+// main model request: when it started, the model identity that served it, and
+// the prompt cache key it was sent with. A resumed run drops one whose identity
+// does not match its own request.
+type LastMainRequest struct {
+	At             time.Time `json:"at"`
+	ProviderAlias  string    `json:"provider_alias"`
+	BackendModelID string    `json:"backend_model_id"`
+	PromptCacheKey string    `json:"prompt_cache_key"`
+}
+
+func cloneLastMainRequest(last *LastMainRequest) *LastMainRequest {
+	if last == nil {
+		return nil
+	}
+	clone := *last
+	return &clone
 }
 
 // CacheKey returns the session's prompt cache key, falling back to the session ID
@@ -186,7 +209,8 @@ func Fork(s Session) (Session, error) {
 		// The fork deliberately shares the parent's prompt cache key so the
 		// warm prefix carries over; CacheKey() heals pre-change records that
 		// have no stored key instead of propagating an empty one.
-		PromptCacheKey: s.CacheKey(),
-		SessionDate:    cloneSessionDate(s.SessionDate),
+		PromptCacheKey:  s.CacheKey(),
+		SessionDate:     cloneSessionDate(s.SessionDate),
+		LastMainRequest: cloneLastMainRequest(s.LastMainRequest),
 	}, nil
 }

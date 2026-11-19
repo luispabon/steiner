@@ -67,6 +67,10 @@ type Session struct {
 	// back to the actual startup choice rather than a later model switch.
 	startupModel       string
 	startupModelSource string
+	// lastMainRequest mirrors the driver's last main request as of its last
+	// save. It is persisted with the session so a resumed session keeps its
+	// prompt-cache age.
+	lastMainRequest    agent.LastMainRequest
 	reasoningOverrides map[string]provider.ReasoningOverride
 	mode               config.ExecutionMode
 	modeListener       func(config.ExecutionMode)
@@ -167,13 +171,14 @@ func (s *Session) SetConversation(conversation []agent.Message) {
 	s.retireDriver(old)
 }
 
-// resetConversationLocked clears the conversation, its lineage, and the
-// retained request context snapshots together so they cannot drift. The
-// caller must hold s.mu.
+// resetConversationLocked clears the conversation, its lineage, the carried
+// last main request, and the retained request context snapshots together so
+// they cannot drift. The caller must hold s.mu.
 func (s *Session) resetConversationLocked() {
 	s.conversation = nil
 	s.lineage = agent.ConversationLineage{}
 	s.delegationGroups = newEmptyDelegationGroupLedger()
+	s.lastMainRequest = agent.LastMainRequest{}
 	s.snapshots.Clear()
 }
 

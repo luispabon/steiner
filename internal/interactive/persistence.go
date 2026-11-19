@@ -100,6 +100,7 @@ func (s *Session) saveSession() error {
 	sess.ModelRef = modelRef
 	sess.ModelProvider = modelProvider
 	sess.ReasoningOverrides = storedReasoningOverrides(s.reasoningOverrides)
+	sess.LastMainRequest = storedLastMainRequest(s.lastMainRequest)
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
 	sess.SubAgentLedger = slices.Clone(s.ledger)
@@ -145,6 +146,7 @@ func (s *Session) applyRotationLocked(id, group string, updateGroup bool) {
 	s.bindImageStore(id, 1)
 	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.sessionTitle = ""
+	s.lastMainRequest = agent.LastMainRequest{}
 	if updateGroup {
 		s.sessionGroup = strings.TrimSpace(group)
 	}
@@ -281,6 +283,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		if s.reasoningOverrides == nil {
 			s.reasoningOverrides = make(map[string]provider.ReasoningOverride)
 		}
+		s.lastMainRequest = restoreLastMainRequest(sess.LastMainRequest, s.promptCacheKey, s.now())
 		s.ledger = slices.Clone(sess.SubAgentLedger)
 		s.delegationGroups = &groupLedger
 		s.snapshots.Clear()
@@ -451,6 +454,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		Lineage:            s.lineage,
 		PromptCacheKey:     s.promptCacheKey,
 		SessionDate:        storedSessionDate(s.sessionDate),
+		LastMainRequest:    storedLastMainRequest(s.lastMainRequest),
 		Skills:             s.skills.Snapshot(),
 		DelegationGroups:   agent.CloneDelegationGroupLedger(s.delegationGroups),
 	}
