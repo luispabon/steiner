@@ -156,7 +156,7 @@ func TestProjectToolResultRepeatedToolFailureFollowUp(t *testing.T) {
 		if envelope.Continuation == nil || envelope.Continuation.AgentID != "child-repeat" {
 			t.Errorf("Continuation = %+v, want the persisted agent id", envelope.Continuation)
 		}
-		for _, wantText := range []string{"follow_up", "same agent_id", "prior conversation is retained", "worktree still exists", "mode permits it", "follow-up limit", "delegate a fresh sub-agent"} {
+		for _, wantText := range []string{"follow_up", "same agent_id", "prior conversation is retained", "If applicable", "worktree must still exist", "execution mode must allow it", "follow-up limit", "delegate a fresh sub-agent"} {
 			if !strings.Contains(envelope.Reason, wantText) {
 				t.Errorf("Reason = %q, missing %q", envelope.Reason, wantText)
 			}
@@ -260,7 +260,7 @@ func TestProjectToolResultRepeatedToolFailureFollowUp(t *testing.T) {
 		if envelope.Reason != want {
 			t.Errorf("Reason = %q, want %q", envelope.Reason, want)
 		}
-		for _, wantText := range []string{"follow-up limit is exhausted", "delegate a fresh sub-agent", "worktree is gone", "mode blocks the work"} {
+		for _, wantText := range []string{"follow-up limit is exhausted", "delegate a fresh sub-agent", "if applicable", "execution mode blocks the work"} {
 			if !strings.Contains(envelope.Reason, wantText) {
 				t.Errorf("Reason = %q, missing %q", envelope.Reason, wantText)
 			}

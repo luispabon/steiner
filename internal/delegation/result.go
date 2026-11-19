@@ -199,12 +199,12 @@ func setFollowUpBudget(result *tool.ExecutionResult, state followUpBudgetState) 
 // repeatedToolFailureFollowUpHint tells the parent how to resume a child that
 // stopped on a repeated identical tool error. It names the corrective message
 // the child needs and the limits that still apply, without promising success.
-const repeatedToolFailureFollowUpHint = "to continue, call follow_up with the same agent_id and a message correcting the repeated tool error; the prior conversation is retained. This works only if the worktree still exists and the mode permits it; further attempts remain subject to the follow-up limit. If follow_up is refused, delegate a fresh sub-agent."
+const repeatedToolFailureFollowUpHint = "to continue, call follow_up with the same agent_id and a message correcting the repeated tool error; the prior conversation is retained. If applicable, its worktree must still exist and the execution mode must allow it; further attempts remain subject to the follow-up limit. If follow_up is refused, delegate a fresh sub-agent."
 
 // repeatedToolFailureExhaustedHint tells the parent to delegate fresh when the
 // child has no follow-up resumes left. Projection cannot inspect the worktree or
 // mode, so it states those refusals as conditions instead of checking them.
-const repeatedToolFailureExhaustedHint = "the follow-up limit is exhausted; delegate a fresh sub-agent with the context it needs. A follow_up is also refused when the worktree is gone or the mode blocks the work, so delegate fresh then too."
+const repeatedToolFailureExhaustedHint = "the follow-up limit is exhausted; delegate a fresh sub-agent with the context it needs. A follow_up is also refused when its worktree, if applicable, is gone or the execution mode blocks the work, so delegate fresh then too."
 
 // ProjectToolResult returns the compact provider-facing delegation result.
 func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
