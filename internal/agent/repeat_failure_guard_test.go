@@ -195,10 +195,32 @@ func TestToolFailureGuardCounts(t *testing.T) {
 			if !ok || !outcome.Stop {
 				t.Fatalf("stopOnRepeatedFailure() = %+v, %v, want a stop", outcome, ok)
 			}
-			if want := repeatedFailureMessage(tc.wantTool, tc.wantMessage); outcome.Error == nil || outcome.Error.Error() != want {
-				t.Fatalf("Error = %v, want %q", outcome.Error, want)
+			var repeated *RepeatedToolFailureError
+			if !errors.As(outcome.Error, &repeated) {
+				t.Fatalf("errors.As(%v, *RepeatedToolFailureError) = false, want true", outcome.Error)
+			}
+			if want := repeatedFailureMessage(tc.wantTool, tc.wantMessage); repeated.Error() != want {
+				t.Fatalf("Error = %q, want %q", repeated.Error(), want)
 			}
 		})
+	}
+}
+
+// TestRepeatedToolFailureErrorWrappedDetection checks that delegation can find
+// the guard error through the runner's ReportedError wrapper.
+func TestRepeatedToolFailureErrorWrappedDetection(t *testing.T) {
+	guardErr := &RepeatedToolFailureError{sig: toolFailureSignature{tool: "bash", kind: "tool_error", message: "boom"}}
+	wrapped := fmt.Errorf("sub-agent failed: %w", &ReportedError{Err: guardErr})
+
+	var detected *RepeatedToolFailureError
+	if !errors.As(wrapped, &detected) {
+		t.Fatalf("errors.As(%v, *RepeatedToolFailureError) = false, want true", wrapped)
+	}
+	if detected != guardErr {
+		t.Fatalf("errors.As detected %p, want %p", detected, guardErr)
+	}
+	if want := repeatedFailureMessage("bash", "boom"); detected.Error() != want {
+		t.Fatalf("Error() = %q, want %q", detected.Error(), want)
 	}
 }
 
@@ -452,6 +474,10 @@ func TestRunnerStopsAfterRepeatedToolFailures(t *testing.T) {
 	}
 	if want := repeatedFailureMessage("bash", "boom"); reported.Err.Error() != want {
 		t.Fatalf("reported error = %q, want %q", reported.Err.Error(), want)
+	}
+	var repeated *RepeatedToolFailureError
+	if !errors.As(err, &repeated) {
+		t.Fatalf("errors.As(%v, *RepeatedToolFailureError) = false, want true", err)
 	}
 	if got, want := state.StopReason, StopReasonError; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)

@@ -100,6 +100,19 @@ func sortedFailureSignatures(counts map[toolFailureSignature]int) []toolFailureS
 	return sigs
 }
 
+// RepeatedToolFailureError reports that the repeat failure guard stopped a run
+// because the same tool failure signature appeared in
+// maxRepeatedFailureResponses consecutive model responses. Detect it with
+// errors.As; ReportedError unwraps to it.
+type RepeatedToolFailureError struct {
+	sig toolFailureSignature
+}
+
+// Error returns the guard's stop message.
+func (e *RepeatedToolFailureError) Error() string {
+	return fmt.Sprintf("tool %q failed with the same error in %d consecutive model responses: %s", e.sig.tool, maxRepeatedFailureResponses, e.sig.message)
+}
+
 // stopOnRepeatedFailure ends the run once the failure guard has tripped. Every
 // tool call in the response has already run by then.
 func (p *turnProgressor) stopOnRepeatedFailure(state RunState) (turnOutcome, bool) {
@@ -110,6 +123,6 @@ func (p *turnProgressor) stopOnRepeatedFailure(state RunState) (turnOutcome, boo
 	return turnOutcome{
 		State: state,
 		Stop:  true,
-		Error: fmt.Errorf("tool %q failed with the same error in %d consecutive model responses: %s", p.tripped.tool, maxRepeatedFailureResponses, p.tripped.message),
+		Error: &RepeatedToolFailureError{sig: *p.tripped},
 	}, true
 }
