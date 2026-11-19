@@ -211,9 +211,9 @@ func waitForUsageStatsClaim(t *testing.T, path string) {
 		}
 		if time.Now().After(deadline) {
 			if err != nil {
-				t.Fatalf("wait for usage stats writer claim: %v", err)
+				t.Fatalf("wait for usage stats lock file mode: %v", err)
 			}
-			t.Fatalf("usage stats writer did not claim the queued delta: lock file mode = %o, want 600", info.Mode().Perm())
+			t.Fatalf("usage stats lock file did not reach the mode store.writeBatch applies on claim: mode = %o, want 600", info.Mode().Perm())
 		}
 		time.Sleep(time.Millisecond)
 	}
