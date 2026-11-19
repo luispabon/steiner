@@ -66,6 +66,10 @@ type DriverSnapshot struct {
 	Lineage      ConversationLineage
 	Ledger       []SubAgentLedgerEntry
 	GroupLedger  DelegationGroupLedger
+	// LastMainRequest is the last successful main request carried between
+	// runs. Hosts persist it so a resumed session keeps its prompt-cache age;
+	// it is never part of the lineage.
+	LastMainRequest LastMainRequest
 }
 
 // SubmitMeta carries host side effects attached to a submitted prompt.
@@ -107,6 +111,9 @@ type DriverOptions struct {
 	// MaxTokensPerEpisode caps the completion tokens one episode may use; 0 is
 	// unlimited. See episodeBudget.
 	MaxTokensPerEpisode int
+	// LastMainRequest seeds the value carried between runs, so a host can
+	// resume one it persisted. Zero starts without a recorded request.
+	LastMainRequest LastMainRequest
 }
 
 type compactionFunc func(ctx context.Context, conv []Message) ([]Message, ConversationLineage, error)
@@ -151,8 +158,8 @@ type ConversationDriver struct {
 	// never snapshotted or persisted.
 	parentUsage carriedParentUsage
 	// lastMainRequest is the last successful main request carried between runs.
-	// It is never snapshotted or persisted. Compaction and lineage advancement
-	// leave it unchanged.
+	// It is snapshotted and persisted, but never enters the lineage. Compaction
+	// and lineage advancement leave it unchanged.
 	lastMainRequest LastMainRequest
 
 	lastEmitted   driverStateKey
@@ -174,14 +181,15 @@ func NewConversationDriver(opts DriverOptions, conv []Message, lineage Conversat
 	}
 	opts.GroupLedger = opts.GroupLedger.Clone()
 	return &ConversationDriver{
-		opts:    opts,
-		clock:   clock,
-		conv:    slices.Clone(conv),
-		lineage: lineage.Clone(),
-		state:   DriverIdle,
-		changed: make(chan struct{}),
-		wake:    make(chan struct{}, 1),
-		done:    make(chan struct{}),
+		opts:            opts,
+		clock:           clock,
+		conv:            slices.Clone(conv),
+		lineage:         lineage.Clone(),
+		lastMainRequest: opts.LastMainRequest,
+		state:           DriverIdle,
+		changed:         make(chan struct{}),
+		wake:            make(chan struct{}, 1),
+		done:            make(chan struct{}),
 	}
 }
 

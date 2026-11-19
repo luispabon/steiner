@@ -124,8 +124,18 @@ func (m *Model) dispatchSelectedSessionAction(makeAction func(sessionID string) 
 		if err := ctrl.Handle(context.Background(), action); err != nil {
 			return controllerHandleFailedMsg{err: err}
 		}
-		return nil
+		alias := ""
+		if reader, ok := ctrl.(currentModelAliasProvider); ok {
+			alias = reader.CurrentModelAlias()
+		}
+		return sessionLoadedMsg{alias: alias}
 	}, true
+}
+
+// currentModelAliasProvider is the narrow controller capability needed to sync
+// the TUI to the model a loaded session restored.
+type currentModelAliasProvider interface {
+	CurrentModelAlias() string
 }
 
 func (m *Model) handleOneshotResumePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -587,6 +587,34 @@ func TestSessionReportFor_perSourceIsolation(t *testing.T) {
 	}
 }
 
+func TestSessionReportFor_lastCallKindPerSource(t *testing.T) {
+	isolateTest(t)
+	r := newTestRecorder(t, fixedClock(baseTime))
+	r.Record(Observation{PromptTokens: 100, Source: SourceParent, CallKind: CallKindCompaction, At: baseTime})
+	r.Record(Observation{PromptTokens: 100, Source: SourceSubAgent, At: baseTime})
+
+	if got := r.SessionReportFor(SourceParent).LastCallKind; got != CallKindCompaction {
+		t.Errorf("parent LastCallKind = %v, want %v", got, CallKindCompaction)
+	}
+	if got := r.SessionReportFor(SourceSubAgent).LastCallKind; got != CallKindNormal {
+		t.Errorf("sub-agent LastCallKind = %v, want %v (parent compaction must not leak)", got, CallKindNormal)
+	}
+	if got := r.SessionReport().LastCallKind; got != CallKindNormal {
+		t.Errorf("blended LastCallKind = %v, want zero value", got)
+	}
+
+	// A later normal request becomes the latest kind again.
+	r.Record(Observation{PromptTokens: 100, Source: SourceParent, CallKind: CallKindNormal, At: baseTime})
+	if got := r.SessionReportFor(SourceParent).LastCallKind; got != CallKindNormal {
+		t.Errorf("parent LastCallKind after normal request = %v, want %v", got, CallKindNormal)
+	}
+
+	r.ResetSession()
+	if got := r.SessionReportFor(SourceParent).LastCallKind; got != CallKindNormal {
+		t.Errorf("parent LastCallKind after reset = %v, want %v", got, CallKindNormal)
+	}
+}
+
 func TestRecord_sourceSplitsBucketsButNotWindowedRows(t *testing.T) {
 	isolateTest(t)
 	r := newTestRecorder(t, fixedClock(baseTime))

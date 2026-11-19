@@ -1060,7 +1060,7 @@ func mcpServerStateByName(states []mcp.ServerState, name string) *mcp.ServerStat
 	return nil
 }
 
-func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
+func TestMCPInitOnceConcurrentRunsShareOneAttempt(t *testing.T) {
 	t.Parallel()
 	fixtureBin := buildMCPFixture(t)
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
@@ -1089,33 +1089,35 @@ func TestMCPInitOnceConcurrentRunsExactlyOnce(t *testing.T) {
 
 	init := &mcpInitOnce{}
 
-	// Simulate background goroutine and turn calling once.Do concurrently
+	// Both callers wait on the same initialization; the second waits for the
+	// first attempt to finish before it may retry.
 	var wg sync.WaitGroup
-	var turnErr error
+	var firstErr, secondErr error
 	wg.Add(2)
 
-	// Background goroutine
 	go func() {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		init.once.Do(func() { init.run(ctx, rt) })
+		firstErr = init.wait(ctx, rt)
 	}()
 
-	// Turn (should block in once.Do until background completes, then observe error)
 	go func() {
 		defer wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
-		init.once.Do(func() { init.run(ctx, rt) })
-		turnErr = init.err
+		secondErr = init.wait(ctx, rt)
 	}()
 
 	wg.Wait()
 
-	// Both should observe the same error (WaitInit timed out while the stall server was still connecting; its 500ms ConnectTimeout outlives the 200ms ctx)
-	if turnErr == nil {
-		t.Fatal("turn goroutine err = nil, want WaitInit timeout error")
+	// The stall server outlives both contexts, so each caller observes its own
+	// timeout and neither attempt is final.
+	if firstErr == nil || secondErr == nil {
+		t.Fatalf("wait errors = (%v, %v), want a timeout error for both callers", firstErr, secondErr)
+	}
+	if init.done {
+		t.Fatal("cancelled attempts marked the initialization done, want retryable")
 	}
 
 	// Error path means producer was NOT armed (stays unarmed indefinitely)

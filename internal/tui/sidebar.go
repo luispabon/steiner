@@ -54,6 +54,7 @@ type sidebarState struct {
 	sessionCacheHitRateOK  bool
 	lastRequestCacheRate   float64
 	lastRequestCacheRateOK bool
+	lastRequestCompaction  bool   // latest main-conversation call was a compaction
 	startedLocal           string // session start label, see sessionStartDisplay
 	runtimeActive          bool
 	runtimeElapsedSec      int64

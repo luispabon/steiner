@@ -29,6 +29,19 @@ const (
 	SourceUnknown
 )
 
+// CallKind labels the kind of provider call an Observation came from. It is
+// session-only attribution: it never reaches the persisted store or telemetry
+// lines, only the in-memory report used to label the latest request.
+type CallKind int
+
+const (
+	// CallKindNormal is an ordinary conversation request. It is the zero value
+	// so observations that don't set CallKind default to it.
+	CallKindNormal CallKind = iota
+	// CallKindCompaction is a request issued to summarize context.
+	CallKindCompaction
+)
+
 // Observation is the consumer-shaped input describing one API call's token usage.
 type Observation struct {
 	// ProviderAlias is the user-configured alias for the provider.
@@ -49,6 +62,9 @@ type Observation struct {
 
 	// Source identifies which call surface produced this observation.
 	Source Source
+	// CallKind labels whether this was a normal or compaction request. It is
+	// not persisted.
+	CallKind CallKind
 
 	// At is the time of the observation; used for hour-bucketing. Zero means use the recorder clock.
 	At time.Time
@@ -81,6 +97,7 @@ type Recorder struct {
 	sessionRequests   map[Source]int64
 	lastCacheRead     map[Source]int64
 	lastTotalInput    map[Source]int64
+	lastCallKind      map[Source]CallKind
 
 	now   func() time.Time
 	store *store
@@ -105,6 +122,7 @@ func New(now func() time.Time) *Recorder {
 		sessionRequests:   make(map[Source]int64),
 		lastCacheRead:     make(map[Source]int64),
 		lastTotalInput:    make(map[Source]int64),
+		lastCallKind:      make(map[Source]CallKind),
 		now:               now,
 		store:             st,
 		telemetry:         newTelemetryFromEnv(),
@@ -151,6 +169,7 @@ func (r *Recorder) Record(obs Observation) {
 	r.sessionRequests[obs.Source]++
 	r.lastCacheRead[obs.Source] = int64(obs.CacheReadTokens)
 	r.lastTotalInput[obs.Source] = int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
+	r.lastCallKind[obs.Source] = obs.CallKind
 	r.mu.Unlock()
 
 	// Hand the delta to the background writer: the delta fields are additive, so
@@ -207,6 +226,7 @@ func (r *Recorder) ResetSession() {
 	clear(r.sessionRequests)
 	clear(r.lastCacheRead)
 	clear(r.lastTotalInput)
+	clear(r.lastCallKind)
 }
 
 // Window sums all buckets whose hour intersects the interval [now-d, now] and
@@ -296,5 +316,6 @@ func (r *Recorder) SessionReportFor(source Source) SessionReport {
 		Requests:             r.sessionRequests[source],
 		LastCacheReadTokens:  r.lastCacheRead[source],
 		LastTotalInputTokens: r.lastTotalInput[source],
+		LastCallKind:         r.lastCallKind[source],
 	}
 }

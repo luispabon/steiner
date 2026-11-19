@@ -36,6 +36,10 @@ type modelEntriesUpdatedMsg struct {
 
 type controllerHandleFailedMsg struct{ err error }
 
+// sessionLoadedMsg reports the model alias a loaded session restored, so the
+// TUI can sync its model state without waiting for another event.
+type sessionLoadedMsg struct{ alias string }
+
 // sessionTickInterval is the cadence of the session timer display.
 const sessionTickInterval = time.Second
 
@@ -111,6 +115,8 @@ func (m *Model) updateDispatch(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleClipboardFailedMsg(msg)
 	case controllerHandleFailedMsg:
 		return m.handleControllerHandleFailedMsg(msg)
+	case sessionLoadedMsg:
+		return m.handleSessionLoadedMsg(msg)
 	case modelReasoningResolvedMsg:
 		return m.handleModelReasoningResolvedMsg(msg)
 	case quotaUpdateMsg:
@@ -162,6 +168,17 @@ func (m *Model) handleClipboardFailedMsg(msg clipboardFailedMsg) (tea.Model, tea
 
 func (m *Model) handleControllerHandleFailedMsg(msg controllerHandleFailedMsg) (tea.Model, tea.Cmd) {
 	m.appendError(msg.err)
+	m.syncViewport()
+	return m, nil
+}
+
+// handleSessionLoadedMsg syncs the model state to the alias a loaded session
+// restored. The model budget and reasoning label come from the same maps the
+// model picker uses.
+func (m *Model) handleSessionLoadedMsg(msg sessionLoadedMsg) (tea.Model, tea.Cmd) {
+	if alias := strings.TrimSpace(msg.alias); alias != "" {
+		m.applyModelSelection(alias, m.modelBaseURLs[alias])
+	}
 	m.syncViewport()
 	return m, nil
 }

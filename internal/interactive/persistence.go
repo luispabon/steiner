@@ -28,9 +28,47 @@ func generateSessionID() (string, error) {
 }
 
 // LoadSessionByID loads a saved session with the given ID, replacing the current
-// conversation with the restored lineage.
+// conversation with the restored lineage. It is the interactive resume seam:
+// both the CLI --resume path and the in-TUI session picker load through it, and
+// forks do not. A successful load arms the process-local cache baseline resume
+// marker; a session store that is not configured loads nothing and must not arm
+// it.
 func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
-	return s.loadSession(ctx, sessionID)
+	if err := s.loadSession(ctx, sessionID); err != nil {
+		return err
+	}
+	if s.deps.SessionStore != nil {
+		agent.NoteInteractiveResume()
+	}
+	return nil
+}
+
+// storedSessionDate converts a live date to its persisted form, returning nil
+// when no date was captured so the JSON field stays absent.
+func storedSessionDate(d prompt.SessionDate) *session.StartDate {
+	date, zone, offset := d.Parts()
+	if date == "" {
+		return nil
+	}
+	return &session.StartDate{Date: date, Zone: zone, Offset: offset}
+}
+
+// restoreSessionDate restores a persisted date. It reports false when the
+// record has none or the stored parts are invalid.
+func restoreSessionDate(stored *session.StartDate) (prompt.SessionDate, bool) {
+	if stored == nil {
+		return prompt.SessionDate{}, false
+	}
+	return prompt.NewSessionDateFromParts(stored.Date, stored.Zone, stored.Offset)
+}
+
+// persistResumedSessionDate stores the date captured for a loaded record that
+// has none, so later resumes keep it instead of capturing another date.
+func (s *Session) persistResumedSessionDate(sess session.Session, sessionDate prompt.SessionDate) {
+	sess.SessionDate = storedSessionDate(sessionDate)
+	if err := s.deps.SessionStore.Save(sess); err != nil {
+		s.emitSaveWarning(err)
+	}
 }
 
 // saveSession saves the current session state to disk with the current title and lineage.
@@ -42,7 +80,7 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	modelID := SelectedModelConfig(s.deps.Config).ID
+	modelRef, modelProvider, modelID := s.modelIdentityLocked()
 	var (
 		sess session.Session
 		err  error
@@ -58,6 +96,11 @@ func (s *Session) saveSession() error {
 
 	sess.ID = s.sessionID
 	sess.PromptCacheKey = s.promptCacheKey
+	sess.SessionDate = storedSessionDate(s.sessionDate)
+	sess.ModelRef = modelRef
+	sess.ModelProvider = modelProvider
+	sess.ReasoningOverrides = storedReasoningOverrides(s.reasoningOverrides)
+	sess.LastMainRequest = storedLastMainRequest(s.lastMainRequest)
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
 	sess.SubAgentLedger = slices.Clone(s.ledger)
@@ -103,6 +146,7 @@ func (s *Session) applyRotationLocked(id, group string, updateGroup bool) {
 	s.bindImageStore(id, 1)
 	s.sessionDate = prompt.NewSessionDate(s.now())
 	s.sessionTitle = ""
+	s.lastMainRequest = agent.LastMainRequest{}
 	if updateGroup {
 		s.sessionGroup = strings.TrimSpace(group)
 	}
@@ -212,21 +256,34 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if err != nil {
 		return err
 	}
+	restored := s.resolveRestoredModel(sess)
 
 	s.mu.Lock()
 	if err := s.loadSessionGuardLocked(); err != nil {
 		s.mu.Unlock()
 		return s.reportLoadGuardError(err)
 	}
+	sessionDate, hasStoredDate := restoreSessionDate(sess.SessionDate)
+	if !hasStoredDate {
+		sessionDate = prompt.NewSessionDate(s.now())
+	}
 	old := s.swapDriverLocked(func() {
 		s.lineage = sess.Lineage
 		s.conversation = sess.Lineage.FullMessages()
 		s.sessionID = sess.ID
 		s.promptCacheKey = sess.CacheKey()
-		s.sessionDate = prompt.NewSessionDate(s.now())
+		s.sessionDate = sessionDate
 		s.sessionTitle = sess.Title
 		s.sessionGroup = strings.TrimSpace(sess.Group)
 		s.mode = mode
+		if restored.applied {
+			s.deps.Config.Models.Effective.ActiveOrchestratorModel = restored.ref
+		}
+		s.reasoningOverrides = providerReasoningOverrides(restored.overrides)
+		if s.reasoningOverrides == nil {
+			s.reasoningOverrides = make(map[string]provider.ReasoningOverride)
+		}
+		s.lastMainRequest = restoreLastMainRequest(sess.LastMainRequest, s.promptCacheKey, s.now())
 		s.ledger = slices.Clone(sess.SubAgentLedger)
 		s.delegationGroups = &groupLedger
 		s.snapshots.Clear()
@@ -249,6 +306,10 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
 
+	if !hasStoredDate {
+		s.persistResumedSessionDate(sess, sessionDate)
+	}
+
 	// Notify after releasing the lock: the listener is caller-supplied and may
 	// re-enter the session.
 	if listener != nil {
@@ -256,6 +317,13 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.replayLoadedTranscript(msgs, sess.SubAgentLedger)
+	// Model restore warnings land after the replayed transcript: the saved
+	// model choice, an ignored explicit startup choice, or the reason the
+	// startup model was kept. Emitting them here also keeps a startup --resume
+	// warning in the TUI's pre-start event queue instead of dropping it.
+	for _, warning := range restored.warnings {
+		s.events.Emit(output.NewConfigWarningEvent(warning))
+	}
 	// Lost sub-agents settle only after replay so their delivered event lands
 	// after the replayed transcript, not before it.
 	deliverLostSubAgents(drv, sess.SubAgentLedger)
@@ -267,30 +335,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if contextWindow <= 0 {
 		contextWindow = s.resolveFallbackContextWindow()
 	}
-	var promptTokens int
-	var estimateFailures int
-	var lastEstimateErr error
-	for _, msg := range msgs {
-		t, err := provider.EstimateMessageTokens(ctx, currentModel.ID, provider.Message{
-			Role:    provider.MessageRole(msg.Role),
-			Content: msg.Content,
-		})
-		if err != nil {
-			// Fall back to a flat per-message estimate so the context-window
-			// gauge stays approximate rather than failing the turn.
-			estimateFailures++
-			lastEstimateErr = err
-			promptTokens += 4
-		} else {
-			promptTokens += t
-		}
-	}
-	if estimateFailures > 0 {
-		// A systematic tokenizer failure (e.g. an unsupported model ID) would
-		// otherwise warn once per message on every session load; report the
-		// count once instead.
-		slog.Warn("estimate message tokens", "failures", estimateFailures, "total", len(msgs), "last_error", lastEstimateErr)
-	}
+	promptTokens := estimateLoadedPromptTokens(ctx, currentModel.ID, msgs)
 	turnCount := promptTokens / 2
 	if turnCount < 1 {
 		turnCount = 1
@@ -307,6 +352,34 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}))
 
 	return nil
+}
+
+// estimateLoadedPromptTokens sums the per-message token estimate for a loaded
+// transcript. A failed estimate falls back to a flat per-message value so the
+// context-window gauge stays approximate rather than failing the load; a
+// systematic failure (e.g. an unsupported model ID) would otherwise warn once
+// per message, so it is reported once with a count instead.
+func estimateLoadedPromptTokens(ctx context.Context, modelID string, msgs []agent.Message) int {
+	var promptTokens int
+	var estimateFailures int
+	var lastEstimateErr error
+	for _, msg := range msgs {
+		t, err := provider.EstimateMessageTokens(ctx, modelID, provider.Message{
+			Role:    provider.MessageRole(msg.Role),
+			Content: msg.Content,
+		})
+		if err != nil {
+			estimateFailures++
+			lastEstimateErr = err
+			promptTokens += 4
+			continue
+		}
+		promptTokens += t
+	}
+	if estimateFailures > 0 {
+		slog.Warn("estimate message tokens", "failures", estimateFailures, "total", len(msgs), "last_error", lastEstimateErr)
+	}
+	return promptTokens
 }
 
 // deliverLostSubAgents records each ledger entry of a loaded session as lost:
@@ -373,16 +446,22 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	}
 
 	s.mu.RLock()
+	modelID := SelectedModelConfig(s.deps.Config).ID
 	currentSession := session.Session{
-		ID:               s.sessionID,
-		Title:            s.sessionTitle,
-		Model:            SelectedModelConfig(s.deps.Config).ID,
-		Mode:             string(s.mode),
-		Group:            s.sessionGroup,
-		Lineage:          s.lineage,
-		PromptCacheKey:   s.promptCacheKey,
-		Skills:           s.skills.Snapshot(),
-		DelegationGroups: agent.CloneDelegationGroupLedger(s.delegationGroups),
+		ID:                 s.sessionID,
+		Title:              s.sessionTitle,
+		Model:              modelID,
+		ModelRef:           effectiveModelRef(s.deps.Config),
+		ModelProvider:      SelectedModelConfig(s.deps.Config).Provider,
+		ReasoningOverrides: storedReasoningOverrides(s.reasoningOverrides),
+		Mode:               string(s.mode),
+		Group:              s.sessionGroup,
+		Lineage:            s.lineage,
+		PromptCacheKey:     s.promptCacheKey,
+		SessionDate:        storedSessionDate(s.sessionDate),
+		LastMainRequest:    storedLastMainRequest(s.lastMainRequest),
+		Skills:             s.skills.Snapshot(),
+		DelegationGroups:   agent.CloneDelegationGroupLedger(s.delegationGroups),
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()

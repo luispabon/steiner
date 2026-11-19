@@ -74,8 +74,9 @@ func manualCompactionHasSource(messages []agent.Message) bool {
 // Snapshots live in memory only and are never persisted. They are cleared when
 // a session is loaded or the conversation is cleared, so a nil return means no
 // snapshot is available in this process, which covers both a fresh session and
-// a session resumed from disk. Manual compaction proceeds without snapshot
-// tools in that case.
+// a session resumed from disk. The composed runner rebuilds the parent tool
+// registry from the live configuration in that case (see
+// cliRunner.CompactWithLineage in cmd/steiner).
 func snapshotTools(store *SnapshotStore) []provider.ToolSpec {
 	snapshot, ok := store.ParentSnapshot()
 	if !ok {

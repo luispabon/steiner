@@ -590,6 +590,23 @@ func TestPerformanceSectionUsesLatestRequestLabel(t *testing.T) {
 	}
 }
 
+func TestPerformanceSectionLabelsCompactionLatestRequest(t *testing.T) {
+	t.Parallel()
+	s := sidebarState{
+		lastRequestCacheRate:   0.782,
+		lastRequestCacheRateOK: true,
+		lastRequestCompaction:  true,
+		styles:                 testStyles(theme.AccentAmber),
+	}
+	got := stripANSI(strings.Join(s.performanceSection(32), "\\n"))
+	if !strings.Contains(got, "78.2% · compaction req") {
+		t.Errorf("performanceSection(32) missing compaction label in %q", got)
+	}
+	if strings.Contains(got, "latest req") {
+		t.Errorf("performanceSection(32) still shows the normal latest-request label in %q", got)
+	}
+}
+
 func TestFormatCacheHitRate(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

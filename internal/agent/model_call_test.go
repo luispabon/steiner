@@ -447,6 +447,7 @@ func TestRecordModelUsage(t *testing.T) {
 		name      string
 		usage     *provider.UsageStats
 		recorder  usageRecorder
+		kind      usagestats.CallKind
 		wantCount int
 	}{
 		{
@@ -458,6 +459,18 @@ func TestRecordModelUsage(t *testing.T) {
 				CacheCreationInputTokens: 5,
 			},
 			recorder:  &testRecorder{},
+			wantCount: 1,
+		},
+		{
+			name: "compaction call kind is recorded",
+			usage: &provider.UsageStats{
+				PromptTokens:             100,
+				CompletionTokens:         50,
+				CacheReadInputTokens:     10,
+				CacheCreationInputTokens: 5,
+			},
+			recorder:  &testRecorder{},
+			kind:      usagestats.CallKindCompaction,
 			wantCount: 1,
 		},
 		{
@@ -488,7 +501,7 @@ func TestRecordModelUsage(t *testing.T) {
 				UsageRecorder: tc.recorder,
 			}
 
-			recordModelUsage(req, tc.usage)
+			recordModelUsage(req, tc.usage, tc.kind)
 
 			if tc.recorder == nil {
 				return
@@ -526,6 +539,9 @@ func TestRecordModelUsage(t *testing.T) {
 				if obs.ProviderType != "openai" {
 					t.Errorf("ProviderType = %q, want %q", obs.ProviderType, "openai")
 				}
+				if obs.CallKind != tc.kind {
+					t.Errorf("CallKind = %v, want %v", obs.CallKind, tc.kind)
+				}
 			}
 		})
 	}
@@ -542,13 +558,38 @@ func TestRecordModelUsage_zeroValueUsageSourceIsParent(t *testing.T) {
 		UsageRecorder: recorder,
 	}
 
-	recordModelUsage(req, &provider.UsageStats{PromptTokens: 100, CompletionTokens: 50})
+	recordModelUsage(req, &provider.UsageStats{PromptTokens: 100, CompletionTokens: 50}, usagestats.CallKindNormal)
 
 	if len(recorder.obs) != 1 {
 		t.Fatalf("observations count = %d, want 1", len(recorder.obs))
 	}
 	if got := recorder.obs[0].Source; got != usagestats.SourceParent {
 		t.Errorf("Source = %v, want %v", got, usagestats.SourceParent)
+	}
+}
+
+func TestCompleteModelCallRecordsNormalCallKind(t *testing.T) {
+	recorder := &testRecorder{}
+	prov := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		return provider.ChatResponse{
+			Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "ok"},
+			Usage:   &provider.UsageStats{PromptTokens: 10},
+		}, nil
+	}}
+
+	_, _, err := completeModelCall(context.Background(), RunRequest{
+		Provider:      prov,
+		ResolvedModel: provider.ResolvedModel{Alias: "m", BackendModelID: "m"},
+		UsageRecorder: recorder,
+	}, 1, provider.ChatRequest{Model: "m"}, nil, prompt.ModelTokenBudget{}, nil)
+	if err != nil {
+		t.Fatalf("completeModelCall() error = %v", err)
+	}
+	if len(recorder.obs) != 1 {
+		t.Fatalf("observations count = %d, want 1", len(recorder.obs))
+	}
+	if got := recorder.obs[0].CallKind; got != usagestats.CallKindNormal {
+		t.Errorf("CallKind = %v, want %v", got, usagestats.CallKindNormal)
 	}
 }
 

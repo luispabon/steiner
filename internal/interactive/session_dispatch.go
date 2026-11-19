@@ -125,7 +125,7 @@ func (s *Session) handleStateAction(ctx context.Context, action Action) (bool, e
 	case SwitchOrchestrationLevel:
 		return true, s.SetOrchestrationLevel(a.Level)
 	case LoadSession:
-		return true, s.loadSession(ctx, a.SessionID)
+		return true, s.LoadSessionByID(ctx, a.SessionID)
 
 	case RotateSession:
 		return true, s.rotateGuarded("", false)

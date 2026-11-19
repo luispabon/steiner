@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 func TestNeedsEmergencyCompactionUsesSelectedThreshold(t *testing.T) {
@@ -2043,6 +2044,29 @@ func TestCompleteCompactionCallUsesStreaming(t *testing.T) {
 	}
 	if !streamingCalled {
 		t.Error("streaming path was not called, want it to be used")
+	}
+}
+
+func TestCompleteCompactionCallRecordsCompactionCallKind(t *testing.T) {
+	recorder := &testRecorder{}
+	prov := &fakeProvider{responses: []provider.ChatResponse{{
+		Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "compaction summary"},
+		Usage:   &provider.UsageStats{PromptTokens: 10},
+	}}}
+
+	_, err := completeCompactionCall(context.Background(), RunRequest{
+		Provider:      prov,
+		ResolvedModel: provider.ResolvedModel{Alias: "m", BackendModelID: "m"},
+		UsageRecorder: recorder,
+	}, 1, provider.ChatRequest{Model: "m"}, prompt.ModelTokenBudget{}, nil)
+	if err != nil {
+		t.Fatalf("completeCompactionCall() error = %v", err)
+	}
+	if len(recorder.obs) != 1 {
+		t.Fatalf("observations count = %d, want 1", len(recorder.obs))
+	}
+	if got := recorder.obs[0].CallKind; got != usagestats.CallKindCompaction {
+		t.Errorf("CallKind = %v, want %v", got, usagestats.CallKindCompaction)
 	}
 }
 

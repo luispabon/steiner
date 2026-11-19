@@ -6,6 +6,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/session"
 )
 
@@ -60,18 +61,31 @@ type runSessionMeta struct {
 	mode     string
 	skills   []string
 	modelID  string
+	// sessionDate is the identity's date, kept so a retired driver's first save
+	// stores it alongside the lineage.
+	sessionDate prompt.SessionDate
+	// modelRef and modelProvider describe the model identity active when the
+	// driver was retired, so its first save keeps the resume selection.
+	modelRef           string
+	modelProvider      string
+	reasoningOverrides map[string]session.ReasoningOverride
 }
 
 // sessionMetaLocked captures the live session identity. The caller must hold s.mu.
 func (s *Session) sessionMetaLocked() runSessionMeta {
+	modelRef, modelProvider, modelID := s.modelIdentityLocked()
 	return runSessionMeta{
-		id:       s.sessionID,
-		cacheKey: s.promptCacheKey,
-		group:    s.sessionGroup,
-		title:    s.sessionTitle,
-		mode:     string(s.mode),
-		skills:   s.skills.Snapshot(),
-		modelID:  SelectedModelConfig(s.deps.Config).ID,
+		id:                 s.sessionID,
+		cacheKey:           s.promptCacheKey,
+		group:              s.sessionGroup,
+		title:              s.sessionTitle,
+		mode:               string(s.mode),
+		skills:             s.skills.Snapshot(),
+		modelID:            modelID,
+		modelRef:           modelRef,
+		modelProvider:      modelProvider,
+		reasoningOverrides: storedReasoningOverrides(s.reasoningOverrides),
+		sessionDate:        s.sessionDate,
 	}
 }
 

@@ -145,6 +145,11 @@ type cliRuntime struct {
 	modelPopularity       *modelcatalog.Store
 	modelEntriesUpdates   chan []tui.ModelEntry
 	worktreeCleanup       *tui.WorktreeCleanupPlan
+	// startupModelSource records where the active model override came from:
+	// "flag" for --model, "env" for STEINER_MODEL, or empty for a profile
+	// default. It is captured during config loading so a resumed session's
+	// restore warning can name the ignored choice.
+	startupModelSource string
 	// modelResolver is the session-scoped, memoized, single-flight model
 	// resolver. Set by defaultBuildRuntime; resolveModel falls back to a
 	// throwaway Resolver when nil (e.g. a cliRuntime built directly in tests).

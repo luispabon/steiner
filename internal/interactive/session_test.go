@@ -1068,8 +1068,8 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		if event.Type == output.EventTypeStopReason {
 			found = true
 			payload := mustEventPayload[output.StopReasonEvent](t, event)
-			if payload.Reason != "Error: run failed" {
-				t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
+			if payload.Reason != "error" || payload.Error != "Error: run failed" {
+				t.Fatalf("stop reason = (%q, %q), want (error, Error: run failed)", payload.Reason, payload.Error)
 			}
 			break
 		}
@@ -1120,8 +1120,8 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 		if event.Type == output.EventTypeStopReason {
 			found = true
 			payload := mustEventPayload[output.StopReasonEvent](t, event)
-			if payload.Reason != "Error: boom" {
-				t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: boom")
+			if payload.Reason != "error" || payload.Error != "Error: boom" {
+				t.Fatalf("stop reason = (%q, %q), want (error, Error: boom)", payload.Reason, payload.Error)
 			}
 			break
 		}
@@ -2457,7 +2457,7 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 }
 
-func TestLoadSessionReCapturesSessionDate(t *testing.T) {
+func TestLoadLegacySessionReCapturesSessionDate(t *testing.T) {
 	t.Parallel()
 	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
 	advancedTime := baseTime.Add(2 * time.Hour)
