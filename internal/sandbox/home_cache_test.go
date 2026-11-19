@@ -313,7 +313,7 @@ func TestRemoveStaleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open target: %v", err)
 	}
-	defer target.Close()
+	defer func() { _ = target.Close() }() // read-only directory handle; nothing to flush
 
 	// A refresh between the walk and the removal keeps the file.
 	if err := os.Chtimes(entry, now, now); err != nil {

@@ -50,7 +50,7 @@ func pruneHomeCache(root string, now time.Time) (removed int, freed int64, err e
 	if err != nil {
 		return 0, 0, fmt.Errorf("open sandbox cache: %w", err)
 	}
-	defer cacheRoot.Close() // read-only directory handle; nothing to flush
+	defer func() { _ = cacheRoot.Close() }() // read-only directory handle; nothing to flush
 	opened, err := cacheRoot.Stat(".")
 	if err != nil || !os.SameFile(info, opened) {
 		return 0, 0, nil
