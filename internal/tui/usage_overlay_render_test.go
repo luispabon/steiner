@@ -89,6 +89,7 @@ func usageTrimSpinner(t *testing.T, s string) string {
 }
 
 func TestUsageLevelFor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pct  float64
 		want usageLevel
@@ -109,6 +110,7 @@ func TestUsageLevelFor(t *testing.T) {
 }
 
 func TestUsageBarCells(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		pct    float64
 		filled int
@@ -127,6 +129,7 @@ func TestUsageBarCells(t *testing.T) {
 }
 
 func TestUsageHeaderActiveMarkerAndRightAlignment(t *testing.T) {
+	t.Parallel()
 	fetched := usageTestNow.Add(-3 * time.Minute)
 	tests := []struct {
 		name   string
@@ -162,6 +165,7 @@ func TestUsageHeaderActiveMarkerAndRightAlignment(t *testing.T) {
 }
 
 func TestUsageFreshness(t *testing.T) {
+	t.Parallel()
 	fetched := usageTestNow.Add(-5 * time.Minute)
 	tests := []struct {
 		name       string
@@ -192,6 +196,7 @@ func TestUsageFreshness(t *testing.T) {
 }
 
 func TestUsageFreshnessDuringGlobalRefresh(t *testing.T) {
+	t.Parallel()
 	fetched := usageTestNow.Add(-5 * time.Minute)
 	tests := []struct {
 		name string
@@ -217,6 +222,7 @@ func TestUsageFreshnessDuringGlobalRefresh(t *testing.T) {
 }
 
 func TestUsageResetTime(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		at   time.Time
@@ -234,6 +240,7 @@ func TestUsageResetTime(t *testing.T) {
 }
 
 func TestUsageRelative(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		d    time.Duration
 		want string
@@ -252,6 +259,7 @@ func TestUsageRelative(t *testing.T) {
 }
 
 func TestUsageWindowLineMeterAndReset(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "claude_subscription",
 		DisplayAlias: "work",
@@ -275,6 +283,7 @@ func TestUsageWindowLineMeterAndReset(t *testing.T) {
 }
 
 func TestUsageTrendLines(t *testing.T) {
+	t.Parallel()
 	emptyAt := time.Date(2026, 10, 14, 15, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
@@ -307,6 +316,7 @@ func TestUsageTrendLines(t *testing.T) {
 }
 
 func TestUsageWindowTrendLimitReached(t *testing.T) {
+	t.Parallel()
 	const limitRow = "  └─ trend: limit reached ✗"
 	forecast := quota.Projection{OK: true, BeforeReset: true, EmptyAt: usageTestNow.Add(time.Hour)}
 	tests := []struct {
@@ -349,6 +359,7 @@ func TestUsageWindowTrendLimitReached(t *testing.T) {
 }
 
 func TestUsageWindowTrendDropsPassedForecast(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		emptyAt time.Time
@@ -380,6 +391,7 @@ func TestUsageWindowTrendDropsPassedForecast(t *testing.T) {
 }
 
 func TestUsageBudgetLine(t *testing.T) {
+	t.Parallel()
 	limit := 50.0
 	resets := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
 	f := usageTestFrame(t, quota.AccountView{
@@ -398,6 +410,7 @@ func TestUsageBudgetLine(t *testing.T) {
 }
 
 func TestUsageSpendAndCreditsRows(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
 		DisplayAlias: "work",
 		Latest: &quota.Snapshot{
@@ -424,6 +437,7 @@ func TestUsageSpendAndCreditsRows(t *testing.T) {
 }
 
 func TestUsageSpendOnlyRowHasNoDuplicateLabel(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
 		DisplayAlias: "litellm",
 		Latest: &quota.Snapshot{
@@ -442,6 +456,7 @@ func TestUsageSpendOnlyRowHasNoDuplicateLabel(t *testing.T) {
 }
 
 func TestUsageRowLabelSeparator(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		label string
@@ -461,6 +476,7 @@ func TestUsageRowLabelSeparator(t *testing.T) {
 }
 
 func TestUsageLongWindowLabelBarSeparator(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "codex",
 		DisplayAlias: "work",
@@ -476,6 +492,7 @@ func TestUsageLongWindowLabelBarSeparator(t *testing.T) {
 }
 
 func TestUsageStaticUnavailableRow(t *testing.T) {
+	t.Parallel()
 	const reason = "API key mode: no subscription usage"
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "openai",
@@ -492,6 +509,7 @@ func TestUsageStaticUnavailableRow(t *testing.T) {
 }
 
 func TestUsageErrorRows(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "claude_subscription",
 		DisplayAlias: "work",
@@ -504,6 +522,7 @@ func TestUsageErrorRows(t *testing.T) {
 }
 
 func TestUsageEmptyState(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t)
 	lines := usageStrippedLines(f)
 	if len(lines) != 1 || lines[0] != "No configured providers report subscription usage." {
@@ -512,6 +531,7 @@ func TestUsageEmptyState(t *testing.T) {
 }
 
 func TestUsageBudgetLineExactRow(t *testing.T) {
+	t.Parallel()
 	limit := 50.0
 	resets := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
 	f := usageTestFrame(t, quota.AccountView{
@@ -528,6 +548,7 @@ func TestUsageBudgetLineExactRow(t *testing.T) {
 }
 
 func TestUsageHeaderTruncatesLongErrorWithinWidth(t *testing.T) {
+	t.Parallel()
 	const width = 32
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "claude_subscription",
@@ -547,6 +568,7 @@ func TestUsageHeaderTruncatesLongErrorWithinWidth(t *testing.T) {
 }
 
 func TestUsageOverlayBoxKeepsWidthWithLongError(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	m.usageOverlay = m.usageOverlay.Open()
 	m.usageOverlay.OverlayShell = m.usageOverlay.WithDimensions(50, 40)
@@ -572,6 +594,7 @@ func TestUsageOverlayBoxKeepsWidthWithLongError(t *testing.T) {
 }
 
 func TestUsageHeaderUsesCardLabelForAliasAndPlan(t *testing.T) {
+	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "claude_subscription",
 		DisplayAlias: "work",
@@ -587,6 +610,7 @@ func TestUsageHeaderUsesCardLabelForAliasAndPlan(t *testing.T) {
 }
 
 func TestUsagePeriodLabelsBoldNotAccented(t *testing.T) {
+	t.Parallel()
 	limit := 50.0
 	f := usageTestFrame(t)
 	accent := usageOpenSGR(t, usageStyled(t, f.styles.Accent, "X"), "X")
@@ -615,6 +639,7 @@ func TestUsagePeriodLabelsBoldNotAccented(t *testing.T) {
 }
 
 func TestUsageTrendRowGlyphStyle(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		p      quota.Projection
@@ -650,6 +675,7 @@ func TestUsageTrendRowGlyphStyle(t *testing.T) {
 }
 
 func TestUsageRefreshingFreshnessUsesAccentSpinner(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		overlay bool
@@ -675,6 +701,7 @@ func TestUsageRefreshingFreshnessUsesAccentSpinner(t *testing.T) {
 }
 
 func TestUsageProviderBlocksSeparatedByRule(t *testing.T) {
+	t.Parallel()
 	first := usageTestFullView()
 	f := usageTestFrame(t, first, quota.AccountView{DisplayAlias: "home", Unavailable: "no credentials"})
 	lines := usageStrippedLines(f)
@@ -692,6 +719,7 @@ func TestUsageProviderBlocksSeparatedByRule(t *testing.T) {
 }
 
 func TestUsageRenderIsPure(t *testing.T) {
+	t.Parallel()
 	limit := 10.0
 	f := usageTestFrame(t, quota.AccountView{
 		ProviderType: "claude_subscription",

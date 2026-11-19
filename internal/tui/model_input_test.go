@@ -783,6 +783,7 @@ func TestUpdateSkillStateKnownSkillAllowsToggle(t *testing.T) {
 }
 
 func TestClearConversationClearsSharedSteerQueueAndResetsState(t *testing.T) {
+	t.Parallel()
 	sess, err := interactive.NewSession(interactive.Dependencies{BaseEvents: output.NoopSink{}})
 	if err != nil {
 		t.Fatalf("NewSession() error = %v", err)

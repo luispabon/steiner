@@ -61,6 +61,7 @@ func closeFrameStats(t *testing.T, f *frameStats) {
 }
 
 func TestClassifyMsg(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		msg  tea.Msg
@@ -94,6 +95,7 @@ func TestClassifyMsg(t *testing.T) {
 }
 
 func TestHistBucket(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		d    time.Duration
 		want int
@@ -115,6 +117,7 @@ func TestHistBucket(t *testing.T) {
 }
 
 func TestFrameStatsAggregatesAndRollsOverWindow(t *testing.T) {
+	t.Parallel()
 	sink := &recordingSink{}
 	f, clk := newTestFrameStats(sink)
 
@@ -171,6 +174,7 @@ func TestFrameStatsAggregatesAndRollsOverWindow(t *testing.T) {
 }
 
 func TestFrameStatsUnpairedView(t *testing.T) {
+	t.Parallel()
 	sink := &recordingSink{}
 	f, _ := newTestFrameStats(sink)
 	f.recordView(time.Millisecond)
@@ -227,6 +231,7 @@ func TestFrameStatsDropsWhenQueueFull(t *testing.T) {
 }
 
 func TestFrameStatsCloseIsIdempotentAndStopsRecording(t *testing.T) {
+	t.Parallel()
 	sink := &recordingSink{}
 	f, _ := newTestFrameStats(sink)
 	f.recordUpdate(tickMsg{}, time.Microsecond, frameSnapshot{})
@@ -242,6 +247,7 @@ func TestFrameStatsCloseIsIdempotentAndStopsRecording(t *testing.T) {
 }
 
 func TestModelFrameStatsEndToEnd(t *testing.T) {
+	t.Parallel()
 	sink := &recordingSink{}
 	frame, _ := newTestFrameStats(sink)
 	m := newModel(Config{Model: "m"}, nil)
@@ -280,6 +286,7 @@ func TestModelFrameStatsEndToEnd(t *testing.T) {
 }
 
 func TestModelWithoutFrameStatsUpdates(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Model: "m"}, nil)
 	if m.frame != nil {
 		t.Fatal("frame stats set without a sink")
@@ -289,6 +296,7 @@ func TestModelWithoutFrameStatsUpdates(t *testing.T) {
 }
 
 func TestAppFrameStatsLifecycle(t *testing.T) {
+	t.Parallel()
 	sink := &recordingSink{}
 	app := &App{cfg: Config{FrameStats: sink}, bridge: newEventBridge(1)}
 	p := app.NewProgram()

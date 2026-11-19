@@ -157,6 +157,7 @@ func TestBgFormatCacheReusesLines(t *testing.T) {
 }
 
 func TestCommonPrefixLen(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", 3*commonPrefixChunk+17)
 	tests := []struct {
 		name string

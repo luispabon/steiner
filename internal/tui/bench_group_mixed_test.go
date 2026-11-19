@@ -71,7 +71,14 @@ func mixedGroupTestMessages() int {
 // mixedGroupModelWithMessages builds the mixed group on top of a msgs-message
 // transcript, with the same shape as mixedGroupModel.
 func mixedGroupModelWithMessages(settled int, expanded bool, msgs int) *Model {
-	m := populateLongTranscript(newContentBenchModel(), msgs)
+	return mixedGroupModelAt(nil, settled, expanded, msgs)
+}
+
+// mixedGroupModelAt builds mixedGroupModelWithMessages against clock, which is
+// attached before the first event; a nil clock keeps the package clock.
+func mixedGroupModelAt(clock *testClock, settled int, expanded bool, msgs int) *Model {
+	m := newContentBenchModelWithClock(clock)
+	m = populateLongTranscript(m, msgs)
 	for j := 0; j <= settled; j++ {
 		m = appendMixedChild(m, j, j < settled)
 	}

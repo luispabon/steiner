@@ -4366,6 +4366,7 @@ func TestAdvisorCompleteRendersTokensAndCacheRowsWhenExpanded(t *testing.T) {
 }
 
 func TestUsageLimitStopReasonRendering(t *testing.T) {
+	t.Parallel()
 	ev := output.NewStopReasonEvent(1, "usage_limit", errors.New("provider usage limit reached (codex/luna/high): slow down"))
 	if got, want := formatStopReasonEvent(ev), "error: provider usage limit reached (codex/luna/high): slow down"; got != want {
 		t.Errorf("formatStopReasonEvent() = %q, want %q", got, want)

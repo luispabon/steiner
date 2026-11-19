@@ -46,10 +46,19 @@ func stepSync(m *Model, msg tea.Msg) {
 }
 
 func newContentBenchModel() *Model {
+	return newContentBenchModelWithClock(nil)
+}
+
+// newContentBenchModelWithClock is newContentBenchModel with clock attached
+// before the size and run events; a nil clock keeps the package clock.
+func newContentBenchModelWithClock(clock *testClock) *Model {
 	m := newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 100000},
 	}, nil)
+	if clock != nil {
+		m = clock.attach(m)
+	}
 	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	return updateModelDirect(m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
 }

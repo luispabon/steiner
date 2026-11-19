@@ -82,7 +82,7 @@ func (b *contentBuffer) renderStatusTimestamp(segment contentSegment, width int)
 	if width < 1 {
 		return ""
 	}
-	label := formatContentTimestamp(segment.timestamp)
+	label := formatContentTimestamp(segment.timestamp, b.nowTime())
 	if label == "" {
 		return ""
 	}

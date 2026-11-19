@@ -31,6 +31,7 @@ func oldAppendStreamPreview(result, preview string) string {
 }
 
 func TestTranscriptBlocksMatchOldJoin(t *testing.T) {
+	t.Parallel()
 	texts := []string{"", "a", "a\nb", "\nlead", "trail\n", "\n", "x\n\n"}
 	kindPool := []contentSegmentKind{-1, segmentUser, segmentUserMarkdown, segmentDelegation, segmentDelegationGroup, segmentToolCall, segmentAssistantMarkdown}
 	for seed := range uint64(2000) {

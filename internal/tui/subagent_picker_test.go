@@ -36,6 +36,7 @@ func selectedID(m *Model) string {
 }
 
 func TestSubAgentPickerOpenClose(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		open  func(m *Model)
@@ -62,12 +63,14 @@ func TestSubAgentPickerOpenClose(t *testing.T) {
 }
 
 func TestSubAgentPickerParseSlashCommand(t *testing.T) {
+	t.Parallel()
 	if !parseInput("/agents").requestSubAgentPicker {
 		t.Error("/agents did not set requestSubAgentPicker")
 	}
 }
 
 func TestSubAgentPickerNavigationAndJump(t *testing.T) {
+	t.Parallel()
 	m, keys := pickerModel(t)
 	updateModel(t, m, altKey('a'))
 	// newest first: ccc, bbb, aaa
@@ -94,6 +97,7 @@ func TestSubAgentPickerNavigationAndJump(t *testing.T) {
 }
 
 func TestSubAgentPickerFilterTyping(t *testing.T) {
+	t.Parallel()
 	m, _ := pickerModel(t)
 	updateModel(t, m, altKey('a'))
 	for _, r := range "bb" {
@@ -118,6 +122,7 @@ func TestSubAgentPickerFilterTyping(t *testing.T) {
 }
 
 func TestSubAgentPickerViewBounds(t *testing.T) {
+	t.Parallel()
 	for _, width := range []int{12, 20, 40, 100} {
 		m, _ := pickerModel(t)
 		m = updateModelDirect(m, tea.WindowSizeMsg{Width: width, Height: 24})
@@ -133,6 +138,7 @@ func TestSubAgentPickerViewBounds(t *testing.T) {
 }
 
 func TestSubAgentPickerRefreshMovesFinishedCard(t *testing.T) {
+	t.Parallel()
 	m, keys := pickerModel(t)
 	dd := m.content.delegations[keys["aaa"]].dd
 	dd.status = "active"

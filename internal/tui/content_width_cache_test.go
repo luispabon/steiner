@@ -130,7 +130,9 @@ func assertTwinViews(t *testing.T, label string, got, want *Model, selection boo
 // viewport width change (a fresh render at the new width). All three must
 // agree byte for byte.
 func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
-	advance := stubBgFormatClock(t)
+	// Not t.Parallel(): the op script can set the accent colour or toggle
+	// thinking, which write prefs under the package-wide HOME.
+	clock := newTestClock()
 	seeds, minRevisits := raceSeeds(8), 30
 	if raceEnabled {
 		// One seed: a single revisit is enough to reach the cache-hit path.
@@ -140,10 +142,10 @@ func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
 	for seed := range seeds {
 		s := &widthCacheScenario{bgFormatScenario: bgFormatScenario{r: rand.New(rand.NewPCG(seed, 11))}}
 		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
-		cached, single, fresh := newBgFormatTwinModel(run), newBgFormatTwinModel(run), newBgFormatTwinModel(run)
+		cached, single, fresh := newBgFormatTwinModel(clock, run), newBgFormatTwinModel(clock, run), newBgFormatTwinModel(clock, run)
 		seen := map[int]bool{cached.viewport.Width(): true}
 		for step := range 90 {
-			advance(time.Duration(s.r.IntN(3)) * time.Second)
+			clock.advance(time.Duration(s.r.IntN(3)) * time.Second)
 			apply := s.op()
 			width := cached.viewport.Width()
 			stripWidthRenders(single)
@@ -317,6 +319,7 @@ func TestWidthRenderCacheEvictsOnMutation(t *testing.T) {
 // (glamour included) would surface the poison, so revisits must serve the
 // renders recorded on first visit, byte for byte.
 func TestWidthRenderCacheServesRevisitedWidths(t *testing.T) {
+	t.Parallel()
 	const poison = "POISONED"
 	m := populateLongTranscript(newContentBenchModel(), 8)
 	resize := func(w int) func(m *Model) {
@@ -424,6 +427,7 @@ func TestWidthRenderCacheLayoutRules(t *testing.T) {
 // front with its renderer, a miss adds an empty slot for the target width, and
 // a miss on a full pool evicts the least recently used width.
 func TestGlamourPoolSlot(t *testing.T) {
+	t.Parallel()
 	target := func(w int) int { return max(1, w-markdownRenderPadding) }
 	widths := func(p *glamourPool) []int {
 		out := make([]int, len(p.slots))

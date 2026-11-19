@@ -8,6 +8,7 @@ import (
 )
 
 func TestDelegationOccurrenceAdmissionFinishKeepsCardOwnership(t *testing.T) {
+	t.Parallel()
 	for _, order := range []struct {
 		name   string
 		first  string
@@ -66,6 +67,7 @@ func TestDelegationOccurrenceAdmissionFinishKeepsCardOwnership(t *testing.T) {
 }
 
 func TestDelegationOccurrenceReusedCallIDStartsNewLifecycle(t *testing.T) {
+	t.Parallel()
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "reused", map[string]any{"task": "old"}))
 	old := b.segments[0].delegData

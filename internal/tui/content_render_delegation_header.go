@@ -148,12 +148,12 @@ func (b *contentBuffer) renderDelegationHeaderMeta(dd *delegationDisplayState) s
 		}
 		if !dd.queuedForSlot {
 			if dd.cacheWaiting {
-				parts = append(parts, b.styles.FgDim.Render(formatCountdown(dd.cacheWaitDeadline, nanoNow())))
+				parts = append(parts, b.styles.FgDim.Render(formatCountdown(dd.cacheWaitDeadline, b.nowNanos())))
 			} else if dd.startTime > 0 {
-				parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, nanoNow())))
+				parts = append(parts, b.styles.FgDim.Render(formatElapsed(dd.startTime, b.nowNanos())))
 			}
 		}
-		if n := b.stalledMinutes(dd, timeNow()); n > 0 {
+		if n := b.stalledMinutes(dd, b.nowTime()); n > 0 {
 			parts = append(parts, b.styles.Warn.Render(fmt.Sprintf("stalled %dm", n)))
 		}
 	case "complete":

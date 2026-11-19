@@ -40,6 +40,7 @@ func delivered(items ...output.DeliveredSubAgent) output.Event {
 }
 
 func TestReplayRejectedFollowUpKeepsPriorRosterEntry(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	card := replayAccepted(m, "sub_agent", "original", "b1", "child", "prior", "original task")
 	m.applyEvent(output.NewToolCallStartedEvent(1, "follow_up", "follow-up", map[string]any{"agent_id": "child", "message": "continue"}))
@@ -61,6 +62,7 @@ func TestReplayRejectedFollowUpKeepsPriorRosterEntry(t *testing.T) {
 }
 
 func TestReplayReusedGroupNameRejectedLeavesAcceptedGroup(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	for _, id := range []string{"a", "b"} {
 		replayAccepted(m, "sub_agent", "call-"+id, "b1", "agent-"+id, "review", "task "+id)
@@ -85,6 +87,7 @@ func TestReplayReusedGroupNameRejectedLeavesAcceptedGroup(t *testing.T) {
 }
 
 func TestReplayLostDeliverySettlesCardAndRosterRow(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	card := replayAccepted(m, "sub_agent", "call", "b1", "child", "g", "task")
 	m.applyEvent(delivered(output.DeliveredSubAgent{AgentID: "child", AgentType: "explore", Status: "lost", ParentCallID: "call", BatchID: "b1"}))
@@ -101,6 +104,7 @@ func TestReplayLostDeliverySettlesCardAndRosterRow(t *testing.T) {
 }
 
 func TestReplayFollowUpReusingAgentIDBindsFreshCard(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	original := replayAccepted(m, "sub_agent", "original", "b1", "child", "old-group", "original task")
 	m.applyEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: fullOccurrence("original", "b1", "child"), Status: "completed"}))
@@ -126,6 +130,7 @@ func TestReplayFollowUpReusingAgentIDBindsFreshCard(t *testing.T) {
 }
 
 func TestReplayQueuedStartedThenCompleteOrFail(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	cards := map[string]*delegationDisplayState{}
 	for _, id := range []string{"ok", "bad"} {
@@ -158,6 +163,7 @@ func TestReplayQueuedStartedThenCompleteOrFail(t *testing.T) {
 }
 
 func TestReplayDuplicateCallIDsAcrossBatchesKeepSeparateRosterRows(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	first := replayAccepted(m, "sub_agent", "same", "b1", "agent-1", "review", "one")
 	second := replayAccepted(m, "sub_agent", "same", "b2", "agent-2", "review", "two")

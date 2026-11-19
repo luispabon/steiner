@@ -129,7 +129,7 @@ func (b *contentBuffer) renderUserMarkdownSegment(segment contentSegment, width 
 }
 
 func (b *contentBuffer) renderUserTimestampText(timestamp time.Time, width int) string {
-	label := formatContentTimestamp(timestamp)
+	label := formatContentTimestamp(timestamp, b.nowTime())
 	if label == "" {
 		return ""
 	}
@@ -149,11 +149,10 @@ func (b *contentBuffer) renderUserTimestampLine(timestamp time.Time, width int) 
 	return label
 }
 
-func formatContentTimestamp(timestamp time.Time) string {
+func formatContentTimestamp(timestamp, now time.Time) string {
 	if timestamp.IsZero() {
 		return ""
 	}
-	now := timeNow()
 	if now.IsZero() {
 		now = timestamp
 	}

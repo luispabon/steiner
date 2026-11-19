@@ -8,6 +8,7 @@ import (
 )
 
 func TestDelegationRejectionRemovesOnlyCurrentUnacceptedCard(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "old-call", subAgentArgs("reused")))
 	accepted := lastDelegationCard(b)
@@ -32,6 +33,7 @@ func TestDelegationRejectionRemovesOnlyCurrentUnacceptedCard(t *testing.T) {
 }
 
 func TestDelegationRejectionDoesNotHideUnknownAdmissionError(t *testing.T) {
+	t.Parallel()
 	const message = "api: legacy rejection-like error"
 	b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
 	b.appendToolCallFinishedEvent(output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, &output.DelegationAdmission{Status: "unknown"}))
@@ -41,6 +43,7 @@ func TestDelegationRejectionDoesNotHideUnknownAdmissionError(t *testing.T) {
 }
 
 func TestDelegationRejectionPreservesAcceptedAndUnknownCards(t *testing.T) {
+	t.Parallel()
 	for _, admission := range []*output.DelegationAdmission{
 		{Status: "accepted"},
 		{Status: "unknown"},
@@ -60,6 +63,7 @@ func TestDelegationRejectionPreservesAcceptedAndUnknownCards(t *testing.T) {
 }
 
 func TestModelRejectedFollowUpPreservesOriginalChildAndRoster(t *testing.T) {
+	t.Parallel()
 	m := &Model{content: contentBuffer{}, roster: subAgentRoster{entries: map[string]*rosterEntry{}}, styles: testStyles("#5599ff")}
 	accepted := output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}, "prior")
 	m.applyEvent(accepted)
@@ -108,6 +112,7 @@ func findFollowUpCard(segments []contentSegment) *delegationDisplayState {
 }
 
 func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {
+	t.Parallel()
 	const message = "turn /status: launch failed"
 	dd := &delegationDisplayState{parentCallID: "call"}
 	b := &contentBuffer{
@@ -130,6 +135,7 @@ func TestUnknownAdmissionErrorCleansEligibleEmptyAgentCard(t *testing.T) {
 }
 
 func TestUnknownAdmissionErrorKeepsIdentifiedAcceptedRunningCard(t *testing.T) {
+	t.Parallel()
 	const message = "api: delayed error"
 	b := newGroupTestBuffer()
 	occ := output.DelegationOccurrence{CallID: "call", BatchID: "batch", AgentID: "child"}
@@ -149,6 +155,7 @@ func TestUnknownAdmissionErrorKeepsIdentifiedAcceptedRunningCard(t *testing.T) {
 }
 
 func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
+	t.Parallel()
 	for _, message := range []string{"api: provider failed", "turn /status: failed", "status: rejected by policy", "ordinary rejection error"} {
 		t.Run(message, func(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
@@ -162,6 +169,7 @@ func TestDelegationRejectedErrorRetainsExactText(t *testing.T) {
 }
 
 func TestModelGuidanceRejectionLeavesNoTranscriptTrace(t *testing.T) {
+	t.Parallel()
 	const guidance = `follow_up: agent "child-6"'s code worktree is no longer usable; delegate a fresh code agent instead of resuming this one`
 	tests := []struct {
 		name  string

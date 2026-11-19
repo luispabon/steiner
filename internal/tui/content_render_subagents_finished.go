@@ -72,13 +72,13 @@ func (b *contentBuffer) settleLostDelivery(item output.DeliveredSubAgent) {
 	if !found || target.dd.status != "active" {
 		return
 	}
-	markLostDelivery(target.dd, item)
+	markLostDelivery(target.dd, item, b.nowNanos())
 	b.forgetDelegation(target.dd)
 	b.markDelegationDirty(target.seg)
 }
 
 // markLostDelivery applies the terminal lost state for a settled delivery.
-func markLostDelivery(dd *delegationDisplayState, item output.DeliveredSubAgent) {
+func markLostDelivery(dd *delegationDisplayState, item output.DeliveredSubAgent, now int64) {
 	dd.status = "failed"
 	dd.resultStatus = "lost"
 	if dd.failureReason == "" {
@@ -87,7 +87,7 @@ func markLostDelivery(dd *delegationDisplayState, item output.DeliveredSubAgent)
 	dd.queuedForSlot = false
 	dd.cacheWaiting = false
 	if dd.elapsed == "" && dd.startTime > 0 {
-		dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+		dd.elapsed = formatElapsed(dd.startTime, now)
 	}
 	dd.fillFromTerminalEvent(item.AgentType, item.DurationMs)
 }

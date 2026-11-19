@@ -12,6 +12,7 @@ import (
 )
 
 func TestFilterMouseMotion(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	row := renderedSidebarRow(m, "solo")
 	if row < 0 {
@@ -126,6 +127,7 @@ func TestFilterMouseMotion(t *testing.T) {
 }
 
 func TestRosterHoverRendering(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	w := sidebarWidth - 2*sidebarPadH
 	plain, _ := m.sidebar.subAgentsRows(w)
@@ -148,6 +150,7 @@ func TestRosterHoverRendering(t *testing.T) {
 }
 
 func TestRosterHoverMouseMode(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		setupSidebar func(*Model)
@@ -224,6 +227,7 @@ func TestRosterHoverMouseMode(t *testing.T) {
 }
 
 func TestRecentMouseInputCountsMotion(t *testing.T) {
+	t.Parallel()
 	m := &Model{}
 	if m.recentMouseInput() {
 		t.Error("no mouse input reported as recent")
@@ -239,6 +243,7 @@ func TestRecentMouseInputCountsMotion(t *testing.T) {
 }
 
 func TestMouseModeChangesWhenOverlayOpens(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 
 	// Set hover on a roster row
@@ -276,6 +281,7 @@ func TestMouseModeChangesWhenOverlayOpens(t *testing.T) {
 // final frame wrapped in its own OSC 8 link (which gives terminals their hand
 // pointer and underline) and non-clickable lines carry none.
 func TestRosterRowsAreHyperlinks(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	lines := strings.Split(m.View().Content, "\n")
 	for _, id := range []string{"solo", "g1", "g2"} {
@@ -309,6 +315,7 @@ func TestRosterRowsAreHyperlinks(t *testing.T) {
 }
 
 func TestRosterLinkEscapesAgentID(t *testing.T) {
+	t.Parallel()
 	got := rosterLink("odd id/1", "x")
 	if want := ansi.SetHyperlink("steiner://agent/odd%20id%2F1") + "x" + ansi.ResetHyperlink(); got != want {
 		t.Errorf("rosterLink = %q, want %q", got, want)
@@ -335,6 +342,7 @@ func hoverRow(t *testing.T, m *Model, agentID string) int {
 // TestReconcileRosterHover covers hover changing without pointer motion: the
 // highlight must not stay on a row that is gone, covered or replaced.
 func TestReconcileRosterHover(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		start     string
@@ -381,6 +389,7 @@ func TestReconcileRosterHover(t *testing.T) {
 // TestUpdateReconcilesRosterHover checks Update runs the reconcile: toggling
 // the sidebar off with its key clears hover.
 func TestUpdateReconcilesRosterHover(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	hoverRow(t, m, "solo")
 	updateModelDirect(m, tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
@@ -393,6 +402,7 @@ func TestUpdateReconcilesRosterHover(t *testing.T) {
 }
 
 func TestRosterAgentAtIgnoresOverlays(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	row := renderedSidebarRow(m, "solo")
 	if got := m.rosterAgentAt(sidebarPadH, row); got != "solo" {
@@ -408,6 +418,7 @@ func TestRosterAgentAtIgnoresOverlays(t *testing.T) {
 }
 
 func TestCachedRosterLayout(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	first := m.cachedRosterLayout()
 

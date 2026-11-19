@@ -101,7 +101,7 @@ func (b *contentBuffer) handleFollowUpToolCallStarted(payload output.ToolCallSta
 	dd.taskPreview = summary
 	dd.promptText = promptText
 	dd.status = "active"
-	dd.startTime = nanoNow()
+	dd.startTime = b.nowNanos()
 	dd.isFollowUp = true
 	dd.followUpAgentID = childAgentID
 	dd.baselineTurnCount = baselineTurns
@@ -117,7 +117,7 @@ func (b *contentBuffer) handleParentDelegateToolCallStarted(payload output.ToolC
 		loc.dd.queuedForSlot = false
 		loc.dd.status = "active"
 		loc.dd.collapsed = true
-		loc.dd.startTime = nanoNow()
+		loc.dd.startTime = b.nowNanos()
 		b.bindParentDelegateCall(loc, payload)
 		b.openDelegation(loc)
 		return
@@ -297,7 +297,7 @@ func (b *contentBuffer) bindDelegation(occ output.DelegationOccurrence, agentTyp
 	if runes := []rune(preview); len(runes) > 80 {
 		preview = string(runes[:77]) + "..."
 	}
-	now := nanoNow()
+	now := b.nowNanos()
 	b.noteDelegationEvent(agentID)
 	bind := func(loc delegationLocator) {
 		dd := loc.dd

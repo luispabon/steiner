@@ -77,6 +77,7 @@ func usageRunCmds(cmd tea.Cmd) []tea.Msg {
 }
 
 func TestUsageOverlayCtrlOTogglesAndEscCloses(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_, _ = m.Update(usageCtrlO())
 	if !m.usageOverlay.IsOpen() {
@@ -94,6 +95,7 @@ func TestUsageOverlayCtrlOTogglesAndEscCloses(t *testing.T) {
 }
 
 func TestUsageOverlayNilQuotaIsNoop(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	_, _ = m.Update(usageCtrlO())
 	if m.usageOverlay.IsOpen() {
@@ -114,6 +116,7 @@ func TestUsageOverlayNilQuotaIsNoop(t *testing.T) {
 }
 
 func TestUsageOverlayOpenLoadsViewsOnlyThroughCommands(t *testing.T) {
+	t.Parallel()
 	f := &usageTestFetcher{}
 	m := newUsageTestModel(newUsageTestService(f), 0)
 	cmd := m.openUsageOverlay()
@@ -147,6 +150,7 @@ func TestUsageOverlayOpenLoadsViewsOnlyThroughCommands(t *testing.T) {
 }
 
 func TestUsageViewsLoadedMsgStoresSettledViews(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_ = m.openUsageOverlay()
 	m.usageOverlay.inFlight = 0
@@ -163,6 +167,7 @@ func TestUsageViewsLoadedMsgStoresSettledViews(t *testing.T) {
 }
 
 func TestUsageOverlayRKeyRepeatsRefreshAll(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_ = m.openUsageOverlay()
 	_, _ = m.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
@@ -172,6 +177,7 @@ func TestUsageOverlayRKeyRepeatsRefreshAll(t *testing.T) {
 }
 
 func TestUsageOverlayRunFinishedRefreshIsConditional(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		withSvc  bool
@@ -239,6 +245,7 @@ func TestUsageOverlayUpdateRearmsWaiter(t *testing.T) {
 }
 
 func TestUsageOverlayUpdateWhenOpenOnlySchedulesLoad(t *testing.T) {
+	t.Parallel()
 	svc := newUsageTestService(&usageTestFetcher{})
 	m := newUsageTestModel(svc, 0)
 	_ = m.openUsageOverlay()
@@ -259,6 +266,7 @@ func TestUsageOverlayUpdateWhenOpenOnlySchedulesLoad(t *testing.T) {
 }
 
 func TestUsageOverlayRefreshDoneSchedulesLoadWhenOpen(t *testing.T) {
+	t.Parallel()
 	svc := newUsageTestService(&usageTestFetcher{})
 	m := newUsageTestModel(svc, 0)
 	_ = m.openUsageOverlay()
@@ -282,6 +290,7 @@ func usageLineWith(s, sub string) string {
 }
 
 func TestUsageRefreshingSpinnerAdvancesOnTick(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	m.usageOverlay = m.usageOverlay.Open()
 	m.usageOverlay.views = []quota.AccountView{{ProviderType: "claude_subscription", DisplayAlias: "work", Refreshing: true}}
@@ -301,6 +310,7 @@ func TestUsageRefreshingSpinnerAdvancesOnTick(t *testing.T) {
 }
 
 func TestUsageViewsLoadedStartsTickerForRefreshingProvider(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	m.usageOverlay = m.usageOverlay.Open()
 	m.ticking = false
@@ -316,6 +326,7 @@ func TestUsageViewsLoadedStartsTickerForRefreshingProvider(t *testing.T) {
 }
 
 func TestUsageOverlayTitleUsesCardLabel(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(quota.NewService(quota.ServiceOptions{}), 0)
 	_ = m.openUsageOverlay()
 	if want := usageStyled(t, m.styles.CardLabel, "Subscription usage"); !strings.Contains(m.usageOverlay.View(), want) {
@@ -324,6 +335,7 @@ func TestUsageOverlayTitleUsesCardLabel(t *testing.T) {
 }
 
 func TestUsageOverlayEmptyStateAndFooter(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(quota.NewService(quota.ServiceOptions{}), 0)
 	_ = m.openUsageOverlay()
 	view := ansi.Strip(m.usageOverlay.View())
@@ -335,6 +347,7 @@ func TestUsageOverlayEmptyStateAndFooter(t *testing.T) {
 }
 
 func TestUsageOverlayViewClampsScrollOffset(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_ = m.openUsageOverlay()
 	m.usageOverlay.height = 10
@@ -370,6 +383,7 @@ func usageTestFullView() quota.AccountView {
 }
 
 func TestUsageBodyCountMatchesRenderedBody(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		views []quota.AccountView
@@ -413,6 +427,7 @@ func TestUsageBodyCountMatchesRenderedBody(t *testing.T) {
 }
 
 func TestUsageOverlayScrollUsesCachedBodyCount(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	o := m.usageOverlay.Open()
 	o.OverlayShell = o.WithDimensions(120, 12) // 5 visible body rows
@@ -441,6 +456,7 @@ func TestUsageOverlayScrollUsesCachedBodyCount(t *testing.T) {
 }
 
 func TestUsageOverlayClampsScrollToExpiredBody(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	o := m.usageOverlay.Open()
 	o.OverlayShell = o.WithDimensions(120, 12)
@@ -468,6 +484,7 @@ func TestUsageOverlayClampsScrollToExpiredBody(t *testing.T) {
 }
 
 func TestUsageSlashCommandRouting(t *testing.T) {
+	t.Parallel()
 	var found bool
 	for _, c := range slashCommands {
 		if c.ID != "/usage" {
@@ -494,6 +511,7 @@ func TestUsageSlashCommandRouting(t *testing.T) {
 }
 
 func TestUsageHelpListsCtrlOAfterCtrlT(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	lines := strings.Split(ansi.Strip(renderHelp(m.styles, 100)), "\n")
 	ctrlT, ctrlO := -1, -1

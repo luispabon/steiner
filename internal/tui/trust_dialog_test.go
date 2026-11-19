@@ -28,6 +28,7 @@ func keyPress(text string) tea.KeyPressMsg {
 }
 
 func TestTrustDialogKeyChoices(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		key        tea.KeyPressMsg
@@ -58,6 +59,7 @@ func TestTrustDialogKeyChoices(t *testing.T) {
 }
 
 func TestTrustDialogTabThenEnter(t *testing.T) {
+	t.Parallel()
 	m := newTrustDialogModel(testInspection())
 	if m.selected != TrustDeny {
 		t.Fatalf("expected initial selected = TrustDeny, got %v", m.selected)
@@ -82,6 +84,7 @@ func TestTrustDialogTabThenEnter(t *testing.T) {
 }
 
 func TestTrustDialogViewSecurityMarking(t *testing.T) {
+	t.Parallel()
 	m := newTrustDialogModel(testInspection())
 	view := m.View()
 	if !strings.Contains(view.Content, "! sandbox.enabled") {
@@ -93,6 +96,7 @@ func TestTrustDialogViewSecurityMarking(t *testing.T) {
 }
 
 func TestTrustDialogViewPermanenceSentence(t *testing.T) {
+	t.Parallel()
 	const sentence = "Once trusted, future changes to this project's config apply without asking."
 	cases := []config.ProjectInspection{
 		testInspection(),
@@ -110,6 +114,7 @@ func TestTrustDialogViewPermanenceSentence(t *testing.T) {
 }
 
 func TestTrustDialogViewNoConfig(t *testing.T) {
+	t.Parallel()
 	m := newTrustDialogModel(config.ProjectInspection{ProjectRoot: "/x"})
 	view := m.View()
 	if !strings.Contains(view.Content, "This project has no steiner config.") {
@@ -118,6 +123,7 @@ func TestTrustDialogViewNoConfig(t *testing.T) {
 }
 
 func TestTrustDialogViewParseError(t *testing.T) {
+	t.Parallel()
 	m := newTrustDialogModel(config.ProjectInspection{
 		ProjectRoot: "/x",
 		ConfigPath:  "/x/.steiner/config.yaml",
@@ -130,6 +136,7 @@ func TestTrustDialogViewParseError(t *testing.T) {
 }
 
 func TestTrustDialogViewNoChanges(t *testing.T) {
+	t.Parallel()
 	m := newTrustDialogModel(config.ProjectInspection{
 		ProjectRoot: "/x",
 		ConfigPath:  "/x/.steiner/config.yaml",
@@ -141,6 +148,7 @@ func TestTrustDialogViewNoChanges(t *testing.T) {
 }
 
 func TestTrustDialogScroll(t *testing.T) {
+	t.Parallel()
 	insp := config.ProjectInspection{
 		ProjectRoot: "/x",
 		ConfigPath:  "/x/.steiner/config.yaml",
@@ -172,6 +180,7 @@ func TestTrustDialogScroll(t *testing.T) {
 }
 
 func TestTrustDialogSmallHeightTitleStaysVisible(t *testing.T) {
+	t.Parallel()
 	insp := config.ProjectInspection{
 		ProjectRoot: "/x",
 		ConfigPath:  "/x/.steiner/config.yaml",
@@ -196,6 +205,7 @@ func TestTrustDialogSmallHeightTitleStaysVisible(t *testing.T) {
 }
 
 func TestTrustDialogLongChangeLineTruncatedToWidth(t *testing.T) {
+	t.Parallel()
 	insp := config.ProjectInspection{
 		ProjectRoot: "/x",
 		ConfigPath:  "/x/.steiner/config.yaml",
@@ -219,6 +229,7 @@ func TestTrustDialogLongChangeLineTruncatedToWidth(t *testing.T) {
 }
 
 func TestNoticeDialogDismiss(t *testing.T) {
+	t.Parallel()
 	m := newNoticeDialogModel("Notice", "something happened")
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !m.done {
@@ -230,6 +241,7 @@ func TestNoticeDialogDismiss(t *testing.T) {
 }
 
 func TestNoticeDialogView(t *testing.T) {
+	t.Parallel()
 	m := newNoticeDialogModel("Notice", "something happened")
 	view := m.View()
 	if !strings.Contains(view.Content, "Notice") {
@@ -244,6 +256,7 @@ func TestNoticeDialogView(t *testing.T) {
 }
 
 func TestTrustDialogResult(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		m    *trustDialogModel

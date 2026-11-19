@@ -231,7 +231,7 @@ func (b *contentBuffer) compactionHeaderMetaParts(cd *compactionBannerData) []co
 
 	elapsed := cd.elapsed
 	if elapsed == "" && cd.startTime > 0 {
-		elapsed = formatElapsed(cd.startTime, nanoNow())
+		elapsed = formatElapsed(cd.startTime, b.nowNanos())
 	}
 	if elapsed != "" {
 		parts = append(parts, compactionHeaderPart{plain: elapsed, styled: b.styles.FgDim.Render(elapsed), priority: compactionMetaElapsedPriority})

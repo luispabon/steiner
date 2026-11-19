@@ -39,7 +39,7 @@ func delegationStatsParts(b *contentBuffer, dd *delegationDisplayState) []string
 	if dd.tokenCount > 0 {
 		parts = append(parts, b.styles.FgDim.Render("Tokens: "+formatTokenPair(dd.cacheReadTokens+dd.inputTokens+dd.cacheCreateTokens, dd.tokenCount)))
 	}
-	if duration := delegationStatsDuration(dd); duration != "" {
+	if duration := delegationStatsDuration(dd, b.nowNanos()); duration != "" {
 		parts = append(parts, b.styles.FgDim.Render("Duration: "+duration))
 	}
 	if status := delegationStatsStatus(dd); status != "" {
@@ -80,10 +80,10 @@ func (b *contentBuffer) renderDelegationStatsAdvisor(dd *delegationDisplayState)
 	return b.styles.FgDim.Render(text)
 }
 
-func delegationStatsDuration(dd *delegationDisplayState) string {
+func delegationStatsDuration(dd *delegationDisplayState, now int64) string {
 	duration := strings.TrimSpace(dd.elapsed)
 	if duration == "" && dd.status == "active" && dd.startTime > 0 {
-		duration = formatElapsed(dd.startTime, nanoNow())
+		duration = formatElapsed(dd.startTime, now)
 	}
 	return duration
 }

@@ -51,6 +51,7 @@ func rowIDs(rows []subAgentPickerRow) []string {
 }
 
 func TestSubAgentPickerRows(t *testing.T) {
+	t.Parallel()
 	cards := []pickerCard{
 		{id: "old", typ: "plan", status: "complete", start: 10, task: "draft plan"},
 		{id: "g1", group: "fan", typ: "explore", status: "complete", start: 20, task: "map tui"},
@@ -86,6 +87,7 @@ func TestSubAgentPickerRows(t *testing.T) {
 }
 
 func TestSubAgentPickerRowsCarryOwnKeys(t *testing.T) {
+	t.Parallel()
 	b, keys := buildPickerBuffer(t, []pickerCard{
 		{id: "a", group: "g", typ: "explore", status: "complete", start: 1},
 		{id: "b", group: "g", typ: "explore", status: "complete", start: 2},
@@ -101,6 +103,7 @@ func TestSubAgentPickerRowsCarryOwnKeys(t *testing.T) {
 }
 
 func TestSubAgentPickerRowsFollowUpIsOwnRow(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	k1 := addJumpCard(m, 1, "c1", "")
 	m.content.AppendLine("filler")

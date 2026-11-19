@@ -15,7 +15,7 @@ func (b *contentBuffer) noteDelegationEvent(agentID string) {
 	if b.lastDelegationEvent == nil {
 		b.lastDelegationEvent = make(map[string]int64)
 	}
-	b.lastDelegationEvent[agentID] = nanoNow()
+	b.lastDelegationEvent[agentID] = b.nowNanos()
 }
 
 // stalledMinutes returns the whole minutes an active, running delegation has

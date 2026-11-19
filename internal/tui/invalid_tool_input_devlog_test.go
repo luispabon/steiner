@@ -9,6 +9,7 @@ import (
 )
 
 func TestInvalidToolInputRejectionStillReachesDevLog(t *testing.T) {
+	t.Parallel()
 	const message = "tool execution failed: sub_agent: invalid_tool_input: tool input could not be parsed by the Claude CLI"
 	admission := &output.DelegationAdmission{Status: "rejected", ModelGuidance: true}
 	event := output.NewToolCallFinishedEventWithAdmission(1, "sub_agent", "call", "", errors.New(message), output.ToolPreview{}, admission)

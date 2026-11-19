@@ -104,7 +104,7 @@ func (b *contentBuffer) finalizeActiveDelegation(agentID string) {
 	loc.dd.status = "failed"
 	loc.dd.finalizedByCancellation = true
 	if loc.dd.elapsed == "" && loc.dd.startTime > 0 {
-		loc.dd.elapsed = formatElapsed(loc.dd.startTime, nanoNow())
+		loc.dd.elapsed = formatElapsed(loc.dd.startTime, b.nowNanos())
 	}
 	b.markDelegationDirty(loc.seg)
 }
@@ -177,7 +177,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
 			}
 			if dd.startTime > 0 {
-				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+				dd.elapsed = formatElapsed(dd.startTime, b.nowNanos())
 			}
 			dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			dd.output = payload.Output
@@ -229,7 +229,7 @@ func (b *contentBuffer) handleDelegationFailed(event output.Event) {
 			dd.status = "failed"
 			dd.failureReason = payload.Error
 			if dd.startTime > 0 {
-				dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+				dd.elapsed = formatElapsed(dd.startTime, b.nowNanos())
 			}
 			dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
 			if payload.AdvisorBudget > 0 {
@@ -281,7 +281,7 @@ type delegateActiveRow struct {
 // ActiveDelegateRows returns active, identified delegates in transcript order.
 func (b *contentBuffer) ActiveDelegateRows() []delegateActiveRow {
 	rows := make([]delegateActiveRow, 0)
-	now := timeNow()
+	now := b.nowTime()
 	appendRow := func(dd *delegationDisplayState) {
 		if dd == nil || dd.isAdvisor || dd.agentID == "" || dd.status != "active" {
 			return
@@ -345,10 +345,29 @@ func (b *contentBuffer) ToggleLastDelegationOutput() {
 	})
 }
 
+// timeNow and nanoNow are the package clock, the fallback for contentBuffer
+// values without their own clock. Tests that pin elapsed time should set
+// contentBuffer.clock on the instance under test instead of writing these.
 var timeNow = time.Now
 
 var nanoNow = func() int64 {
 	return timeNow().UnixNano()
+}
+
+// nowTime returns the buffer's clock, falling back to the package clock.
+func (b *contentBuffer) nowTime() time.Time {
+	if b.clock != nil {
+		return b.clock()
+	}
+	return timeNow()
+}
+
+// nowNanos is nowTime in Unix nanoseconds.
+func (b *contentBuffer) nowNanos() int64 {
+	if b.clock != nil {
+		return b.clock().UnixNano()
+	}
+	return nanoNow()
 }
 
 // findChildDelegationInfo searches for a delegation segment by agentID and returns

@@ -16,6 +16,7 @@ func (listOnlySessionStore) List() ([]session.IndexEntry, error) { return nil, n
 func (listOnlySessionStore) Load(string) (session.Session, error) { return session.Session{}, nil }
 
 func TestOneshotSessionStoreOrEmitFailureEmitsOneshotReport(t *testing.T) {
+	t.Parallel()
 	var events []output.Event
 	sink := output.SinkFunc(func(ev output.Event) { events = append(events, ev) })
 

@@ -118,6 +118,7 @@ func TestInProgressPreviewSurvivesStateChanges(t *testing.T) {
 }
 
 func TestInProgressPreviewBlankBuffer(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ name, buffer string }{
 		{"empty", ""},
 		{"newlines", "\n\n"},
@@ -175,6 +176,7 @@ func TestFreshWrapStartsMatchFullWrap(t *testing.T) {
 }
 
 func TestStreamPreviewRendersBoundedTail(t *testing.T) {
+	t.Parallel()
 	const width = 80
 	var c streamPreviewCache
 	b := newPreviewBuffer(theme.DefaultPalette())

@@ -66,6 +66,7 @@ func viewportRow(m *Model, row int) string {
 }
 
 func TestJumpToStandaloneCardPutsTopBorderFirst(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	addJumpFiller(m, 10)
 	key := addJumpCard(m, 1, "target", "")
@@ -96,6 +97,7 @@ func TestJumpToStandaloneCardPutsTopBorderFirst(t *testing.T) {
 }
 
 func TestJumpToGroupMembers(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		member int
@@ -158,6 +160,7 @@ func TestJumpToGroupMembers(t *testing.T) {
 }
 
 func TestJumpClampsAtContentEnd(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	addJumpFiller(m, 30)
 	key := addJumpCard(m, 1, "last", "")
@@ -171,6 +174,7 @@ func TestJumpClampsAtContentEnd(t *testing.T) {
 }
 
 func TestJumpUnresolvableChangesNothing(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	addJumpFiller(m, 80)
 	existing := addJumpCard(m, 1, "x", "")
@@ -329,6 +333,7 @@ func headerRowTextNoFlash(m *Model, dd *delegationDisplayState) string {
 }
 
 func TestToggleJumpTargetCollapse(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		group    string
@@ -369,6 +374,7 @@ func TestToggleJumpTargetCollapse(t *testing.T) {
 }
 
 func TestToggleJumpTargetCollapseAfterClear(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	key := addJumpCard(m, 1, "x", "")
 	m.jumpToDelegation(key)
