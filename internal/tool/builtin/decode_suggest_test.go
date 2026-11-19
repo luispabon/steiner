@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,6 +58,18 @@ func TestDecodeInputUnknownFieldSuggestions(t *testing.T) {
 			t.Fatalf("error = %q, want no suggestion for an already present target", msg)
 		}
 	})
+
+	t.Run("reverse containment suggests shorter field", func(t *testing.T) {
+		_, err := decodeInput[reverseContainmentInput](map[string]any{"path_glob": "x"})
+		msg := requireUnknownFieldError(t, err)
+		requireSuggestion(t, msg, "path_glob", "path")
+	})
+
+	t.Run("acronym containment uses split tokens", func(t *testing.T) {
+		_, err := decodeInput[acronymContainmentInput](map[string]any{"fileURLPath": "x"})
+		msg := requireUnknownFieldError(t, err)
+		requireSuggestion(t, msg, "fileURLPath", "url")
+	})
 }
 
 func TestDecodeInputUnknownFieldSuggestionAmbiguity(t *testing.T) {
@@ -75,6 +88,39 @@ func TestDecodeInputUnknownFieldSuggestionAmbiguity(t *testing.T) {
 			t.Fatalf("error = %q, want no suggestion for an edit distance tie", msg)
 		}
 	})
+}
+
+func TestDecodeInputUnknownFieldPresentBestTier(t *testing.T) {
+	_, err := decodeInput[presentTierInput](map[string]any{
+		"path": "x",
+		"Path": "y",
+	})
+	msg := requireUnknownFieldError(t, err)
+	if strings.Contains(msg, `did you mean "path_glob"`) {
+		t.Fatalf("error = %q, want no weaker suggestion for an already present best match", msg)
+	}
+	if strings.Contains(msg, "did you mean") {
+		t.Fatalf("error = %q, want the present best match to suppress suggestions", msg)
+	}
+}
+
+func TestSplitFieldNameAcronymBoundaries(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{name: "trailing acronym", input: "fileURLPath", want: []string{"file", "url", "path"}},
+		{name: "leading acronym", input: "XMLHttpRequest", want: []string{"xml", "http", "request"}},
+		{name: "acronym before digit", input: "HTTP2Server", want: []string{"http2", "server"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := splitFieldName(tc.input); !slices.Equal(got, tc.want) {
+				t.Fatalf("splitFieldName(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestDecodeInputUnknownFieldSuggestionCollision(t *testing.T) {
@@ -151,6 +197,30 @@ func TestDecodeInputUnknownFieldSuggestionLengths(t *testing.T) {
 			t.Fatalf("error length = %d, want <= 400", len(msg))
 		}
 	})
+	t.Run("sixty-four rune key matches", func(t *testing.T) {
+		if len(lengthBoundaryFieldName) != maxSuggestedKeyRunes {
+			t.Fatalf("test field name length = %d, want %d", len(lengthBoundaryFieldName), maxSuggestedKeyRunes)
+		}
+		key := strings.ToUpper(lengthBoundaryFieldName)
+		_, err := decodeInput[lengthBoundaryInput](map[string]any{key: "x"})
+		msg := requireUnknownFieldError(t, err)
+		requireSuggestion(t, msg, key, lengthBoundaryFieldName)
+		if strings.Contains(msg, "...") {
+			t.Fatalf("error = %q, want a %d-rune key shown in full", msg, maxSuggestedKeyRunes)
+		}
+	})
+
+	t.Run("sixty-five rune key is skipped", func(t *testing.T) {
+		key := strings.Repeat("a", maxSuggestedKeyRunes+1)
+		_, err := decodeInput[lengthBoundaryInput](map[string]any{key: "x"})
+		msg := requireUnknownFieldError(t, err)
+		if strings.Contains(msg, "did you mean") {
+			t.Fatalf("error = %q, want no suggestion for a key over %d runes", msg, maxSuggestedKeyRunes)
+		}
+		if !strings.Contains(msg, "...") {
+			t.Fatalf("error = %q, want the key over %d runes truncated", msg, maxSuggestedKeyRunes)
+		}
+	})
 }
 
 func TestDecodeInputUnknownFieldErrorBounds(t *testing.T) {
@@ -173,16 +243,46 @@ func TestDecodeInputUnknownFieldErrorBounds(t *testing.T) {
 		}
 	})
 
+	t.Run("keeps real GrepInput valid field list complete", func(t *testing.T) {
+		_, err := decodeInput[GrepInput](map[string]any{
+			"pattern": "x",
+			"zzzzz":   "y",
+		})
+		msg := requireUnknownFieldError(t, err)
+		wantFields := []string{
+			"after_context",
+			"before_context",
+			"case_insensitive",
+			"context",
+			"glob",
+			"head_limit",
+			"line_numbers",
+			"multiline",
+			"offset",
+			"output_mode",
+			"path",
+			"pattern",
+			"type",
+		}
+		want := "valid fields: " + strings.Join(wantFields, ", ")
+		if !strings.HasSuffix(msg, want) {
+			t.Fatalf("error = %q, want complete valid fields %q", msg, want)
+		}
+		if strings.Contains(msg, "(+") {
+			t.Fatalf("error = %q, want no omitted real valid fields", msg)
+		}
+	})
+
 	t.Run("bounds the sorted valid field list", func(t *testing.T) {
 		_, err := decodeInput[suggestionManyFieldsInput](map[string]any{"zzzzz": "x"})
 		msg := requireUnknownFieldError(t, err)
-		if !strings.Contains(msg, "field_01") || !strings.Contains(msg, "field_12") {
-			t.Fatalf("error = %q, want the first twelve valid fields", msg)
+		if !strings.Contains(msg, "field_01") || !strings.Contains(msg, "field_24") {
+			t.Fatalf("error = %q, want the first twenty-four valid fields", msg)
 		}
 		if !strings.Contains(msg, "(+4 more)") {
 			t.Fatalf("error = %q, want an omitted valid field count", msg)
 		}
-		if strings.Contains(msg, "field_13") {
+		if strings.Contains(msg, "field_25") {
 			t.Fatalf("error = %q, want the valid field list bounded", msg)
 		}
 	})
@@ -290,4 +390,35 @@ type suggestionManyFieldsInput struct {
 	Field14 string `json:"field_14"`
 	Field15 string `json:"field_15"`
 	Field16 string `json:"field_16"`
+	Field17 string `json:"field_17"`
+	Field18 string `json:"field_18"`
+	Field19 string `json:"field_19"`
+	Field20 string `json:"field_20"`
+	Field21 string `json:"field_21"`
+	Field22 string `json:"field_22"`
+	Field23 string `json:"field_23"`
+	Field24 string `json:"field_24"`
+	Field25 string `json:"field_25"`
+	Field26 string `json:"field_26"`
+	Field27 string `json:"field_27"`
+	Field28 string `json:"field_28"`
+}
+
+type presentTierInput struct {
+	Path     string `json:"path"`
+	PathGlob string `json:"path_glob"`
+}
+
+type reverseContainmentInput struct {
+	Path string `json:"path"`
+}
+
+type acronymContainmentInput struct {
+	URL string `json:"url"`
+}
+
+const lengthBoundaryFieldName = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+type lengthBoundaryInput struct {
+	Value string `json:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`
 }

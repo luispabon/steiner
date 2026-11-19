@@ -18,7 +18,7 @@ const (
 	// maxReportedUnknownFields bounds how many unknown fields one error reports.
 	maxReportedUnknownFields = 3
 	// maxReportedValidFields bounds the valid field list in one error.
-	maxReportedValidFields = 12
+	maxReportedValidFields = 24
 )
 
 // fieldNameSuggestion is a valid JSON field name split into normalized tokens.
@@ -61,15 +61,15 @@ func unknownFieldError(unknown []string, raw map[string]any, known map[string]in
 	return fmt.Errorf("decode input: %s; valid fields: %s", strings.Join(parts, "; "), validFieldList(known))
 }
 
-// suggestUnknownFields returns one unique suggestion per unknown key. Keys that
-// share a suggestion suppress each other so the error never proposes the same
-// target for multiple invalid inputs.
+// suggestUnknownFields returns one unique suggestion per unknown key. The best
+// match is chosen across every valid field, including already present ones; a
+// best match that is already present suppresses the suggestion instead of
+// falling through to a weaker candidate. Keys that share a suggestion suppress
+// each other so the error never proposes the same target for multiple invalid
+// inputs.
 func suggestUnknownFields(unknown []string, raw map[string]any, known map[string]int) map[string]string {
 	candidates := make([]fieldNameSuggestion, 0, len(known))
 	for name := range known {
-		if _, present := raw[name]; present {
-			continue
-		}
 		tokens := splitFieldName(name)
 		candidates = append(candidates, fieldNameSuggestion{
 			name:       name,
@@ -92,6 +92,9 @@ func suggestUnknownFields(unknown []string, raw map[string]any, known map[string
 			tokens:     tokens,
 		}, candidates)
 		if !ok {
+			continue
+		}
+		if _, present := raw[target]; present {
 			continue
 		}
 		suggestions[key] = target
@@ -168,7 +171,7 @@ func splitFieldName(name string) []string {
 		if len(current) == 0 {
 			return
 		}
-		tokens = append(tokens, string(current))
+		tokens = append(tokens, strings.ToLower(string(current)))
 		current = current[:0]
 	}
 
@@ -188,7 +191,7 @@ func splitFieldName(name string) []string {
 				}
 			}
 		}
-		current = append(current, unicode.ToLower(r))
+		current = append(current, r)
 	}
 	flush()
 	return tokens
