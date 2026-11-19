@@ -630,11 +630,12 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	defer cancel()
 
 	// The good server is connected, so start the stall server and time Run from
-	// the release: the stall server's 1s connect timeout begins here, so a Run
-	// that skipped the wait would return almost immediately and a slow connect
-	// earlier in the test cannot mask that.
-	openGate()
+	// just before the release: the stall server's 1s connect timeout begins at
+	// the release, so a Run that skipped the wait would return almost
+	// immediately. Sampling the clock before the release means preemption in
+	// between only lengthens the measurement, never shortens it.
 	runStart := time.Now()
+	openGate()
 	if _, err := sr.Run(ctx, interactive.RunInput{}); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
