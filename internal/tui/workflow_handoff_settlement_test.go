@@ -102,6 +102,7 @@ func TestWorkflowHandoffWaitsBeforeClearAndLaunch(t *testing.T) {
 }
 
 func TestWorkflowHandoffStaleAndDuplicateSettlementIgnored(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{config: workflowHandoffConfig()}
 	m := handoffAcceptedModel(t, ctrl, "")
 	old := m.pendingWorkflowHandoffLaunch
@@ -129,6 +130,7 @@ func TestWorkflowHandoffStaleAndDuplicateSettlementIgnored(t *testing.T) {
 }
 
 func TestWorkflowHandoffWaitRefusalDoesNotLaunch(t *testing.T) {
+	t.Parallel()
 	ctrl := &blockedWorkflowHandoffController{testController: testController{config: workflowHandoffConfig()}, entered: make(chan struct{}, 1), release: make(chan struct{}), waitFalse: true}
 	m := handoffAcceptedModel(t, ctrl, "")
 	waitCmd := m.applyEvent(output.NewStopReasonEvent(1, "workflow_handoff", nil))
@@ -149,6 +151,7 @@ func TestWorkflowHandoffWaitRefusalDoesNotLaunch(t *testing.T) {
 }
 
 func TestWorkflowHandoffOneshotRefusalDoesNotClear(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{config: workflowHandoffConfig()}
 	m := handoffAcceptedModel(t, ctrl, "selected")
 	m.oneshotRunning = true
@@ -159,6 +162,7 @@ func TestWorkflowHandoffOneshotRefusalDoesNotClear(t *testing.T) {
 }
 
 func TestWorkflowHandoffSelectedModelNeedsConfigCapability(t *testing.T) {
+	t.Parallel()
 	ctrl := &waiterOnlyWorkflowHandoffController{}
 	m := handoffAcceptedModel(t, ctrl, "selected")
 	m = settleMessage(t, m)
@@ -203,6 +207,7 @@ func TestWorkflowHandoffClearRefusalPreservesState(t *testing.T) {
 }
 
 func TestWorkflowHandoffMissingWaiterRefusesBeforeAccept(t *testing.T) {
+	t.Parallel()
 	ctrl := &clearTransactionController{}
 	m := newModel(Config{Controller: ctrl}, nil)
 	m.workflowHandoff = openWorkflowHandoffModal(80, 24, output.WorkflowHandoffEvent{Next: "review"}, interactive.WorkflowHandoffModelSelection{})
@@ -213,6 +218,7 @@ func TestWorkflowHandoffMissingWaiterRefusesBeforeAccept(t *testing.T) {
 }
 
 func TestWorkflowHandoffInvalidModelDoesNotClear(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{config: workflowHandoffConfig()}
 	m := settleMessage(t, handoffAcceptedModel(t, ctrl, "missing-model"))
 	if ctrl.countByType(interactive.ClearConversation{}) != 0 || len(ctrl.switchModelActions()) != 0 || ctrl.countSubmitPrompt() != 0 || m.primaryModel != "current" || !strings.Contains(m.content.String(m.viewport.Width()), "invalid selected handoff model") {
@@ -221,6 +227,7 @@ func TestWorkflowHandoffInvalidModelDoesNotClear(t *testing.T) {
 }
 
 func TestWorkflowHandoffUnexpectedSwitchFailureReportsPartialClear(t *testing.T) {
+	t.Parallel()
 	ctrl := &testController{config: workflowHandoffConfig(), switchModelErr: errors.New("switch rejected")}
 	m := settleMessage(t, handoffAcceptedModel(t, ctrl, "selected"))
 	if ctrl.countByType(interactive.ClearConversation{}) != 1 || len(ctrl.switchModelActions()) != 1 || ctrl.countSubmitPrompt() != 0 || m.primaryModel != "current" || !strings.Contains(m.content.String(m.viewport.Width()), "conversation was cleared") {

@@ -58,6 +58,7 @@ func TestToolCallHeaderRespectsCellWidth(t *testing.T) {
 }
 
 func TestClipboardFailureMessageShowsNotice(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Controller: &testController{}}, nil)
 	before := m.content.String(80)
 	_, _ = m.Update(clipboardFailedMsg{err: context.DeadlineExceeded})
@@ -67,6 +68,7 @@ func TestClipboardFailureMessageShowsNotice(t *testing.T) {
 }
 
 func TestSecondCtrlCDuringWorktreeCountQuits(t *testing.T) {
+	t.Parallel()
 	plan := NewWorktreeCleanupPlan(func(context.Context) (int, error) { return 1, nil }, nil)
 	m := newModel(Config{WorktreeCleanup: plan}, nil)
 	ctrlC := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}

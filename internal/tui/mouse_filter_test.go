@@ -7,6 +7,7 @@ import (
 )
 
 func TestClassifyMouse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		msg  tea.MouseMsg
@@ -75,6 +76,7 @@ func TestClassifyMouse(t *testing.T) {
 }
 
 func TestShouldIgnoreLeakedMouseRunes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		text        string
@@ -104,6 +106,7 @@ func TestShouldIgnoreLeakedMouseRunes(t *testing.T) {
 }
 
 func TestIsLeakedMouseFragment(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		fragment string
@@ -147,6 +150,7 @@ func TestIsLeakedMouseFragment(t *testing.T) {
 }
 
 func TestStripMouseSuffix(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		fragment   string
@@ -172,6 +176,7 @@ func TestStripMouseSuffix(t *testing.T) {
 }
 
 func TestStripMousePrefix(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		fragment   string
@@ -199,6 +204,7 @@ func TestStripMousePrefix(t *testing.T) {
 }
 
 func TestMousePartsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		parts []string
@@ -221,6 +227,7 @@ func TestMousePartsValid(t *testing.T) {
 }
 
 func TestMouseFragmentShapeAllowed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		prefix    string
@@ -253,6 +260,7 @@ func TestMouseFragmentShapeAllowed(t *testing.T) {
 }
 
 func TestIsLeakedMousePrefixFragment(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		fragment string

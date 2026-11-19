@@ -318,6 +318,7 @@ func TestWidthRenderCacheEvictsOnMutation(t *testing.T) {
 // (glamour included) would surface the poison, so revisits must serve the
 // renders recorded on first visit, byte for byte.
 func TestWidthRenderCacheServesRevisitedWidths(t *testing.T) {
+	t.Parallel()
 	const poison = "POISONED"
 	m := populateLongTranscript(newContentBenchModel(), 8)
 	resize := func(w int) func(m *Model) {
@@ -425,6 +426,7 @@ func TestWidthRenderCacheLayoutRules(t *testing.T) {
 // front with its renderer, a miss adds an empty slot for the target width, and
 // a miss on a full pool evicts the least recently used width.
 func TestGlamourPoolSlot(t *testing.T) {
+	t.Parallel()
 	target := func(w int) int { return max(1, w-markdownRenderPadding) }
 	widths := func(p *glamourPool) []int {
 		out := make([]int, len(p.slots))

@@ -133,6 +133,7 @@ func TestBgFormatCacheUpdateMatchesFullFormat(t *testing.T) {
 // early block and checks that the trailing blocks keep their (shifted) lines
 // while the formatter is fed under 10% of the transcript.
 func TestBgFormatCacheReusesUnchangedTail(t *testing.T) {
+	t.Parallel()
 	const marker = "POISONED"
 	blocks := make([]string, 120)
 	for i := range blocks {

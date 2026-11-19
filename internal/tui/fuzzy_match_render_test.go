@@ -65,6 +65,7 @@ func assertCellIdentical(t *testing.T, old, got string) {
 }
 
 func TestRenderMatchedTextCellIdentical(t *testing.T) {
+	t.Parallel()
 	accent := lipgloss.Color("#d97757")
 	styles := map[string]lipgloss.Style{
 		"fg":     lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg)),
@@ -132,6 +133,7 @@ func TestRenderMatchedTextCellIdentical(t *testing.T) {
 }
 
 func TestCellComparisonDetectsAttributeLoss(t *testing.T) {
+	t.Parallel()
 	accent := lipgloss.Color("#d97757")
 	base := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Fg))
 	want := renderMatchedTextPerRune("a b", []int{0, 1, 2}, base, accent)

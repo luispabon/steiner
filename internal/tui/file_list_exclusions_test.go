@@ -12,6 +12,7 @@ import (
 // any depth while its heavy subdirectories and built-in directory names stay
 // hidden.
 func TestWalkDirEntries_FilePickerForceInclude(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, rel := range []string{
 		".steiner/config.yaml",

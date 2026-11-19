@@ -28,6 +28,7 @@ func addActiveRoster(m *Model, statuses ...string) []occurrenceKey {
 func altKey(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModAlt} }
 
 func TestAltKeyMatching(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		msg  tea.KeyPressMsg
@@ -48,6 +49,7 @@ func TestAltKeyMatching(t *testing.T) {
 }
 
 func TestActiveJumpOrder(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	keys := addActiveRoster(m, rosterRunning, rosterDone, rosterQueued, rosterFailed, rosterRunning)
 	got := m.activeJumpOrder()
@@ -63,6 +65,7 @@ func TestActiveJumpOrder(t *testing.T) {
 }
 
 func TestCycleSubAgent(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		statuses []string
@@ -103,6 +106,7 @@ func TestCycleSubAgent(t *testing.T) {
 }
 
 func TestCycleSubAgentTargetNoLongerActive(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	keys := addActiveRoster(m, rosterRunning, rosterRunning, rosterRunning)
 	m.cycleSubAgent(1) // newest (2)
@@ -120,6 +124,7 @@ func TestCycleSubAgentTargetNoLongerActive(t *testing.T) {
 }
 
 func TestAltSlashToggle(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		age  time.Duration
@@ -149,6 +154,7 @@ func TestAltSlashToggle(t *testing.T) {
 }
 
 func TestAltKeysIgnoredWhileHelpVisible(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	addActiveRoster(m, rosterRunning)
 	m.helpVisible = true
@@ -159,6 +165,7 @@ func TestAltKeysIgnoredWhileHelpVisible(t *testing.T) {
 }
 
 func TestAltKeysIgnoredWhileOverlayOpen(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	addActiveRoster(m, rosterRunning)
 	m.approval.active = true

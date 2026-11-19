@@ -336,6 +336,7 @@ func checkLocatorIndex[K comparable](t *testing.T, name string, segments []conte
 // TestUnnamedFrameJumpAndPickerRows checks that an unnamed frame has no picker
 // group header and that jumping to its second card lands on the divider above it.
 func TestUnnamedFrameJumpAndPickerRows(t *testing.T) {
+	t.Parallel()
 	m := newJumpTestModel(t)
 	addJumpFiller(m, 10)
 	addJumpCard(m, 1, "a", "")

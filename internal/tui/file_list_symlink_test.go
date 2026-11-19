@@ -38,6 +38,7 @@ func symlinkTestRoot(t *testing.T, rels []string) string {
 // TestWalkDirEntries_SymlinkRoot proves a symlinked root is walked and that
 // returned entries stay lexical, relative to the root the caller passed.
 func TestWalkDirEntries_SymlinkRoot(t *testing.T) {
+	t.Parallel()
 	linkRoot := symlinkTestRoot(t, []string{"README.md", "src/main.go"})
 
 	entries, err := walkDirEntries(linkRoot)
@@ -61,6 +62,7 @@ func TestWalkDirEntries_SymlinkRoot(t *testing.T) {
 // TestWalkDirEntries_SymlinkRootDoesNotFollowNestedDirSymlinks proves nested
 // directory symlinks are listed as entries but not descended into.
 func TestWalkDirEntries_SymlinkRootDoesNotFollowNestedDirSymlinks(t *testing.T) {
+	t.Parallel()
 	linkRoot := symlinkTestRoot(t, []string{"src/main.go"})
 
 	outside := t.TempDir()
@@ -93,6 +95,7 @@ func TestWalkDirEntries_SymlinkRootDoesNotFollowNestedDirSymlinks(t *testing.T) 
 // force-include and exact-exclude rules still apply when the root is a
 // symlink.
 func TestWalkDirEntries_SymlinkRootKeepsPickerExclusions(t *testing.T) {
+	t.Parallel()
 	linkRoot := symlinkTestRoot(t, []string{
 		".steiner/config.yaml",
 		".steiner/tmp/scratch.txt",
@@ -136,6 +139,7 @@ func TestWalkDirEntries_SymlinkRootKeepsPickerExclusions(t *testing.T) {
 // TestFilePickerOverlay_SymlinkRootListsEntries proves the picker surfaces
 // candidates when opened on a symlinked root.
 func TestFilePickerOverlay_SymlinkRootListsEntries(t *testing.T) {
+	t.Parallel()
 	linkRoot := symlinkTestRoot(t, []string{"src/main.go"})
 
 	f := newFilePickerOverlay(testStyles("#ff0000")).Open(linkRoot)

@@ -10,6 +10,7 @@ import (
 )
 
 func TestRejectedToolFinishFlushesLiveAnswerAndThinkingBeforeExactEvidence(t *testing.T) {
+	t.Parallel()
 	const rejection = "api: provider /status:run failed"
 	b := &contentBuffer{collapseState: make(map[int]bool)}
 	b.appendToolCallStartedEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call", map[string]any{"type": "explore"}))
@@ -42,6 +43,7 @@ func TestRejectedToolFinishFlushesLiveAnswerAndThinkingBeforeExactEvidence(t *te
 }
 
 func TestRejectedErrorPrefixesRemainExactAndPolicyNoticeTyped(t *testing.T) {
+	t.Parallel()
 	for _, message := range []string{"api: provider failed", "turn /status:run failed", "status: provider failed"} {
 		t.Run(message, func(t *testing.T) {
 			b := &contentBuffer{segments: []contentSegment{{kind: segmentDelegation, delegData: &delegationDisplayState{parentCallID: "call"}}}}
@@ -96,6 +98,7 @@ func TestRejectedCurrentCardRemovalClearsSelectionAndDrag(t *testing.T) {
 }
 
 func TestRejectedProvisionalBetweenAcceptedGroupSiblingsLeavesOneFrame(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "first", subAgentArgs("g")))
 	first := lastDelegationCard(b)
@@ -111,6 +114,7 @@ func TestRejectedProvisionalBetweenAcceptedGroupSiblingsLeavesOneFrame(t *testin
 }
 
 func TestRejectedCurrentCallRewriteRemapsPointersAndKeepsFollowUpChild(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	occ := output.DelegationOccurrence{CallID: "original", BatchID: "batch", AgentID: "child"}
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original", subAgentArgs("shared")))

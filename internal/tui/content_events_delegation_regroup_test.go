@@ -111,6 +111,7 @@ func regroupScenarios() map[string][]regroupStep {
 }
 
 func TestRegroupTailOnlyMatchesFullRebuild(t *testing.T) {
+	t.Parallel()
 	for name, steps := range regroupScenarios() {
 		t.Run(name, func(t *testing.T) {
 			const prior = 300
@@ -146,6 +147,7 @@ func TestRegroupTailOnlyMatchesFullRebuild(t *testing.T) {
 }
 
 func TestRegroupKeepsSettledPrefixCache(t *testing.T) {
+	t.Parallel()
 	const prior = 200
 	b := regroupTestBuffer(prior)
 	ids := startRegroupCards(b, "A", "g", 3)
@@ -166,6 +168,7 @@ func TestRegroupKeepsSettledPrefixCache(t *testing.T) {
 }
 
 func TestRegroupDropsPrefixCacheCoveringRewrittenSegments(t *testing.T) {
+	t.Parallel()
 	b := regroupTestBuffer(50)
 	ids := startRegroupCards(b, "A", "g", 2)
 	acceptRegroupCard(b, "A", "g", ids[0])
@@ -182,6 +185,7 @@ func TestRegroupDropsPrefixCacheCoveringRewrittenSegments(t *testing.T) {
 // An unsettled segment ahead of the batch stops the settled prefix short of the
 // rewrite start. That prefix covers only unchanged segments, so it must survive.
 func TestRegroupKeepsShortPrefixCacheAheadOfUnsettledSegment(t *testing.T) {
+	t.Parallel()
 	const prior = 200
 	build := func() (*contentBuffer, []string) {
 		b := regroupTestBuffer(prior)

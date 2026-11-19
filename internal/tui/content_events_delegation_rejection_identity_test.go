@@ -9,6 +9,7 @@ import (
 )
 
 func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	occ := output.DelegationOccurrence{CallID: "accepted-call", BatchID: "accepted-batch", AgentID: "child"}
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "accepted-call", subAgentArgs("accepted-group")))
@@ -29,6 +30,7 @@ func TestDelegationRejectionIdentityKeepsAcceptedCardAndError(t *testing.T) {
 }
 
 func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
 	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
@@ -63,6 +65,7 @@ func TestDelegationRejectionIdentityLateRejectedCallDoesNotStealActiveChild(t *t
 }
 
 func TestDelegationRejectionIdentityAllowsFreshAcceptedFollowUpAfterCompletion(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "original-call", map[string]any{"type": "explore", "task": "original task"}))
 	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "original-call", BatchID: "old-batch", AgentID: "child"}, "old-group"))
@@ -142,6 +145,7 @@ func TestRejectedFrameMemberRerendersCachedFrame(t *testing.T) {
 // TestRejectedMiddleFrameMemberKeepsNeighbourOrder checks that rejecting the
 // middle card of an unnamed frame leaves the other two as one frame in order.
 func TestRejectedMiddleFrameMemberKeepsNeighbourOrder(t *testing.T) {
+	t.Parallel()
 	b := groupTestBuffer()
 	var cards []*delegationDisplayState
 	for _, id := range []string{"a", "b", "c"} {
@@ -182,6 +186,7 @@ func newIdentityTestModel() *Model {
 }
 
 func TestDelegationRejectionIdentityRemapsPendingSurvivors(t *testing.T) {
+	t.Parallel()
 	rejected := &delegationDisplayState{parentCallID: "rejected", status: "active"}
 	survivor := &delegationDisplayState{parentCallID: "survivor", status: "active"}
 	tool := &toolCallSegment{callID: "tool", active: true}

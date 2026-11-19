@@ -8,6 +8,7 @@ import (
 )
 
 func TestSidebarAcceptedGroupIdentity(t *testing.T) {
+	t.Parallel()
 	var r subAgentRoster
 	// Queue/start events precede tool finished metadata on this lifecycle path.
 	for _, call := range []struct{ callID, batchID, agentID string }{
@@ -50,6 +51,7 @@ func TestSidebarAcceptedGroupIdentity(t *testing.T) {
 }
 
 func TestRosterPreparationFailureUsesAdmissionIdentity(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		accept output.Event
@@ -75,6 +77,7 @@ func TestRosterPreparationFailureUsesAdmissionIdentity(t *testing.T) {
 }
 
 func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
+	t.Parallel()
 	var r subAgentRoster
 	r.observe(ev(output.DelegationQueuedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "queued"}, AgentType: "review"}), 1)
 	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{AgentID: "running"}, AgentType: "code"}), 2)
@@ -94,6 +97,7 @@ func TestRosterUnknownLegacyLifecycleAndDelivery(t *testing.T) {
 }
 
 func TestRosterAcceptedRunResetAndRejectedFollowup(t *testing.T) {
+	t.Parallel()
 	var r subAgentRoster
 	r.observe(ev(output.DelegationAcceptedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", BatchID: "old", AgentID: "child"}, Group: "old-group"}), 1)
 	r.observe(ev(output.DelegationStartedEvent{DelegationOccurrence: output.DelegationOccurrence{CallID: "original", BatchID: "old", AgentID: "child"}, AgentType: "code"}), 2)

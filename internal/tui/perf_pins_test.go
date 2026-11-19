@@ -105,6 +105,7 @@ func TestWheelRoutingPin(t *testing.T) {
 }
 
 func TestIdleIsIdlePin(t *testing.T) {
+	t.Parallel()
 	m := auditModelSized(t, 1, 0, false)
 	d := newAuditDriver(m)
 	d.run(5*time.Second, timers(m), nil)
@@ -146,6 +147,7 @@ func TestFinishedRosterIsIdlePin(t *testing.T) {
 }
 
 func TestChunksDoNotTouchViewportPin(t *testing.T) {
+	t.Parallel()
 	m := auditModelSized(t, 1, 0, false)
 	d := newAuditDriver(m)
 	d.send(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})

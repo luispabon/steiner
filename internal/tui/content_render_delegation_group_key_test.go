@@ -64,6 +64,7 @@ func TestSettledRowsKeyCoversUndirtiedInputs(t *testing.T) {
 // is drawn fresh and never stored in the settled rows cache. The settled rows key
 // leaves the flash out, so a stored flash row would outlive the flash.
 func TestJumpFlashEntryBypassesSettledCache(t *testing.T) {
+	t.Parallel()
 	m := mixedGroupModelWithMessages(2, true, mixedGroupTestMessages())
 	m.content.String(80)
 	dd := mixedEntries(m)[0]
@@ -79,6 +80,7 @@ func TestJumpFlashEntryBypassesSettledCache(t *testing.T) {
 // sibling. A re-walk that changes no entry must reuse the settled rows cache, so
 // an injected sentinel row comes back in the output.
 func TestSettledGroupCacheSurvivesRewalk(t *testing.T) {
+	t.Parallel()
 	m := populateLongTranscript(newContentBenchModel(), mixedGroupTestMessages())
 	for j := range 3 {
 		m = appendMixedChild(m, j, true)

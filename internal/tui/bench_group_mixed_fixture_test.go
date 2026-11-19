@@ -14,6 +14,7 @@ import (
 // CR fixture stores its carriage return, while the rows the group box draws hold
 // no raw CR and keep the visible output text.
 func TestMixedGroupCRFixtureSettledRowsSanitized(t *testing.T) {
+	t.Parallel()
 	if raceEnabled {
 		t.Skip("benchmark fixture shape is static; building it under -race costs seconds")
 	}
@@ -41,6 +42,7 @@ func TestMixedGroupCRFixtureSettledRowsSanitized(t *testing.T) {
 // builds one unnamed group of three active entries, the shape it is meant to
 // measure.
 func TestSpinnerAdvanceFixtureIsUnnamedGroup(t *testing.T) {
+	t.Parallel()
 	if raceEnabled {
 		t.Skip("benchmark fixture shape is static; building it under -race costs seconds")
 	}

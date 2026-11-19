@@ -107,6 +107,7 @@ func TestHiddenThinkingDeltaKeepsPrefixValid(t *testing.T) {
 }
 
 func TestInvalidatePrefixIfCached(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		set          bool

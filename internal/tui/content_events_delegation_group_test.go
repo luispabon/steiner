@@ -41,6 +41,7 @@ func countDelegationSegments(b *contentBuffer) (segments, boxes int) {
 }
 
 func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewToolCallStartedEvent(1, "sub_agent", "replay-call", subAgentArgs("review")))
 	m.applyEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "replay-call", BatchID: "batch", AgentID: "child-known"}, "review"))
@@ -61,6 +62,7 @@ func TestReplayDelegationEventsKeepAcceptedIdentityAndSettleCard(t *testing.T) {
 }
 
 func TestReplayPreparationFailureWithoutStartedEventCreatesOneFailedCard(t *testing.T) {
+	t.Parallel()
 	m := newIdentityTestModel()
 	m.applyEvent(output.NewDelegationFailedEvent(output.DelegationFailedParams{DelegationOccurrence: output.DelegationOccurrence{CallID: "prep-call"}, TaskPreview: "setup", Error: "setup failed"}))
 	if got := countDelegationCards(m.content.segments); got != 1 {
@@ -81,6 +83,7 @@ func TestReplayPreparationFailureWithoutStartedEventCreatesOneFailedCard(t *test
 }
 
 func TestDelegationGrouping(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name         string
 		steps        []groupStep
@@ -111,6 +114,7 @@ func TestDelegationGrouping(t *testing.T) {
 }
 
 func TestDelegationGroupingRequiresAcceptedMembership(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "a", subAgentArgs("g")))
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "b", subAgentArgs("g")))
@@ -120,6 +124,7 @@ func TestDelegationGroupingRequiresAcceptedMembership(t *testing.T) {
 }
 
 func TestDelegationRegroupPreservesInterveningSegments(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	for _, id := range []string{"a", "b"} {
 		b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", id, subAgentArgs("g")))
@@ -136,6 +141,7 @@ func TestDelegationRegroupPreservesInterveningSegments(t *testing.T) {
 }
 
 func TestDelegationDrawOrderWithInterleavedStream(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "a", subAgentArgs("")))
 	b.AppendEvent(output.NewThinkingChunkEventWithSource(1, "pondering", output.ChunkSourceAssistant))
@@ -147,6 +153,7 @@ func TestDelegationDrawOrderWithInterleavedStream(t *testing.T) {
 }
 
 func TestDelegationGroupingAcrossAssistantMessageBoundaries(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	b.AppendEvent(output.NewToolCallStartedEvent(1, "sub_agent", "call-1", subAgentArgs("research")))
 	b.AppendEvent(output.NewDelegationAcceptedEvent(output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: ""}, "research"))
@@ -170,6 +177,7 @@ func segmentKinds(segments []contentSegment) []contentSegmentKind {
 }
 
 func TestDelegationGroupNameOnlyWithAcceptedLabel(t *testing.T) {
+	t.Parallel()
 	b := newGroupTestBuffer()
 	b.styles = testStyles("#5599ff")
 	for _, id := range []string{"a", "b"} {

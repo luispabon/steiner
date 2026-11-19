@@ -340,6 +340,7 @@ func TestNewModelHasTickingTrue(t *testing.T) {
 }
 
 func TestUsageRefreshTickerLifecycle(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_ = m.openUsageOverlay()
 	m.ticking = false
@@ -359,6 +360,7 @@ func TestUsageRefreshTickerLifecycle(t *testing.T) {
 }
 
 func TestUsageOverlayOpenStartsIdleTicker(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	m.ticking = false
 
@@ -373,6 +375,7 @@ func TestUsageOverlayOpenStartsIdleTicker(t *testing.T) {
 }
 
 func TestUsageOverlayRKeyStartsIdleTicker(t *testing.T) {
+	t.Parallel()
 	m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 	_ = m.openUsageOverlay()
 	m.ticking = false
@@ -385,6 +388,7 @@ func TestUsageOverlayRKeyStartsIdleTicker(t *testing.T) {
 }
 
 func TestUsageOverlayCloseDoesNotStartTicker(t *testing.T) {
+	t.Parallel()
 	for _, key := range []tea.KeyPressMsg{usageCtrlO(), {Code: tea.KeyEsc}} {
 		m := newUsageTestModel(newUsageTestService(&usageTestFetcher{}), 0)
 		_ = m.openUsageOverlay()

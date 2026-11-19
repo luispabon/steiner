@@ -58,6 +58,7 @@ func sidebarClickX(m *Model, col int) int {
 }
 
 func TestRosterTargetAtRowMatchesRender(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 10)
 	w := sidebarWidth - 2*sidebarPadH
 	lines, targets := m.sidebar.subAgentsRows(w)
@@ -99,6 +100,7 @@ func TestRosterTargetAtRowMatchesRender(t *testing.T) {
 }
 
 func TestSidebarRosterClick(t *testing.T) {
+	t.Parallel()
 	for _, pos := range []string{"left", "right"} {
 		t.Run(pos, func(t *testing.T) {
 			m, keys := newSidebarClickModel(t, pos, 10)
@@ -145,6 +147,7 @@ func TestSidebarRosterClick(t *testing.T) {
 }
 
 func TestSidebarRosterClickGuards(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	row := rosterScreenRow(m, 2)
 	x := sidebarPadH
@@ -168,6 +171,7 @@ func TestSidebarRosterClickGuards(t *testing.T) {
 }
 
 func TestSidebarMousePressRelease(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name                  string
 		pressDX, relDX, relDY int
@@ -198,6 +202,7 @@ func TestSidebarMousePressRelease(t *testing.T) {
 }
 
 func TestSidebarReleaseWithoutPressDoesNothing(t *testing.T) {
+	t.Parallel()
 	m, _ := newSidebarClickModel(t, "left", 0)
 	if m.sidebarPressX != -1 || m.sidebarPressY != -1 {
 		t.Fatalf("fresh press cell = (%d,%d)", m.sidebarPressX, m.sidebarPressY)
@@ -214,6 +219,7 @@ func TestSidebarReleaseWithoutPressDoesNothing(t *testing.T) {
 // soft-wrap, shifting every roster row down one screen row so a click landed
 // on the agent below.
 func TestSidebarRosterClickUsesRenderedRows(t *testing.T) {
+	t.Parallel()
 	m, keys := newSidebarClickModel(t, "left", 0)
 	m.sidebar.version = "0.27.0-8-ga17d550e-dirty"
 	for _, id := range []string{"solo", "g1", "g2"} {
@@ -241,6 +247,7 @@ func renderedSidebarRow(m *Model, agentID string) int {
 // TestSidebarRosterClickFinishedAgentFromEvents drives a sub-agent through
 // its real start and finish events and clicks its finished row.
 func TestSidebarRosterClickFinishedAgentFromEvents(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{Model: "m", ModelContexts: map[string]int{"m": 4096}}, nil)
 	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 140, Height: 70})
 	occ := output.DelegationOccurrence{CallID: "call-1", BatchID: "batch", AgentID: "child-1"}

@@ -104,6 +104,7 @@ func TestClearConversationSuccessCallsControllerBeforeUICleanup(t *testing.T) {
 }
 
 func TestResetConversationUIDoesNotCallController(t *testing.T) {
+	t.Parallel()
 	m := newModel(Config{}, nil)
 	ctrl := &clearTransactionController{}
 	m.controller = ctrl
