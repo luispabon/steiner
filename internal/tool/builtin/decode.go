@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -93,15 +92,12 @@ func coerceStructValue(t reflect.Type, raw any) (any, error) {
 
 	known := jsonFieldIndexes(t)
 	coerced := make(map[string]any, len(rawMap))
+	var unknown []string
 	for key, value := range rawMap {
 		idx, ok := known[key]
 		if !ok {
-			validFields := make([]string, 0, len(known))
-			for name := range known {
-				validFields = append(validFields, name)
-			}
-			sort.Strings(validFields)
-			return nil, fmt.Errorf("decode input: unknown field %q; valid fields: %s", key, strings.Join(validFields, ", "))
+			unknown = append(unknown, key)
+			continue
 		}
 
 		field := t.Field(idx)
@@ -110,6 +106,10 @@ func coerceStructValue(t reflect.Type, raw any) (any, error) {
 			return nil, fmt.Errorf("field %q: %w", key, err)
 		}
 		coerced[key] = next
+	}
+
+	if len(unknown) > 0 {
+		return nil, unknownFieldError(unknown, rawMap, known)
 	}
 
 	return coerced, nil
