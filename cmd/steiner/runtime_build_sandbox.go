@@ -58,6 +58,48 @@ func pluralSuffix(n int) string {
 	return "ies"
 }
 
+// pruneSandboxHomeCache trims stale entries from the private cache bound over
+// the host cache for sandboxed commands. Best-effort: a failed prune must not
+// block startup. With sandbox.bind_host_cache the private cache is unused, so
+// there is nothing to prune. Emits a status line to stderr when files were
+// removed, since clearing a large build cache takes a moment.
+func pruneSandboxHomeCache(projectRoot string, bindHostCache bool) {
+	if bindHostCache {
+		return
+	}
+	removed, freed, _ := sandbox.PruneHomeCache(projectRoot)
+	if removed == 0 {
+		return
+	}
+	fmt.Fprintln(os.Stderr, homeCacheStatusLine(removed, freed))
+}
+
+// homeCacheStatusLine renders the startup report for a completed prune.
+func homeCacheStatusLine(removed int, freed int64) string {
+	noun := "files"
+	if removed == 1 {
+		noun = "file"
+	}
+	return fmt.Sprintf("Cleaned %d stale cache %s (%s) from .steiner/home.", removed, noun, formatCacheBytes(freed))
+}
+
+// formatCacheBytes renders a byte count for the sandbox cache status line.
+func formatCacheBytes(n int64) string {
+	const (
+		gib = 1 << 30
+		mib = 1 << 20
+		kib = 1 << 10
+	)
+	switch {
+	case n >= gib:
+		return fmt.Sprintf("%.1f GiB", float64(n)/gib)
+	case n >= mib:
+		return fmt.Sprintf("%.1f MiB", float64(n)/mib)
+	default:
+		return fmt.Sprintf("%.1f KiB", float64(n)/kib)
+	}
+}
+
 // createSandboxTmpDir generates a random 8-byte hex ID and creates a fresh
 // session-scoped directory at parentDir/<id>. A generated ID that already
 // exists belongs to another session, so a collision draws a new ID instead of
@@ -136,6 +178,7 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 		_ = s.Cleanup()
 		return nil, "", fmt.Errorf("sandbox setup: %w", err)
 	}
+	pruneSandboxHomeCache(projectRoot, cfg.Sandbox.BindHostCache)
 	return s, "active", nil
 }
 
