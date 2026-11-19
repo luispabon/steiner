@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -45,77 +46,165 @@ func TestToolFailureSignatureOf(t *testing.T) {
 	}
 }
 
-func TestObserveToolOutcome(t *testing.T) {
+type guardOutcome struct {
+	name string
+	err  error
+}
+
+func repeatGuardResponses(responses ...[]guardOutcome) [][]guardOutcome {
+	return responses
+}
+
+// TestToolFailureGuardCounts checks the consecutive-response bookkeeping
+// directly: one count per distinct signature per response, advanced only when
+// the signature recurs in the next committed response.
+func TestToolFailureGuardCounts(t *testing.T) {
 	boom := errors.New("boom")
-	other := errors.New("other")
-	type step struct {
-		name string
-		err  error
-	}
+	other := errors.New("other boom")
+
 	tests := []struct {
 		name        string
-		steps       []step
+		responses   [][]guardOutcome
 		wantTripped bool
+		wantTool    string
+		wantMessage string
 	}{
 		{
-			name:        "three identical failures trip",
-			steps:       []step{{"bash", boom}, {"bash", boom}, {"bash", boom}},
+			name:      "three identical failures in one response count once",
+			responses: repeatGuardResponses([]guardOutcome{{"bash", boom}, {"bash", boom}, {"bash", boom}}),
+		},
+		{
+			name: "three consecutive responses trip",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+			),
 			wantTripped: true,
+			wantTool:    "bash",
+			wantMessage: "boom",
 		},
 		{
-			name:  "two identical failures do not trip",
-			steps: []step{{"bash", boom}, {"bash", boom}},
-		},
-		{
-			name:  "success resets the streak",
-			steps: []step{{"bash", boom}, {"bash", boom}, {"bash", nil}, {"bash", boom}, {"bash", boom}},
-		},
-		{
-			name:        "streak restarts after success and trips again",
-			steps:       []step{{"bash", boom}, {"bash", boom}, {"bash", nil}, {"bash", boom}, {"bash", boom}, {"bash", boom}},
+			name: "successful sibling does not reset",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", nil}, {"bash", boom}},
+				[]guardOutcome{{"bash", nil}, {"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+			),
 			wantTripped: true,
+			wantTool:    "bash",
+			wantMessage: "boom",
 		},
 		{
-			name:  "different message resets the streak",
-			steps: []step{{"bash", boom}, {"bash", boom}, {"bash", other}, {"bash", boom}, {"bash", boom}},
-		},
-		{
-			name:  "different tool resets the streak",
-			steps: []step{{"bash", boom}, {"bash", boom}, {"read", boom}, {"read", boom}},
-		},
-		{
-			name: "not dispatched outcomes are ignored",
-			steps: []step{
-				{"bash", boom},
-				{"bash", errNotDispatched},
-				{"bash", boom},
-				{"bash", errors.Join(errNotDispatched, context.Canceled)},
-				{"bash", boom},
-			},
+			name: "changing-error sibling does not reset",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", boom}, {"bash", other}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", other}, {"bash", boom}},
+			),
 			wantTripped: true,
+			wantTool:    "bash",
+			wantMessage: "boom",
 		},
 		{
-			name:        "trip latches through later success",
-			steps:       []step{{"bash", boom}, {"bash", boom}, {"bash", boom}, {"bash", nil}},
+			name: "absent signature drops out",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", other}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+			),
+		},
+		{
+			name: "all-success response clears counts",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", nil}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+			),
+		},
+		{
+			name: "recovery then three recurrences trip",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", nil}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+			),
 			wantTripped: true,
+			wantTool:    "bash",
+			wantMessage: "boom",
+		},
+		{
+			name: "different tool is a separate signature",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"read", boom}},
+				[]guardOutcome{{"read", boom}},
+				[]guardOutcome{{"bash", boom}},
+			),
+		},
+		{
+			name: "not dispatched response is neutral",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", boom}},
+				[]guardOutcome{{"bash", errNotDispatched}},
+				[]guardOutcome{{"bash", boom}},
+			),
+			wantTripped: true,
+			wantTool:    "bash",
+			wantMessage: "boom",
+		},
+		{
+			name: "multiple tripping signatures choose deterministically",
+			responses: repeatGuardResponses(
+				[]guardOutcome{{"bash", other}, {"bash", boom}},
+				[]guardOutcome{{"bash", other}, {"bash", boom}},
+				[]guardOutcome{{"bash", other}, {"bash", boom}},
+			),
+			wantTripped: true,
+			wantTool:    "bash",
+			wantMessage: "boom",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &turnProgressor{}
-			for _, s := range tc.steps {
-				p.observeToolOutcome(s.name, s.err)
+			for _, response := range tc.responses {
+				p.beginToolResponse()
+				for _, o := range response {
+					p.observeToolOutcome(o.name, o.err)
+				}
+				p.commitToolResponse()
 			}
 			if got := p.tripped != nil; got != tc.wantTripped {
 				t.Fatalf("tripped = %v, want %v", got, tc.wantTripped)
+			}
+			if !tc.wantTripped {
+				return
+			}
+			if p.tripped.tool != tc.wantTool || p.tripped.message != tc.wantMessage {
+				t.Fatalf("tripped = %+v, want tool %q message %q", *p.tripped, tc.wantTool, tc.wantMessage)
+			}
+			outcome, ok := p.stopOnRepeatedFailure(RunState{})
+			if !ok || !outcome.Stop {
+				t.Fatalf("stopOnRepeatedFailure() = %+v, %v, want a stop", outcome, ok)
+			}
+			if want := repeatedFailureMessage(tc.wantTool, tc.wantMessage); outcome.Error == nil || outcome.Error.Error() != want {
+				t.Fatalf("Error = %v, want %q", outcome.Error, want)
 			}
 		})
 	}
 }
 
 // failureGuardExecutor fails calls whose "mode" argument is "fail" or
-// "fail-other" and succeeds otherwise. Executions are counted atomically
-// because parallel batches call Execute concurrently.
+// "fail-other", hands off for "handoff", and succeeds otherwise. Executions
+// are counted atomically because parallel batches call Execute concurrently.
 type failureGuardExecutor struct {
 	executed atomic.Int32
 }
@@ -128,6 +217,8 @@ func (e *failureGuardExecutor) Execute(_ context.Context, _, _ string, input map
 		return nil, errors.New("boom")
 	case "fail-other":
 		return nil, errors.New("other boom")
+	case "handoff":
+		return tool.WorkflowHandoffAccepted{}, nil
 	default:
 		return map[string]any{"status": "ok"}, nil
 	}
@@ -154,120 +245,181 @@ func failureGuardProgressor(ex *failureGuardExecutor, parallel bool) *turnProgre
 	return newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
 }
 
-const repeatedBashFailureMessage = `tool "bash" failed 3 times in a row with the same error: boom`
+func repeatedFailureMessage(toolName, message string) string {
+	return fmt.Sprintf("tool %q failed with the same error in %d consecutive model responses: %s", toolName, maxRepeatedFailureResponses, message)
+}
 
-func TestExecuteToolCalls_RepeatedFailureGuard(t *testing.T) {
+func TestExecuteToolCalls_RepeatFailureGuardAcrossResponses(t *testing.T) {
 	tests := []struct {
-		name              string
-		parallel          bool
-		modes             []string
-		wantExecuted      int32
-		wantStop          bool
-		wantNotDispatched int
+		name          string
+		parallel      bool
+		responses     [][]string
+		wantStopAfter int // 1-based response index; 0 when the guard never trips
+		wantMessage   string
 	}{
 		{
-			name:              "serial run stops before the fourth call",
-			modes:             []string{"fail", "fail", "fail", "ok"},
-			wantExecuted:      3,
-			wantStop:          true,
-			wantNotDispatched: 1,
+			name:      "three identical failures in one serial response do not stop",
+			responses: [][]string{{"fail", "fail", "fail"}},
 		},
 		{
-			name:         "parallel batch applies all results before stopping",
-			parallel:     true,
-			modes:        []string{"fail", "fail", "fail", "ok"},
-			wantExecuted: 4,
-			wantStop:     true,
+			name:      "three identical failures in one parallel response do not stop",
+			parallel:  true,
+			responses: [][]string{{"fail", "fail", "fail"}},
 		},
 		{
-			name:         "parallel batch with success first applies all results before stopping",
-			parallel:     true,
-			modes:        []string{"ok", "fail", "fail", "fail"},
-			wantExecuted: 4,
-			wantStop:     true,
+			name:          "same signature across three serial responses stops",
+			responses:     [][]string{{"fail"}, {"fail"}, {"fail"}},
+			wantStopAfter: 3,
+			wantMessage:   "boom",
 		},
 		{
-			name:         "two identical failures do not stop",
-			modes:        []string{"fail", "fail", "ok"},
-			wantExecuted: 3,
+			name:          "successful sibling does not reset parallel responses",
+			parallel:      true,
+			responses:     [][]string{{"ok", "fail"}, {"ok", "fail"}, {"fail"}},
+			wantStopAfter: 3,
+			wantMessage:   "boom",
 		},
 		{
-			name:         "success before the third failure resets the streak",
-			modes:        []string{"fail", "fail", "ok", "fail", "fail"},
-			wantExecuted: 5,
+			name:          "changing error siblings still stop",
+			responses:     [][]string{{"fail", "fail-other"}, {"fail"}, {"fail-other", "fail"}},
+			wantStopAfter: 3,
+			wantMessage:   "boom",
 		},
 		{
-			name:         "different error message resets the streak",
-			modes:        []string{"fail", "fail", "fail-other", "fail", "fail"},
-			wantExecuted: 5,
+			name:      "interleaved signature resets the consecutive count",
+			responses: [][]string{{"fail"}, {"fail"}, {"fail-other"}, {"fail"}, {"fail"}},
+		},
+		{
+			name:          "recovery then three recurrences stops",
+			responses:     [][]string{{"fail"}, {"fail"}, {"ok"}, {"fail"}, {"fail"}, {"fail"}},
+			wantStopAfter: 6,
+			wantMessage:   "boom",
+		},
+		{
+			name:          "multiple tripping signatures choose deterministically",
+			responses:     [][]string{{"fail-other", "fail"}, {"fail-other", "fail"}, {"fail-other", "fail"}},
+			wantStopAfter: 3,
+			wantMessage:   "boom",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ex := &failureGuardExecutor{}
 			p := failureGuardProgressor(ex, tc.parallel)
-			calls := failureGuardCalls("call", tc.modes...)
-			outcome := p.executeToolCalls(context.Background(), RunState{Lineage: newConversationLineage(nil)}, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
-
-			if got := ex.executed.Load(); got != tc.wantExecuted {
-				t.Fatalf("executed = %d, want %d", got, tc.wantExecuted)
-			}
-			if outcome.Stop != tc.wantStop {
-				t.Fatalf("Stop = %v, want %v", outcome.Stop, tc.wantStop)
-			}
-			if tc.wantStop {
-				if outcome.State.StopReason != StopReasonError {
-					t.Fatalf("StopReason = %q, want %q", outcome.State.StopReason, StopReasonError)
+			state := RunState{Lineage: newConversationLineage(nil)}
+			totalCalls := 0
+			for i, modes := range tc.responses {
+				totalCalls += len(modes)
+				calls := failureGuardCalls(fmt.Sprintf("turn%d", i+1), modes...)
+				outcome := p.executeToolCalls(context.Background(), state, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
+				state = outcome.State
+				wantStop := tc.wantStopAfter == i+1
+				if outcome.Stop != wantStop {
+					t.Fatalf("response %d: Stop = %v, want %v", i+1, outcome.Stop, wantStop)
 				}
-				if outcome.Error == nil || outcome.Error.Error() != repeatedBashFailureMessage {
-					t.Fatalf("Error = %v, want %q", outcome.Error, repeatedBashFailureMessage)
+				if !wantStop {
+					if outcome.Error != nil {
+						t.Fatalf("response %d: Error = %v, want nil", i+1, outcome.Error)
+					}
+					continue
 				}
-			} else if outcome.Error != nil {
-				t.Fatalf("Error = %v, want nil", outcome.Error)
-			}
-
-			var toolMsgs []Message
-			for _, m := range outcome.State.Conversation {
-				if m.Role == MessageRoleTool {
-					toolMsgs = append(toolMsgs, m)
+				if state.StopReason != StopReasonError {
+					t.Fatalf("StopReason = %q, want %q", state.StopReason, StopReasonError)
+				}
+				if want := repeatedFailureMessage("bash", tc.wantMessage); outcome.Error == nil || outcome.Error.Error() != want {
+					t.Fatalf("Error = %v, want %q", outcome.Error, want)
 				}
 			}
-			if len(toolMsgs) != len(calls) {
-				t.Fatalf("tool messages = %d, want %d", len(toolMsgs), len(calls))
+			if got := ex.executed.Load(); got != int32(totalCalls) {
+				t.Fatalf("executed = %d, want %d", got, totalCalls)
 			}
-			for i, m := range toolMsgs {
-				if m.ToolCallID != calls[i].ID {
-					t.Fatalf("tool message %d ToolCallID = %q, want %q", i, m.ToolCallID, calls[i].ID)
+			var toolMessages int
+			for _, m := range state.Conversation {
+				if m.Role != MessageRoleTool {
+					continue
+				}
+				toolMessages++
+				if strings.Contains(m.Content, "tool not dispatched") {
+					t.Fatalf("tool message %q recorded a not dispatched result", m.Content)
 				}
 			}
-			for i := len(toolMsgs) - tc.wantNotDispatched; i < len(toolMsgs); i++ {
-				if !strings.Contains(toolMsgs[i].Content, "tool not dispatched") {
-					t.Fatalf("tool message %d content = %q, want a not dispatched result", i, toolMsgs[i].Content)
-				}
+			if toolMessages != totalCalls {
+				t.Fatalf("tool messages = %d, want %d", toolMessages, totalCalls)
 			}
 		})
 	}
 }
 
-func TestExecuteToolCalls_RepeatedFailureSpansTurns(t *testing.T) {
-	ex := &failureGuardExecutor{}
-	p := failureGuardProgressor(ex, false)
-	state := RunState{Lineage: newConversationLineage(nil)}
-	var outcome turnOutcome
-	for turn := 1; turn <= maxIdenticalToolFailures; turn++ {
-		calls := failureGuardCalls(fmt.Sprintf("turn%d", turn), "fail")
-		outcome = p.executeToolCalls(context.Background(), state, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
-		state = outcome.State
-		wantStop := turn == maxIdenticalToolFailures
-		if outcome.Stop != wantStop {
-			t.Fatalf("turn %d: Stop = %v, want %v", turn, outcome.Stop, wantStop)
-		}
+// TestExecuteToolCalls_InterruptedResponseDoesNotCommit verifies that a
+// response ended by cancellation, a limit timeout, or workflow handoff leaves
+// the guard counts untouched, including its all-success clearing effect.
+func TestExecuteToolCalls_InterruptedResponseDoesNotCommit(t *testing.T) {
+	tests := []struct {
+		name            string
+		interruptedMode string
+		ctx             func() (context.Context, context.CancelFunc)
+		wantStopReason  StopReason
+	}{
+		{
+			name:            "cancellation",
+			interruptedMode: "ok",
+			ctx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, cancel
+			},
+			wantStopReason: StopReasonCancelled,
+		},
+		{
+			name:            "limit timeout",
+			interruptedMode: "ok",
+			ctx: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithTimeoutCause(context.Background(), time.Millisecond, errTurnTimeout)
+				<-ctx.Done()
+				return ctx, cancel
+			},
+			wantStopReason: StopReasonError,
+		},
+		{
+			name:            "workflow handoff",
+			interruptedMode: "handoff",
+			ctx: func() (context.Context, context.CancelFunc) {
+				return context.WithCancel(context.Background())
+			},
+			wantStopReason: StopReasonWorkflowHandoff,
+		},
 	}
-	if outcome.Error == nil || outcome.Error.Error() != repeatedBashFailureMessage {
-		t.Fatalf("Error = %v, want %q", outcome.Error, repeatedBashFailureMessage)
-	}
-	if got := ex.executed.Load(); got != maxIdenticalToolFailures {
-		t.Fatalf("executed = %d, want %d", got, maxIdenticalToolFailures)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &failureGuardExecutor{}
+			p := failureGuardProgressor(ex, false)
+			state := RunState{Lineage: newConversationLineage(nil)}
+			for i := 0; i < 2; i++ {
+				calls := failureGuardCalls(fmt.Sprintf("turn%d", i+1), "fail")
+				outcome := p.executeToolCalls(context.Background(), state, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
+				if outcome.Stop {
+					t.Fatalf("response %d stopped early: %v", i+1, outcome.Error)
+				}
+				state = outcome.State
+			}
+
+			ctx, cancel := tc.ctx()
+			defer cancel()
+			calls := failureGuardCalls("interrupted", tc.interruptedMode)
+			outcome := p.executeToolCalls(ctx, state, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
+			if !outcome.Stop {
+				t.Fatal("interrupted response did not stop")
+			}
+			if outcome.State.StopReason != tc.wantStopReason {
+				t.Fatalf("StopReason = %q, want %q", outcome.State.StopReason, tc.wantStopReason)
+			}
+
+			calls = failureGuardCalls("after", "fail")
+			outcome = p.executeToolCalls(context.Background(), outcome.State, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
+			if !outcome.Stop || outcome.State.StopReason != StopReasonError {
+				t.Fatalf("after interrupted response: Stop = %v, StopReason = %q, Error = %v, want the guard to trip", outcome.Stop, outcome.State.StopReason, outcome.Error)
+			}
+		})
 	}
 }
 
@@ -278,10 +430,8 @@ func TestRunnerStopsAfterRepeatedToolFailures(t *testing.T) {
 			modelCalls++
 			return provider.ChatResponse{
 				Message: provider.Message{
-					Role: provider.MessageRoleAssistant,
-					ToolCalls: []provider.ToolCall{
-						{ID: fmt.Sprintf("call_%d", modelCalls), Name: "bash", Arguments: map[string]any{"mode": "fail"}},
-					},
+					Role:      provider.MessageRoleAssistant,
+					ToolCalls: failureGuardCalls(fmt.Sprintf("turn%d", modelCalls), "fail", "fail", "fail"),
 				},
 				FinishReason: "tool_calls",
 			}, nil
@@ -300,16 +450,16 @@ func TestRunnerStopsAfterRepeatedToolFailures(t *testing.T) {
 	if !errors.As(err, &reported) {
 		t.Fatalf("Run() error = %v, want *ReportedError", err)
 	}
-	if got := reported.Err.Error(); got != repeatedBashFailureMessage {
-		t.Fatalf("reported error = %q, want %q", got, repeatedBashFailureMessage)
+	if want := repeatedFailureMessage("bash", "boom"); reported.Err.Error() != want {
+		t.Fatalf("reported error = %q, want %q", reported.Err.Error(), want)
 	}
 	if got, want := state.StopReason, StopReasonError; got != want {
 		t.Fatalf("StopReason = %q, want %q", got, want)
 	}
-	if modelCalls != maxIdenticalToolFailures {
-		t.Fatalf("model calls = %d, want %d", modelCalls, maxIdenticalToolFailures)
+	if modelCalls != maxRepeatedFailureResponses {
+		t.Fatalf("model calls = %d, want %d", modelCalls, maxRepeatedFailureResponses)
 	}
-	if got := ex.executed.Load(); got != maxIdenticalToolFailures {
-		t.Fatalf("executed = %d, want %d", got, maxIdenticalToolFailures)
+	if got, want := ex.executed.Load(), int32(maxRepeatedFailureResponses*3); got != want {
+		t.Fatalf("executed = %d, want %d", got, want)
 	}
 }

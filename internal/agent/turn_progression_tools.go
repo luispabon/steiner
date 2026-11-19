@@ -26,6 +26,7 @@ import (
 func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, response provider.ChatResponse) turnOutcome {
 	turn := state.TurnCount
 	calls := response.Message.ToolCalls
+	p.beginToolResponse()
 	if len(calls) > 0 {
 		batchID := newToolBatchID(calls[0].ID)
 		ctx = WithToolBatchID(ctx, batchID)
@@ -59,11 +60,13 @@ func (p *turnProgressor) executeToolCalls(ctx context.Context, state RunState, r
 			}
 			i += n
 		}
-		if stopped, ok := p.stopOnRepeatedFailure(ctx, state, turn, calls[i:]); ok {
-			return stopped
-		}
 	}
-	return p.finalizeToolTurn(ctx, state, turn, response)
+	outcome := p.finalizeToolTurn(ctx, state, turn, response)
+	p.commitToolResponse()
+	if stopped, ok := p.stopOnRepeatedFailure(outcome.State); ok {
+		return stopped
+	}
+	return outcome
 }
 
 // appendNotDispatched records a "not dispatched" result for each call that
