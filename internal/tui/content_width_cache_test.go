@@ -130,7 +130,8 @@ func assertTwinViews(t *testing.T, label string, got, want *Model, selection boo
 // viewport width change (a fresh render at the new width). All three must
 // agree byte for byte.
 func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): the op script can set the accent colour or toggle
+	// thinking, which write prefs under the package-wide HOME.
 	clock := newTestClock()
 	seeds, minRevisits := raceSeeds(8), 30
 	if raceEnabled {

@@ -185,7 +185,8 @@ func newBgFormatTwinModel(clock *testClock, run func(m *Model)) *Model {
 // two models must agree on lines, pad, scroll offset, selection and the whole
 // rendered frame.
 func TestSyncViewportIncrementalLinesMatchOldPipeline(t *testing.T) {
-	t.Parallel()
+	// Not t.Parallel(): the op script can toggle thinking, which writes prefs
+	// under the package-wide HOME.
 	clock := newTestClock()
 	for seed := range raceSeeds(8) {
 		s := &bgFormatScenario{r: rand.New(rand.NewPCG(seed, 3))}
@@ -231,7 +232,7 @@ func TestSyncViewportIncrementalLinesMatchOldPipeline(t *testing.T) {
 func TestSyncViewportBgFormatBoundsWork(t *testing.T) {
 	t.Parallel()
 	clock := newTestClock()
-	m := populateLongTranscript(clock.attach(newContentBenchModel()), 25)
+	m := populateLongTranscript(newContentBenchModelWithClock(clock), 25)
 	startInflightChildren(m, 1)
 	updateModelDirect(m, tickMsg{})
 	m.syncViewport()

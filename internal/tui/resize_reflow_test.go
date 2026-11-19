@@ -20,7 +20,7 @@ const reflowTurns = 6
 func reflowFixture(t *testing.T) (*Model, *testClock) {
 	t.Helper()
 	clock := newTestClock()
-	m := clock.attach(newContentBenchModel())
+	m := newContentBenchModelWithClock(clock)
 	return populateLongTranscript(m, reflowTurns), clock
 }
 

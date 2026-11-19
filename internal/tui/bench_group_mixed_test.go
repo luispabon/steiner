@@ -77,10 +77,7 @@ func mixedGroupModelWithMessages(settled int, expanded bool, msgs int) *Model {
 // mixedGroupModelAt builds mixedGroupModelWithMessages against clock, which is
 // attached before the first event; a nil clock keeps the package clock.
 func mixedGroupModelAt(clock *testClock, settled int, expanded bool, msgs int) *Model {
-	m := newContentBenchModel()
-	if clock != nil {
-		m = clock.attach(m)
-	}
+	m := newContentBenchModelWithClock(clock)
 	m = populateLongTranscript(m, msgs)
 	for j := 0; j <= settled; j++ {
 		m = appendMixedChild(m, j, j < settled)

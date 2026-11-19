@@ -133,7 +133,7 @@ func groupDiffScript() []groupDiffStep {
 // groupDiffReplay builds the reference render: the script replayed from a fresh
 // model, so no cache survives from an earlier step.
 func groupDiffReplay(clock *testClock, steps []groupDiffStep, width int) string {
-	m := clock.attach(newContentBenchModel())
+	m := newContentBenchModelWithClock(clock)
 	for _, s := range steps {
 		m = s.apply(m)
 	}
@@ -153,7 +153,7 @@ func TestGroupRenderCacheMatchesFreshReplay(t *testing.T) {
 	for _, width := range raceSample([]int{60, 100}) {
 		// One model per width. The settled rows cache is keyed by width, so
 		// alternating widths would evict it before each comparison.
-		m := clock.attach(newContentBenchModel())
+		m := newContentBenchModelWithClock(clock)
 		for i, step := range steps {
 			m = step.apply(m)
 			got := m.content.String(width)
