@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 )
@@ -119,6 +120,76 @@ func TestCreateSandboxTmpDirRejectsSymlinkedGeneratedID(t *testing.T) {
 	if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("expected the symlink to survive, info=%v err=%v", info, statErr)
 	}
+}
+
+func TestPruneSandboxHomeCacheRemovesStaleFiles(t *testing.T) {
+	root := t.TempDir()
+	stale, fresh := writeHomeCacheFixtures(t, root)
+
+	pruneSandboxHomeCache(root, false)
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale cache file stat err = %v, want it removed", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh cache file should survive: %v", err)
+	}
+}
+
+func TestPruneSandboxHomeCacheSkipsHostCacheMode(t *testing.T) {
+	root := t.TempDir()
+	stale, _ := writeHomeCacheFixtures(t, root)
+
+	pruneSandboxHomeCache(root, true)
+
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("stale cache file should be kept when the host cache is bound: %v", err)
+	}
+}
+
+func TestFormatCacheBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   int64
+		want string
+	}{
+		{name: "zero", in: 0, want: "0 KiB"},
+		{name: "under one kib", in: 400, want: "0 KiB"},
+		{name: "kib", in: 2048, want: "2 KiB"},
+		{name: "mib", in: 3 << 20, want: "3.0 MiB"},
+		{name: "gib", in: 1 << 30, want: "1.0 GiB"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatCacheBytes(tc.in); got != tc.want {
+				t.Errorf("formatCacheBytes(%d) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// writeHomeCacheFixtures creates one stale and one fresh go-build shard file
+// under root and returns their paths.
+func writeHomeCacheFixtures(t *testing.T, root string) (stale, fresh string) {
+	t.Helper()
+	shard := filepath.Join(root, ".steiner", "home", "cache", "go-build", "4b")
+	if err := os.MkdirAll(shard, 0o755); err != nil {
+		t.Fatalf("mkdir shard: %v", err)
+	}
+	stale = filepath.Join(shard, "stale-d")
+	fresh = filepath.Join(shard, "fresh-d")
+	for _, path := range []string{stale, fresh} {
+		if err := os.WriteFile(path, []byte("cache entry"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	if err := os.Chtimes(stale, time.Now().Add(-72*time.Hour), time.Now().Add(-72*time.Hour)); err != nil {
+		t.Fatalf("age stale file: %v", err)
+	}
+	if err := os.Chtimes(fresh, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour)); err != nil {
+		t.Fatalf("age fresh file: %v", err)
+	}
+	return stale, fresh
 }
 
 // stubSandboxTmpRand replaces the ID generator with a sequence of fixed IDs,
