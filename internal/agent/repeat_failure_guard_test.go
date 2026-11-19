@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -225,10 +224,12 @@ func TestRepeatedToolFailureErrorWrappedDetection(t *testing.T) {
 }
 
 // failureGuardExecutor fails calls whose "mode" argument is "fail" or
-// "fail-other", hands off for "handoff", and succeeds otherwise. Executions
-// are counted atomically because parallel batches call Execute concurrently.
+// "fail-other", hands off for "handoff", calls the interrupt hook for
+// "interrupt", and succeeds otherwise. Executions are counted atomically
+// because parallel batches call Execute concurrently.
 type failureGuardExecutor struct {
-	executed atomic.Int32
+	executed  atomic.Int32
+	interrupt func()
 }
 
 func (e *failureGuardExecutor) Execute(_ context.Context, _, _ string, input map[string]any) (any, error) {
@@ -241,6 +242,11 @@ func (e *failureGuardExecutor) Execute(_ context.Context, _, _ string, input map
 		return nil, errors.New("other boom")
 	case "handoff":
 		return tool.WorkflowHandoffAccepted{}, nil
+	case "interrupt":
+		if e.interrupt != nil {
+			e.interrupt()
+		}
+		return map[string]any{"status": "ok"}, nil
 	default:
 		return map[string]any{"status": "ok"}, nil
 	}
@@ -373,47 +379,38 @@ func TestExecuteToolCalls_RepeatFailureGuardAcrossResponses(t *testing.T) {
 }
 
 // TestExecuteToolCalls_InterruptedResponseDoesNotCommit verifies that a
-// response ended by cancellation, a limit timeout, or workflow handoff leaves
-// the guard counts untouched, including its all-success clearing effect.
+// response ended by cancellation, a limit timeout, or workflow handoff after a
+// failing call leaves the guard counts untouched.
 func TestExecuteToolCalls_InterruptedResponseDoesNotCommit(t *testing.T) {
 	tests := []struct {
-		name            string
-		interruptedMode string
-		ctx             func() (context.Context, context.CancelFunc)
-		wantStopReason  StopReason
+		name           string
+		modes          []string
+		cause          error
+		wantStopReason StopReason
 	}{
 		{
-			name:            "cancellation",
-			interruptedMode: "ok",
-			ctx: func() (context.Context, context.CancelFunc) {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				return ctx, cancel
-			},
+			name:           "cancellation after a failing call",
+			modes:          []string{"fail", "interrupt"},
+			cause:          context.Canceled,
 			wantStopReason: StopReasonCancelled,
 		},
 		{
-			name:            "limit timeout",
-			interruptedMode: "ok",
-			ctx: func() (context.Context, context.CancelFunc) {
-				ctx, cancel := context.WithTimeoutCause(context.Background(), time.Millisecond, errTurnTimeout)
-				<-ctx.Done()
-				return ctx, cancel
-			},
+			name:           "limit timeout after a failing call",
+			modes:          []string{"fail", "interrupt"},
+			cause:          errTurnTimeout,
 			wantStopReason: StopReasonError,
 		},
 		{
-			name:            "workflow handoff",
-			interruptedMode: "handoff",
-			ctx: func() (context.Context, context.CancelFunc) {
-				return context.WithCancel(context.Background())
-			},
+			name:           "workflow handoff after a failing call",
+			modes:          []string{"fail", "handoff"},
 			wantStopReason: StopReasonWorkflowHandoff,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ex := &failureGuardExecutor{}
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			ex := &failureGuardExecutor{interrupt: func() { cancel(tc.cause) }}
 			p := failureGuardProgressor(ex, false)
 			state := RunState{Lineage: newConversationLineage(nil)}
 			for i := 0; i < 2; i++ {
@@ -425,15 +422,26 @@ func TestExecuteToolCalls_InterruptedResponseDoesNotCommit(t *testing.T) {
 				state = outcome.State
 			}
 
-			ctx, cancel := tc.ctx()
-			defer cancel()
-			calls := failureGuardCalls("interrupted", tc.interruptedMode)
+			calls := failureGuardCalls("interrupted", tc.modes...)
 			outcome := p.executeToolCalls(ctx, state, provider.ChatResponse{Message: provider.Message{ToolCalls: calls}})
 			if !outcome.Stop {
 				t.Fatal("interrupted response did not stop")
 			}
 			if outcome.State.StopReason != tc.wantStopReason {
 				t.Fatalf("StopReason = %q, want %q", outcome.State.StopReason, tc.wantStopReason)
+			}
+
+			// The failing call in the interrupted response was observed, but the
+			// response must not commit, so the count stays at two.
+			wantSig := toolFailureSignature{tool: "bash", kind: "tool_error", message: "boom"}
+			if p.tripped != nil {
+				t.Fatalf("tripped = %+v, want nil after an interrupted response", *p.tripped)
+			}
+			if got := p.failureCounts[wantSig]; got != 2 {
+				t.Fatalf("failure count = %d, want 2 (interrupted response must not commit)", got)
+			}
+			if len(p.failureCounts) != 1 {
+				t.Fatalf("failure counts = %+v, want only the committed signature", p.failureCounts)
 			}
 
 			calls = failureGuardCalls("after", "fail")
