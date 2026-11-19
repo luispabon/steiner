@@ -35,7 +35,7 @@ func (b *contentBuffer) handleAdvisorStarted(event output.Event) {
 			advisorMaxUses:   payload.MaxUses,
 			advisorQuestion:  payload.Question,
 			advisorFiles:     payload.Files,
-			startTime:        nanoNow(),
+			startTime:        b.nowNanos(),
 		},
 		renderDirty: true,
 	})
@@ -81,7 +81,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	dd.modelName, dd.reasoning = b.resolveDelegationModel(payload.Model)
 	dd.advisorUse = payload.UseNumber
 	dd.advisorMaxUses = payload.MaxUses
-	dd.elapsed = formatElapsed(dd.startTime, nanoNow())
+	dd.elapsed = formatElapsed(dd.startTime, b.nowNanos())
 	dd.output = payload.Note
 	dd.status = "complete"
 	dd.resultStatus = "complete"

@@ -28,6 +28,28 @@ func stubBgFormatClock(t *testing.T) (advance func(time.Duration)) {
 	return func(d time.Duration) { now = now.Add(d) }
 }
 
+// testClock is a per-model fake clock; share one across twin models so their
+// elapsed-time output matches.
+type testClock struct{ now time.Time }
+
+// newTestClock returns a clock frozen at the fixture timestamp.
+func newTestClock() *testClock {
+	return &testClock{now: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)}
+}
+
+// Now returns the clock's current time.
+func (c *testClock) Now() time.Time { return c.now }
+
+// advance moves the clock forward.
+func (c *testClock) advance(d time.Duration) { c.now = c.now.Add(d) }
+
+// attach points m's content buffer at this clock. Call it before the first
+// event is applied so start times are stamped from the fake clock.
+func (c *testClock) attach(m *Model) *Model {
+	m.content.clock = c.Now
+	return m
+}
+
 // oldPipelineLines is the pre-WI-8e viewport pipeline, kept verbatim as the
 // oracle: format the joined transcript in full, prepend pad rows, then split
 // as scrollModel.SetContent did ("\r\n" normalised, a single zero-width line
@@ -148,8 +170,9 @@ func sendMsg(msg tea.Msg) func(m *Model) {
 	return func(m *Model) { updateModelDirect(m, msg) }
 }
 
-func newBgFormatTwinModel(run func(m *Model)) *Model {
+func newBgFormatTwinModel(clock *testClock, run func(m *Model)) *Model {
 	m := newModel(Config{Model: "bench-model", ModelContexts: map[string]int{"bench-model": 100000}}, nil)
+	m = clock.attach(m)
 	m = updateModelDirect(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	run(m)
 	return m
@@ -162,13 +185,14 @@ func newBgFormatTwinModel(run func(m *Model)) *Model {
 // two models must agree on lines, pad, scroll offset, selection and the whole
 // rendered frame.
 func TestSyncViewportIncrementalLinesMatchOldPipeline(t *testing.T) {
-	advance := stubBgFormatClock(t)
+	t.Parallel()
+	clock := newTestClock()
 	for seed := range raceSeeds(8) {
 		s := &bgFormatScenario{r: rand.New(rand.NewPCG(seed, 3))}
 		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
-		inc, oracle := newBgFormatTwinModel(run), newBgFormatTwinModel(run)
+		inc, oracle := newBgFormatTwinModel(clock, run), newBgFormatTwinModel(clock, run)
 		for step := range 60 {
-			advance(time.Duration(s.r.IntN(3)) * time.Second)
+			clock.advance(time.Duration(s.r.IntN(3)) * time.Second)
 			apply := s.op()
 			apply(inc)
 			apply(oracle)
@@ -205,8 +229,9 @@ func TestSyncViewportIncrementalLinesMatchOldPipeline(t *testing.T) {
 // one tick and checks that the next tick of a running card keeps them: only
 // the changed tail, under 10% of the transcript, is fed to the formatter.
 func TestSyncViewportBgFormatBoundsWork(t *testing.T) {
-	advance := stubBgFormatClock(t)
-	m := populateLongTranscript(newContentBenchModel(), 25)
+	t.Parallel()
+	clock := newTestClock()
+	m := populateLongTranscript(clock.attach(newContentBenchModel()), 25)
 	startInflightChildren(m, 1)
 	updateModelDirect(m, tickMsg{})
 	m.syncViewport()
@@ -220,7 +245,7 @@ func TestSyncViewportBgFormatBoundsWork(t *testing.T) {
 		m.bgFormat.lines[i] = marker
 	}
 
-	advance(2 * time.Second)
+	clock.advance(2 * time.Second)
 	updateModelDirect(m, tickMsg{})
 	m.syncViewport()
 	if m.bgFormat.source() == settled {

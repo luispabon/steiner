@@ -384,7 +384,7 @@ func (r *subAgentRoster) activeCount() int {
 // report sidebar when the roster changed.
 func (m *Model) observeRoster(event output.Event) {
 	m.roster.replaying = m.devLog.replaying
-	if !m.roster.observe(event, nanoNow()) {
+	if !m.roster.observe(event, m.content.nowNanos()) {
 		return
 	}
 	m.refreshContextAgentsIfOpen()
@@ -404,7 +404,7 @@ func (m *Model) syncRoster() {
 	snap := m.roster.snapshot()
 	c := countRoster(snap)
 	m.sidebar.subAgents = snap
-	m.sidebar.subAgentsNow = nanoNow() / 1_000_000_000 * 1_000_000_000
+	m.sidebar.subAgentsNow = m.content.nowNanos() / 1_000_000_000 * 1_000_000_000
 	m.status.subAgentsTotal = c.total
 	m.status.subAgentsFinished = c.finished
 	m.status.subAgentsQueued = c.queued

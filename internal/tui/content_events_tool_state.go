@@ -48,7 +48,7 @@ func (b *contentBuffer) appendToolCallStartedEvent(event output.Event) {
 			callID:    payload.CallID,
 			collapsed: true,
 			active:    payload.CallID != "",
-			startTime: nanoNow(),
+			startTime: b.nowNanos(),
 			rawArgs:   rawArgs,
 		}
 		tc.preview = output.BuildToolPreview(tc.tool, rawArgs, "")
@@ -230,7 +230,7 @@ func (b *contentBuffer) AppendUser(text string) {
 	if b.collapseState == nil {
 		b.collapseState = make(map[int]bool)
 	}
-	b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: text, timestamp: timeNow(), renderDirty: true})
+	b.segments = append(b.segments, contentSegment{kind: segmentUserMarkdown, text: text, timestamp: b.nowTime(), renderDirty: true})
 	b.collapseState[idx] = false
 }
 
@@ -378,7 +378,7 @@ func (b *contentBuffer) appendAdjacentToolCall(tc *toolCallSegment) bool {
 
 func (b *contentBuffer) applyFinishedToolCallResult(idx int, td *toolCallSegment, payload output.ToolCallFinishedEvent) {
 	td.active = false
-	td.elapsed = formatElapsed(td.startTime, nanoNow())
+	td.elapsed = formatElapsed(td.startTime, b.nowNanos())
 	td.body = output.SanitizeDisplayText(payload.Result)
 	td.hasError = payload.Error != ""
 	td.meta = "✓"

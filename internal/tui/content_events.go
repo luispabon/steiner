@@ -390,6 +390,10 @@ type contentBuffer struct {
 	workingDir              string                              // current working directory for resolving relative paths
 	homeDir                 string                              // home directory for resolving ~ paths
 
+	// clock is the buffer's time source. Nil falls back to the package clock;
+	// tests set it to pin time per instance.
+	clock func() time.Time
+
 	// Render cache. renderEpoch is bumped when MCP tool origins, a render input
 	// shared by all segments, change, so inactive-width renders are not reused.
 	// stringCacheWidth and stringCacheBlocks are written during render. Event

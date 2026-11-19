@@ -132,8 +132,8 @@ func groupDiffScript() []groupDiffStep {
 
 // groupDiffReplay builds the reference render: the script replayed from a fresh
 // model, so no cache survives from an earlier step.
-func groupDiffReplay(steps []groupDiffStep, width int) string {
-	m := newContentBenchModel()
+func groupDiffReplay(clock *testClock, steps []groupDiffStep, width int) string {
+	m := clock.attach(newContentBenchModel())
 	for _, s := range steps {
 		m = s.apply(m)
 	}
@@ -146,17 +146,18 @@ func groupDiffReplay(steps []groupDiffStep, width int) string {
 // it. The narrow width is listed first because it wraps each entry over the most
 // rows, which exercises the row split hardest.
 func TestGroupRenderCacheMatchesFreshReplay(t *testing.T) {
-	freezeDelegationClockAt(t)
+	t.Parallel()
 
+	clock := newTestClock()
 	steps := groupDiffScript()
 	for _, width := range raceSample([]int{60, 100}) {
 		// One model per width. The settled rows cache is keyed by width, so
 		// alternating widths would evict it before each comparison.
-		m := newContentBenchModel()
+		m := clock.attach(newContentBenchModel())
 		for i, step := range steps {
 			m = step.apply(m)
 			got := m.content.String(width)
-			want := groupDiffReplay(steps[:i+1], width)
+			want := groupDiffReplay(clock, steps[:i+1], width)
 			if got != want {
 				t.Fatalf("step %d %q at width %d: cached transcript differs from fresh replay (got %d bytes, want %d)",
 					i, step.name, width, len(got), len(want))
@@ -180,9 +181,9 @@ func mixedGroupSegment(t *testing.T, m *Model) *delegationGroupSegment {
 // TestSpinnerTickReusesSettledRows checks the tick-vs-mutation split: a spinner
 // tick re-renders the active card's header but keeps the settled rows cache.
 func TestSpinnerTickReusesSettledRows(t *testing.T) {
-	freezeDelegationClockAt(t)
+	t.Parallel()
 
-	m := mixedGroupModelWithMessages(2, true, mixedGroupTestMessages())
+	m := mixedGroupModelAt(newTestClock(), 2, true, mixedGroupTestMessages())
 	m.content.String(80)
 	g := mixedGroupSegment(t, m)
 	cached := reflect.ValueOf(g.settled.lines).Pointer()

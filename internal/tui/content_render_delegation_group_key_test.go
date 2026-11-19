@@ -39,7 +39,7 @@ func assertSettledCacheMatchesBypass(t *testing.T, m *Model, width int) {
 // any segment dirty. The settled rows key must still invalidate, so a cache hit
 // matches the cache-bypassed render.
 func TestSettledRowsKeyCoversUndirtiedInputs(t *testing.T) {
-	freezeDelegationClockAt(t)
+	t.Parallel()
 
 	cases := []struct {
 		name  string
@@ -52,7 +52,7 @@ func TestSettledRowsKeyCoversUndirtiedInputs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := mixedGroupModelWithMessages(2, true, mixedGroupTestMessages())
+			m := mixedGroupModelAt(newTestClock(), 2, true, mixedGroupTestMessages())
 			m.content.String(80)
 			tc.apply(m)
 			assertSettledCacheMatchesBypass(t, m, tc.width)

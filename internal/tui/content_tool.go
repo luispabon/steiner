@@ -209,7 +209,7 @@ func (b *contentBuffer) renderToolCallMeta(tc *toolCallSegment) ([]string, int) 
 	parts := make([]string, 0, 2)
 	width := 0
 	if tc.active {
-		elapsed := formatElapsed(tc.startTime, nanoNow())
+		elapsed := formatElapsed(tc.startTime, b.nowNanos())
 		parts = append(parts, b.styles.FgDim.Render(elapsed))
 		width += lipgloss.Width(elapsed) + 1
 	} else if tc.elapsed != "" {

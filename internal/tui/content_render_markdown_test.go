@@ -40,7 +40,7 @@ func TestTimestampFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatContentTimestamp(tt.ts); got != tt.want {
+			if got := formatContentTimestamp(tt.ts, fixedNow); got != tt.want {
 				t.Fatalf("formatContentTimestamp() = %q, want %q", got, tt.want)
 			}
 		})
@@ -217,7 +217,7 @@ func TestStopReasonTimestampFiltering(t *testing.T) {
 		timeNow = originalTimeNow
 	})
 
-	ts := formatContentTimestamp(fixedNow)
+	ts := formatContentTimestamp(fixedNow, fixedNow)
 	tests := []struct {
 		name          string
 		event         output.Event

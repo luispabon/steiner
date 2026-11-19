@@ -130,7 +130,8 @@ func assertTwinViews(t *testing.T, label string, got, want *Model, selection boo
 // viewport width change (a fresh render at the new width). All three must
 // agree byte for byte.
 func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
-	advance := stubBgFormatClock(t)
+	t.Parallel()
+	clock := newTestClock()
 	seeds, minRevisits := raceSeeds(8), 30
 	if raceEnabled {
 		// One seed: a single revisit is enough to reach the cache-hit path.
@@ -140,10 +141,10 @@ func TestWidthRenderCacheMatchesFreshRender(t *testing.T) {
 	for seed := range seeds {
 		s := &widthCacheScenario{bgFormatScenario: bgFormatScenario{r: rand.New(rand.NewPCG(seed, 11))}}
 		run := sendMsg(runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
-		cached, single, fresh := newBgFormatTwinModel(run), newBgFormatTwinModel(run), newBgFormatTwinModel(run)
+		cached, single, fresh := newBgFormatTwinModel(clock, run), newBgFormatTwinModel(clock, run), newBgFormatTwinModel(clock, run)
 		seen := map[int]bool{cached.viewport.Width(): true}
 		for step := range 90 {
-			advance(time.Duration(s.r.IntN(3)) * time.Second)
+			clock.advance(time.Duration(s.r.IntN(3)) * time.Second)
 			apply := s.op()
 			width := cached.viewport.Width()
 			stripWidthRenders(single)

@@ -17,19 +17,20 @@ import (
 // well past the 120-line scroll the anchor test needs.
 const reflowTurns = 6
 
-func reflowFixture(t *testing.T) *Model {
+func reflowFixture(t *testing.T) (*Model, *testClock) {
 	t.Helper()
-	stubBgFormatClock(t)
-	return populateLongTranscript(newContentBenchModel(), reflowTurns)
+	clock := newTestClock()
+	m := clock.attach(newContentBenchModel())
+	return populateLongTranscript(m, reflowTurns), clock
 }
 
 // reflowOracle builds the transcript directly at window width w: the size
 // arrives before any content, so nothing is deferred and no reflow is involved.
-func reflowOracle(w int) *Model {
-	m := newModel(Config{
+func reflowOracle(w int, clock *testClock) *Model {
+	m := clock.attach(newModel(Config{
 		Model:         "bench-model",
 		ModelContexts: map[string]int{"bench-model": 100000},
-	}, nil)
+	}, nil))
 	m = updateModelDirect(m, tea.WindowSizeMsg{Width: w, Height: 40})
 	m = updateModelDirect(m, runtimeEventMsg{Event: output.NewRunStartedEvent("interactive", "bench-model", "", 4, 256)})
 	return populateLongTranscript(m, reflowTurns)
@@ -61,7 +62,8 @@ func renderedWidths(m *Model) map[int]bool {
 }
 
 func TestResizeBurstReflowsOnce(t *testing.T) {
-	m := reflowFixture(t)
+	t.Parallel()
+	m, clock := reflowFixture(t)
 	startWidth := m.viewport.Width()
 	burst := []int{118, 115, 112, 109, 106, 103}
 	for _, w := range burst {
@@ -96,7 +98,7 @@ func TestResizeBurstReflowsOnce(t *testing.T) {
 		}
 	}
 
-	oracle := reflowOracle(burst[len(burst)-1])
+	oracle := reflowOracle(burst[len(burst)-1], clock)
 	if oracle.reflow.pending {
 		t.Fatal("oracle deferred")
 	}
@@ -106,6 +108,7 @@ func TestResizeBurstReflowsOnce(t *testing.T) {
 }
 
 func TestResizeReflowStaleFrame(t *testing.T) {
+	t.Parallel()
 	for _, tc := range raceSample([]struct {
 		name   string
 		width  int
@@ -117,7 +120,7 @@ func TestResizeReflowStaleFrame(t *testing.T) {
 		{"wider scrolled", 150, 37},
 	}) {
 		t.Run(tc.name, func(t *testing.T) {
-			m := reflowFixture(t)
+			m, _ := reflowFixture(t)
 			if tc.scroll > 0 {
 				m.scrollUp(tc.scroll)
 			}
@@ -168,7 +171,8 @@ func TestResizeReflowStaleFrame(t *testing.T) {
 }
 
 func TestResizeReflowStaleSeqIgnored(t *testing.T) {
-	m := reflowFixture(t)
+	t.Parallel()
+	m, _ := reflowFixture(t)
 	startWidth := m.viewport.Width()
 	resizeTo(m, 110, 40)
 	old := m.reflow.seq
@@ -184,8 +188,9 @@ func TestResizeReflowStaleSeqIgnored(t *testing.T) {
 }
 
 func TestResizeReflowImmediatePaths(t *testing.T) {
+	t.Parallel()
 	t.Run("height only", func(t *testing.T) {
-		m := reflowFixture(t)
+		m, _ := reflowFixture(t)
 		if cmd := resizeTo(m, 120, 30); cmd != nil || m.reflow.pending {
 			t.Fatalf("height-only resize deferred (cmd=%v pending=%v)", cmd != nil, m.reflow.pending)
 		}
@@ -194,7 +199,7 @@ func TestResizeReflowImmediatePaths(t *testing.T) {
 		}
 	})
 	t.Run("cached width", func(t *testing.T) {
-		m := reflowFixture(t)
+		m, _ := reflowFixture(t)
 		resizeTo(m, 110, 40)
 		fireReflow(m)
 		if cmd := resizeTo(m, 120, 40); cmd != nil || m.reflow.pending {
@@ -205,7 +210,7 @@ func TestResizeReflowImmediatePaths(t *testing.T) {
 		}
 	})
 	t.Run("back to rendered width while pending", func(t *testing.T) {
-		m := reflowFixture(t)
+		m, _ := reflowFixture(t)
 		resizeTo(m, 110, 40)
 		resizeTo(m, 120, 40)
 		if m.reflow.pending {
@@ -213,7 +218,7 @@ func TestResizeReflowImmediatePaths(t *testing.T) {
 		}
 	})
 	t.Run("sidebar toggle", func(t *testing.T) {
-		m := reflowFixture(t)
+		m, _ := reflowFixture(t)
 		resizeTo(m, 130, 40)
 		if !m.reflow.pending {
 			t.Fatal("resize not deferred")
@@ -235,8 +240,9 @@ func TestResizeReflowImmediatePaths(t *testing.T) {
 }
 
 func TestResizeReflowScrollAnchor(t *testing.T) {
+	t.Parallel()
 	t.Run("pinned", func(t *testing.T) {
-		m := reflowFixture(t)
+		m, _ := reflowFixture(t)
 		if !m.autoScroll {
 			t.Fatal("fixture not pinned")
 		}
@@ -247,7 +253,7 @@ func TestResizeReflowScrollAnchor(t *testing.T) {
 		}
 	})
 	t.Run("scrolled", func(t *testing.T) {
-		m := reflowFixture(t)
+		m, _ := reflowFixture(t)
 		m.scrollUp(120)
 		if m.viewport.YOffset() == 0 {
 			t.Fatal("setup: transcript too short to scroll 120 lines without reaching the top")
@@ -270,7 +276,8 @@ func TestResizeReflowScrollAnchor(t *testing.T) {
 }
 
 func TestResizeReflowClearsSelection(t *testing.T) {
-	m := reflowFixture(t)
+	t.Parallel()
+	m, _ := reflowFixture(t)
 	m.activeRegion = regionViewport
 	m.selection = selectionState{start: selectionPoint{line: 3, col: 2}, end: selectionPoint{line: 5, col: 9}}
 	resizeTo(m, 108, 40)
@@ -281,8 +288,9 @@ func TestResizeReflowClearsSelection(t *testing.T) {
 }
 
 func TestResizeReflowStreamingWhilePending(t *testing.T) {
+	t.Parallel()
 	chunk := runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(2, "streamed words that arrive mid resize, ", output.ChunkSourceAssistant)}
-	m := reflowFixture(t)
+	m, clock := reflowFixture(t)
 	startWidth := m.viewport.Width()
 	resizeTo(m, 108, 40)
 	for range 3 {
@@ -296,7 +304,7 @@ func TestResizeReflowStreamingWhilePending(t *testing.T) {
 	}
 	fireReflow(m)
 
-	oracle := reflowOracle(108)
+	oracle := reflowOracle(108, clock)
 	for range 3 {
 		_, _ = oracle.Update(chunk)
 	}
