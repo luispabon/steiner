@@ -12,15 +12,26 @@ import (
 
 // Session represents a saved conversation session with metadata and lineage.
 type Session struct {
-	ID        string                    `json:"id"`
-	CreatedAt time.Time                 `json:"created_at"`
-	UpdatedAt time.Time                 `json:"updated_at"`
-	Title     string                    `json:"title"`
-	Model     string                    `json:"model"`
-	Group     string                    `json:"group,omitempty"`
-	Mode      string                    `json:"mode,omitempty"`
-	Skills    []string                  `json:"skills,omitempty"`
-	Lineage   agent.ConversationLineage `json:"lineage"`
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Title     string    `json:"title"`
+	Model     string    `json:"model"`
+	// ModelRef is the configured model reference (alias or provider/model-id)
+	// active when the session was saved. Empty on records written before it
+	// existed, where Model still carries the backend id.
+	ModelRef string `json:"model_ref,omitempty"`
+	// ModelProvider is the provider alias that served ModelRef when the session
+	// was saved. It lets a resumed session tell a redefined alias from the one
+	// the conversation was talking to.
+	ModelProvider string `json:"model_provider,omitempty"`
+	// ReasoningOverrides records session-time reasoning effort overrides by
+	// model reference, so a resume restores the same effort.
+	ReasoningOverrides map[string]ReasoningOverride `json:"reasoning_overrides,omitempty"`
+	Group              string                       `json:"group,omitempty"`
+	Mode               string                       `json:"mode,omitempty"`
+	Skills             []string                     `json:"skills,omitempty"`
+	Lineage            agent.ConversationLineage    `json:"lineage"`
 	// PromptCacheKey identifies the prefix family this session's payload belongs
 	// to, for provider-side cache routing. NOT an identifier: a fork deliberately
 	// shares its parent's value, so two session files can carry the same key.
@@ -51,6 +62,25 @@ func cloneSessionDate(d *StartDate) *StartDate {
 	}
 	clone := *d
 	return &clone
+}
+
+// ReasoningOverride is a persisted session-time reasoning override. Kind is one
+// of the provider package's override kinds ("provider_default" or "effort");
+// Effort is set for the "effort" kind.
+type ReasoningOverride struct {
+	Kind   string `json:"kind"`
+	Effort string `json:"effort,omitempty"`
+}
+
+func cloneReasoningOverrides(src map[string]ReasoningOverride) map[string]ReasoningOverride {
+	if src == nil {
+		return nil
+	}
+	clone := make(map[string]ReasoningOverride, len(src))
+	for ref, override := range src {
+		clone[ref] = override
+	}
+	return clone
 }
 
 // CacheKey returns the session's prompt cache key, falling back to the session ID
@@ -140,16 +170,19 @@ func Fork(s Session) (Session, error) {
 	forkTitle := TitleFromPrompt("Fork of: " + s.Title)
 	lineage := s.Lineage.OnlyLatest()
 	return Session{
-		ID:               id,
-		CreatedAt:        now,
-		UpdatedAt:        now,
-		Title:            forkTitle,
-		Model:            s.Model,
-		Mode:             s.Mode,
-		Group:            strings.TrimSpace(s.Group),
-		Skills:           s.Skills,
-		Lineage:          lineage,
-		DelegationGroups: agent.CloneDelegationGroupLedger(s.DelegationGroups),
+		ID:                 id,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		Title:              forkTitle,
+		Model:              s.Model,
+		ModelRef:           s.ModelRef,
+		ModelProvider:      s.ModelProvider,
+		ReasoningOverrides: cloneReasoningOverrides(s.ReasoningOverrides),
+		Mode:               s.Mode,
+		Group:              strings.TrimSpace(s.Group),
+		Skills:             s.Skills,
+		Lineage:            lineage,
+		DelegationGroups:   agent.CloneDelegationGroupLedger(s.DelegationGroups),
 		// The fork deliberately shares the parent's prompt cache key so the
 		// warm prefix carries over; CacheKey() heals pre-change records that
 		// have no stored key instead of propagating an empty one.

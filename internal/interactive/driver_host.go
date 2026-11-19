@@ -323,6 +323,11 @@ func (s *Session) writeLineageAs(meta runSessionMeta, snap agent.DriverSnapshot)
 	}
 	sess.Mode = meta.mode
 	sess.Skills = meta.skills
+	if meta.modelRef != "" {
+		sess.ModelRef = meta.modelRef
+		sess.ModelProvider = meta.modelProvider
+	}
+	sess.ReasoningOverrides = meta.reasoningOverrides
 	sess.SubAgentLedger = slices.Clone(snap.Ledger)
 	groups := snap.GroupLedger.Clone()
 	sess.DelegationGroups = &groups

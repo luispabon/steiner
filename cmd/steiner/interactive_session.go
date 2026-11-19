@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,6 +93,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		sessDeps.OpenGroupScope = rt.delegationSupervisor.OpenGroupScope
 		sessDeps.SnapshotGroupLedger = rt.delegationSupervisor.SnapshotGroupLedger
 	}
+	sessDeps.StartupModel, sessDeps.StartupModelSource = startupModelSelection(rt)
 	return interactive.NewSession(sessDeps)
 }
 
@@ -413,6 +415,57 @@ func resumeInteractiveSession(ctx context.Context, sess *interactive.Session, re
 		return err
 	}
 	return nil
+}
+
+// startupModelSelection returns the model reference and source captured before
+// a resume restore: the reference active at process start and where it came
+// from (--model, STEINER_MODEL, or the profile default).
+func startupModelSelection(rt cliRuntime) (string, string) {
+	ref := strings.TrimSpace(rt.cfg.Models.Effective.ActiveOrchestratorModel)
+	if ref == "" {
+		ref = strings.TrimSpace(rt.cfg.Models.Effective.DefaultModel)
+	}
+	source := rt.startupModelSource
+	if source == "" {
+		source = interactive.ModelSourceProfile
+	}
+	return ref, source
+}
+
+// resumedModelTUIState returns the model alias and provider details the TUI
+// should seed after a session load, so the sidebar and status bar show the
+// restored model before any event arrives.
+func resumedModelTUIState(sess *interactive.Session) (alias, baseURL, providerName string) {
+	if sess == nil {
+		return "", "", ""
+	}
+	cfg := sess.Config()
+	alias = strings.TrimSpace(sess.CurrentModelAlias())
+	if alias == "" {
+		alias = strings.TrimSpace(cfg.Models.Effective.DefaultModel)
+	}
+	model, _ := config.ResolveModelConfig(&cfg, alias)
+	if provider, ok := cfg.Providers[model.Provider]; ok {
+		baseURL = provider.BaseURL
+		providerName = model.Provider
+	}
+	return alias, baseURL, providerName
+}
+
+// invalidExplicitModelWarnings reports --model or STEINER_MODEL values that
+// were silently ignored because they are not a configured alias or
+// provider/model reference.
+func invalidExplicitModelWarnings(cfg config.Config, flags *cliFlags) []string {
+	var warnings []string
+	if flags != nil {
+		if model := strings.TrimSpace(flags.model); model != "" && !config.IsValidModelReference(&cfg, model) {
+			warnings = append(warnings, fmt.Sprintf("--model %q is not a configured model alias or provider/model reference; ignored", model))
+		}
+	}
+	if model := strings.TrimSpace(os.Getenv("STEINER_MODEL")); model != "" && !config.IsValidModelReference(&cfg, model) {
+		warnings = append(warnings, fmt.Sprintf("STEINER_MODEL=%q is not a configured model alias or provider/model reference; ignored", model))
+	}
+	return warnings
 }
 
 // mcpInitOnce runs the one-shot MCP wait and registry re-registration exactly

@@ -170,4 +170,12 @@ type Dependencies struct {
 	Clock agent.Clock
 	// MaxTokensPerEpisode caps completion tokens per conversation episode; 0 is unlimited.
 	MaxTokensPerEpisode int
+	// StartupModel is the model reference selected at process start, before a
+	// resumed session restores its own. Empty falls back to the session's
+	// effective active model at construction.
+	StartupModel string
+	// StartupModelSource records where StartupModel came from: one of
+	// ModelSourceFlag, ModelSourceEnv, or ModelSourceProfile. Empty means
+	// ModelSourceProfile.
+	StartupModelSource string
 }

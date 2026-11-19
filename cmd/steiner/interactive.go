@@ -52,6 +52,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	if err != nil {
 		return err
 	}
+	rt.configWarnings = append(rt.configWarnings, invalidExplicitModelWarnings(rt.cfg, flags)...)
 	sess, err := buildInteractiveSession(rt)
 	if err != nil {
 		closeRuntime(&rt)
@@ -81,6 +82,9 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// The persisted mode and skills are restored now; seed the model so the sidebar/footer and toggle match the session.
 	tuiApp.SetInitialMode(string(sess.Mode()))
 	tuiApp.SetInitialEnabledSkills(sess.Skills())
+	if alias, baseURL, providerName := resumedModelTUIState(sess); alias != "" {
+		tuiApp.SetInitialModel(alias, baseURL, providerName)
+	}
 	p := tuiApp.NewProgram(interactiveProgramOptions(rt.cfg)...)
 	return runInteractiveSession(cmd, sess, p, &rt)
 }

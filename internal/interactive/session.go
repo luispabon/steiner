@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,12 +56,17 @@ type Session struct {
 	// the epoch of the handle in driver. State events carry the epoch of the
 	// driver that produced them, so a consumer can drop one from a driver the
 	// session has replaced.
-	driverEpoch        uint64
-	liveEpoch          atomic.Uint64
-	sessionID          string
-	promptCacheKey     string
-	sessionTitle       string
-	sessionGroup       string
+	driverEpoch    uint64
+	liveEpoch      atomic.Uint64
+	sessionID      string
+	promptCacheKey string
+	sessionTitle   string
+	sessionGroup   string
+	// startupModel and startupModelSource record the model selection made
+	// before any resume restore, so a saved model that cannot be used falls
+	// back to the actual startup choice rather than a later model switch.
+	startupModel       string
+	startupModelSource string
 	reasoningOverrides map[string]provider.ReasoningOverride
 	mode               config.ExecutionMode
 	modeListener       func(config.ExecutionMode)
@@ -109,6 +115,14 @@ func NewSession(deps Dependencies) (*Session, error) {
 	}
 	now := time.Now
 	background, cancelBackground := context.WithCancel(context.Background())
+	startupModel := strings.TrimSpace(deps.StartupModel)
+	if startupModel == "" {
+		startupModel = effectiveModelRef(deps.Config)
+	}
+	startupModelSource := strings.TrimSpace(deps.StartupModelSource)
+	if startupModelSource == "" {
+		startupModelSource = ModelSourceProfile
+	}
 	sess := &Session{
 		background:          background,
 		cancelBackground:    cancelBackground,
@@ -125,6 +139,8 @@ func NewSession(deps Dependencies) (*Session, error) {
 		promptCacheKey:      sessionID,
 		lineage:             agent.ConversationLineage{},
 		delegationGroups:    newEmptyDelegationGroupLedger(),
+		startupModel:        startupModel,
+		startupModelSource:  startupModelSource,
 		reasoningOverrides:  make(map[string]provider.ReasoningOverride),
 		mode:                mode,
 		orchestrationLevel:  orchestrationLevel,

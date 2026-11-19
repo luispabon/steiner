@@ -21,6 +21,7 @@ import (
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/delegation"
 	"github.com/luispabon/steiner/internal/history"
+	"github.com/luispabon/steiner/internal/interactive"
 	"github.com/luispabon/steiner/internal/lsp"
 	"github.com/luispabon/steiner/internal/mcp"
 	"github.com/luispabon/steiner/internal/oneshot"
@@ -74,6 +75,23 @@ func preflightRuntimeModels(cfg config.Config, requirement runtimeRequirement) e
 // project root and the (possibly worktree) work directory.
 func pruneRuntimeArtifacts(projectRoot, workDir string) (int, error) {
 	return builtin.PruneToolArtifacts([]string{projectRoot, workDir})
+}
+
+// selectionModelSource records where cfg.Selection.ModelOverride came from:
+// --model ("flag"), STEINER_MODEL ("env"), or nowhere (empty, meaning a
+// profile default). It lets a resumed session name the ignored choice.
+func selectionModelSource(cfg config.Config, flags *cliFlags) string {
+	override := strings.TrimSpace(cfg.Selection.ModelOverride)
+	if override == "" {
+		return ""
+	}
+	if flags != nil && strings.TrimSpace(flags.model) == override {
+		return interactive.ModelSourceFlag
+	}
+	if strings.TrimSpace(os.Getenv("STEINER_MODEL")) == override {
+		return interactive.ModelSourceEnv
+	}
+	return ""
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
@@ -256,6 +274,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		modelResolver:                modelResolver,
 		modelEntriesUpdates:          make(chan []tui.ModelEntry, max(1, len(modelCatalogEndpoints))),
 		codexWSProviderCache:         provider.NewCodexWSCache(),
+		startupModelSource:           selectionModelSource(cfg, flags),
 	}, nil
 }
 

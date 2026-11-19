@@ -30,7 +30,7 @@ All flags except `--resume` are accepted by every subcommand, though most only a
 | `--log-file <path>` | Write full session logs to this file, plus related log files next to it. Overrides the [`logging` block](configuration.md#logging-block). The logs may contain prompts, file contents and tool output; treat them as sensitive. |
 | `--compaction-log-file <path>` | Write compaction logs to this file. Overrides `logging.compaction_log_file`. |
 | `--dev` | Select the dev release channel for `steiner update`. Has no other effect. |
-| `--resume [id]` | Root command only. With an ID, start the TUI with that saved session. Without a value, print saved sessions (number, title, model, last update, ID) and exit. Cannot be combined with `--exec`. |
+| `--resume [id]` | Root command only. With an ID, start the TUI with that saved session. Without a value, print saved sessions (number, title, model, last update, ID) and exit. A resumed session restores its saved model and reasoning effort, which take precedence over `--model` and `STEINER_MODEL`. Cannot be combined with `--exec`. |
 | `-h`, `--help` | Print help. |
 | `-v`, `--version` | Print build information (same as `steiner version`). |
 

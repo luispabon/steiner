@@ -80,7 +80,7 @@ func (s *Session) saveSession() error {
 		return nil
 	}
 
-	modelID := SelectedModelConfig(s.deps.Config).ID
+	modelRef, modelProvider, modelID := s.modelIdentityLocked()
 	var (
 		sess session.Session
 		err  error
@@ -97,6 +97,9 @@ func (s *Session) saveSession() error {
 	sess.ID = s.sessionID
 	sess.PromptCacheKey = s.promptCacheKey
 	sess.SessionDate = storedSessionDate(s.sessionDate)
+	sess.ModelRef = modelRef
+	sess.ModelProvider = modelProvider
+	sess.ReasoningOverrides = storedReasoningOverrides(s.reasoningOverrides)
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
 	sess.SubAgentLedger = slices.Clone(s.ledger)
@@ -251,6 +254,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if err != nil {
 		return err
 	}
+	restored := s.resolveRestoredModel(sess)
 
 	s.mu.Lock()
 	if err := s.loadSessionGuardLocked(); err != nil {
@@ -270,6 +274,15 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		s.sessionTitle = sess.Title
 		s.sessionGroup = strings.TrimSpace(sess.Group)
 		s.mode = mode
+		if restored.applied {
+			s.deps.Config.Models.Effective.ActiveOrchestratorModel = restored.ref
+		}
+		if s.reasoningOverrides == nil {
+			s.reasoningOverrides = make(map[string]provider.ReasoningOverride)
+		}
+		for ref, override := range providerReasoningOverrides(restored.overrides) {
+			s.reasoningOverrides[ref] = override
+		}
 		s.ledger = slices.Clone(sess.SubAgentLedger)
 		s.delegationGroups = &groupLedger
 		s.snapshots.Clear()
@@ -303,6 +316,13 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}
 
 	s.replayLoadedTranscript(msgs, sess.SubAgentLedger)
+	// Model restore warnings land after the replayed transcript: the saved
+	// model choice, an ignored explicit startup choice, or the reason the
+	// startup model was kept. Emitting them here also keeps a startup --resume
+	// warning in the TUI's pre-start event queue instead of dropping it.
+	for _, warning := range restored.warnings {
+		s.events.Emit(output.NewConfigWarningEvent(warning))
+	}
 	// Lost sub-agents settle only after replay so their delivered event lands
 	// after the replayed transcript, not before it.
 	deliverLostSubAgents(drv, sess.SubAgentLedger)
