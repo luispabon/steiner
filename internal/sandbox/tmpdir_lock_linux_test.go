@@ -39,16 +39,6 @@ func TestTmpDirLockErrorClassification(t *testing.T) {
 	}
 }
 
-// openFDCount returns the number of open file descriptors for this process.
-func openFDCount(t *testing.T) int {
-	t.Helper()
-	entries, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
-		t.Fatalf("read /proc/self/fd: %v", err)
-	}
-	return len(entries)
-}
-
 // stubTmpDirLockAcquire swaps the tmp dir lock acquisition seam.
 func stubTmpDirLockAcquire(t *testing.T, fn func(string) (*os.File, error)) {
 	t.Helper()
@@ -59,21 +49,43 @@ func stubTmpDirLockAcquire(t *testing.T, fn func(string) (*os.File, error)) {
 
 // swapDirPathAfterLock wraps acquireTmpDirLock so the path is replaced with a
 // fresh directory immediately after the lock is taken, before the caller can
-// verify the inode it locked.
-func swapDirPathAfterLock(t *testing.T) func(string) (*os.File, error) {
+// verify the inode it locked. The returned held function reports the descriptor
+// the stub handed to the caller, so a test can assert it was released. The
+// descriptor is recorded only once the swap succeeded; a failed swap closes it
+// instead of abandoning it.
+func swapDirPathAfterLock(t *testing.T) (acquire func(string) (*os.File, error), held func() *os.File) {
 	t.Helper()
-	return func(dir string) (*os.File, error) {
+	var opened *os.File
+	acquire = func(dir string) (*os.File, error) {
 		file, err := acquireTmpDirLock(dir)
 		if err != nil {
 			return nil, err
 		}
 		if err := os.RemoveAll(dir); err != nil {
+			_ = file.Close()
 			return nil, err
 		}
 		if err := os.Mkdir(dir, 0o755); err != nil {
+			_ = file.Close()
 			return nil, err
 		}
+		opened = file
 		return file, nil
+	}
+	return acquire, func() *os.File { return opened }
+}
+
+// requireLockClosed asserts the descriptor the stubbed acquire handed to the
+// caller was released. A closed *os.File fails Stat with os.ErrClosed, so the
+// check follows the descriptor this code opened instead of the process-wide
+// descriptor count, which unrelated work in the test binary moves.
+func requireLockClosed(t *testing.T, lock *os.File) {
+	t.Helper()
+	if lock == nil {
+		t.Fatal("expected the stub to acquire a lock descriptor")
+	}
+	if _, err := lock.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("lock descriptor still open: Stat error = %v, want os.ErrClosed", err)
 	}
 }
 
@@ -289,9 +301,9 @@ func TestSandboxCleanup_LeavesReplacedDir(t *testing.T) {
 
 func TestLockTmpDir_ClosesFDWhenInodeChanges(t *testing.T) {
 	root, tmpDir := testTmpDirRoot(t, true)
-	stubTmpDirLockAcquire(t, swapDirPathAfterLock(t))
+	acquire, held := swapDirPathAfterLock(t)
+	stubTmpDirLockAcquire(t, acquire)
 
-	before := openFDCount(t)
 	s := New(config.SandboxConfig{}, config.PermissionsConfig{}, root, root, "", tmpDir)
 	if err := s.LockTmpDir(); !errors.Is(err, errTmpDirNotOwned) {
 		t.Fatalf("LockTmpDir error = %v, want errTmpDirNotOwned", err)
@@ -299,16 +311,14 @@ func TestLockTmpDir_ClosesFDWhenInodeChanges(t *testing.T) {
 	if s.tmpLock != nil {
 		t.Error("expected no adopted lock after an inode mismatch")
 	}
-	if after := openFDCount(t); after != before {
-		t.Fatalf("open fds before = %d, after = %d: lock fd leaked", before, after)
-	}
+	requireLockClosed(t, held())
 }
 
 func TestEnsureTmpDir_ClosesFDWhenReprovisionLockFails(t *testing.T) {
 	root, tmpDir := testTmpDirRoot(t, false)
-	stubTmpDirLockAcquire(t, swapDirPathAfterLock(t))
+	acquire, held := swapDirPathAfterLock(t)
+	stubTmpDirLockAcquire(t, acquire)
 
-	before := openFDCount(t)
 	s := New(config.SandboxConfig{}, config.PermissionsConfig{}, root, root, "", tmpDir)
 	bindable, err := s.ensureTmpDir()
 	if !errors.Is(err, errTmpDirNotOwned) {
@@ -320,9 +330,7 @@ func TestEnsureTmpDir_ClosesFDWhenReprovisionLockFails(t *testing.T) {
 	if info, statErr := os.Stat(tmpDir); statErr != nil || !info.IsDir() {
 		t.Fatalf("expected the recreated dir to exist, info=%v err=%v", info, statErr)
 	}
-	if after := openFDCount(t); after != before {
-		t.Fatalf("open fds before = %d, after = %d: lock fd leaked", before, after)
-	}
+	requireLockClosed(t, held())
 }
 
 func TestWrapCommandMode_ReprovisionsMissingTmpDir(t *testing.T) {
