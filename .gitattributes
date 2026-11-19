@@ -1,0 +1,4 @@
+# Keep the generated notice inventory byte-identical on every platform: the
+# -check mode compares bytes, and Git for Windows would otherwise check this
+# file out with CRLF line endings.
+THIRD_PARTY_NOTICES.md text eol=lf

@@ -22,7 +22,7 @@ install-check-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
-.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui bench-compare test-perf check test-scripts
+.PHONY: build build-binaries build-binaries-slim build-binaries-dev test test-race vet fmt fmt-check imports imports-check tidy-check lint vuln bench bench-tui bench-compare test-perf check test-scripts notices notices-check
 
 build: build-binaries
 
@@ -108,8 +108,17 @@ vuln:
 	}
 	govulncheck ./...
 
+# THIRD_PARTY_NOTICES.md is the distribution notice inventory for the release
+# binaries, which statically link third-party modules. notices-check runs in
+# `check` so an inventory left stale by a go.mod change fails the build.
+notices:
+	go run ./cmd/gen-third-party-notices
+
+notices-check:
+	go run ./cmd/gen-third-party-notices -check
+
 check: tidy-check
-	$(MAKE) -j6 fmt-check imports-check build-binaries test-race vet lint vuln
+	$(MAKE) -j6 fmt-check imports-check build-binaries test-race vet lint vuln notices-check
 
 # Separate from `check` on purpose: it is Node tooling for scripts/*.mjs, and
 # CI's main Go-only path must not gain a Node dependency.

@@ -188,6 +188,10 @@ jobs:
       - name: Imports check
         run: make imports-check
 
+      # Fails when a go.mod/go.sum change leaves THIRD_PARTY_NOTICES.md stale.
+      - name: Notices check
+        run: make notices-check
+
       - name: Locate golangci-lint cache
         id: golangci-cache
         run: |
