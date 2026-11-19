@@ -358,6 +358,67 @@ test("coldturns: no_prior_baseline needs prefix_comparison_enabled true, not jus
 	assert.equal(nova.metrics.coldTurns, 4);
 });
 
+test("coldturns: resume-flagged records are labelled baseline-unavailable, not attributed as a cause", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-resume-"));
+	try {
+		writeFileSync(
+			join(dir, "cache.jsonl"),
+			[
+				// A warm first turn keeps the model out of the no-reporting
+				// exclusion list below; the pair walk drops it.
+				{ ts: "2026-09-01T10:00:00Z", run_id: "run-1", source: "parent", seq: 1, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 50 } },
+				// In-process TUI resume: the flagged record is a normal pair.
+				{ ts: "2026-09-01T10:01:00Z", run_id: "run-1", source: "parent", seq: 2, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 0, prefix_comparison_enabled: true, prefix_predecessor_known: false, resume_baseline_unavailable: true } },
+				// A genuine missing baseline that was not a resume keeps its own
+				// attribution.
+				{ ts: "2026-09-01T10:02:00Z", run_id: "run-1", source: "parent", seq: 3, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 0, prefix_comparison_enabled: true, prefix_predecessor_known: false } },
+				// CLI resume: the first record of the run already has no
+				// predecessor, so it is never a pair, but it must still be
+				// counted.
+				{ ts: "2026-09-01T11:00:00Z", run_id: "run-2", source: "parent", seq: 4, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 0, prefix_comparison_enabled: true, prefix_predecessor_known: false, resume_baseline_unavailable: true } },
+			].map((record) => JSON.stringify(record)).join("\n") + "\n",
+		);
+		writeFileSync(join(dir, "tool.jsonl"), "");
+		const out = run(["coldturns", "--dir", dir, "--json", "--min-n", "1"]);
+
+		// Both flagged records are counted by model, including the one the pair
+		// walk drops as a run's first turn.
+		const resumeRow = out.baseline_unavailable_after_resume.find((r) => r.key === "model");
+		assert.equal(resumeRow.n, 2);
+
+		// The flagged pair is not attributed, so the resume cannot be read as a
+		// miss cause; only the unflagged missing baseline is.
+		const byClass = Object.fromEntries(out.cold_turn_attribution.map((r) => [r.key, r.n]));
+		assert.equal(byClass.no_prior_baseline, 1);
+		assert.equal(byClass.resume_baseline_unavailable, undefined);
+
+		// Model aggregation uses the same attributable population: the flagged
+		// pair must not inflate the model's n or cold-turn count while the
+		// attribution table excludes it.
+		const byModel = out.by_model.find((r) => r.key === "model");
+		assert.equal(byModel.n, 1);
+		assert.equal(byModel.metrics.coldTurns, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("coldturns: the text table names the resume baseline section", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-resume-text-"));
+	try {
+		writeFileSync(
+			join(dir, "cache.jsonl"),
+			JSON.stringify({ ts: "2026-09-01T10:00:00Z", run_id: "run-1", source: "parent", seq: 1, payload: { backend_model_id: "model", prompt_tokens: 100, cache_read_tokens: 10, resume_baseline_unavailable: true } }) + "\n",
+		);
+		writeFileSync(join(dir, "tool.jsonl"), "");
+		const out = execFileSync("node", [SCRIPT, "coldturns", "--dir", dir], { encoding: "utf8" });
+		assert.match(out, /baseline unavailable after resume/);
+		assert.doesNotMatch(out, /resume.*cause/i);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("cache mode --compare prints both build_sha columns with a delta", () => {
 	const out = execFileSync("node", [SCRIPT, "cache", "--dir", FIXTURES, "--compare", "aaaa1111", "bbbb2222"], { encoding: "utf8" });
 	assert.match(out, /aaaa1111 vs bbbb2222/);

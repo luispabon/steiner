@@ -234,6 +234,16 @@ func (a *App) SetInitialEnabledSkills(names []string) {
 	a.cfg.InitialEnabledSkills = names
 }
 
+// SetInitialModel overrides the model and provider shown at startup, so a
+// resumed session seeds the TUI with the model it restored. Safe only before
+// NewProgram and not concurrency-safe.
+func (a *App) SetInitialModel(model, providerBaseURL, providerName string) {
+	a.cfg.Model = model
+	a.cfg.CurrentModelAlias = model
+	a.cfg.ProviderBaseURL = providerBaseURL
+	a.cfg.ProviderName = providerName
+}
+
 // Subscriber returns the event subscriber exposed to the runtime.
 func (a *App) Subscriber() output.Subscriber {
 	if a == nil {

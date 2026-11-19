@@ -130,6 +130,7 @@ Press `ctrl+g` to take queued steers back before delivery. They are merged with 
 Steiner saves interactive sessions under `~/.config/steiner/sessions`.
 
 - `/resume` opens the session picker. Type to filter by title, `enter` loads the selected session, `f` forks it and `esc` closes the picker.
+- Loading a session restores the model and reasoning effort it was using. The saved model wins over `--model` and `STEINER_MODEL`, and a notice after the replayed transcript names any explicit choice it replaced. If the saved model's provider or credentials are no longer available locally, the session keeps the startup model instead and the notice gives the reason. See [Provider and model setup](provider-and-model-setup.md#choosing-the-active-model).
 - `steiner --resume` prints saved sessions with their IDs, and `steiner --resume <id>` starts the TUI with that session. See [CLI reference](cli.md).
 - `/fork` copies the current conversation into a new session and switches to it. Forking from the picker does the same for a saved session. The fork is titled `Fork of: <original title>`, and changes in one session do not affect the other. `/recall` in a fork shows only the fork's own compaction archive.
 - `/clear` starts a new, empty session. It resets enabled skills, queued steers and pending images. The previous session stays saved.

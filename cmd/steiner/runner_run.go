@@ -16,6 +16,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
+	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 var fallbackWarningModels sync.Map
@@ -172,15 +173,52 @@ func (r cliRunner) cachedCodexWSProvider(cache *provider.CodexWSCache, rm provid
 	})
 }
 
+// activeParentRegistry builds the tool registry a parent run sends: the base
+// registry plus the search backend, sandbox and delegation tools, with the MCP
+// exposure projection derived from the registered set. A normal run and a
+// manual compaction that has no parent snapshot build through it, so the
+// compaction prefix carries the same tool definitions. It only reads the
+// runtime's shared stores, so building one creates no second supervisor,
+// session store or active controller.
+//
+// The MCP projection is derived at composition time from the completed
+// registered set: in interactive mode the session runner has already
+// WaitInit'ed and re-registered late MCP defs before the run or compaction, so
+// the projection always sees the final tool list.
+func (r cliRunner) activeParentRegistry(setup runnerSetup, events output.EventSink) (*tool.Registry, error) {
+	searcher, err := builtin.NewSearchBackend(r.runtime.cfg.Search)
+	if err != nil {
+		return nil, fmt.Errorf("create search backend: %w", err)
+	}
+	exposure := BuildMCPExposure(r.runtime.registry.Definitions(), r.runtime.cfg.MCP.Servers)
+	sandboxTmpDir := ""
+	if r.sandboxEnabled() {
+		sandboxTmpDir = r.runtime.sandbox.TmpDir()
+	}
+	return delegation.BuildDelegateRegistry(r.newDelegateDeps(setup, events, searcher, exposure, sandboxTmpDir))
+}
+
 // CompactWithLineage compacts conversation for the run whose lineage is given.
 // The lineage supplies the backend state the summary request is issued against.
 // It reports whether the summary cleared that state and whether a stage applied.
 // lastMainRequest is the run's last main request. It seeds the compaction
 // fallback's cold-cache check, as it does for a normal run.
+//
+// tools are the parent request's tool definitions when the process still holds
+// them. Empty means no parent snapshot is available, as after a resume, so the
+// parent registry is rebuilt from the live configuration to keep the summary
+// request's prefix aligned with a normal run.
 func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, skillNames []string, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
 	setup, err := r.prepareRun(nil, skillNames)
 	if err != nil {
 		return nil, false, false, err
+	}
+	if len(tools) == 0 {
+		registry, err := r.activeParentRegistry(setup, r.runtime.events)
+		if err != nil {
+			return nil, false, false, fmt.Errorf("rebuild compaction tools: %w", err)
+		}
+		tools = registry.ToProviderSpecs()
 	}
 	req := r.compactionRunRequest(setup, tools, lastMainRequest)
 	if r.runtime.usageRecorder != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 type compactionEscalation struct {
@@ -237,17 +238,19 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 		}
 	}
 	stats := requestCacheStats{}
+	opts := chatExecOptions{}
 	if req.Diagnostics.Enabled(diagnostics.KindCache) {
 		stats = computeRequestCacheStats(req, chatRequest.Messages)
+		opts.onSend = wireCacheSendHook(ctx, req, &stats)
 	}
-	response, _, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, chatExecOptions{}, nil)
+	response, _, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
 	if logger != nil {
 		if logErr := logger.LogResponse(response); logErr != nil {
 			slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)
 		}
 	}
 	if err == nil {
-		recordModelUsage(req, response.Usage)
+		recordModelUsage(req, response.Usage, usagestats.CallKindCompaction)
 		emitCacheDiagnostic(req, response, "compaction", turn, stats)
 	}
 	return response, err

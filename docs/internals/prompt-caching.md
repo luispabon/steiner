@@ -92,6 +92,8 @@ Each usage-bearing model response writes one `cache` record (`internal/agent/cac
 - `prefix_predecessor_messages`: the predecessor request's message count. `prefix_divergence_role` is the role of the first request message that differs from the predecessor, present only when the request is neither an append of the predecessor nor a strict prefix of it.
 - `prefix_hash`: a cumulative 8-hex digest folded over one 8-hex hash per message. Each per-message digest is over the `provider.AppendMessageHashInput` bytes, appended into one reused buffer per request: role, content, reasoning content, tool-call names and arguments, and image media types and data. It hashes logical messages, not wire JSON.
 - `cache_key_hash`: an 8-hex hash of the cache key.
+- `wire`: present only for a provider implementing `provider.CacheFingerprinter` (Codex Responses) and only while the `cache` stream is enabled. It fingerprints the real wire payload and affinity headers of the last delivery attempt, including a compaction send: `cacheable_prefix_hash` covers the wire body without its trailing message, `shared_prefix_hash` covers that body truncated to the measured shared prefix when a predecessor exists, and `body_key_hash`, `session_id_hash`, `thread_id_hash`, and `originator_hash` are opaque 32-hex header digests. `affinity_keys_match`, `stream`, `has_tools`, `tool_count`, `has_reasoning`, and `store` are request-shape flags. `(*Client).CacheFingerprint` builds the payload through the normal wire path and sends nothing; the extra serialization is paid only while the cache stream is enabled. The block is absent when the provider cannot fingerprint or the fingerprint call fails.
+- `resume_baseline_unavailable`: true on the first parent record after an interactive resume that loaded a saved session, through the CLI `--resume` path or the in-TUI session picker. Baselines are process-local, so a resumed session starts without one. The flag reports that the comparison ran and found no predecessor; it does not claim the resume caused a cache miss. It is omitted when the comparison did not run, is not persisted, and is claimed only once: a delegated child record neither carries it nor consumes it.
 
 `context_generation` is written on every record: the number of compaction stages applied within the current run when the call was issued (`turnProgressor.compactionCount`, which adds each compaction's stage count). It restarts at 0 for each run, so a delegated child's first call reports 0 whatever the parent compacted. `prefix_predecessor_messages` is written whenever `prefix_predecessor_known` is true, including a known 0.
 
@@ -103,7 +105,7 @@ Every other measurement field is emitted only with a non-zero or true value, so 
 
 Provider measurements reach the agent as `provider.CallDiagnostics`: on `ChatResponse` for a non-streaming call, and on the terminal `ChatChunk` for a streaming call, which `handleFinalChunk` copies onto the folded response when the chunk carries them.
 
-No record contains message bodies, tool arguments, images, or the key itself. The baseline advances only in `promoteRequestCacheStats`, after the provider accepts an attempt. Compaction requests carry `call_kind` on their records.
+No record contains message bodies, tool arguments, images, or the key itself; the `wire` block holds only digests, flags, and counts. The baseline advances only in `promoteRequestCacheStats`, after the provider accepts an attempt, and is never written to disk. Compaction requests carry `call_kind` on their records.
 
 ## Cold-turn analysis
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,6 +93,7 @@ func buildInteractiveSession(rt cliRuntime) (*interactive.Session, error) {
 		sessDeps.OpenGroupScope = rt.delegationSupervisor.OpenGroupScope
 		sessDeps.SnapshotGroupLedger = rt.delegationSupervisor.SnapshotGroupLedger
 	}
+	sessDeps.StartupModel, sessDeps.StartupModelSource = startupModelSelection(rt)
 	return interactive.NewSession(sessDeps)
 }
 
@@ -415,25 +417,138 @@ func resumeInteractiveSession(ctx context.Context, sess *interactive.Session, re
 	return nil
 }
 
-// mcpInitOnce runs the one-shot MCP wait and registry re-registration exactly
-// once in the background, protected by sync.Once. The tool registry is not
-// thread-safe, so this initialization must complete before any agent turn
-// accesses the registry. A concurrent turn submission that calls once.Do while
-// the background goroutine is running blocks until the init completes, then
-// observes the error.
+// startupModelSelection returns the model reference and source captured before
+// a resume restore: the reference active at process start and where it came
+// from (--model, STEINER_MODEL, or the profile default).
+func startupModelSelection(rt cliRuntime) (string, string) {
+	ref := strings.TrimSpace(rt.cfg.Models.Effective.ActiveOrchestratorModel)
+	if ref == "" {
+		ref = strings.TrimSpace(rt.cfg.Models.Effective.DefaultModel)
+	}
+	source := rt.startupModelSource
+	if source == "" {
+		source = interactive.ModelSourceProfile
+	}
+	return ref, source
+}
+
+// resumedModelTUIState returns the model alias and provider details the TUI
+// should seed after a session load, so the sidebar and status bar show the
+// restored model before any event arrives.
+func resumedModelTUIState(sess *interactive.Session) (alias, baseURL, providerName string) {
+	if sess == nil {
+		return "", "", ""
+	}
+	cfg := sess.Config()
+	alias = strings.TrimSpace(sess.CurrentModelAlias())
+	if alias == "" {
+		alias = strings.TrimSpace(cfg.Models.Effective.DefaultModel)
+	}
+	model, _ := config.ResolveModelConfig(&cfg, alias)
+	if provider, ok := cfg.Providers[model.Provider]; ok {
+		baseURL = provider.BaseURL
+		providerName = model.Provider
+	}
+	return alias, baseURL, providerName
+}
+
+// invalidExplicitModelWarnings reports --model or STEINER_MODEL values that
+// were silently ignored because they are not a configured alias or
+// provider/model reference.
+func invalidExplicitModelWarnings(cfg config.Config, flags *cliFlags) []string {
+	var warnings []string
+	if flags != nil {
+		if model := strings.TrimSpace(flags.model); model != "" && !config.IsValidModelReference(&cfg, model) {
+			warnings = append(warnings, fmt.Sprintf("--model %q is not a configured model alias or provider/model reference; ignored", model))
+		}
+	}
+	if model := strings.TrimSpace(os.Getenv("STEINER_MODEL")); model != "" && !config.IsValidModelReference(&cfg, model) {
+		warnings = append(warnings, fmt.Sprintf("STEINER_MODEL=%q is not a configured model alias or provider/model reference; ignored", model))
+	}
+	return warnings
+}
+
+// mcpInitOnce runs the MCP wait and registry re-registration once. The tool
+// registry is not thread-safe, so wait serializes its callers and the
+// initialization completes before any agent turn or compaction touches the
+// registry.
 type mcpInitOnce struct {
-	once sync.Once
-	err  error
+	mu sync.Mutex
+	// running is set while one caller executes the attempt. Waiters block on
+	// changed instead of on mu, so a queued caller can abandon the wait when
+	// its own context ends.
+	running bool
+	done    bool
+	err     error
+	changed chan struct{}
+	// attempt replaces the MCP wait and registration in tests; production
+	// leaves it nil. It runs at most once at a time, like run itself.
+	attempt func(context.Context, cliRuntime) error
+}
+
+// wait runs the initialization unless it already succeeded. Only one caller
+// executes an attempt at a time; the others wait for it to finish and retry
+// only if it was cancelled. A cancelled attempt is not final, so a run or
+// compaction cancelled while MCP servers are still connecting does not disable
+// later requests. Any other error is final and is reported to every later
+// caller, because the manager's server set has resolved. A queued caller that
+// is cancelled returns its own context error promptly, without waiting for the
+// running attempt.
+func (i *mcpInitOnce) wait(ctx context.Context, rt cliRuntime) error {
+	for {
+		i.mu.Lock()
+		if i.done {
+			err := i.err
+			i.mu.Unlock()
+			return err
+		}
+		if !i.running {
+			i.running = true
+			changed := make(chan struct{})
+			i.changed = changed
+			i.mu.Unlock()
+
+			err := i.run(ctx, rt)
+
+			i.mu.Lock()
+			i.running = false
+			if err == nil {
+				i.done = true
+			} else if !isContextEnd(err) {
+				i.done = true
+				i.err = err
+			}
+			close(changed)
+			i.mu.Unlock()
+			return err
+		}
+		changed := i.changed
+		i.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// isContextEnd reports whether err is a cancelled or expired context rather
+// than an initialization failure.
+func isContextEnd(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // run executes WaitInit, registers the connected tool defs in place, and arms
-// the MCP state producer. If WaitInit returns an error, run returns early
-// without arming (preserving the states-only snapshot mode indefinitely).
-func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) {
+// the MCP state producer. A failed or cancelled wait returns before registering
+// or arming anything. Only the caller holding the running slot reaches it, so
+// the registry is never mutated concurrently.
+func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) error {
+	if i.attempt != nil {
+		return i.attempt(ctx, rt)
+	}
 	if rt.mcpManager != nil {
-		i.err = rt.mcpManager.WaitInit(ctx)
-		if i.err != nil {
-			return
+		if err := rt.mcpManager.WaitInit(ctx); err != nil {
+			return err
 		}
 		// Register in place: Registry.Register overwrites by name, so a
 		// server that already connected before the interactive registry
@@ -447,6 +562,7 @@ func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) {
 	if rt.mcpState != nil {
 		rt.mcpState.arm()
 	}
+	return nil
 }
 
 // sessionRunner adapts cliRunner to the runExecutor interface expected by
@@ -457,16 +573,29 @@ type sessionRunner struct {
 }
 
 // CompactWithLineage compacts against the run's lineage and last main request.
+// It waits for MCP initialization before the runner rebuilds a missing parent
+// tool registry, so a resumed session sends the tools a run would have sent.
 func (r sessionRunner) CompactWithLineage(ctx context.Context, conversation []agent.Message, lineage agent.ConversationLineage, lastMainRequest agent.LastMainRequest, tools []provider.ToolSpec, steering string) ([]agent.Message, bool, bool, error) {
+	if err := r.waitMCPInit(ctx); err != nil {
+		return nil, false, false, err
+	}
 	return r.runner.CompactWithLineage(ctx, conversation, lineage, lastMainRequest, nil, tools, steering)
 }
 
+// waitMCPInit runs the MCP wait and registry re-registration, blocking until it
+// finishes. The tool registry is not thread-safe, so every path that reads or
+// rebuilds it calls this first. A cancellation of the caller's context abandons
+// its attempt without blocking a later caller from retrying.
+func (r sessionRunner) waitMCPInit(ctx context.Context) error {
+	if r.mcpInit == nil {
+		return nil
+	}
+	return r.mcpInit.wait(ctx, r.runner.runtime)
+}
+
 func (r sessionRunner) Run(ctx context.Context, in interactive.RunInput) (interactive.RunResult, error) {
-	if r.mcpInit != nil {
-		r.mcpInit.once.Do(func() { r.mcpInit.run(ctx, r.runner.runtime) })
-		if r.mcpInit.err != nil {
-			return interactive.RunResult{}, r.mcpInit.err
-		}
+	if err := r.waitMCPInit(ctx); err != nil {
+		return interactive.RunResult{}, err
 	}
 	result, err := r.runner.RunWithHooks(ctx, in.Conversation, nil, runHooks{
 		drainInbox:           in.DrainInbox,

@@ -3,7 +3,6 @@ package interactive
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
@@ -27,7 +26,13 @@ func (s *Session) driverRun(ctx context.Context, in agent.DriverRunInput, scope 
 	if err != nil {
 		var reported *agent.ReportedError
 		if !errors.As(err, &reported) {
-			s.events.Emit(output.NewStopReasonEvent(0, fmt.Sprintf("Error: %v", err), err))
+			// The error field is what the UI renders for a failed stop, so the
+			// annotated message must travel there rather than in Reason.
+			s.events.Emit(output.NewStopReasonEvent(0, string(agent.StopReasonError), errors.New(s.runErrorMessage(err))))
+		} else {
+			// The agent runner already emitted the stop reason; a model
+			// rejection still needs its guidance in the conversation.
+			s.emitModelRejectionGuidance(err)
 		}
 		if !errors.Is(err, context.Canceled) {
 			conv := result.Conversation

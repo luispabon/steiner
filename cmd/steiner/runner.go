@@ -18,7 +18,6 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
-	"github.com/luispabon/steiner/internal/tool/builtin"
 )
 
 type cliRunner struct {
@@ -123,7 +122,7 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 	))
 
 	events, diagnostics := retainDiagnosticEvents(r.runtime.events)
-	searcher, err := builtin.NewSearchBackend(r.runtime.cfg.Search)
+	activeRegistry, err := r.activeParentRegistry(setup, events)
 	if err != nil {
 		r.runtime.events.Emit(output.NewRunFinishedEvent(
 			0,
@@ -132,19 +131,6 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 			"",
 			err,
 		))
-		return runResult{}, fmt.Errorf("create search backend: %w", err)
-	}
-	// The MCP exposure projection is derived at composition time from the
-	// completed registered set: in interactive mode the session runner has
-	// already WaitInit'ed and re-registered late MCP defs before this run, so
-	// the projection always sees the final tool list.
-	exposure := BuildMCPExposure(r.runtime.registry.Definitions(), r.runtime.cfg.MCP.Servers)
-	sandboxTmpDir := ""
-	if r.sandboxEnabled() {
-		sandboxTmpDir = r.runtime.sandbox.TmpDir()
-	}
-	activeRegistry, err := delegation.BuildDelegateRegistry(r.newDelegateDeps(setup, events, searcher, exposure, sandboxTmpDir))
-	if err != nil {
 		return runResult{}, err
 	}
 	runner := agent.NewRunner()

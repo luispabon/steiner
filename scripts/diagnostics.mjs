@@ -675,6 +675,9 @@ function parentTurnPairs(cacheRecords, toolRecords) {
 				// record that never said" and from "comparison was disabled".
 				prefixPredecessorKnown: sorted[i].payload?.prefix_predecessor_known,
 				prefixComparisonEnabled: sorted[i].payload?.prefix_comparison_enabled,
+				// The producer sets this on the first parent record after an
+				// interactive resume whose comparison found no predecessor.
+				resumeBaselineUnavailable: sorted[i].payload?.resume_baseline_unavailable === true,
 				uncached: uncachedTokens(sorted[i]),
 			});
 		}
@@ -752,6 +755,23 @@ function coldTurnModelRows(pairs, minN) {
 	return capTop(grouped).map(([key, xs]) => ({ key, n: xs.length, metrics: coldTurnMetrics(xs, minN) }));
 }
 
+// baselineUnavailableAfterResumeRows counts records flagged by the producer as
+// the first no-predecessor request after an interactive resume. Prefix
+// baselines are process-local, so a resumed session starts without one. The
+// label reports missing diagnostic context only: it does not say the resume
+// caused a cache miss, so these turns are kept out of the attribution table and
+// listed here instead. A CLI resume starts a new run, so its first record is
+// also the run's first turn and never becomes a pair; counting the records
+// themselves keeps that case visible.
+function baselineUnavailableAfterResumeRows(cacheRecords) {
+	const flagged = cacheRecords.filter((r) => r.payload?.resume_baseline_unavailable === true);
+	return capTop(sortedByCount(groupBy(flagged, (r) => r.payload?.backend_model_id ?? "(unknown)"))).map(([key, xs]) => ({
+		key,
+		n: xs.length,
+		metrics: {},
+	}));
+}
+
 function attributionRows(pairs) {
 	const cold = pairs.filter((p) => p.cold);
 	const grouped = groupBy(cold, classifyColdTurn);
@@ -809,12 +829,18 @@ function runColdTurns(cacheRecords, toolRecords) {
 	const excluded = modelsWithoutCacheReporting(cacheRecords);
 	const included = cacheRecords.filter((r) => !excluded.has(r.payload?.backend_model_id));
 	const pairs = parentTurnPairs(included, toolRecords);
+	// Resume-flagged pairs have no baseline to compare, so every pair-based
+	// table excludes them and their count is reported separately. Keeping them
+	// in one table and out of another would report two different cold-turn
+	// populations for the same model.
+	const attributable = pairs.filter((p) => !p.resumeBaselineUnavailable);
 
 	const sections = {
-		by_model: coldTurnModelRows(pairs, MIN_N),
-		cold_turn_attribution: attributionRows(pairs),
-		delegation_ladder: ladderRows(pairs, DELEGATION_BINS, (p) => p.delegationSeconds),
-		idle_ladder: ladderRows(pairs, IDLE_BINS, (p) => p.gapSeconds),
+		by_model: coldTurnModelRows(attributable, MIN_N),
+		cold_turn_attribution: attributionRows(attributable),
+		baseline_unavailable_after_resume: baselineUnavailableAfterResumeRows(cacheRecords),
+		delegation_ladder: ladderRows(attributable, DELEGATION_BINS, (p) => p.delegationSeconds),
+		idle_ladder: ladderRows(attributable, IDLE_BINS, (p) => p.gapSeconds),
 		excluded_no_cache_reporting: excludedModelRows(cacheRecords, excluded),
 	};
 
@@ -824,6 +850,7 @@ function runColdTurns(cacheRecords, toolRecords) {
 	}
 	printTable("coldturns by model", sections.by_model, COLDTURN_COLUMNS);
 	printTable("coldturns cold-turn attribution", sections.cold_turn_attribution, ATTRIBUTION_COLUMNS);
+	printTable("coldturns baseline unavailable after resume", sections.baseline_unavailable_after_resume, []);
 	printTable("coldturns delegation-duration ladder", sections.delegation_ladder, LADDER_COLUMNS);
 	printTable("coldturns idle-gap ladder", sections.idle_ladder, LADDER_COLUMNS);
 	printTable("coldturns excluded (no cache reporting)", sections.excluded_no_cache_reporting, []);

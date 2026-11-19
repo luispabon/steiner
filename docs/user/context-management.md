@@ -36,6 +36,8 @@ Everything else is reduced to the summary, so details can be lost. Each compacti
 
 The focus text is added to the summarisation prompt alongside any `models.<name>.prompts.compaction` override. Automatic compaction is never steered. `/compact` is refused while the agent is generating.
 
+The summary request carries the tool definitions a normal turn would send. After `/resume` there is no in-memory copy of the parent request, so Steiner rebuilds the tool set from the current configuration and waits for MCP servers to finish connecting first. The rebuild follows the live configuration, not the saved session: a tool from a server that failed to connect, or one you changed since the save, can differ from what the parent request used.
+
 ### Compaction history archive
 
 Interactive sessions and oneshot phases save the messages each compaction removes to `history.md` in `~/.config/steiner/sessions/<session-id>/`. It holds user and assistant text and short tool-call summaries, not tool output or model reasoning. The summary tells the model where the archive is so it can `grep` and `read` it for a missing detail.
@@ -47,6 +49,8 @@ Use `/recall` to view the current session's archive. `--exec` runs and sub-agent
 When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive cold-cache threshold on the main model's provider. The threshold is `compaction_fallback_after`; when that key is unset it uses the provider's `prompt_cache_ttl` (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). The fallback stays off when the resulting threshold is `0`; negative values are invalid. See [Configuration](configuration.md#providers-block).
 
 If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, history counts, summary size and budget, and cache components. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
+
+A resumed or forked session keeps the last main request it saved, so the cold-cache decision uses the real idle time rather than assuming no request. A request recorded for another model is ignored when the session resumes on the current model; the stored record is replaced by the next successful main request. A record whose prompt cache key no longer matches the session is discarded.
 
 ### Cache expiry indicator
 
@@ -72,4 +76,4 @@ Enabling or disabling a skill mid-session takes effect with your next message an
 
 ## Session date
 
-Steiner records the local date when a session, `--exec` run, or oneshot run starts, for example `Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started.`, and includes it in every request. It does not change during the session, even past midnight. Resuming or forking a session records a new date.
+Steiner records the local date when a session, `--exec` run, or oneshot run starts, for example `Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started.`, and includes it in every request. It does not change during the session, even past midnight, and compaction keeps the same line. A saved session stores the date and its timezone abbreviation: `/resume`, `--resume` and `/fork` keep the original line, while `/clear` and a new session record a new date. A session saved before Steiner stored the date keeps the date captured on its first resume.
