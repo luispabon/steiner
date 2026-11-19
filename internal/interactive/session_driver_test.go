@@ -385,7 +385,13 @@ func TestCloseAndRetireDoNotRewriteUntouchedSessions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			store := newMockSessionStore()
-			store.loadedSessions["old"] = session.Session{ID: "old", Lineage: lineageOf(userMsg("kept"))}
+			// The stored date keeps the load from writing the record once to
+			// persist a legacy date, so the test still observes a read-only load.
+			store.loadedSessions["old"] = session.Session{
+				ID:          "old",
+				Lineage:     lineageOf(userMsg("kept")),
+				SessionDate: &session.StartDate{Date: "2026-09-13", Zone: "UTC", Offset: "+00:00"},
+			}
 			s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
 			if tt.loadThenClear {
 				if err := s.Handle(context.Background(), LoadSession{SessionID: "old"}); err != nil {

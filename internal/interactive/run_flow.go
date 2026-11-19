@@ -6,6 +6,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/session"
 )
 
@@ -60,18 +61,22 @@ type runSessionMeta struct {
 	mode     string
 	skills   []string
 	modelID  string
+	// sessionDate is the identity's date, kept so a retired driver's first save
+	// stores it alongside the lineage.
+	sessionDate prompt.SessionDate
 }
 
 // sessionMetaLocked captures the live session identity. The caller must hold s.mu.
 func (s *Session) sessionMetaLocked() runSessionMeta {
 	return runSessionMeta{
-		id:       s.sessionID,
-		cacheKey: s.promptCacheKey,
-		group:    s.sessionGroup,
-		title:    s.sessionTitle,
-		mode:     string(s.mode),
-		skills:   s.skills.Snapshot(),
-		modelID:  SelectedModelConfig(s.deps.Config).ID,
+		id:          s.sessionID,
+		cacheKey:    s.promptCacheKey,
+		group:       s.sessionGroup,
+		title:       s.sessionTitle,
+		mode:        string(s.mode),
+		skills:      s.skills.Snapshot(),
+		modelID:     SelectedModelConfig(s.deps.Config).ID,
+		sessionDate: s.sessionDate,
 	}
 }
 

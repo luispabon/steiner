@@ -69,7 +69,8 @@ Interactive sessions keep skills out of the static prefix, so toggling a skill n
 
 ## Session date assembly
 
-- `prompt.NewSessionDate` (`internal/prompt/session_date.go`) builds the date. Sub-agents receive the parent's value through the `SessionDate` field of the delegation dependencies (`internal/delegation/registry.go`).
+- `prompt.NewSessionDate` (`internal/prompt/session_date.go`) captures the date, zone abbreviation, and numeric offset that make up the line; `Parts` and `NewSessionDateFromParts` round-trip them. Sub-agents receive the parent's value through the `SessionDate` field of the delegation dependencies (`internal/delegation/registry.go`).
+- `interactive.Session` stores the parts as `session_date` on the session record (`StartDate`, `internal/session/session.go`). `saveSession` writes them, and `loadSession` restores them, so a resume renders the identical line including the zone abbreviation on a later day or in another zone. A record without the field captures the current date once on load and saves it immediately. `session.Fork` copies the field, and `applyRotationLocked` (rotation and `/clear`) captures a new date. Compaction and delegated runs read the session's value through `SessionDate()`, so the line does not change.
 - The date block sits after the static sources and before the conversation, and is never budgeted. It is user role, so it stays out of the system-zone prefix. It merges into an adjacent user block, or starts one after a system-zone phase prompt.
 
 ## Token estimation

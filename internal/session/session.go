@@ -30,6 +30,27 @@ type Session struct {
 	SubAgentLedger []agent.SubAgentLedgerEntry `json:"sub_agent_ledger,omitempty"`
 	// DelegationGroups records reserved group names for the session scope.
 	DelegationGroups *agent.DelegationGroupLedger `json:"delegation_groups,omitempty"`
+	// SessionDate records the local date the session started, as rendered parts,
+	// so a resumed or forked session reproduces the exact date line including the
+	// zone abbreviation. Nil on records written before this field existed.
+	SessionDate *StartDate `json:"session_date,omitempty"`
+}
+
+// StartDate is a session's recorded start date, stored as rendered parts
+// rather than an instant so the zone abbreviation survives a reload on a later
+// day or in another zone.
+type StartDate struct {
+	Date   string `json:"date"`
+	Zone   string `json:"zone"`
+	Offset string `json:"offset"`
+}
+
+func cloneSessionDate(d *StartDate) *StartDate {
+	if d == nil {
+		return nil
+	}
+	clone := *d
+	return &clone
 }
 
 // CacheKey returns the session's prompt cache key, falling back to the session ID
@@ -133,5 +154,6 @@ func Fork(s Session) (Session, error) {
 		// warm prefix carries over; CacheKey() heals pre-change records that
 		// have no stored key instead of propagating an empty one.
 		PromptCacheKey: s.CacheKey(),
+		SessionDate:    cloneSessionDate(s.SessionDate),
 	}, nil
 }

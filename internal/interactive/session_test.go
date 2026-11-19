@@ -2457,7 +2457,7 @@ func TestLoadSessionReplacesConversation(t *testing.T) {
 	}
 }
 
-func TestLoadSessionReCapturesSessionDate(t *testing.T) {
+func TestLoadLegacySessionReCapturesSessionDate(t *testing.T) {
 	t.Parallel()
 	baseTime := time.Date(2026, 9, 13, 15, 30, 45, 0, time.UTC)
 	advancedTime := baseTime.Add(2 * time.Hour)

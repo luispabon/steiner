@@ -316,6 +316,7 @@ func (s *Session) writeLineageAs(meta runSessionMeta, snap agent.DriverSnapshot)
 		}
 		sess.ID = meta.id
 		sess.PromptCacheKey = meta.cacheKey
+		sess.SessionDate = storedSessionDate(meta.sessionDate)
 		if meta.title != "" {
 			sess = sess.WithTitle(meta.title)
 		}

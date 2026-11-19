@@ -33,6 +33,34 @@ func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
 	return s.loadSession(ctx, sessionID)
 }
 
+// storedSessionDate converts a live date to its persisted form, returning nil
+// when no date was captured so the JSON field stays absent.
+func storedSessionDate(d prompt.SessionDate) *session.StartDate {
+	date, zone, offset := d.Parts()
+	if date == "" {
+		return nil
+	}
+	return &session.StartDate{Date: date, Zone: zone, Offset: offset}
+}
+
+// restoreSessionDate restores a persisted date. It reports false when the
+// record has none or the stored parts are invalid.
+func restoreSessionDate(stored *session.StartDate) (prompt.SessionDate, bool) {
+	if stored == nil {
+		return prompt.SessionDate{}, false
+	}
+	return prompt.NewSessionDateFromParts(stored.Date, stored.Zone, stored.Offset)
+}
+
+// persistResumedSessionDate stores the date captured for a loaded record that
+// has none, so later resumes keep it instead of capturing another date.
+func (s *Session) persistResumedSessionDate(sess session.Session, sessionDate prompt.SessionDate) {
+	sess.SessionDate = storedSessionDate(sessionDate)
+	if err := s.deps.SessionStore.Save(sess); err != nil {
+		s.emitSaveWarning(err)
+	}
+}
+
 // saveSession saves the current session state to disk with the current title and lineage.
 func (s *Session) saveSession() error {
 	s.mu.RLock()
@@ -58,6 +86,7 @@ func (s *Session) saveSession() error {
 
 	sess.ID = s.sessionID
 	sess.PromptCacheKey = s.promptCacheKey
+	sess.SessionDate = storedSessionDate(s.sessionDate)
 	sess.Mode = string(s.mode)
 	sess.Skills = s.skills.Snapshot()
 	sess.SubAgentLedger = slices.Clone(s.ledger)
@@ -218,12 +247,16 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		s.mu.Unlock()
 		return s.reportLoadGuardError(err)
 	}
+	sessionDate, hasStoredDate := restoreSessionDate(sess.SessionDate)
+	if !hasStoredDate {
+		sessionDate = prompt.NewSessionDate(s.now())
+	}
 	old := s.swapDriverLocked(func() {
 		s.lineage = sess.Lineage
 		s.conversation = sess.Lineage.FullMessages()
 		s.sessionID = sess.ID
 		s.promptCacheKey = sess.CacheKey()
-		s.sessionDate = prompt.NewSessionDate(s.now())
+		s.sessionDate = sessionDate
 		s.sessionTitle = sess.Title
 		s.sessionGroup = strings.TrimSpace(sess.Group)
 		s.mode = mode
@@ -248,6 +281,10 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	s.events.Emit(output.NewConversationResetEvent())
 
 	s.bindImageStore(sess.ID, agent.NextImageIDFloor(sess.Lineage))
+
+	if !hasStoredDate {
+		s.persistResumedSessionDate(sess, sessionDate)
+	}
 
 	// Notify after releasing the lock: the listener is caller-supplied and may
 	// re-enter the session.
@@ -381,6 +418,7 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		Group:            s.sessionGroup,
 		Lineage:          s.lineage,
 		PromptCacheKey:   s.promptCacheKey,
+		SessionDate:      storedSessionDate(s.sessionDate),
 		Skills:           s.skills.Snapshot(),
 		DelegationGroups: agent.CloneDelegationGroupLedger(s.delegationGroups),
 	}

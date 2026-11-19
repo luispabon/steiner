@@ -72,4 +72,4 @@ Enabling or disabling a skill mid-session takes effect with your next message an
 
 ## Session date
 
-Steiner records the local date when a session, `--exec` run, or oneshot run starts, for example `Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started.`, and includes it in every request. It does not change during the session, even past midnight. Resuming or forking a session records a new date.
+Steiner records the local date when a session, `--exec` run, or oneshot run starts, for example `Current date: 2026-09-13 (BST, UTC+01:00), recorded when this session started.`, and includes it in every request. It does not change during the session, even past midnight, and compaction keeps the same line. A saved session stores the date and its timezone abbreviation: `/resume`, `--resume` and `/fork` keep the original line, while `/clear` and a new session record a new date. A session saved before Steiner stored the date keeps the date captured on its first resume.
