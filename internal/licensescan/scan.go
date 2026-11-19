@@ -166,6 +166,9 @@ type listedModule struct {
 	Dir     string
 }
 
+// depsListing names the go list command that produces the dependency graph.
+const depsListing = "go list -deps ./cmd/steiner"
+
 // listDeps lists the dependency graph of the only distributed binary,
 // ./cmd/steiner, for platform. Package-level listing keeps the inventory equal
 // to what ships rather than to everything in the module.
@@ -181,13 +184,14 @@ func listDeps(ctx context.Context, moduleDir string, platform Platform) ([]liste
 	}
 	deps, err := decodeDeps(out)
 	if err != nil {
-		return nil, fmt.Errorf("decode go list output for %s: %w", platform, err)
+		return nil, fmt.Errorf("%s for %s: %w", depsListing, platform, err)
 	}
 	return deps, nil
 }
 
 // decodeDeps decodes the stream of JSON objects emitted by
-// `go list -deps -json`.
+// `go list -deps -json`. An empty stream is an error: accepting it would let
+// Scan render an inventory with no modules.
 func decodeDeps(out []byte) ([]listedPackage, error) {
 	dec := json.NewDecoder(bytes.NewReader(out))
 	var deps []listedPackage
@@ -200,6 +204,9 @@ func decodeDeps(out []byte) ([]listedPackage, error) {
 			return nil, fmt.Errorf("decode package: %w", err)
 		}
 		deps = append(deps, pkg)
+	}
+	if len(deps) == 0 {
+		return nil, errors.New("no packages listed")
 	}
 	return deps, nil
 }

@@ -146,8 +146,23 @@ func TestDecodeDeps(t *testing.T) {
 		t.Errorf("decodeDeps = %+v, want %+v", deps, want)
 	}
 
-	if _, err := decodeDeps([]byte(`{"Dir":`)); err == nil {
-		t.Error("decodeDeps on truncated JSON returned no error")
+	tests := []struct {
+		name    string
+		out     []byte
+		wantErr string
+	}{
+		{name: "empty input", out: nil, wantErr: "no packages listed"},
+		{name: "whitespace only", out: []byte("\n"), wantErr: "no packages listed"},
+		{name: "truncated JSON", out: []byte(`{"Dir":`), wantErr: "decode package"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := decodeDeps(tt.out); err == nil {
+				t.Fatalf("decodeDeps(%q) returned no error, want one containing %q", tt.out, tt.wantErr)
+			} else if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %q, want substring %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
