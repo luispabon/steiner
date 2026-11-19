@@ -5,6 +5,7 @@
 ## Repo map
 
 ```text
+cmd/gen-third-party-notices/ Repo tooling: writes THIRD_PARTY_NOTICES.md
 cmd/steiner/             CLI entry and subcommands
 internal/advisor/        Advisor tool: prompt building, streaming, file review
 internal/agent/          Loop orchestration, state, limits
@@ -16,6 +17,7 @@ internal/fsatomic/       Atomic file replacement: temp file, fsync, rename
 internal/globexpand/     Shared glob brace and zero-directory doublestar expansion for glob, grep, and exclusions
 internal/history/        Prompt (input) history persistence
 internal/interactive/    Interactive session orchestration: run flow, replay, session/snapshot reports, dispatch (drives internal/agent)
+internal/licensescan/    Third-party module and license scanning for release notices
 internal/lsp/            Language server connections (LSP protocol, tool definitions, server lifecycle)
 internal/mcp/            MCP server connections (stdio transport, tool registration)
 internal/metadata/       Local cache of model metadata from models.dev
@@ -150,6 +152,7 @@ A code change updates its matching docs in the same commit. Doc paths (`user/`, 
 | `internal/advisor`: request flow, budgets, cache profile | both `advisor.md` |
 | `internal/skill`, bundled skills: discovery, invocation, or configuration | `user/skills.md` |
 | `skills/security-audit/SKILL.md`: workflow, lenses, verdicts, report format, invocation | `user/security-audit.md` |
+| Third-party license notices: generator, Makefile targets, release asset | `maintenance/third-party-notices.md` |
 | Package boundaries, entry points, turn lifecycle, provider/tool/session/TUI architecture | `internals/architecture.md` |
 | New feature or new `internal/` package | a docs page if it warrants detail, linked from `index.md`; a new package also gets a Repo map entry and a row here |
 
