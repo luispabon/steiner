@@ -246,7 +246,7 @@ func TestRunnerRecompactsUntilTheBudgetFits(t *testing.T) {
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               3235, // Tuned to trigger exactly one compaction cycle; tracks preamble size growth
+			ContextSize:               3635, // Tuned to trigger exactly one compaction cycle; tracks preamble size growth
 			MaxCompletionTokens:       32,
 			SummaryMaxTokens:          32,
 			NormalSummaryMaxTokens:    32,
@@ -389,7 +389,7 @@ func TestRunnerLargeToolResultCrossingSoftThresholdButFittingCompletes(t *testin
 		Provider: providerStub,
 		Executor: executor,
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               2400,
+			ContextSize:               2800,
 			MaxCompletionTokens:       16,
 			SafetyMarginTokens:        0,
 			SummaryMaxTokens:          64,

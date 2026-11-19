@@ -81,7 +81,7 @@ func compactForArchive(t *testing.T, main provider.Provider, fallback agent.Comp
 	req := agent.RunRequest{
 		Provider:           main,
 		ResolvedModel:      provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-main"},
-		ModelBudget:        archiveBudget(6000),
+		ModelBudget:        archiveBudget(7500),
 		Events:             output.SinkFunc(func(output.Event) {}),
 		HistoryArchive:     session.NewHistoryArchive(store, func() string { return archiveSessionID }),
 		CompactionFallback: fallback,
