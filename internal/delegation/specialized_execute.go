@@ -202,6 +202,9 @@ func executeRegisteredDelegate(
 	if err == nil && deps.SessionStore != nil {
 		if saveChildSession(deps.SessionStore, spec, req, state, runUsage, remediation) {
 			markResultPersisted(&result)
+			// A first save starts at FollowUpCount zero, so eligibility follows
+			// the same count < max rule follow_up enforces.
+			setFollowUpBudget(&result, followUpBudgetFor(0, deps.SubAgentCfg.MaxFollowUps))
 		}
 	}
 	if err != nil {

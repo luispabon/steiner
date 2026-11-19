@@ -91,7 +91,7 @@ A child returns its `output`, a `status`, and a `reason` on failure or cancellat
 
 When a child's model call ends mid-message, the text it streamed is kept as its output instead of being discarded. A failed or partial result then returns that partial text, and the `reason` says it may be truncated. Follow-up messages can still resume the child session, which continues from the truncated turn.
 
-A child that stops because the same tool error repeats also returns `failed`. When its session was saved, the `reason` adds that `follow_up` with the same `agent_id` and a message correcting that error resumes the retained conversation; the retry stays subject to the follow-up limit, workspace availability, and the current execution mode. An unsaved session, a usage-limit stop, and a cancellation carry no such hint.
+A child that stops because the same tool error repeats also returns `failed`. When its session was saved and follow-ups remain, the `reason` adds that `follow_up` with the same `agent_id` and a message correcting that error resumes the retained conversation; the retry stays subject to the follow-up limit, workspace availability, and the current execution mode. When the follow-up limit is exhausted, the `reason` instead says to delegate a fresh sub-agent, and notes that a `follow_up` is also refused when the worktree is gone or the mode blocks the work. An unsaved session, a usage-limit stop, and a cancellation carry no such hint.
 
 `follow_up` is for continuing the same deliverable in the same live workspace: a related correction by the implementing child, or a narrow re-review by the same reviewer. Use a fresh `sub_agent` when the scope changes, the worktree is gone, or the work needs an independent view.
 

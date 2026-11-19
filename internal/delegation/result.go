@@ -6,6 +6,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/tool"
 )
 
 // BuildResult constructs a Result from an agent.RunState.
@@ -162,10 +163,48 @@ func (r Result) continuationAvailable() bool {
 	return r.persisted && r.AgentID != ""
 }
 
+// followUpBudgetState records whether a persisted child is known to have
+// follow-up resumes left. Zero means no handler recorded the budget, so a
+// failed projection adds no follow-up guidance.
+type followUpBudgetState uint8
+
+const (
+	// followUpBudgetAvailable means another follow_up resume is allowed.
+	followUpBudgetAvailable followUpBudgetState = iota + 1
+	// followUpBudgetExhausted means the child used all of MaxFollowUps resumes.
+	followUpBudgetExhausted
+)
+
+// followUpBudgetFor returns the budget state for a child that used count
+// follow-ups out of max. follow_up refuses at count >= max, so eligibility is
+// count < max; an initial save starts at count zero.
+func followUpBudgetFor(count, max int) followUpBudgetState {
+	if count < max {
+		return followUpBudgetAvailable
+	}
+	return followUpBudgetExhausted
+}
+
+// setFollowUpBudget stamps the budget state onto the Result carried by result.
+// Only handler paths that also mark the session persisted call it.
+func setFollowUpBudget(result *tool.ExecutionResult, state followUpBudgetState) {
+	dr, ok := result.Value.(Result)
+	if !ok {
+		return
+	}
+	dr.followUpBudget = state
+	result.Value = dr
+}
+
 // repeatedToolFailureFollowUpHint tells the parent how to resume a child that
 // stopped on a repeated identical tool error. It names the corrective message
 // the child needs and the limits that still apply, without promising success.
 const repeatedToolFailureFollowUpHint = "to continue, call follow_up with the same agent_id and a message correcting the repeated tool error; the prior conversation is retained. Further attempts remain subject to the follow-up limit, workspace availability, and execution mode."
+
+// repeatedToolFailureExhaustedHint tells the parent to delegate fresh when the
+// child has no follow-up resumes left. Projection cannot inspect the worktree or
+// mode, so it states those refusals as conditions instead of checking them.
+const repeatedToolFailureExhaustedHint = "the follow-up limit is exhausted; delegate a fresh sub-agent with the context it needs. A follow_up is also refused when the worktree is gone or the mode blocks the work, so delegate fresh then too."
 
 // ProjectToolResult returns the compact provider-facing delegation result.
 func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
@@ -195,17 +234,26 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 }
 
 // failedProjectionReason builds the model-facing reason for a failed result:
-// the failure explanation, or "unknown failure" when empty, plus the follow-up
-// guidance for a repeated tool failure whose session is persisted.
+// the failure explanation, or "unknown failure" when empty, plus guidance for a
+// repeated tool failure whose session is persisted. A known available budget
+// names follow_up; a known exhausted budget points at a fresh sub-agent; an
+// unrecorded budget adds nothing.
 func failedProjectionReason(r Result) string {
 	reason := r.Reason
 	if reason == "" {
 		reason = "unknown failure"
 	}
-	if r.repeatedToolFailure && r.continuationAvailable() {
-		reason += "; " + repeatedToolFailureFollowUpHint
+	if !r.repeatedToolFailure || !r.continuationAvailable() {
+		return reason
 	}
-	return reason
+	switch r.followUpBudget {
+	case followUpBudgetAvailable:
+		return reason + "; " + repeatedToolFailureFollowUpHint
+	case followUpBudgetExhausted:
+		return reason + "; " + repeatedToolFailureExhaustedHint
+	default:
+		return reason
+	}
 }
 
 // projectionReason builds the model-facing reason for a partial result: the

@@ -161,6 +161,9 @@ func executeFollowUp(childCtx context.Context, deps SubAgentHandlerDeps, spec Sp
 		if delegationResult, ok := result.Value.(Result); ok {
 			delegationResult.FollowUpCount = updated.FollowUpCount
 			delegationResult.persisted = true
+			// Update has already counted this resume, so the budget reflects the
+			// same count < max rule the next follow_up call enforces.
+			delegationResult.followUpBudget = followUpBudgetFor(updated.FollowUpCount, deps.SubAgentCfg.MaxFollowUps)
 			delegationResult = applyFollowUpWorktreeResult(delegationResult, usesWorktree, session.Remediation, deps.WorkDir)
 			result.Value = delegationResult
 		}

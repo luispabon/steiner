@@ -146,6 +146,7 @@ func TestProjectToolResultRepeatedToolFailureFollowUp(t *testing.T) {
 			Reason:              "delegation failed: repeated tool failure",
 			repeatedToolFailure: true,
 			persisted:           true,
+			followUpBudget:      followUpBudgetAvailable,
 		}
 		envelope := result.ProjectToolResult()
 		want := "delegation failed: repeated tool failure; " + repeatedToolFailureFollowUpHint
@@ -164,10 +165,32 @@ func TestProjectToolResultRepeatedToolFailureFollowUp(t *testing.T) {
 
 	t.Run("empty reason still gains the guidance", func(t *testing.T) {
 		t.Parallel()
-		result := Result{AgentID: "child-repeat", Status: StatusFailed, repeatedToolFailure: true, persisted: true}
+		result := Result{AgentID: "child-repeat", Status: StatusFailed, repeatedToolFailure: true, persisted: true, followUpBudget: followUpBudgetAvailable}
 		want := "unknown failure; " + repeatedToolFailureFollowUpHint
 		if got := result.ProjectToolResult().Reason; got != want {
 			t.Errorf("Reason = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("exhausted budget points at a fresh sub-agent", func(t *testing.T) {
+		t.Parallel()
+		result := Result{
+			AgentID:             "child-repeat",
+			Status:              StatusFailed,
+			Reason:              "delegation failed: repeated tool failure",
+			repeatedToolFailure: true,
+			persisted:           true,
+			followUpBudget:      followUpBudgetExhausted,
+		}
+		envelope := result.ProjectToolResult()
+		want := "delegation failed: repeated tool failure; " + repeatedToolFailureExhaustedHint
+		if envelope.Reason != want {
+			t.Errorf("Reason = %q, want %q", envelope.Reason, want)
+		}
+		for _, wantText := range []string{"follow-up limit is exhausted", "delegate a fresh sub-agent", "worktree is gone", "mode blocks the work"} {
+			if !strings.Contains(envelope.Reason, wantText) {
+				t.Errorf("Reason = %q, missing %q", envelope.Reason, wantText)
+			}
 		}
 	})
 
@@ -200,6 +223,16 @@ func TestProjectToolResultRepeatedToolFailureFollowUp(t *testing.T) {
 				Status:    StatusFailed,
 				Reason:    "delegation failed: repeated tool failure",
 				persisted: true,
+			},
+		},
+		{
+			name: "unrecorded budget",
+			result: Result{
+				AgentID:             "child-repeat",
+				Status:              StatusFailed,
+				Reason:              "delegation failed: repeated tool failure",
+				repeatedToolFailure: true,
+				persisted:           true,
 			},
 		},
 		{

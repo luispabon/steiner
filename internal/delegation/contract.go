@@ -169,6 +169,10 @@ type Result struct {
 	// when the session is persisted. Unexported: projection input only, never
 	// stored or sent as its own field.
 	repeatedToolFailure bool
+	// followUpBudget records, for a persisted child, whether another follow_up
+	// resume is known to be available. The zero value means no handler recorded
+	// the budget, and the projection adds no follow-up guidance.
+	followUpBudget followUpBudgetState
 	// providerWorktreePath is the project-relative path to the worktree,
 	// computed from WorktreePath. It is unexported and sent only to the provider
 	// via ProjectToolResult, never exposed in JSON or stored in the session.
