@@ -59,6 +59,8 @@ Phases run in order: plan, implement, review. `runPhase` builds a fresh runner f
 
 `CheckBoundary` (`boundary.go`) runs after `RunPhase` returns. It fails when a required artifact is missing or when `git status --porcelain=v1 --untracked-files=all` lists any entry outside `.steiner/`. Required artifacts: plan needs `overview.md` and `plan.yaml`; implement adds `execution.md`; review adds `review.md` and still requires `execution.md`. Commits are not checked.
 
+Committing planning artifacts is prompt-mediated, not engine-enforced. Each phase prompt has the model run `git check-ignore -q .steiner/plans/` from the run worktree and commit the artifacts only when that path is not ignored; implementation changes are committed either way. `EnsureSteinerProjectDir` (`internal/session`) creates `.steiner/.gitignore` holding `*` only when the file is missing, so a project that tracks its own `.steiner/.gitignore` can keep planning artifacts under version control.
+
 ## Phase driver
 
 `runPhaseOnDriver` (`cmd/steiner/phase_driver.go`) hosts each phase on an `agent.ConversationDriver`:
