@@ -313,7 +313,7 @@ func TestCodexWirePrefixStableAcrossOvernightResume(t *testing.T) {
 	// Sensitivity control: the hash covers the instructions and the prefix.
 	mutated := after
 	mutated.Messages = provider.CloneMessages(after.Messages)
-	mutated.Messages[0].Content = mutated.Messages[0].Content + " changed"
+	mutated.Messages[0].Content += " changed"
 	if codexResumeFingerprint(t, client, mutated).CacheablePrefixHash == afterWire.CacheablePrefixHash {
 		t.Fatal("serialized prefix hash does not change when the instructions change")
 	}
