@@ -156,10 +156,83 @@ func TestProjectToolResultRepeatedToolFailureFollowUp(t *testing.T) {
 		if envelope.Continuation == nil || envelope.Continuation.AgentID != "child-repeat" {
 			t.Errorf("Continuation = %+v, want the persisted agent id", envelope.Continuation)
 		}
-		for _, wantText := range []string{"follow_up", "same agent_id", "prior conversation is retained", "follow-up limit", "workspace availability", "execution mode"} {
+		for _, wantText := range []string{"follow_up", "same agent_id", "prior conversation is retained", "worktree still exists", "mode permits it", "follow-up limit", "delegate a fresh sub-agent"} {
 			if !strings.Contains(envelope.Reason, wantText) {
 				t.Errorf("Reason = %q, missing %q", envelope.Reason, wantText)
 			}
+		}
+	})
+
+	t.Run("cleared persistence suppresses guidance and continuation", func(t *testing.T) {
+		t.Parallel()
+		for _, budget := range []struct {
+			name  string
+			state followUpBudgetState
+		}{
+			{name: "available budget", state: followUpBudgetAvailable},
+			{name: "exhausted budget", state: followUpBudgetExhausted},
+		} {
+			t.Run(budget.name, func(t *testing.T) {
+				t.Parallel()
+				result := Result{
+					AgentID:             "child-repeat",
+					Status:              StatusFailed,
+					Reason:              "delegation failed: repeated tool failure",
+					repeatedToolFailure: true,
+					persisted:           true,
+					followUpBudget:      budget.state,
+				}
+				result.clearPersistence()
+				envelope := result.ProjectToolResult()
+				if envelope.Continuation != nil {
+					t.Errorf("Continuation = %+v, want none once persistence is cleared", envelope.Continuation)
+				}
+				if envelope.Reason != "delegation failed: repeated tool failure" {
+					t.Errorf("Reason = %q, want no follow-up guidance", envelope.Reason)
+				}
+			})
+		}
+	})
+
+	t.Run("discarded session suppresses guidance and continuation", func(t *testing.T) {
+		t.Parallel()
+		for _, budget := range []struct {
+			name  string
+			state followUpBudgetState
+		}{
+			{name: "available budget", state: followUpBudgetAvailable},
+			{name: "exhausted budget", state: followUpBudgetExhausted},
+		} {
+			t.Run(budget.name, func(t *testing.T) {
+				t.Parallel()
+				const agentID = "child-discard"
+				controller := NewActiveController()
+				if err := controller.RegisterWithCancel(agentID, func() {}, AgentTypeExplore, CodeWorktree{}); err != nil {
+					t.Fatalf("RegisterWithCancel() error = %v", err)
+				}
+				if !controller.RequestDiscard(agentID) {
+					t.Fatal("RequestDiscard() = false, want true")
+				}
+				result := Result{
+					AgentID:             agentID,
+					Status:              StatusFailed,
+					Reason:              "delegation failed: repeated tool failure",
+					repeatedToolFailure: true,
+					persisted:           true,
+					followUpBudget:      budget.state,
+				}
+				finalizeDelegateCancellation(nil, nil, controller, "", agentID, &result)
+				if result.persisted {
+					t.Error("persisted = true after a requested discard, want false")
+				}
+				envelope := result.ProjectToolResult()
+				if envelope.Continuation != nil {
+					t.Errorf("Continuation = %+v, want none for a discarded session", envelope.Continuation)
+				}
+				if envelope.Reason != "delegation failed: repeated tool failure" {
+					t.Errorf("Reason = %q, want no follow-up guidance", envelope.Reason)
+				}
+			})
 		}
 	})
 
