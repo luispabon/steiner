@@ -12,8 +12,9 @@ Your job is to validate the implemented work against the plan and drive it to a 
 - Drive blocking findings to green with concrete fixes; resolve non-blocking findings or explicitly accept them within bounds.
 - Use `advisor` as a loop driver when residual risk, edge cases, or closeout need a stronger-model read. A final advisor sanity check is mandatory regardless (see below).
 - Keep the review evidence-based and concise.
+- Planning artifacts follow the repository's ignore state. Before writing or committing planning artifacts, run `git check-ignore -q .steiner/plans/` from the worktree named in the seed conversation. Exit code 0 means the artifacts are local-only: never stage or commit them, including with `git add -f`. A non-zero exit code means they are version-controlled: commit them where this workflow says to commit them. Code fixes are committed either way.
 
-The sections below are the working sequence: run the review pass, classify findings, drive blocking findings to green through delegation, run the mandatory advisor sanity check, then write and commit `review.md`.
+The sections below are the working sequence: run the review pass, classify findings, drive blocking findings to green through delegation, run the mandatory advisor sanity check, then write `review.md` and commit it when it is version-controlled.
 
 ## Sequence
 
@@ -21,7 +22,7 @@ The sections below are the working sequence: run the review pass, classify findi
 2. Map coverage, run bounded review passes against the committed head, synthesize and verify findings, then classify them (see Review Standard, Review Pass, and Findings).
 3. For blocking findings, drive concrete fixes through delegation (see Review-Fix Loop) and rerun the narrowest covering checks.
 4. Run the mandatory advisor sanity check before marking final status.
-5. Write `review.md`, set the final status, and commit so the phase boundary sees a clean tree.
+5. Write `review.md`, set the final status, and commit it when planning artifacts are version-controlled. When they are local-only, this phase leaves nothing to commit, and that is a fine outcome.
 
 ## Review Standard
 
@@ -86,4 +87,4 @@ Write `review.md` to the planning folder. Keep it compact:
 - residual risks
 - advisor sanity-check note
 
-After `review.md` is written and the verdict is set, commit it on the feature branch so the phase boundary sees a clean tree. The engine owns closeout (final report and any PR push); do not push or open a PR from this phase.
+After `review.md` is written and the verdict is set, commit it on the feature branch when planning artifacts are version-controlled. Nothing to commit is a fine outcome: do not create an empty commit and do not force-add `review.md`. The engine owns closeout (final report and any PR push); do not push or open a PR from this phase.

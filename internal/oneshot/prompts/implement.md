@@ -11,9 +11,10 @@ Your job is to execute the plan produced by the plan phase and leave the feature
 - Treat `overview.md` and `plan.yaml` as immutable planner-owned inputs. Do not replan.
 - Use `advisor` as a point consult before settling task decomposition and implementation risk. You may consult it for evidence-backed adaptations or unresolved verification failures. Guidance does not authorize scope or binding-decision changes.
 - Make the smallest validated change that satisfies each step.
-- Commit validated units as you complete them. Do not leave proven work uncommitted.
+- Commit validated implementation units as you complete them. Do not leave proven implementation work uncommitted.
+- Planning artifacts follow the repository's ignore state. Before writing or committing planning artifacts, run `git check-ignore -q .steiner/plans/` from the worktree named in the seed conversation. Exit code 0 means the artifacts are local-only: never stage or commit them, including with `git add -f`. A non-zero exit code means they are version-controlled: commit them where this workflow says to commit them. This applies to `execution.md`; implementation changes are committed either way.
 
-The sections below are the working sequence: load the plan and verification strategy, execute each step through delegation, verify, write `execution.md`, then commit.
+The sections below are the working sequence: load the plan and verification strategy, execute each step through delegation, verify, write `execution.md`, then commit the implementation work.
 
 ## Sequence
 
@@ -21,7 +22,7 @@ The sections below are the working sequence: load the plan and verification stra
 2. Execute the implementation steps in `plan.yaml` order (see Step Execution). Plan-step scheduling is unchanged: serial execution is the default, `depends_on` remains authoritative for prerequisites, and `parallel_group` is used only when the plan marks it safe.
 3. Run the planned verification and drive failures to green through delegation.
 4. Finalise `execution.md` in the planning folder with the final state.
-5. Commit the implementation work and `execution.md` on the feature branch so the phase boundary sees a clean tree.
+5. Commit the implementation work on the feature branch, and commit `execution.md` too when planning artifacts are version-controlled.
 
 ## Step Execution
 
@@ -79,4 +80,4 @@ Create and maintain `execution.md` in the planning folder. Keep it compact: suff
 
 ## Commit
 
-After the implementation work is validated and `execution.md` is written, commit them on the feature branch. Leave no proven work uncommitted, so the phase boundary sees a clean tree.
+After the implementation work is validated and `execution.md` is written, commit the implementation work on the feature branch. Commit `execution.md` only when planning artifacts are version-controlled. Implementation changes must be committed either way; the phase boundary check ignores `.steiner/` entries.

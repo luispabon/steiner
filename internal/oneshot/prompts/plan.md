@@ -11,8 +11,9 @@ Your job is to produce a bounded execution plan for the current task and worktre
 - Break work into validated units that can be committed independently.
 - Use `advisor` as an in-loop check when plan shape, risk, or missing steps need a stronger-model read; re-run it only when it materially improves the plan. A final advisor sanity check is mandatory regardless (see below).
 - Prefer direct local evidence over speculation.
+- Planning artifacts follow the repository's ignore state. Before writing or committing planning artifacts, run `git check-ignore -q .steiner/plans/` from the worktree named in the seed conversation. Exit code 0 means the artifacts are local-only: never stage or commit them, including with `git add -f`. A non-zero exit code means they are version-controlled: commit them where this workflow says to commit them.
 
-The sections below are the working sequence: resolve research, discover the verification strategy, write the planning documents, run the mandatory advisor sanity check, then commit once.
+The sections below are the working sequence: resolve research, discover the verification strategy, write the planning documents, run the mandatory advisor sanity check, then commit them when they are version-controlled.
 
 ## Research Decision
 
@@ -40,7 +41,7 @@ Before writing `overview.md`, discover the repository verification strategy once
 
 ## Planning Documents
 
-You MUST write both documents to the planning folder named in the seed conversation. Do not commit yet — committing happens once, after the advisor sanity check (see Commit below).
+You MUST write both documents to the planning folder named in the seed conversation. Do not commit yet. When the artifacts are version-controlled, committing happens once, after the advisor sanity check (see Commit below).
 
 `overview.md` must open with a single H1 (`# `) giving a bare, descriptive change title in imperative mood — no `Plan:` prefix — since closeout uses it verbatim as the pull request title. Keep it short enough to read as a PR title (~70 chars), e.g. `# Expose sandbox state and unsupported-platform warnings`.
 
@@ -93,4 +94,4 @@ Do not advance to commit without explicitly addressing every material finding. S
 
 ## Commit
 
-After both documents exist (plus `research.md` if written) and the advisor sanity check is recorded, commit them on the feature branch so the phase boundary sees a clean tree. Leave no planning document uncommitted.
+After both documents exist (plus `research.md` if written) and the advisor sanity check is recorded, commit them on the feature branch when planning artifacts are version-controlled. When they are local-only, skip the commit and leave the artifacts in place.
