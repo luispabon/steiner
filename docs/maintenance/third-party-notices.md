@@ -12,7 +12,7 @@ Steiner ships Go binaries that carry their dependencies inside the executable, s
 
 All five carry their dependencies inside the executable rather than loading them from shared libraries, so binary distribution carries the licensing obligations of the whole dependency graph, not just of the packages Steiner calls directly.
 
-The linked dependency graph holds 59 third-party modules, direct and transitive. Some link on one platform only: `github.com/inconshreveable/mousetrap` on windows, `github.com/esiqveland/notify` and `github.com/godbus/dbus/v5` on linux. The inventory is a union across the build matrix, so those are inventoried even on a linux development machine.
+The linked dependency graph covers every module the five builds link, direct and transitive. Some link on one platform only: `github.com/inconshreveable/mousetrap` on windows, `github.com/esiqveland/notify` and `github.com/godbus/dbus/v5` on linux. The inventory is a union across the build matrix, so those are inventoried even on a linux development machine.
 
 Steiner does not distribute:
 
@@ -32,7 +32,7 @@ The notices exist because those licenses condition binary redistribution:
 | Apache-2.0 | Section 4 requires recipients to receive a copy of the License, and NOTICE files shipped by the dependency to be propagated. |
 | Go standard library and runtime | BSD-3-Clause, whose notice must be reproduced. |
 
-Two linked modules ship a NOTICE file: `gopkg.in/yaml.v3` and `github.com/luispabon/ctok-go`. Several `golang.org/x/*` modules ship PATENTS files; both kinds of file are collected into the inventory. The dependency set is entirely permissive: MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, ISC-style, Apache-2.0, and the dual MIT and Apache-2.0 licensing of `gopkg.in/yaml.v3`. No copyleft dependency is present.
+Linked modules that ship NOTICE files, such as `gopkg.in/yaml.v3` and `github.com/luispabon/ctok-go`, have them reproduced in the inventory; the same applies to the PATENTS files shipped by several `golang.org/x/*` modules. The dependency set is entirely permissive: MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, ISC-style, Apache-2.0, and the dual MIT and Apache-2.0 licensing of `gopkg.in/yaml.v3`. No copyleft dependency is present.
 
 ## The generated inventory
 
@@ -45,7 +45,7 @@ The output is one deterministic Markdown file, `THIRD_PARTY_NOTICES.md`, in this
 
 The generator runs `go list -deps` for each platform in the release build matrix with `CGO_ENABLED=0`, unions the modules the five builds actually link, and excludes the main module `github.com/luispabon/steiner`.
 
-License and notice files are matched by name (license, licence, copying, notice, unlicense, patents) at each module root and in every compiled package directory up to that module root. Test and testdata paths are skipped. Nested files therefore appear: in `github.com/luispabon/ctok-go` the root `LICENSE`, `NOTICE` and `UNICODE-LICENSE` are collected alongside `internal/norm/LICENSE` and `internal/norm/PATENTS`. The Go installation's own `LICENSE` and `PATENTS` are added for the standard library and runtime.
+License and notice files are matched by name (license, licence, copying, notice, notices, copyright, unlicense, patents) at each module root and in every compiled package directory up to that module root. Test and testdata paths are skipped. Nested files therefore appear: in `github.com/luispabon/ctok-go` the root `LICENSE`, `NOTICE` and `UNICODE-LICENSE` are collected alongside `internal/norm/LICENSE` and `internal/norm/PATENTS`. The Go installation's own `LICENSE` and `PATENTS` are added for the standard library and runtime.
 
 Generation fails when a compiled module ships no license file. A new dependency without licensing fails the run instead of silently dropping out of the inventory.
 
@@ -55,6 +55,8 @@ License names are matched heuristically against the file text, yielding MIT, MIT
 
 - After changing dependencies, run `go mod tidy`, then `make notices`, then review the `THIRD_PARTY_NOTICES.md` diff and commit it with the dependency change.
 - `make notices-check` reruns the generator with `-check` and exits non-zero when the committed file is stale. It runs as part of `make check`.
+- The `lint` job in `.github/workflows/checks.yml` runs `make notices-check`, so a stale inventory fails CI.
+- `.gitattributes` pins `THIRD_PARTY_NOTICES.md` to LF checkouts, so the byte comparison in `-check` holds on Windows.
 - When generation fails on a module with no license file, the inventory cannot include that module. Resolve it as a dependency change; the generated file is not edited by hand.
 - When a module is labelled `Other`, the heuristic did not match a known template. The reproduced text still ships; check that the section carries the module's complete license and notice text rather than adjusting the label by hand.
 
