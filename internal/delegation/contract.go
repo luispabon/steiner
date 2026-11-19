@@ -164,6 +164,11 @@ type Result struct {
 	Warnings []string `json:"warnings,omitempty"`
 
 	persisted bool
+	// repeatedToolFailure records that the child run stopped because the same
+	// tool error repeated. ProjectToolResult uses it to add follow-up guidance
+	// when the session is persisted. Unexported: projection input only, never
+	// stored or sent as its own field.
+	repeatedToolFailure bool
 	// providerWorktreePath is the project-relative path to the worktree,
 	// computed from WorktreePath. It is unexported and sent only to the provider
 	// via ProjectToolResult, never exposed in JSON or stored in the session.

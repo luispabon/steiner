@@ -159,6 +159,10 @@ func TestSubAgentRepeatedChildFailureDoesNotTripParentGuard(t *testing.T) {
 		if envelope["status"] != "failed" {
 			t.Fatalf("sub_agent result %s status = %v, want failed (content %q)", msg.ToolCallID, envelope["status"], msg.Content)
 		}
+		reason, _ := envelope["reason"].(string)
+		if !strings.Contains(reason, repeatedToolFailureFollowUpHint) {
+			t.Errorf("sub_agent result %s reason = %q, want repeated-failure follow-up guidance", msg.ToolCallID, reason)
+		}
 	}
 	if subAgentResults != repeatGuardSubAgentCalls {
 		t.Fatalf("sub_agent results = %d, want %d", subAgentResults, repeatGuardSubAgentCalls)

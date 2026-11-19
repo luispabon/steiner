@@ -327,6 +327,7 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 		result.Output = msg.Content
 	}
 
+	result.repeatedToolFailure = status == StatusFailed && repeatedToolFailureOf(err)
 	result.Reason = failedDelegateReason(err, childCtxErr, state)
 	result.truncationNotice = interruptedOutputNotice(state)
 
@@ -353,6 +354,23 @@ func delegateHasUsefulActivity(state agent.RunState) bool {
 		return true
 	}
 	return countToolCalls(state.Conversation) > 0
+}
+
+// repeatedToolFailureOf reports whether err is the child runner's typed
+// repeated-tool-failure stop. A usage limit and a child-context cancellation
+// carry their own guidance, so neither is reported as a repeated failure.
+func repeatedToolFailureOf(err error) bool {
+	if err == nil {
+		return false
+	}
+	if _, ok := provider.AsUsageLimit(err); ok {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var repeated *agent.RepeatedToolFailureError
+	return errors.As(err, &repeated)
 }
 
 // failedDelegateReason builds the failure explanation surfaced to the parent

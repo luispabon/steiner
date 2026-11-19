@@ -155,10 +155,22 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 	return result
 }
 
+// continuationAvailable reports whether the child session is still persisted
+// and can be named in the projection. The follow_up guidance uses the same
+// condition as the continuation field.
+func (r Result) continuationAvailable() bool {
+	return r.persisted && r.AgentID != ""
+}
+
+// repeatedToolFailureFollowUpHint tells the parent how to resume a child that
+// stopped on a repeated identical tool error. It names the corrective message
+// the child needs and the limits that still apply, without promising success.
+const repeatedToolFailureFollowUpHint = "to continue, call follow_up with the same agent_id and a message correcting the repeated tool error; the prior conversation is retained. Further attempts remain subject to the follow-up limit, workspace availability, and execution mode."
+
 // ProjectToolResult returns the compact provider-facing delegation result.
 func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 	envelope := agent.DelegationResultEnvelope{Output: r.Output}
-	if r.persisted && r.AgentID != "" {
+	if r.continuationAvailable() {
 		envelope.Continuation = &agent.DelegationContinuation{AgentID: r.AgentID}
 	}
 	if r.providerWorktreePath != "" {
@@ -177,12 +189,23 @@ func (r Result) ProjectToolResult() agent.DelegationResultEnvelope {
 		}
 	case StatusFailed:
 		envelope.Status = "failed"
-		envelope.Reason = r.Reason
-		if envelope.Reason == "" {
-			envelope.Reason = "unknown failure"
-		}
+		envelope.Reason = failedProjectionReason(r)
 	}
 	return envelope
+}
+
+// failedProjectionReason builds the model-facing reason for a failed result:
+// the failure explanation, or "unknown failure" when empty, plus the follow-up
+// guidance for a repeated tool failure whose session is persisted.
+func failedProjectionReason(r Result) string {
+	reason := r.Reason
+	if reason == "" {
+		reason = "unknown failure"
+	}
+	if r.repeatedToolFailure && r.continuationAvailable() {
+		reason += "; " + repeatedToolFailureFollowUpHint
+	}
+	return reason
 }
 
 // projectionReason builds the model-facing reason for a partial result: the

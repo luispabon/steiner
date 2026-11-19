@@ -100,7 +100,7 @@ Stop reasons (`result.go`):
 - `complete` maps to `complete`.
 - `max_turns` and `max_tokens` map to `partial`.
 - `cancelled` maps to `partial` when the child had turns and produced output or tool calls, otherwise to `cancelled`. The child session stays resumable.
-- `error` and `usage_limit` map to `failed`. A `usage_limit` failure carries `usageLimitDelegateNotice` (`task.go`), which tells the parent to delegate a fresh sub-agent.
+- `error` and `usage_limit` map to `failed`. A `usage_limit` failure carries `usageLimitDelegateNotice` (`task.go`), which tells the parent to delegate a fresh sub-agent. A repeated-tool-failure stop is detected with `errors.As` on `*agent.RepeatedToolFailureError` (`internal/agent/repeat_failure_guard.go`); a usage limit or child-context cancellation never sets the flag.
 - Any other reason maps to `failed` with `unknown stop reason: <reason>`.
 
 Failure classification reads the child context snapshot `childCtx.Err()` that `SpawnDelegate` (`task.go`) captures when `runner.Run` returns, before the deferred limit cancel. `failedDelegateExecution` and `runStateFields` use that snapshot, while the runner error supplies the failure message and usage-limit notice. A provider transport timeout that wraps `context.DeadlineExceeded` on a live child context is therefore `failed`; only a done child context maps to `partial` or `cancelled` and marks the session resumable. The provider retries that timeout inside the child only before visible stream output; once visible chunks have been emitted, it returns the timeout so the child run fails.
@@ -123,11 +123,13 @@ Token counters accumulate across follow-ups, seeded from `Spec.PriorTokenUsage`.
 |-------|---------|
 | `output` | Child output. When the child's model call ended mid-message, this is the partial assistant message committed at run exit (`Message.Incomplete`). With advisor usage, an `advisor: N used` line follows it. |
 | `status` | Omitted on success. Otherwise `partial`, `cancelled`, or `failed` |
-| `reason` | The error for failures (`unknown failure` when empty). Partial results carry the short token (`cancelled` or `limit reached`); when the last assistant message is incomplete, the truncation explanation follows it after `; `. Cancelled results usually carry the session-preserved explanation; a child cancelled before dispatch, or one whose session was discarded, carries a different notice. |
+| `reason` | The error for failures (`unknown failure` when empty). A persisted repeated-tool-failure result appends `repeatedToolFailureFollowUpHint` after `; `. Partial results carry the short token (`cancelled` or `limit reached`); when the last assistant message is incomplete, the truncation explanation follows it after `; `. Cancelled results usually carry the session-preserved explanation; a child cancelled before dispatch, or one whose session was discarded, carries a different notice. |
 | `continuation` | `agent_id` of a persisted child session that can be resumed. Set only when the child is persisted. |
 | `worktree_path` | Project-relative path of a worktree-isolated child's worktree. |
 
 `interruptedOutputNotice` (`result.go`) builds the truncation explanation for a child whose last assistant message is incomplete: it names the turn and warns the text may be truncated. It reaches the model through `failedDelegateReason`, and through partial projections via `Result.truncationNotice`, which `projectionReason` appends to the short token.
+
+`failedDelegateExecution` (`task.go`) sets `Result.repeatedToolFailure` when the runner error unwraps to `*agent.RepeatedToolFailureError` and the result is `failed`, excluding usage limits and child-context cancellation. `ProjectToolResult` appends `repeatedToolFailureFollowUpHint` to the failure reason only when that flag is set and `continuationAvailable` reports a persisted session with an agent ID, the same condition that sets `continuation`. The hint names the corrective message, says the prior conversation is retained, and lists the follow-up limit, workspace availability, and execution mode; it does not promise success. Unsaved sessions, usage limits, and cancellations carry no hint.
 
 Delegation results also set `ToolRetention` with kind `delegate_summary` (`RetentionKindDelegateSummary`, `task.go`).
 
