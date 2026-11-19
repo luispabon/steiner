@@ -391,6 +391,13 @@ test("coldturns: resume-flagged records are labelled baseline-unavailable, not a
 		const byClass = Object.fromEntries(out.cold_turn_attribution.map((r) => [r.key, r.n]));
 		assert.equal(byClass.no_prior_baseline, 1);
 		assert.equal(byClass.resume_baseline_unavailable, undefined);
+
+		// Model aggregation uses the same attributable population: the flagged
+		// pair must not inflate the model's n or cold-turn count while the
+		// attribution table excludes it.
+		const byModel = out.by_model.find((r) => r.key === "model");
+		assert.equal(byModel.n, 1);
+		assert.equal(byModel.metrics.coldTurns, 1);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}

@@ -773,9 +773,7 @@ function baselineUnavailableAfterResumeRows(cacheRecords) {
 }
 
 function attributionRows(pairs) {
-	// Resume-flagged turns have no baseline to attribute; their count is
-	// reported separately so this table never reads the resume as a cause.
-	const cold = pairs.filter((p) => p.cold && !p.resumeBaselineUnavailable);
+	const cold = pairs.filter((p) => p.cold);
 	const grouped = groupBy(cold, classifyColdTurn);
 	return [...grouped.entries()]
 		.sort((a, b) => b[1].length - a[1].length)
@@ -831,13 +829,18 @@ function runColdTurns(cacheRecords, toolRecords) {
 	const excluded = modelsWithoutCacheReporting(cacheRecords);
 	const included = cacheRecords.filter((r) => !excluded.has(r.payload?.backend_model_id));
 	const pairs = parentTurnPairs(included, toolRecords);
+	// Resume-flagged pairs have no baseline to compare, so every pair-based
+	// table excludes them and their count is reported separately. Keeping them
+	// in one table and out of another would report two different cold-turn
+	// populations for the same model.
+	const attributable = pairs.filter((p) => !p.resumeBaselineUnavailable);
 
 	const sections = {
-		by_model: coldTurnModelRows(pairs, MIN_N),
-		cold_turn_attribution: attributionRows(pairs),
+		by_model: coldTurnModelRows(attributable, MIN_N),
+		cold_turn_attribution: attributionRows(attributable),
 		baseline_unavailable_after_resume: baselineUnavailableAfterResumeRows(cacheRecords),
-		delegation_ladder: ladderRows(pairs, DELEGATION_BINS, (p) => p.delegationSeconds),
-		idle_ladder: ladderRows(pairs, IDLE_BINS, (p) => p.gapSeconds),
+		delegation_ladder: ladderRows(attributable, DELEGATION_BINS, (p) => p.delegationSeconds),
+		idle_ladder: ladderRows(attributable, IDLE_BINS, (p) => p.gapSeconds),
 		excluded_no_cache_reporting: excludedModelRows(cacheRecords, excluded),
 	};
 
