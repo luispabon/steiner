@@ -277,11 +277,9 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 		if restored.applied {
 			s.deps.Config.Models.Effective.ActiveOrchestratorModel = restored.ref
 		}
+		s.reasoningOverrides = providerReasoningOverrides(restored.overrides)
 		if s.reasoningOverrides == nil {
 			s.reasoningOverrides = make(map[string]provider.ReasoningOverride)
-		}
-		for ref, override := range providerReasoningOverrides(restored.overrides) {
-			s.reasoningOverrides[ref] = override
 		}
 		s.ledger = slices.Clone(sess.SubAgentLedger)
 		s.delegationGroups = &groupLedger
@@ -440,17 +438,21 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	}
 
 	s.mu.RLock()
+	modelID := SelectedModelConfig(s.deps.Config).ID
 	currentSession := session.Session{
-		ID:               s.sessionID,
-		Title:            s.sessionTitle,
-		Model:            SelectedModelConfig(s.deps.Config).ID,
-		Mode:             string(s.mode),
-		Group:            s.sessionGroup,
-		Lineage:          s.lineage,
-		PromptCacheKey:   s.promptCacheKey,
-		SessionDate:      storedSessionDate(s.sessionDate),
-		Skills:           s.skills.Snapshot(),
-		DelegationGroups: agent.CloneDelegationGroupLedger(s.delegationGroups),
+		ID:                 s.sessionID,
+		Title:              s.sessionTitle,
+		Model:              modelID,
+		ModelRef:           effectiveModelRef(s.deps.Config),
+		ModelProvider:      SelectedModelConfig(s.deps.Config).Provider,
+		ReasoningOverrides: storedReasoningOverrides(s.reasoningOverrides),
+		Mode:               string(s.mode),
+		Group:              s.sessionGroup,
+		Lineage:            s.lineage,
+		PromptCacheKey:     s.promptCacheKey,
+		SessionDate:        storedSessionDate(s.sessionDate),
+		Skills:             s.skills.Snapshot(),
+		DelegationGroups:   agent.CloneDelegationGroupLedger(s.delegationGroups),
 	}
 	originalTitle := s.sessionTitle
 	s.mu.RUnlock()

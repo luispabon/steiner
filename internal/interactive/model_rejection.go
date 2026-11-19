@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -62,13 +63,30 @@ func rejectedModelBody(body string) bool {
 // runErrorMessage formats a failed run for the stop-reason event, appending
 // model rejection guidance when the provider refused the model.
 func (s *Session) runErrorMessage(err error) string {
-	message := fmt.Sprintf("Error: %v", err)
+	return fmt.Sprintf("Error: %v%s", err, s.modelRejectionSuffix(err))
+}
+
+// emitModelRejectionGuidance reports model rejection guidance as its own
+// conversation notice, for the path where the agent runner already emitted the
+// stop-reason event.
+func (s *Session) emitModelRejectionGuidance(err error) {
+	suffix := s.modelRejectionSuffix(err)
+	if suffix == "" {
+		return
+	}
+	s.events.Emit(output.NewConfigWarningEvent(strings.TrimSpace(suffix)))
+}
+
+// modelRejectionSuffix returns the guidance sentence for err, prefixed with a
+// newline, or empty when the error is not a model rejection.
+func (s *Session) modelRejectionSuffix(err error) string {
 	s.mu.RLock()
 	model := effectiveModelRef(s.deps.Config)
 	fallback := s.deps.Config.Models.Effective.CompactionFallback
 	s.mu.RUnlock()
-	if guidance := modelRejectionGuidance(model, fallback, err); guidance != "" {
-		message += "\n" + guidance
+	guidance := modelRejectionGuidance(model, fallback, err)
+	if guidance == "" {
+		return ""
 	}
-	return message
+	return "\n" + guidance
 }

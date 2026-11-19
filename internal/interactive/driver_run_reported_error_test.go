@@ -47,8 +47,11 @@ func TestDriverRunReportsStopReasonOnce(t *testing.T) {
 			}
 			if tc.wantStops == 1 {
 				p := stops[0].Payload.(output.StopReasonEvent)
-				if p.Error != boom.Error() {
-					t.Errorf("stop-reason error = %q, want %q", p.Error, boom.Error())
+				if p.Reason != "error" {
+					t.Errorf("stop-reason reason = %q, want error", p.Reason)
+				}
+				if want := "Error: " + boom.Error(); p.Error != want {
+					t.Errorf("stop-reason error = %q, want %q", p.Error, want)
 				}
 			}
 

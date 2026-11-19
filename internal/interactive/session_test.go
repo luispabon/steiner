@@ -1068,8 +1068,8 @@ func TestSubmitPromptEmitsStopReasonOnError(t *testing.T) {
 		if event.Type == output.EventTypeStopReason {
 			found = true
 			payload := mustEventPayload[output.StopReasonEvent](t, event)
-			if payload.Reason != "Error: run failed" {
-				t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: run failed")
+			if payload.Reason != "error" || payload.Error != "Error: run failed" {
+				t.Fatalf("stop reason = (%q, %q), want (error, Error: run failed)", payload.Reason, payload.Error)
 			}
 			break
 		}
@@ -1120,8 +1120,8 @@ func TestSubmitPromptSavesSessionOnRunError(t *testing.T) {
 		if event.Type == output.EventTypeStopReason {
 			found = true
 			payload := mustEventPayload[output.StopReasonEvent](t, event)
-			if payload.Reason != "Error: boom" {
-				t.Fatalf("stop reason = %q, want %q", payload.Reason, "Error: boom")
+			if payload.Reason != "error" || payload.Error != "Error: boom" {
+				t.Fatalf("stop reason = (%q, %q), want (error, Error: boom)", payload.Reason, payload.Error)
 			}
 			break
 		}

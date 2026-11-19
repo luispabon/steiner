@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os/exec"
 	"slices"
 	"strings"
 
@@ -56,11 +57,18 @@ func (s *Session) resolveRestoredModel(saved session.Session) restoredModel {
 	ref, warnings := savedModelRef(cfg, saved, startupRef)
 	result.warnings = warnings
 	if ref == "" {
+		// No usable saved identity, or an ambiguous legacy id with no startup
+		// match: reset to the startup selection so a previous /model switch or
+		// an earlier resume cannot leak into this conversation.
+		result.ref = startupRef
+		result.applied = startupRef != ""
 		return result
 	}
 	wantProvider, wantID := savedIdentity(saved)
 	if err := localModelUsageError(cfg, ref, wantProvider, wantID); err != nil {
 		result.warnings = append(result.warnings, fallbackWarning(savedModelLabel(saved, ref), err, startupRef))
+		result.ref = startupRef
+		result.applied = startupRef != ""
 		return result
 	}
 	result.ref = ref
@@ -144,14 +152,23 @@ func localModelUsageError(cfg config.Config, ref, wantProvider, wantID string) e
 	}
 	resolved := provider.ResolveProviderConfig(providerCfg)
 	if resolved.Type == config.ProviderTypeCodex {
+		// A stored sign-in or a locally resolvable API key both leave the
+		// provider usable; neither needs a network call to check.
+		if strings.TrimSpace(resolved.APIKey) != "" {
+			return nil
+		}
 		identity, err := provider.LoadCodexIdentity()
-		if strings.TrimSpace(resolved.APIKey) == "" {
-			if err != nil {
-				return fmt.Errorf("cannot read the codex sign-in: %v", err)
-			}
-			if !identity.SignedIn {
-				return errors.New("needs a codex sign-in; run 'steiner login codex'")
-			}
+		if err != nil {
+			return fmt.Errorf("cannot read the codex sign-in: %v", err)
+		}
+		if !identity.SignedIn {
+			return errors.New("needs a codex sign-in; run 'steiner login codex'")
+		}
+		return nil
+	}
+	if resolved.Type == config.ProviderTypeClaudeSubscription {
+		if _, err := exec.LookPath("claude"); err != nil {
+			return errors.New("needs the claude CLI on PATH; install Claude Code, then run 'claude auth login'")
 		}
 		return nil
 	}
