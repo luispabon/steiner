@@ -555,7 +555,6 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 		return cmd, nil
 	}
 
-	connectStart := time.Now()
 	mgr := mcp.Connect(context.Background(), config.MCPConfig{
 		Enabled: true,
 		Servers: map[string]config.MCPServerConfig{
@@ -587,8 +586,9 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 	// invariant is that Run() waits for every server and (re-)registers all defs.
 	registry := runtimeRegistryWithSinkAndMode(registryTestConfig(), t.TempDir(), nil, false, nil, nil, mgr, nil)
 
-	// Let the good server connect while the stall server is still gated: the
-	// manager holds the defs, the registry still does not.
+	// Wait for the good server to connect while the stall server is still gated:
+	// the manager holds the good server's defs (published with its connected
+	// state) and none from the stall server, whose handshake has not started.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		states := mgr.ServerStates()
@@ -606,9 +606,11 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// The good server is connected, so let the stall server start: its 1s
-	// connect timeout begins now and Run must wait for it to expire.
-	openGate()
+	for _, name := range mcpToolNames(mgr.ToolDefs()) {
+		if strings.HasPrefix(name, "mcp__stall__") {
+			t.Fatalf("manager registered %q while the stall server was still gated; defs: %v", name, mcpToolNames(mgr.ToolDefs()))
+		}
+	}
 
 	producer := &mcpStateProducer{}
 	snapshots := 0
@@ -626,14 +628,18 @@ func TestSessionRunnerRunWaitsForMCPInitAndRegistersDefs(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// The good server is connected, so start the stall server and time Run from
+	// the release: the stall server's 1s connect timeout begins here, so a Run
+	// that skipped the wait would return almost immediately and a slow connect
+	// earlier in the test cannot mask that.
+	openGate()
+	runStart := time.Now()
 	if _, err := sr.Run(ctx, interactive.RunInput{}); err == nil {
 		t.Fatal("Run() error = nil, want fast failure after MCP init")
 	}
-	// The stall server's 1s timeout only started at the gate release above, so
-	// Run must have waited for it to expire; a Run that skipped the wait would
-	// return almost immediately.
-	if elapsed := time.Since(connectStart); elapsed < 900*time.Millisecond {
-		t.Fatalf("Run() returned %v after Connect, want it to wait for the stalling server (1s connect timeout)", elapsed)
+	if elapsed := time.Since(runStart); elapsed < 900*time.Millisecond {
+		t.Fatalf("Run() returned %v after the gate release, want it to wait for the stalling server (1s connect timeout)", elapsed)
 	}
 
 	// Both servers resolved: stall failed, good connected.
