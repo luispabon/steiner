@@ -35,6 +35,18 @@ The profile's `advisor` model falls back to its `default_model`. Oneshot phases 
 
 The agent can pass a `question` and a list of `files` to include verbatim, since the advisor cannot read files itself. Both are optional; a bare call asks for guidance on the conversation as it stands.
 
+## While investigation sub-agents are pending
+
+In interactive sessions and oneshot phases, `sub_agent` returns an acknowledgement before the child finishes. While any `explore`, `research`, `evaluate`, or `review` sub-agent is still running, queued, or finished with its result not yet delivered, a main-agent advisor call does not reach the model. It returns:
+
+```text
+advisor: investigation sub-agent(s) pending (explore abc123, review def456). End your turn; their results arrive automatically and you will be resumed. Call the advisor afterwards if still needed.
+```
+
+The refusal spends no use from `advisor.max_uses_per_run` and shows no advisor panel. `code`, `documentor`, `sanity_check`, and `vision` sub-agents do not block the advisor, and `--exec` runs never block it because each `sub_agent` call waits for the child. Sub-agents keep their own advisor access; the guard applies to the main agent only.
+
+Known limitation: children have turn and token caps but no default wall-clock limit, because a spawn's timeout starts unset. An investigator that never finishes keeps the advisor refused for as long as it stays pending. In interactive mode, stop it to lift the guard.
+
 ## Usage caps
 
 - `advisor.max_uses_per_run` caps calls by the main agent across the whole session (default `3`).

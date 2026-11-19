@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/advisor"
 	"github.com/luispabon/steiner/internal/agent"
 )
 
@@ -237,6 +238,24 @@ func TestCountAdvisorUsage(t *testing.T) {
 			},
 			wantUses:   0,
 			wantDenied: 1,
+		},
+		{
+			name: "one refused call while investigations pending",
+			conv: []agent.Message{
+				{
+					Role: agent.MessageRoleAssistant,
+					ToolCalls: []agent.ToolCall{
+						{ID: "c1", Name: "advisor", Arguments: map[string]any{"question": "test"}},
+					},
+				},
+				{
+					Role:    agent.MessageRoleTool,
+					Name:    "advisor",
+					Content: advisor.PendingInvestigationsMessage([]string{"explore abc123"}),
+				},
+			},
+			wantUses:   0,
+			wantDenied: 0,
 		},
 		{
 			name: "three calls, two denied (one successful, two denied)",

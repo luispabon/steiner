@@ -55,6 +55,21 @@ func UsesWorktree(t AgentType) bool {
 	return t == AgentTypeCode || t == AgentTypeDocumentor
 }
 
+// BlocksAdvisor reports whether a pending sub-agent of this type refuses
+// advisor calls until its result is delivered. The investigation types gather
+// the evidence the orchestrator would ask the advisor about, so guidance taken
+// before they finish rests on partial context. Unlisted types, including new
+// ones, do not block; add a type here only when its result is a precondition
+// for the orchestrator's next decision.
+func BlocksAdvisor(t AgentType) bool {
+	switch t {
+	case AgentTypeExplore, AgentTypeResearch, AgentTypeEvaluate, AgentTypeReview:
+		return true
+	default:
+		return false
+	}
+}
+
 // IsDelegationTool reports whether name is a delegation tool registered by
 // BuildDelegateRegistry: the sub_agent tool or follow_up.
 func IsDelegationTool(name string) bool {

@@ -27,6 +27,19 @@ func BudgetExhaustedMessage(used, max int) string {
 	return fmt.Sprintf("%s (%d/%d); proceed on your own judgment", BudgetExhaustedMessagePrefix, used, max)
 }
 
+// PendingInvestigationsMessagePrefix is the stable prefix of the result that
+// refuses an advisor call while investigation sub-agents are pending. It is
+// deliberately distinct from BudgetExhaustedMessagePrefix so advisor denial
+// counting in internal/delegation is unaffected.
+const PendingInvestigationsMessagePrefix = "advisor: investigation sub-agent(s) pending"
+
+// PendingInvestigationsMessage returns the model-visible result for an advisor
+// call refused because the labeled investigation sub-agents are still pending.
+// labels read as agent type plus agent ID, such as "explore abc123".
+func PendingInvestigationsMessage(labels []string) string {
+	return fmt.Sprintf("%s (%s). End your turn; their results arrive automatically and you will be resumed. Call the advisor afterwards if still needed.", PendingInvestigationsMessagePrefix, strings.Join(labels, ", "))
+}
+
 // ToolDef returns the provider-facing advisor tool definition.
 func ToolDef(handler func(context.Context, map[string]any) (any, error)) tool.ToolDef {
 	return tool.ToolDef{
@@ -82,6 +95,11 @@ type HandlerDeps struct {
 	// nil, NewHandler allocates a private one, so the package keeps working
 	// standalone (e.g. in tests that construct HandlerDeps directly).
 	SharedState *SharedState
+	// PendingInvestigations reports the pending investigation sub-agents as
+	// display labels ("explore abc123"). A non-empty report refuses the call
+	// with PendingInvestigationsMessage before spending budget. Nil leaves the
+	// handler unguarded.
+	PendingInvestigations func() []string
 }
 
 // Config configures the per-session advisor handler.
@@ -140,6 +158,13 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 	in, err := decodeAdvisorInput(input)
 	if err != nil {
 		return nil, fmt.Errorf("advisor: %w", err)
+	}
+	// A refusal is a normal result, not an error: an error would trip the
+	// repeat-failure guard and abort the run.
+	if deps.PendingInvestigations != nil {
+		if labels := deps.PendingInvestigations(); len(labels) > 0 {
+			return PendingInvestigationsMessage(labels), nil
+		}
 	}
 	snapshot, ok := agent.ConversationSnapshotFromContext(ctx)
 	if !ok {

@@ -3,6 +3,7 @@ package delegation
 import (
 	"context"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1002,5 +1003,281 @@ func TestBuildChildRunCarriesSessionDate(t *testing.T) {
 
 	if !reflect.DeepEqual(req.Prompt.SessionDate, sessionDate) {
 		t.Errorf("req.Prompt.SessionDate = %v, want %v", req.Prompt.SessionDate, sessionDate)
+	}
+}
+
+// seedPendingSubAgents registers unstarted job states so Supervisor.Pending
+// reports them without running a child.
+func seedPendingSubAgents(t *testing.T, supervisor *Supervisor, jobs ...ChildJob) {
+	t.Helper()
+	supervisor.mu.Lock()
+	defer supervisor.mu.Unlock()
+	for _, job := range jobs {
+		supervisor.jobs[job.AgentID] = &jobState{job: job}
+	}
+}
+
+// advisorGuardDeps builds the minimum DelegateDeps for exercising the advisor
+// tool's pending-investigation guard.
+func advisorGuardDeps(t *testing.T, prov provider.Provider) DelegateDeps {
+	t.Helper()
+	cfg := advisorTestConfig()
+	return DelegateDeps{
+		BaseRegistry: tool.NewRegistry(),
+		SubAgentCfg:  config.SubAgentConfig{Enabled: false, MaxFollowUps: 1},
+		AdvisorCfg:   config.AdvisorConfig{Enabled: true, MaxUsesPerRun: 3},
+		Provider:     prov,
+		Events:       output.NoopSink{},
+		WorkDir:      t.TempDir(),
+		ResolvedModel: provider.ResolvedModel{
+			ProviderAlias:         "testprov",
+			EffectiveProviderType: config.ProviderTypeOpenAICompat,
+		},
+		MaxTokens:    256,
+		Config:       cfg,
+		ResolveModel: resolveModelFunc(cfg),
+	}
+}
+
+func callRegisteredAdvisor(t *testing.T, reg *tool.Registry) any {
+	t.Helper()
+	def, ok := reg.Get(advisor.ToolName)
+	if !ok {
+		t.Fatal("advisor tool not registered")
+	}
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+	})
+	got, err := def.Handler(ctx, map[string]any{"question": "test"})
+	if err != nil {
+		t.Fatalf("advisor handler() error = %v", err)
+	}
+	return got
+}
+
+func TestBuildDelegateRegistryAdvisorGuardFollowsPendingInvestigations(t *testing.T) {
+	t.Parallel()
+
+	pendingExplore := []ChildJob{{AgentID: "abc123", AgentType: AgentTypeExplore}}
+	cases := []struct {
+		name        string
+		supervisor  bool
+		async       bool
+		pending     []ChildJob
+		wantRefused bool
+	}{
+		{
+			name:        "async supervisor with pending explore refuses",
+			supervisor:  true,
+			async:       true,
+			pending:     pendingExplore,
+			wantRefused: true,
+		},
+		{
+			name:       "async supervisor with only pending code allows",
+			supervisor: true,
+			async:      true,
+			pending:    []ChildJob{{AgentID: "abc123", AgentType: AgentTypeCode}},
+		},
+		{
+			name:       "async supervisor with nothing pending allows",
+			supervisor: true,
+			async:      true,
+		},
+		{
+			name:    "nil supervisor allows",
+			async:   true,
+			pending: pendingExplore,
+		},
+		{
+			name:       "blocking mode allows",
+			supervisor: true,
+			pending:    pendingExplore,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			prov := &fakeProvider{responses: []provider.ChatResponse{
+				{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+			}}
+			deps := advisorGuardDeps(t, prov)
+			deps.AsyncSubAgents = tc.async
+			if tc.supervisor {
+				deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1})
+				seedPendingSubAgents(t, deps.Supervisor, tc.pending...)
+			}
+
+			reg, err := BuildDelegateRegistry(deps)
+			if err != nil {
+				t.Fatalf("BuildDelegateRegistry() error = %v", err)
+			}
+
+			got := callRegisteredAdvisor(t, reg)
+			if tc.wantRefused {
+				want := advisor.PendingInvestigationsMessage([]string{"explore abc123"})
+				if got != want {
+					t.Fatalf("advisor result = %#v, want refusal %q", got, want)
+				}
+				if len(prov.requests) != 0 {
+					t.Fatalf("provider calls = %d, want 0", len(prov.requests))
+				}
+				return
+			}
+			if got != "ok" {
+				t.Fatalf("advisor result = %#v, want %q", got, "ok")
+			}
+			if len(prov.requests) != 1 {
+				t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+			}
+		})
+	}
+}
+
+func TestBuildAdvisorToolsChildAdvisorIgnoresPendingInvestigations(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "child ok"}, FinishReason: "stop"},
+	}}
+	deps := advisorGuardDeps(t, prov)
+	deps.AsyncSubAgents = true
+	deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1})
+	seedPendingSubAgents(t, deps.Supervisor, ChildJob{AgentID: "abc123", AgentType: AgentTypeExplore})
+	deps.AdvisorBudgetStore = NewAdvisorBudgetStore()
+	deps.AdvisorCfg.MaxUsesPerSubAgent = 1
+
+	reg := tool.NewRegistry()
+	advisorForChild, err := buildAdvisorTools(reg, deps)
+	if err != nil {
+		t.Fatalf("buildAdvisorTools() error = %v", err)
+	}
+	if advisorForChild == nil {
+		t.Fatal("child advisor factory missing")
+	}
+	def, ok := advisorForChild("child-agent")
+	if !ok {
+		t.Fatal("child advisor tool not built")
+	}
+
+	ctx := agent.WithConversationSnapshot(context.Background(), []provider.Message{
+		{Role: provider.MessageRoleUser, Content: "hi"},
+	})
+	got, err := def.Handler(ctx, map[string]any{"question": "test"})
+	if err != nil {
+		t.Fatalf("child advisor handler() error = %v", err)
+	}
+	if got != "child ok" {
+		t.Fatalf("child advisor result = %#v, want %q", got, "child ok")
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+	}
+}
+
+// waitFinishedPending spins until the agent is pending with a final result.
+func waitFinishedPending(t *testing.T, supervisor *Supervisor, agentID string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		for _, pending := range supervisor.Pending() {
+			if pending.AgentID == agentID && pending.State == agent.SubAgentFinished {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("sub-agent %q did not reach a finished pending state", agentID)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestBuildDelegateRegistryAdvisorRefusedUntilFinishedChildDelivered drives a
+// real supervisor job: the advisor refuses while a finished child waits for
+// delivery, then serves once the harness acknowledges the result.
+func TestBuildDelegateRegistryAdvisorRefusedUntilFinishedChildDelivered(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeProvider{responses: []provider.ChatResponse{
+		{Message: provider.Message{Content: "ok"}, FinishReason: "stop"},
+	}}
+	deps := advisorGuardDeps(t, prov)
+	deps.AsyncSubAgents = true
+	deps.Supervisor = NewSupervisor(SupervisorOptions{MaxParallel: 1})
+
+	child := newFakeChild("abc123", false)
+	child.job.AgentType = AgentTypeExplore
+	close(child.release)
+	if _, _, err := deps.Supervisor.Spawn(context.Background(), child.job); err != nil {
+		t.Fatalf("Spawn() error = %v", err)
+	}
+	waitClosed(t, child.executed, "child execute")
+	waitFinishedPending(t, deps.Supervisor, "abc123")
+
+	reg, err := BuildDelegateRegistry(deps)
+	if err != nil {
+		t.Fatalf("BuildDelegateRegistry() error = %v", err)
+	}
+
+	want := advisor.PendingInvestigationsMessage([]string{"explore abc123"})
+	if got := callRegisteredAdvisor(t, reg); got != want {
+		t.Fatalf("advisor result = %#v, want refusal %q", got, want)
+	}
+	if len(prov.requests) != 0 {
+		t.Fatalf("provider calls = %d, want 0", len(prov.requests))
+	}
+
+	deps.Supervisor.MarkDelivered([]string{child.job.ParentCallID})
+
+	if got := callRegisteredAdvisor(t, reg); got != "ok" {
+		t.Fatalf("advisor result after delivery = %#v, want %q", got, "ok")
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(prov.requests))
+	}
+}
+
+// TestAdvisorWaitGuidanceNamesBlockingAgentTypes ties the rendered prompt
+// sentence to BlocksAdvisor: the named types must be exactly the blocking set.
+func TestAdvisorWaitGuidanceNamesBlockingAgentTypes(t *testing.T) {
+	t.Parallel()
+
+	content := prompt.SystemPreambleWithAdvisor(prompt.SystemPreambleParams{
+		DelegationEnabled: true,
+		AsyncSubAgents:    true,
+		AdvisorEnabled:    true,
+		Mode:              prompt.ParentWorkflowMode(),
+	}).Content
+
+	const start = "Do not call the advisor while "
+	i := strings.Index(content, start)
+	if i < 0 {
+		t.Fatalf("advisor wait guidance missing in %q", content)
+	}
+	rest := content[i+len(start):]
+	const end = " sub-agents are in flight"
+	j := strings.Index(rest, end)
+	if j < 0 {
+		t.Fatalf("advisor wait guidance does not list agent types in %q", content)
+	}
+
+	var got []string
+	for index, part := range strings.Split(rest[:j], "`") {
+		if index%2 == 1 {
+			got = append(got, part)
+		}
+	}
+	want := make([]string, 0, len(AllAgentTypes()))
+	for _, at := range AllAgentTypes() {
+		if BlocksAdvisor(at) {
+			want = append(want, string(at))
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("guidance names agent types %#v, want %#v from BlocksAdvisor", got, want)
 	}
 }

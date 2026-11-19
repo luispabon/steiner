@@ -47,6 +47,14 @@ Requested files are counted at their full bounded size while planning, so reduci
 
 The use counter is an `advisor.SharedState` allocated once per runtime (`cliRuntime.advisorState` in `cmd/steiner/runtime_build.go`). `BuildDelegateRegistry` builds a new handler each turn, so the shared counter makes `Config.MaxUsesPerRun` a runtime-lifetime cap across turns and conversations in the process. Calls past the cap return the budget-exhausted result, and the tool stays registered. Child agents get their own counts from `AdvisorBudgetStore`, keyed by agent ID.
 
+## Pending investigations
+
+`HandlerDeps.PendingInvestigations` (`internal/advisor/tool.go`) is an optional source of display labels. `handlerState.handle` consults it after decoding the arguments and before taking a budget use, so a refusal spends no budget, makes no provider call, and emits no event. The result is the plain string from `PendingInvestigationsMessage`, an ordinary tool result rather than an error, so the repeat-failure guard does not abort the run. `PendingInvestigationsMessagePrefix` is separate from `BudgetExhaustedMessagePrefix`, and `countAdvisorUsage` (`internal/delegation/result.go`) counts a refusal as neither a use nor a denial.
+
+`internal/advisor` does not import `internal/delegation`, which imports the advisor package, so the pending list arrives as an injected function. `BuildDelegateRegistry` supplies it through `advisorPendingInvestigations` (`internal/delegation/registry.go`) only for the top-level advisor, and only when `DelegateDeps.AsyncSubAgents` is set and `DelegateDeps.Supervisor` is non-nil. The source reads `Supervisor.Pending` (`internal/delegation/supervisor_async.go`), which lists every unacknowledged child in enqueue order, and labels each entry whose type satisfies `delegation.BlocksAdvisor` (`internal/delegation/agent_type.go`: `explore`, `research`, `evaluate`, `review`) as `<type> <agentId>`. Running, queued, and finished-but-undelivered children all count. Blocking `exec` runs never refuse, and child advisor tools are built with no source because a child cannot nest a sub-agent.
+
+`sectionAdvisor` (`internal/prompt/system.go`) renders the matching prompt paragraph only when the advisor, delegation, and async sub-agents are all enabled.
+
 ## Transport and cache
 
 Advisor calls use transport session `<session>-advisor` with the parent session set to `<session>` (`internal/delegation/registry.go`). Sub-agent advisors share `<session>-subagent-advisor`, with the parent session still `<session>`, so a sub-agent advisor call never shares or retires the parent advisor's pooled transport process. The cache key comes from the process-lifetime `CacheKeyStore`, as described in [cache identity](prompt-caching.md#cache-identity). If the store is nil or gives no key, the handler mints a fresh key. On Codex, a stable key sends affinity headers. Anthropic ignores the key and relies on breakpoints.

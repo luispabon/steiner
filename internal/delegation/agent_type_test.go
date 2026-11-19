@@ -49,6 +49,36 @@ func TestAllAgentTypes(t *testing.T) {
 	}
 }
 
+// TestBlocksAdvisor covers every agent type so a new type, or an accidental
+// switch to the complement of UsesWorktree, fails here.
+func TestBlocksAdvisor(t *testing.T) {
+	t.Parallel()
+
+	want := map[AgentType]bool{
+		AgentTypeExplore:     true,
+		AgentTypeResearch:    true,
+		AgentTypeCode:        false,
+		AgentTypeDocumentor:  false,
+		AgentTypeEvaluate:    true,
+		AgentTypeSanityCheck: false,
+		AgentTypeReview:      true,
+		AgentTypeVision:      false,
+	}
+	for _, at := range AllAgentTypes() {
+		wantBlocked, ok := want[at]
+		if !ok {
+			t.Fatalf("agent type %q missing from BlocksAdvisor expectations", at)
+		}
+		if got := BlocksAdvisor(at); got != wantBlocked {
+			t.Errorf("BlocksAdvisor(%q) = %v, want %v", at, got, wantBlocked)
+		}
+	}
+	// An unrecognized type defaults to not blocking.
+	if BlocksAdvisor(AgentType("debug")) {
+		t.Error("BlocksAdvisor(unknown type) = true, want false")
+	}
+}
+
 func TestAllSpecializedDelegateTools(t *testing.T) {
 	t.Parallel()
 	tools := AllSpecializedDelegateTools()

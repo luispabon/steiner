@@ -51,6 +51,7 @@ The conversation driver (`internal/agent/conversation_driver.go`) calls `Supervi
 - **Ledger.** `Supervisor.Ledger()` lists outstanding children, and `IsPending` reports whether one is still outstanding (`supervisor_async.go`). Sessions persist the ledger as `SubAgentLedger` (`internal/agent/sub_agent_types.go`, `internal/session/session.go`) and group state as `DelegationGroups` (`internal/agent/delegation_groups.go`, `internal/session/session.go`).
 - **Groups.** `jobGroup` (`supervisor_groups.go`) holds one label's members within a tool batch. `sealBatch` seals the batch's groups. `releaseGroupLocked` holds completions until a group is sealed and every member has a final result, then posts them together, ordered by `Seq`.
 - **follow_up admission.** `follow_up` is rejected at `FollowUpCount >= SubAgent.MaxFollowUps`. In async sessions it is also rejected while the agent is still pending (`Supervisor.IsPending`) (`follow_up.go`).
+- **Advisor guard.** The top-level advisor is refused while an `explore`, `research`, `evaluate`, or `review` child is pending. `advisorPendingInvestigations` (`registry.go`) reads `Supervisor.Pending` and keeps entries whose type satisfies `BlocksAdvisor` (`agent_type.go`). Child advisors stay unguarded. The handler side is described in [Advisor sub-agent internals](advisor.md#pending-investigations).
 
 ### Clearing held results
 

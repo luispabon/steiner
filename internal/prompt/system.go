@@ -110,7 +110,11 @@ var systemSections = map[sectionID]sectionRenderer{
 		if !ctx.advisorEnabled {
 			return ""
 		}
-		return renderTemplate(templateAdvisor, nil)
+		// The wait guidance only applies where sub_agent returns an ack and the
+		// orchestrator can call the advisor while children are still running.
+		return renderTemplate(templateAdvisor, struct{ WaitForInvestigations bool }{
+			WaitForInvestigations: ctx.delegationEnabled && ctx.asyncSubAgents,
+		})
 	},
 	sectionLSP: func(ctx sectionContext) string {
 		if !ctx.lspEnabled {

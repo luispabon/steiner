@@ -207,8 +207,10 @@ func newAdvisorRuntime(deps DelegateDeps) (advisorRuntime, error) {
 	}, nil
 }
 
-// toolDef mints a tool definition for the advisor bound to a specific budget and state.
-func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.ToolDef {
+// toolDef mints a tool definition for the advisor bound to a specific budget,
+// state, and pending-investigation source. A nil pending source leaves the
+// handler unguarded, which is how child advisors are built.
+func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState, pendingInvestigations func() []string) tool.ToolDef {
 	return advisor.ToolDef(advisor.NewHandler(advisor.HandlerDeps{
 		Provider: r.provider,
 		Model:    r.model,
@@ -224,9 +226,31 @@ func (r advisorRuntime) toolDef(maxUses int, state *advisor.SharedState) tool.To
 		PathPolicy:             &r.pathPolicy,
 		CacheKey:               r.cacheKey,
 		SharedState:            state,
+		PendingInvestigations:  pendingInvestigations,
 		TransportSession:       r.transportSession,
 		ParentTransportSession: r.parentTransportSession,
 	}))
+}
+
+// advisorPendingInvestigations returns the source that refuses top-level
+// advisor calls while investigation sub-agents are pending. Both async
+// sub-agents and a supervisor are required: exec runs block on every child, and
+// without a supervisor there is no pending list to read.
+func advisorPendingInvestigations(deps DelegateDeps) func() []string {
+	if deps.Supervisor == nil || !deps.AsyncSubAgents {
+		return nil
+	}
+	supervisor := deps.Supervisor
+	return func() []string {
+		pending := supervisor.Pending()
+		labels := make([]string, 0, len(pending))
+		for _, subAgent := range pending {
+			if BlocksAdvisor(AgentType(subAgent.AgentType)) {
+				labels = append(labels, subAgent.AgentType+" "+subAgent.AgentID)
+			}
+		}
+		return labels
+	}
 }
 
 // resolveAdvisorCacheKey returns the advisor's cache key from store when
@@ -250,7 +274,7 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 		advRuntime.transportSession = deps.SessionID + "-advisor"
 		advRuntime.parentTransportSession = deps.SessionID
 	}
-	cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState))
+	cloned.Register(advRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerRun, deps.AdvisorState, advisorPendingInvestigations(deps)))
 
 	if deps.AdvisorBudgetStore == nil {
 		return nil, nil
@@ -274,7 +298,9 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 		if deps.SessionID != "" {
 			scopedRuntime.transportSession = deps.SessionID + "-subagent-advisor"
 		}
-		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state), true
+		// Child advisors stay unguarded: a child cannot nest a sub-agent, so
+		// no pending list of its own can apply.
+		return scopedRuntime.toolDef(deps.AdvisorCfg.MaxUsesPerSubAgent, state, nil), true
 	}
 	return advisorForChild, nil
 }
