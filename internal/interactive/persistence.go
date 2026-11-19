@@ -335,30 +335,7 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	if contextWindow <= 0 {
 		contextWindow = s.resolveFallbackContextWindow()
 	}
-	var promptTokens int
-	var estimateFailures int
-	var lastEstimateErr error
-	for _, msg := range msgs {
-		t, err := provider.EstimateMessageTokens(ctx, currentModel.ID, provider.Message{
-			Role:    provider.MessageRole(msg.Role),
-			Content: msg.Content,
-		})
-		if err != nil {
-			// Fall back to a flat per-message estimate so the context-window
-			// gauge stays approximate rather than failing the turn.
-			estimateFailures++
-			lastEstimateErr = err
-			promptTokens += 4
-		} else {
-			promptTokens += t
-		}
-	}
-	if estimateFailures > 0 {
-		// A systematic tokenizer failure (e.g. an unsupported model ID) would
-		// otherwise warn once per message on every session load; report the
-		// count once instead.
-		slog.Warn("estimate message tokens", "failures", estimateFailures, "total", len(msgs), "last_error", lastEstimateErr)
-	}
+	promptTokens := estimateLoadedPromptTokens(ctx, currentModel.ID, msgs)
 	turnCount := promptTokens / 2
 	if turnCount < 1 {
 		turnCount = 1
@@ -375,6 +352,34 @@ func (s *Session) loadSession(ctx context.Context, sessionID string) error {
 	}))
 
 	return nil
+}
+
+// estimateLoadedPromptTokens sums the per-message token estimate for a loaded
+// transcript. A failed estimate falls back to a flat per-message value so the
+// context-window gauge stays approximate rather than failing the load; a
+// systematic failure (e.g. an unsupported model ID) would otherwise warn once
+// per message, so it is reported once with a count instead.
+func estimateLoadedPromptTokens(ctx context.Context, modelID string, msgs []agent.Message) int {
+	var promptTokens int
+	var estimateFailures int
+	var lastEstimateErr error
+	for _, msg := range msgs {
+		t, err := provider.EstimateMessageTokens(ctx, modelID, provider.Message{
+			Role:    provider.MessageRole(msg.Role),
+			Content: msg.Content,
+		})
+		if err != nil {
+			estimateFailures++
+			lastEstimateErr = err
+			promptTokens += 4
+			continue
+		}
+		promptTokens += t
+	}
+	if estimateFailures > 0 {
+		slog.Warn("estimate message tokens", "failures", estimateFailures, "total", len(msgs), "last_error", lastEstimateErr)
+	}
+	return promptTokens
 }
 
 // deliverLostSubAgents records each ledger entry of a loaded session as lost:

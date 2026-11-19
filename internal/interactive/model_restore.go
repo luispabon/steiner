@@ -3,7 +3,6 @@ package interactive
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os/exec"
 	"slices"
 	"strings"
@@ -150,7 +149,12 @@ func localModelUsageError(cfg config.Config, ref, wantProvider, wantID string) e
 	if wantID != "" && strings.TrimSpace(model.ID) != wantID {
 		return fmt.Errorf("now resolves to backend model %q, not the saved backend model %q", model.ID, wantID)
 	}
-	resolved := provider.ResolveProviderConfig(providerCfg)
+	return localCredentialError(provider.ResolveProviderConfig(providerCfg))
+}
+
+// localCredentialError reports why a configured provider cannot be used from
+// this machine, or nil when its locally resolvable credentials look usable.
+func localCredentialError(resolved config.ProviderConfig) error {
 	if resolved.Type == config.ProviderTypeCodex {
 		// A stored sign-in or a locally resolvable API key both leave the
 		// provider usable; neither needs a network call to check.
@@ -159,7 +163,7 @@ func localModelUsageError(cfg config.Config, ref, wantProvider, wantID string) e
 		}
 		identity, err := provider.LoadCodexIdentity()
 		if err != nil {
-			return fmt.Errorf("cannot read the codex sign-in: %v", err)
+			return fmt.Errorf("cannot read the codex sign-in: %w", err)
 		}
 		if !identity.SignedIn {
 			return errors.New("needs a codex sign-in; run 'steiner login codex'")
@@ -284,13 +288,4 @@ func (s *Session) modelIdentityLocked() (ref, providerAlias, backendID string) {
 	model := SelectedModelConfig(s.deps.Config)
 	ref = effectiveModelRef(s.deps.Config)
 	return ref, model.Provider, model.ID
-}
-
-// cloneReasoningOverridesMap copies live reasoning overrides for a retired
-// driver identity.
-func cloneReasoningOverridesMap(src map[string]provider.ReasoningOverride) map[string]provider.ReasoningOverride {
-	if len(src) == 0 {
-		return nil
-	}
-	return maps.Clone(src)
 }
