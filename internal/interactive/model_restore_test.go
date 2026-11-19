@@ -251,12 +251,12 @@ func TestModelRejectionGuidance(t *testing.T) {
 			name:     "model not found with fallback",
 			err:      &provider.HTTPError{StatusCode: 404, Body: `{"error":{"message":"model gpt-x does not exist"}}`},
 			fallback: "small",
-			want:     `configured compaction fallback "small"`,
+			want:     `The provider rejected model "gpt-x". Change it with /model. A later /compact may use the configured cheaper fallback "small" for its summary when eligible; it does not switch the conversation's model.`,
 		},
 		{
 			name: "unsupported model without fallback",
 			err:  &provider.HTTPError{StatusCode: 400, Body: `{"message":"unsupported model"}`},
-			want: "/model",
+			want: `The provider rejected model "gpt-x". Change it with /model.`,
 		},
 		{
 			name: "unrelated bad request",
@@ -276,8 +276,8 @@ func TestModelRejectionGuidance(t *testing.T) {
 				}
 				return
 			}
-			if !strings.Contains(got, tt.want) {
-				t.Fatalf("modelRejectionGuidance() = %q, want it to contain %q", got, tt.want)
+			if got != tt.want {
+				t.Fatalf("modelRejectionGuidance() = %q, want %q", got, tt.want)
 			}
 		})
 	}

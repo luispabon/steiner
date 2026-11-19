@@ -313,7 +313,7 @@ At startup, the active orchestrator model is chosen in this order, with later en
 
 Resuming a saved session restores the model and reasoning effort the session was using. The saved model takes precedence over `--model` and `STEINER_MODEL`; a notice after the replayed transcript names an explicit choice it replaced. If the saved model cannot be used on this machine, the session keeps the startup selection (`--model`, then `STEINER_MODEL`, then the profile default) and the notice states the reason, such as a provider that is no longer configured or a missing credential environment variable. A legacy session that recorded only a backend model id is matched to its configured alias when exactly one alias uses that id; if several do, the startup alias is kept when it is one of them, otherwise the session falls back to the startup model with a warning.
 
-If a provider rejects the active model (for example an unknown or unsupported model name), the run fails once and reports a suggestion to switch with `/model`, or to `/compact` and continue on the configured `compaction_fallback`. Steiner does not retry the rejected model or switch models automatically.
+If a provider rejects the active model (for example an unknown or unsupported model name), the run fails once and advises changing the model with `/model`. A later `/compact` may use the configured cheaper `compaction_fallback` for its summary when it is eligible (for example when the prompt cache is cold and a fallback is configured), but that does not switch the conversation's model: the next turn still uses the rejected model until you change it. Steiner does not retry the rejected model or switch models automatically.
 
 During an interactive session:
 

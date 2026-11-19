@@ -27,11 +27,11 @@ func modelRejectionGuidance(model string, fallback string, err error) string {
 	} else {
 		model = fmt.Sprintf("model %q", model)
 	}
-	guidance := fmt.Sprintf("The provider rejected %s. Change it with /model", model)
+	guidance := fmt.Sprintf("The provider rejected %s. Change it with /model.", model)
 	if fallback = strings.TrimSpace(fallback); fallback != "" {
-		guidance += fmt.Sprintf(", or /compact to compact the conversation and continue on the configured compaction fallback %q", fallback)
+		guidance += fmt.Sprintf(" A later /compact may use the configured cheaper fallback %q for its summary when eligible; it does not switch the conversation's model.", fallback)
 	}
-	return guidance + "."
+	return guidance
 }
 
 // rejectedModelStatus lists the HTTP statuses a provider uses when it refuses

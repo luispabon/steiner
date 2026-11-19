@@ -87,8 +87,8 @@ func TestModelRejectionGuidanceReachesSessionNotice(t *testing.T) {
 			stops = append(stops, payload)
 		}
 	}
-	if len(notices) != 1 || !strings.Contains(notices[0], "Change it with /model") || !strings.Contains(notices[0], `"cheap-model"`) {
-		t.Fatalf("conversation notices = %v, want model rejection guidance naming the fallback", notices)
+	if len(notices) != 1 || !strings.Contains(notices[0], "Change it with /model") || !strings.Contains(notices[0], `"cheap-model"`) || !strings.Contains(notices[0], "does not switch the conversation's model") {
+		t.Fatalf("conversation notices = %v, want model rejection guidance naming the fallback without promising a model switch", notices)
 	}
 	if len(stops) != 1 || stops[0].Reason != string(agent.StopReasonError) || !strings.Contains(stops[0].Error, "invalid model test-model") {
 		t.Fatalf("stop events = %#v, want one error stop carrying the provider message", stops)
