@@ -28,9 +28,19 @@ func generateSessionID() (string, error) {
 }
 
 // LoadSessionByID loads a saved session with the given ID, replacing the current
-// conversation with the restored lineage.
+// conversation with the restored lineage. It is the interactive resume seam:
+// both the CLI --resume path and the in-TUI session picker load through it, and
+// forks do not. A successful load arms the process-local cache baseline resume
+// marker; a session store that is not configured loads nothing and must not arm
+// it.
 func (s *Session) LoadSessionByID(ctx context.Context, sessionID string) error {
-	return s.loadSession(ctx, sessionID)
+	if err := s.loadSession(ctx, sessionID); err != nil {
+		return err
+	}
+	if s.deps.SessionStore != nil {
+		agent.NoteInteractiveResume()
+	}
+	return nil
 }
 
 // storedSessionDate converts a live date to its persisted form, returning nil

@@ -20,7 +20,21 @@ func newRequestID() string { return fmt.Sprintf("req-%d", requestIDSeq.Add(1)) }
 
 var errRetryTurnForVision = errors.New("retry turn for vision capability change")
 
-type chatExecOptions struct{ prefit *prompt.RequestTokenBudget }
+type chatExecOptions struct {
+	prefit *prompt.RequestTokenBudget
+	// onSend, when non-nil, observes each provider delivery attempt with the
+	// request actually handed to it and whether that attempt streams. Cache
+	// diagnostics use it to fingerprint the real wire payload.
+	onSend func(provider.ChatRequest, bool)
+}
+
+// observeSend reports one delivery attempt to the options hook when one is
+// configured. It is a no-op otherwise.
+func (o chatExecOptions) observeSend(req provider.ChatRequest, stream bool) {
+	if o.onSend != nil {
+		o.onSend(req, stream)
+	}
+}
 
 func recordModelUsage(req RunRequest, usage *provider.UsageStats, kind usagestats.CallKind) {
 	if req.UsageRecorder == nil || usage == nil {
@@ -129,11 +143,13 @@ func executeChatRequestWithOptions(ctx context.Context, prov provider.Provider, 
 	requestID := newRequestID()
 	emitEvent(events, output.WithAPICallIdentity(newAPIRequestEvent(req.Model, req.Messages, req.Tools, req.MaxTokens, blocks, budget, estimatedPromptTokens, rawPromptTokens, isCompaction), turn, requestID))
 	if !streamingPreferred && (skipNonStream == nil || !*skipNonStream) {
+		opts.observeSend(req, false)
 		response, done, err := tryNonStreamFirst(ctx, prov, turn, req, requestID, events, skipNonStream)
 		if done {
 			return response, time.Time{}, err
 		}
 	}
+	opts.observeSend(req, true)
 	stream, err := prov.StreamChatCompletion(ctx, req)
 	if err == nil {
 		var firstChunkTime time.Time
@@ -149,6 +165,7 @@ func executeChatRequestWithOptions(ctx context.Context, prov provider.Provider, 
 		emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(nil, nil, "", err), turn, requestID))
 		return provider.ChatResponse{}, time.Time{}, err
 	}
+	opts.observeSend(req, false)
 	response, chatErr := prov.ChatCompletion(ctx, req)
 	emitEvent(events, output.WithAPICallIdentity(output.NewAPIResponseEvent(response.Message, response.Usage, response.FinishReason, chatErr), turn, requestID))
 	if chatErr != nil {
@@ -217,6 +234,8 @@ func completeModelCallWithOptions(ctx context.Context, req RunRequest, turn int,
 	}
 	var stats requestCacheStats
 	onIssue := func(messages []provider.Message) { stats = computeRequestCacheStats(req, messages) }
+	sendHook := wireCacheSendHook(ctx, req, &stats)
+	opts.onSend = sendHook
 	response, firstChunkTime, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, opts, onIssue)
 	if err == nil {
 		recordModelUsage(req, response.Usage, usagestats.CallKindNormal)
@@ -245,7 +264,7 @@ func completeModelCallWithOptions(ctx context.Context, req RunRequest, turn int,
 	}
 	emitEvent(req.Events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{Turn: turn, Severity: "warning", Kind: "vision_fallback", Message: fmt.Sprintf("model %s rejected image attachments with HTTP 400; retrying once without images", req.ResolvedModel.Alias)}))
 	chatRequest.Messages = stripped
-	retryResp, retryFirst, retryErr := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, chatExecOptions{}, onIssue)
+	retryResp, retryFirst, retryErr := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, false, req.StreamingPreferred, skipNonStream, chatExecOptions{onSend: sendHook}, onIssue)
 	if retryErr == nil {
 		recordModelUsage(req, retryResp.Usage, usagestats.CallKindNormal)
 		emitCacheDiagnostic(req, retryResp, "", turn, stats)

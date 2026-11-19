@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"sync/atomic"
@@ -44,6 +45,17 @@ type cachePayload struct {
 	// false, PrefixPredecessorKnown is always false because nothing was
 	// compared. Emitted on every cache record (no omitempty).
 	PrefixComparisonEnabled bool `json:"prefix_comparison_enabled"`
+	// WireCache, when present, holds bounded fingerprints of the real wire
+	// payload and affinity headers of the last delivery attempt. It is absent
+	// for a provider without CacheFingerprinter, for a failed fingerprint, and
+	// for every record written while the cache stream was disabled.
+	WireCache *wireCachePayload `json:"wire,omitempty"`
+	// ResumeBaselineUnavailable marks the first parent record after an
+	// interactive resume whose comparison found no predecessor. Baselines are
+	// process-local, so a resumed session normally has none; the flag records
+	// that the baseline was unavailable, not that the resume caused a miss.
+	// Absent means false.
+	ResumeBaselineUnavailable bool `json:"resume_baseline_unavailable,omitempty"`
 
 	// Measurement fields below describe how the call was served. A measured
 	// zero or false value is omitted, so an absent field means zero or not
@@ -72,6 +84,27 @@ type cachePayload struct {
 	ClaudeSubUsageProbeSpawned bool   `json:"claudesub_usage_probe_spawned,omitempty"`
 }
 
+// wireCachePayload is the optional wire block of a cache record. Every value
+// is an opaque digest, a flag, or a count derived from the payload and
+// headers that were actually sent; it carries no prompt content, tool names or
+// arguments, or key plaintext.
+type wireCachePayload struct {
+	CacheablePrefixHash string `json:"cacheable_prefix_hash,omitempty"`
+	SharedPrefixHash    string `json:"shared_prefix_hash,omitempty"`
+	BodyKeyHash         string `json:"body_key_hash,omitempty"`
+	SessionIDHash       string `json:"session_id_hash,omitempty"`
+	ThreadIDHash        string `json:"thread_id_hash,omitempty"`
+	OriginatorHash      string `json:"originator_hash,omitempty"`
+	AffinityKeysMatch   bool   `json:"affinity_keys_match"`
+	// Stream reports how the last delivery attempt was sent: false for a
+	// non-stream call, true for a streamed one.
+	Stream       bool `json:"stream"`
+	HasTools     bool `json:"has_tools"`
+	ToolCount    int  `json:"tool_count,omitempty"`
+	HasReasoning bool `json:"has_reasoning"`
+	Store        bool `json:"store"`
+}
+
 // requestCacheStats carries the cache-prefix diagnostics computed for one
 // outbound request that was actually issued, plus what promoteRequestCacheStats
 // needs to later advance the baseline if the request is accepted.
@@ -84,6 +117,11 @@ type requestCacheStats struct {
 	predecessorKnown     bool
 	baselineKey          CacheBaselineKey
 	messageHashes        []string
+	// wireFingerprint and wireMeasured describe the last delivery attempt's
+	// wire payload. wireMeasured is false when the provider has no wire
+	// fingerprinter or the fingerprint call failed.
+	wireFingerprint provider.WireCacheDiagnostics
+	wireMeasured    bool
 }
 
 // emitCacheDiagnostic writes one kind: "cache" diagnostics record for a
@@ -105,6 +143,23 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 		count := stats.predecessorMessages
 		predecessorMessages = &count
 	}
+	var wire *wireCachePayload
+	if stats.wireMeasured {
+		wire = &wireCachePayload{
+			CacheablePrefixHash: stats.wireFingerprint.CacheablePrefixHash,
+			SharedPrefixHash:    stats.wireFingerprint.SharedPrefixHash,
+			BodyKeyHash:         stats.wireFingerprint.BodyKeyHash,
+			SessionIDHash:       stats.wireFingerprint.SessionIDHash,
+			ThreadIDHash:        stats.wireFingerprint.ThreadIDHash,
+			OriginatorHash:      stats.wireFingerprint.OriginatorHash,
+			AffinityKeysMatch:   stats.wireFingerprint.AffinityKeysMatch,
+			Stream:              stats.wireFingerprint.Stream,
+			HasTools:            stats.wireFingerprint.HasTools,
+			ToolCount:           stats.wireFingerprint.ToolCount,
+			HasReasoning:        stats.wireFingerprint.HasReasoning,
+			Store:               stats.wireFingerprint.Store,
+		}
+	}
 	payload := cachePayload{
 		ProviderAlias:             req.ResolvedModel.ProviderAlias,
 		BackendModelID:            req.ResolvedModel.BackendModelID,
@@ -125,6 +180,8 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 		ContextGeneration:         req.contextGeneration,
 		PrefixPredecessorMessages: predecessorMessages,
 		PrefixDivergenceRole:      stats.divergenceRole,
+		WireCache:                 wire,
+		ResumeBaselineUnavailable: claimResumeBaselineUnavailable(req, stats),
 	}
 	if callDiagnostics := response.Diagnostics; callDiagnostics != nil {
 		payload.Attempts = callDiagnostics.Attempts
@@ -193,6 +250,47 @@ func promoteRequestCacheStats(req RunRequest, stats requestCacheStats) {
 		return
 	}
 	req.CacheBaseline.Promote(stats.baselineKey, stats.messageHashes)
+}
+
+// wireCacheSendHook returns the per-delivery hook that fingerprints the
+// request actually handed to the provider, including the streaming mode of
+// that attempt. It returns nil unless the cache stream is enabled, so the
+// extra payload serialization is paid only while diagnostics are on. A
+// provider without a wire fingerprinter fails the capability check inside
+// captureWireCacheFingerprint, before any payload is built.
+func wireCacheSendHook(ctx context.Context, req RunRequest, stats *requestCacheStats) func(provider.ChatRequest, bool) {
+	if !req.Diagnostics.Enabled(diagnostics.KindCache) {
+		return nil
+	}
+	return func(sent provider.ChatRequest, stream bool) {
+		stats.wireFingerprint, stats.wireMeasured = captureWireCacheFingerprint(ctx, req.Provider, sent, stream, *stats)
+	}
+}
+
+// captureWireCacheFingerprint derives bounded wire diagnostics from the
+// request a delivery attempt is about to send. cacheableMessages drops the
+// trailing message, which is the newly appended prompt, tool result, or
+// compaction instruction; sharedMessages is the measured common prefix with
+// the predecessor when the comparison found one. A provider or payload that
+// cannot be fingerprinted reports not measured instead of guessing.
+func captureWireCacheFingerprint(ctx context.Context, prov provider.Provider, request provider.ChatRequest, stream bool, stats requestCacheStats) (provider.WireCacheDiagnostics, bool) {
+	fingerprinter, ok := prov.(provider.CacheFingerprinter)
+	if !ok {
+		return provider.WireCacheDiagnostics{}, false
+	}
+	cacheableMessages := len(request.Messages) - 1
+	if cacheableMessages < 0 {
+		cacheableMessages = 0
+	}
+	sharedMessages := 0
+	if stats.comparisonEnabled && stats.predecessorKnown {
+		sharedMessages = stats.sharedPrefixMessages
+	}
+	fingerprint, err := fingerprinter.CacheFingerprint(ctx, request, stream, cacheableMessages, sharedMessages)
+	if err != nil {
+		return provider.WireCacheDiagnostics{}, false
+	}
+	return fingerprint, true
 }
 
 // cacheBaselineKeyForRequest builds the cache identity for a run's outbound
