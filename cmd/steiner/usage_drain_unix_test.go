@@ -20,9 +20,11 @@ import (
 
 // TestCloseRuntimeDrainsUsageStatsWriter pins that runtime teardown waits for
 // queued usage deltas: the store lock is held, so closeRuntime cannot return
-// until the lock is released and the writer has persisted them.
+// until the lock is released and the writer has persisted them. The test waits
+// for the writer to claim the delta first, since Close drops deltas that are
+// still pending.
 func TestCloseRuntimeDrainsUsageStatsWriter(t *testing.T) {
-	_, rec, release := holdUsageStatsStoreLock(t)
+	path, rec, release := holdUsageStatsStoreLock(t)
 
 	rec.Record(usagestats.Observation{
 		ProviderAlias:    "p",
@@ -32,6 +34,7 @@ func TestCloseRuntimeDrainsUsageStatsWriter(t *testing.T) {
 		CompletionTokens: 2,
 		Source:           usagestats.SourceParent,
 	})
+	waitForUsageStatsClaim(t, path)
 
 	rt := cliRuntime{usageRecorder: rec, events: output.NoopSink{}}
 	closed := make(chan struct{})
@@ -71,8 +74,8 @@ func TestCloseRuntimeWarnsWhenUsageStatsDrainExpires(t *testing.T) {
 	path, rec, release := holdUsageStatsStoreLock(t)
 
 	oldTimeout := usageStatsDrainTimeout
-	// Long enough for the writer goroutine to claim the queued delta before the
-	// deadline expires; the post-release assertion depends on that claim.
+	// The claim is awaited below, so this deadline only has to expire while the
+	// writer is blocked on the lock.
 	usageStatsDrainTimeout = 250 * time.Millisecond
 	t.Cleanup(func() { usageStatsDrainTimeout = oldTimeout })
 
@@ -83,6 +86,7 @@ func TestCloseRuntimeWarnsWhenUsageStatsDrainExpires(t *testing.T) {
 		PromptTokens:   10,
 		Source:         usagestats.SourceParent,
 	})
+	waitForUsageStatsClaim(t, path)
 
 	var mu sync.Mutex
 	var events []output.Event
@@ -143,9 +147,10 @@ func TestCloseRuntimeWarnsWhenUsageStatsDrainExpires(t *testing.T) {
 
 // holdUsageStatsStoreLock isolates the cache-stats store to the test's temp state
 // home and holds its flock, returning the store path, a recorder writing to that
-// path, and a release func that unlocks it. Both the lock and the recorder are
-// released on cleanup, lock first so a drain never waits on a lock the test
-// still holds.
+// path, and a release func that unlocks it. The lock file is left at mode 0644 so
+// waitForUsageStatsClaim can observe the writer claiming a batch when it tightens
+// the mode to 0600. Both the lock and the recorder are released on cleanup, lock
+// first so a drain never waits on a lock the test still holds.
 func holdUsageStatsStoreLock(t *testing.T) (string, *usagestats.Recorder, func()) {
 	t.Helper()
 	stateDir := t.TempDir()
@@ -166,9 +171,12 @@ func holdUsageStatsStoreLock(t *testing.T) (string, *usagestats.Recorder, func()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("create state dir: %v", err)
 	}
-	lock, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	lock, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		t.Fatalf("open store lock: %v", err)
+	}
+	if err := os.Chmod(path+".lock", 0o644); err != nil {
+		t.Fatalf("chmod store lock: %v", err)
 	}
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
 		t.Fatalf("lock store: %v", err)
@@ -186,4 +194,27 @@ func holdUsageStatsStoreLock(t *testing.T) (string, *usagestats.Recorder, func()
 	}
 	t.Cleanup(release)
 	return path, rec, release
+}
+
+// waitForUsageStatsClaim polls the store lock file until its mode is exactly
+// 0600, which store.writeBatch applies after the writer claimed a batch and
+// before it blocks on flock. Once the batch is claimed, Close cannot drop it, so
+// gating teardown on the claim keeps the drain and deadline paths deterministic.
+func waitForUsageStatsClaim(t *testing.T, path string) {
+	t.Helper()
+	lockPath := path + ".lock"
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		info, err := os.Stat(lockPath)
+		if err == nil && info.Mode().Perm() == 0o600 {
+			return
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				t.Fatalf("wait for usage stats lock file mode: %v", err)
+			}
+			t.Fatalf("usage stats lock file did not reach the mode store.writeBatch applies on claim: mode = %o, want 600", info.Mode().Perm())
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
