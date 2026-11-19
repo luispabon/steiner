@@ -43,3 +43,4 @@
 
 - [Internals](internals/index.md)
 - [Canon drift checks](maintenance/canon-drift-checks.md)
+- [Third-party license notices](maintenance/third-party-notices.md)
