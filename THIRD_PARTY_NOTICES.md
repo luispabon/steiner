@@ -18,7 +18,7 @@ is authoritative.
 | BSD-2-Clause | 1 |
 | BSD-3-Clause | 19 |
 | ISC | 1 |
-| MIT | 34 |
+| MIT | 33 |
 | MIT-0 | 1 |
 
 ## Go standard library and runtime (go1.26.11)
@@ -2410,7 +2410,7 @@ SOFTWARE.
 
 ## github.com/segmentio/asm v1.2.1
 
-Licenses detected: MIT, MIT-0
+Licenses detected: MIT-0
 
 ### LICENSE
 

@@ -127,6 +127,11 @@ func goEnv(ctx context.Context, moduleDir string) (goroot, goVersion string, err
 	if err != nil {
 		return "", "", err
 	}
+	return parseGoEnv(out)
+}
+
+// parseGoEnv parses the two-line output of `go env GOROOT GOVERSION`.
+func parseGoEnv(out []byte) (goroot, goVersion string, err error) {
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	if len(lines) != 2 || lines[0] == "" || lines[1] == "" {
 		return "", "", fmt.Errorf("go env GOROOT GOVERSION: unexpected output %q", string(out))
@@ -161,17 +166,29 @@ type listedModule struct {
 	Dir     string
 }
 
-// listDeps lists the dependency graph of moduleDir's packages for platform.
+// listDeps lists the dependency graph of the only distributed binary,
+// ./cmd/steiner, for platform. Package-level listing keeps the inventory equal
+// to what ships rather than to everything in the module.
 func listDeps(ctx context.Context, moduleDir string, platform Platform) ([]listedPackage, error) {
 	env := []string{
 		"GOOS=" + platform.GOOS,
 		"GOARCH=" + platform.GOARCH,
 		"CGO_ENABLED=0",
 	}
-	out, err := runGo(ctx, moduleDir, env, "list", "-deps", "-json=Dir,Standard,Module", "./...")
+	out, err := runGo(ctx, moduleDir, env, "list", "-deps", "-json=Dir,Standard,Module", "./cmd/steiner")
 	if err != nil {
 		return nil, err
 	}
+	deps, err := decodeDeps(out)
+	if err != nil {
+		return nil, fmt.Errorf("decode go list output for %s: %w", platform, err)
+	}
+	return deps, nil
+}
+
+// decodeDeps decodes the stream of JSON objects emitted by
+// `go list -deps -json`.
+func decodeDeps(out []byte) ([]listedPackage, error) {
 	dec := json.NewDecoder(bytes.NewReader(out))
 	var deps []listedPackage
 	for {
@@ -180,7 +197,7 @@ func listDeps(ctx context.Context, moduleDir string, platform Platform) ([]liste
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("decode go list output for %s: %w", platform, err)
+			return nil, fmt.Errorf("decode package: %w", err)
 		}
 		deps = append(deps, pkg)
 	}

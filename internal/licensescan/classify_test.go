@@ -17,8 +17,9 @@ func TestClassify(t *testing.T) {
 		{name: "bsd2.txt", want: []string{"BSD-2-Clause"}},
 		{name: "bsd3.txt", want: []string{"BSD-3-Clause"}},
 		{name: "isc.txt", want: []string{"ISC"}},
+		{name: "isc-and-or.txt", want: []string{"ISC"}},
 		{name: "dual-mit-apache.txt", want: []string{"Apache-2.0", "MIT"}},
-		{name: "mit0.txt", want: []string{"MIT", "MIT-0"}},
+		{name: "mit0.txt", want: []string{"MIT-0"}},
 		{name: "unknown.txt", want: []string{"Other"}},
 	}
 	for _, tt := range tests {

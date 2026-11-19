@@ -17,6 +17,7 @@ const (
 	sigBSDGrant         = "Redistribution and use in source and binary forms"
 	sigBSDNeither       = "Neither the name"
 	sigISCGrant         = "Permission to use, copy, modify, and distribute this software for any purpose"
+	sigISCGrantAndOr    = "Permission to use, copy, modify, and/or distribute this software for any purpose"
 	sigUnlicense        = "free and unencumbered software released into the public domain"
 )
 
@@ -40,16 +41,16 @@ func classify(text string) []string {
 	found := map[string]struct{}{}
 	add := func(name string) { found[name] = struct{}{} }
 
-	if strings.Contains(text, sigMITNoAttribution) {
-		add("MIT-0")
-	}
 	if strings.Contains(text, sigApacheLicense) && strings.Contains(text, sigApacheVersion) {
 		add("Apache-2.0")
 	}
 	if strings.Contains(text, sigMPL) {
 		add("MPL-2.0")
 	}
-	if strings.Contains(text, sigMITGrant) || strings.Contains(text, sigMITHeader) {
+	// MIT-0 text repeats the MIT grant sentence, so it must not also report MIT.
+	if strings.Contains(text, sigMITNoAttribution) {
+		add("MIT-0")
+	} else if strings.Contains(text, sigMITGrant) || strings.Contains(text, sigMITHeader) {
 		add("MIT")
 	}
 	if strings.Contains(text, sigBSDGrant) {
@@ -59,7 +60,7 @@ func classify(text string) []string {
 			add("BSD-2-Clause")
 		}
 	}
-	if strings.Contains(text, sigISCGrant) {
+	if strings.Contains(text, sigISCGrant) || strings.Contains(text, sigISCGrantAndOr) {
 		add("ISC")
 	}
 	if strings.Contains(text, sigUnlicense) {

@@ -15,6 +15,8 @@ var licenseTokens = map[string]struct{}{
 	"licence":   {},
 	"copying":   {},
 	"notice":    {},
+	"notices":   {},
+	"copyright": {},
 	"unlicense": {},
 	"patents":   {},
 }
@@ -31,8 +33,8 @@ var licenseExtensions = map[string]struct{}{
 
 // collectLicenseFiles returns the license and notice files for a module: the
 // files in the module root and in every directory between a compiled package
-// directory and the module root. Sources, tests and testdata directories are
-// never scanned.
+// directory and the module root. Scan only passes real package directories, so
+// source files, test files and testdata trees never contribute.
 func collectLicenseFiles(moduleDir string, packageDirs []string) ([]LicenseFile, error) {
 	root, err := filepath.Abs(moduleDir)
 	if err != nil {

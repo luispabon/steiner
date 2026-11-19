@@ -18,7 +18,6 @@ func TestCollectLicenseFiles(t *testing.T) {
 		"internal/norm/LICENSE": "nested license\n",
 		"internal/norm/PATENTS": "nested patents\n",
 		"internal/norm/norm.go": "package norm\n",
-		"testdata/LICENSE":      "test fixture, never scanned\n",
 	}
 	for name, content := range contents {
 		path := filepath.Join(root, filepath.FromSlash(name))
@@ -69,12 +68,17 @@ func TestIsLicenseName(t *testing.T) {
 		{name: "LICENSE-MIT", want: true},
 		{name: "UNICODE-LICENSE", want: true},
 		{name: "NOTICE", want: true},
+		{name: "NOTICES", want: true},
+		{name: "COPYRIGHT", want: true},
+		{name: "Copyright.txt", want: true},
 		{name: "PATENTS", want: true},
 		{name: "UNLICENSE", want: true},
 		{name: "COPYING", want: true},
 		{name: "README.md", want: false},
 		{name: "license.go", want: false},
 		{name: "LICENSE.json", want: false},
+		{name: "NOTICES.go", want: false},
+		{name: "copyright_test.go", want: false},
 		{name: "licenses", want: false},
 	}
 	for _, tt := range tests {

@@ -38,6 +38,22 @@ func (e *staleError) Error() string {
 	return fmt.Sprintf("%s is out of date: run 'make notices' and commit the result", e.path)
 }
 
+// checkFile reports whether path already holds data. A missing file and any
+// differing content are both reported as a staleError.
+func checkFile(path string, data []byte) error {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &staleError{path: path}
+		}
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if !bytes.Equal(existing, data) {
+		return &staleError{path: path}
+	}
+	return nil
+}
+
 func run() error {
 	out := flag.String("out", "THIRD_PARTY_NOTICES.md", "path of the notices file to write or check")
 	check := flag.Bool("check", false, "verify the notices file is up to date instead of writing it")
@@ -54,17 +70,7 @@ func run() error {
 	data := licensescan.Render(report)
 
 	if *check {
-		existing, err := os.ReadFile(*out)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return &staleError{path: *out}
-			}
-			return fmt.Errorf("read %s: %w", *out, err)
-		}
-		if !bytes.Equal(existing, data) {
-			return &staleError{path: *out}
-		}
-		return nil
+		return checkFile(*out, data)
 	}
 
 	if err := fsatomic.WriteFile(*out, data, 0o644); err != nil {
