@@ -1,0 +1,8 @@
+Copyright (c) 2024 Example Corporation. All rights reserved.
+
+This software is made available for evaluation only. Redistribution of the
+software or of derivative works requires written permission from Example
+Corporation.
+
+No warranty of any kind is provided, express or implied, including
+merchantability or fitness for a particular purpose.
