@@ -473,39 +473,79 @@ func invalidExplicitModelWarnings(cfg config.Config, flags *cliFlags) []string {
 // initialization completes before any agent turn or compaction touches the
 // registry.
 type mcpInitOnce struct {
-	mu   sync.Mutex
-	done bool
-	err  error
+	mu sync.Mutex
+	// running is set while one caller executes the attempt. Waiters block on
+	// changed instead of on mu, so a queued caller can abandon the wait when
+	// its own context ends.
+	running bool
+	done    bool
+	err     error
+	changed chan struct{}
+	// attempt replaces the MCP wait and registration in tests; production
+	// leaves it nil. It runs at most once at a time, like run itself.
+	attempt func(context.Context, cliRuntime) error
 }
 
-// wait runs the initialization unless it already succeeded. A cancelled
-// attempt is not final: it is abandoned and the next caller retries with its
-// own context, so a run or compaction cancelled while MCP servers are still
-// connecting does not disable later requests. Any other error is final and is
-// reported to every later caller, because the manager's server set has
-// resolved.
+// wait runs the initialization unless it already succeeded. Only one caller
+// executes an attempt at a time; the others wait for it to finish and retry
+// only if it was cancelled. A cancelled attempt is not final, so a run or
+// compaction cancelled while MCP servers are still connecting does not disable
+// later requests. Any other error is final and is reported to every later
+// caller, because the manager's server set has resolved. A queued caller that
+// is cancelled returns its own context error promptly, without waiting for the
+// running attempt.
 func (i *mcpInitOnce) wait(ctx context.Context, rt cliRuntime) error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.done {
-		return i.err
+	for {
+		i.mu.Lock()
+		if i.done {
+			err := i.err
+			i.mu.Unlock()
+			return err
+		}
+		if !i.running {
+			i.running = true
+			changed := make(chan struct{})
+			i.changed = changed
+			i.mu.Unlock()
+
+			err := i.run(ctx, rt)
+
+			i.mu.Lock()
+			i.running = false
+			if err == nil {
+				i.done = true
+			} else if !isContextEnd(err) {
+				i.done = true
+				i.err = err
+			}
+			close(changed)
+			i.mu.Unlock()
+			return err
+		}
+		changed := i.changed
+		i.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	err := i.run(ctx, rt)
-	if err == nil {
-		i.done = true
-		return nil
-	}
-	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		i.done = true
-		i.err = err
-	}
-	return err
+}
+
+// isContextEnd reports whether err is a cancelled or expired context rather
+// than an initialization failure.
+func isContextEnd(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // run executes WaitInit, registers the connected tool defs in place, and arms
 // the MCP state producer. A failed or cancelled wait returns before registering
-// or arming anything.
+// or arming anything. Only the caller holding the running slot reaches it, so
+// the registry is never mutated concurrently.
 func (i *mcpInitOnce) run(ctx context.Context, rt cliRuntime) error {
+	if i.attempt != nil {
+		return i.attempt(ctx, rt)
+	}
 	if rt.mcpManager != nil {
 		if err := rt.mcpManager.WaitInit(ctx); err != nil {
 			return err
