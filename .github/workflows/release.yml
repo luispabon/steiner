@@ -43,6 +43,9 @@ jobs:
           done
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          # MIT/BSD/ISC and Apache-2.0 dependencies require their copyright and license
+          # text to accompany the distributed binaries.
+          cp THIRD_PARTY_NOTICES.md "release/steiner-${VERSION}-THIRD_PARTY_NOTICES.md"
           (cd release && sha256sum steiner-* > "steiner_${VERSION}_checksums.txt")
 
       - name: Create release
