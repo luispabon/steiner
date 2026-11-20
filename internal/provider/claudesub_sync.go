@@ -162,8 +162,10 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 // planMismatch is plan that records the first failed request comparison in
 // mismatch, when mismatch is not nil. It records the request position, that
 // position's role and the fixed check label, never message content, a digest,
-// a tool-call id or image data. A tainted record fails without a position, so
-// it records nothing.
+// a tool-call id or image data. The entry comparison decides both the failure
+// and the recorded mismatch, so a request that is shorter than the record and
+// also rewrites its prefix reports the earlier rewrite. A tainted record fails
+// without a position, so it records nothing.
 func (s *claudeSubSync) planMismatch(req ChatRequest, mismatch *claudeSubSyncMismatch) (claudeSubDelta, error) {
 	fail := func(index int, role MessageRole, check string) (claudeSubDelta, error) {
 		if mismatch != nil {
@@ -183,10 +185,6 @@ func (s *claudeSubSync) planMismatch(req ChatRequest, mismatch *claudeSubSyncMis
 		}
 		return claudeSubDelta{User: msgs, keep: s.entries, keepInterruptible: s.interruptible}, nil
 	}
-	if !s.interrupted && len(msgs) < len(s.entries) {
-		return fail(len(msgs), s.entries[len(msgs)].Role, claudeSubCheckLength)
-	}
-
 	out := make([]claudeSubEntry, 0, len(s.entries))
 	keepInterruptible := s.interruptible
 	ei, mi := 0, 0

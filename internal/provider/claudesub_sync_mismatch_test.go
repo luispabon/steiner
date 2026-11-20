@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -100,6 +101,14 @@ func TestClaudeSubSyncPlanMismatch(t *testing.T) {
 			wantIndex: 2,
 			wantRole:  MessageRoleTool,
 			wantCheck: claudeSubCheckLength,
+		},
+		{
+			// The request is also shorter than the record, but the rewrite at
+			// position zero is the first comparison that fails.
+			name:      "shortened request with a changed first message",
+			msgs:      []Message{claudeSubSyncUserMsg("hi!")},
+			wantRole:  MessageRoleUser,
+			wantCheck: claudeSubCheckDigest,
 		},
 		{
 			name:      "first mismatch wins",
@@ -343,6 +352,60 @@ func TestClaudeSubCallDiagnosticsSyncMismatch(t *testing.T) {
 		if strings.Contains(string(raw), secret) {
 			t.Errorf("diagnostics carry %q: %s", secret, raw)
 		}
+	}
+}
+
+// TestClaudeSubCallDiagnosticsSyncMismatchClearedByResume drives a live process
+// whose drained record refuses the request while the stored checkpoint still
+// accepts it. The call records the mismatch, retires the process, forks the
+// stored session, and reports the resume without the mismatch that only
+// explained the rejection.
+func TestClaudeSubCallDiagnosticsSyncMismatchClearedByResume(t *testing.T) {
+	model := claudeSubTestSpec().Model
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 2), claudeSubTextTurns(t, 1))
+	first := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages:         []Message{claudeSubUserText("read notes")},
+	})
+	stored := claudeSubDecodeState(t, first.BackendState)
+	live, err := pool.acquireLive(context.Background(), "parent")
+	if err != nil || live == nil {
+		t.Fatalf("acquire live session = %v, err = %v", live, err)
+	}
+	// The stopped delivery wrote a user message the request now revises, so the
+	// live record is one entry ahead of the stored checkpoint.
+	live.sync.commitSent(claudeSubDelta{User: []Message{claudeSubSyncUserMsg("pending line")}})
+	live.sync.markDrained(stored.SyncEntries)
+	pool.release(live)
+
+	final := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession: "parent",
+		Model:            model,
+		Messages:         []Message{claudeSubUserText("read notes"), first.Delta, claudeSubUserText("edited line")},
+		BackendState:     claudeSubEncodeState(t, stored),
+	})
+	if final.Error != "" {
+		t.Fatalf("turn error = %s", final.Error)
+	}
+	sub := final.Diagnostics.ClaudeSub
+	if sub.Process != claudeSubProcessResume {
+		t.Errorf("process = %q, want %q", sub.Process, claudeSubProcessResume)
+	}
+	if sub.Recovery != claudeSubRecoveryResumeAfterMismatch {
+		t.Errorf("recovery = %q, want %q", sub.Recovery, claudeSubRecoveryResumeAfterMismatch)
+	}
+	if sub.ReseedReason != "" {
+		t.Errorf("reseed reason = %q, want empty", sub.ReseedReason)
+	}
+	if sub.SyncMismatchIndex != nil || sub.SyncMismatchRole != "" || sub.SyncMismatchCheck != "" {
+		t.Fatalf("mismatch = %+v, want none after the resume", sub)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2", n)
+	}
+	if resume, _ := claudeSubArgValue(spawner.call(t, 1).Args, "--resume"); resume == "" {
+		t.Error("the second process did not fork the stored session")
 	}
 }
 
