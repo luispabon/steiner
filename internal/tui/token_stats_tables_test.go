@@ -22,7 +22,7 @@ func TestTokenStatsWindowTable(t *testing.T) {
 		t.Fatalf("section = %q, want the summary line", section)
 	}
 	for _, want := range []string{
-		"| Provider | Model | Reqs | Uncached in | Cache read | Cache write | Output | Total | Hit rate |",
+		"| Provider | Model | Reqs | Uncached | Read | Write | Output | Total | Hit |",
 		"|---|---|---:|---:|---:|---:|---:|---:|---:|",
 		"| alpha | m1 | 1 | 400 | 500 | 100 | 200 | 1.2k | 50.0% |",
 		"| **Total** |  | 1 | 400 | 500 | 100 | 200 | 1.2k | 50.0% |",

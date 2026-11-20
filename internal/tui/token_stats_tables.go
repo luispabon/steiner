@@ -17,7 +17,7 @@ func writeWindowSection(sb *strings.Builder, label string, report usagestats.Rep
 	}
 	fmt.Fprintf(sb, "### %s · %d models · %d providers\n\n", label, report.Models, report.Providers)
 	sb.WriteString(windowSummaryLine(report.Total))
-	sb.WriteString("\n\n| Provider | Model | Reqs | Uncached in | Cache read | Cache write | Output | Total | Hit rate |\n")
+	sb.WriteString("\n\n| Provider | Model | Reqs | Uncached | Read | Write | Output | Total | Hit |\n")
 	sb.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, row := range report.Rows {
 		writeTotalsRow(sb, row.ProviderAlias, row.BackendModelID, row.Totals)

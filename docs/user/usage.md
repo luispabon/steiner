@@ -93,7 +93,7 @@ Sub-agent boxes show their own cache rate as each model request finishes, for ex
 4. Tables for **This session**, **Last hour**, **Last 24 hours**, **Last 7 days**, and **Last calendar month**. Each has a summary of requests, the percentage of input from cache, output per request, and counts of models and providers.
 5. **By source (last calendar month)**, including each source's share of total tokens.
 
-Each table has Provider, Model, Reqs, Uncached in, Cache read, Cache write, Output, Total, and Hit rate columns, plus a Total row. Source rows (`parent`, `sub_agent`, `advisor`) appear nested under a model only when it has more than one source. Advisor calls are included as an `advisor` source, not as separate model rows.
+Each table has Provider, Model, Reqs, Uncached (uncached input), Read (cache read), Write (cache write), Output, Total, and Hit (hit rate) columns, plus a Total row. Source rows (`parent`, `sub_agent`, `advisor`) appear nested under a model only when it has more than one source. Advisor calls are included as an `advisor` source, not as separate model rows.
 
 ```text
 Uncached in = prompt tokens - cache read - cache write
