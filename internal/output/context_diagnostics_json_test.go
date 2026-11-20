@@ -109,7 +109,7 @@ func TestContextCompactionFallbackFieldsOmittedJSON(t *testing.T) {
 	data, err := json.Marshal(Event{
 		Type:      EventTypeContextDiagnostics,
 		Timestamp: time.Unix(0, 0).UTC(),
-		Payload:   ContextCompactionEvent{Turn: 2, CompactedTurns: 1},
+		Payload:   ContextCompactionEvent{Turn: 2, SummarizedMessages: 1},
 	})
 	if err != nil {
 		t.Fatalf("marshal event: %v", err)

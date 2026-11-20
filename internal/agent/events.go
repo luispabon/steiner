@@ -141,6 +141,7 @@ type compactionDiagnosticsParams struct {
 	afterFit             prompt.RequestTokenBudget
 	mode                 prompt.CompactionMode
 	summaryTokenBudget   int
+	summarizedMessages   int
 	retainedMessages     []Message
 	candidate            ConversationCandidate
 	summaryText          string
@@ -164,12 +165,14 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 	}
 
 	escalation := compactionEscalationForFit(params.compactionCount, params.afterFit)
+	retainedUserMessages, retainedSubAgentResults := countRetainedUserMessages(params.retainedMessages)
+	retainedUnits := len(splitCompactionTurns(params.retainedMessages))
 	notes := []string{
 		fmt.Sprintf("source generation=%d view=%s", params.candidate.GenerationID, params.candidate.View),
 		fmt.Sprintf("mode=%s", params.mode),
 		fmt.Sprintf("before prompt_tokens=%d context_usage_percent=%.0f%%", params.beforeFit.EstimatedPromptTokens, params.beforeFit.PromptUsage*100),
 		fmt.Sprintf("after prompt_tokens=%d context_usage_percent=%.0f%%", params.afterFit.EstimatedPromptTokens, params.afterFit.PromptUsage*100),
-		fmt.Sprintf("retained_raw_turns=%d", countTurns(params.retainedMessages)),
+		fmt.Sprintf("retained_units=%d", retainedUnits),
 		fmt.Sprintf("summary_token_budget=%d", params.summaryTokenBudget),
 		fmt.Sprintf("threshold_achieved=%t", compactionThresholdAchieved(params.afterFit)),
 	}
@@ -184,10 +187,11 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		SessionState:              escalation.SessionState,
 		CompactionCount:           params.compactionCount,
 		RestartGuidance:           escalation.RestartGuidance,
-		CompactedTurns:            len(params.candidate.Messages),
-		CompactedMessages:         len(params.candidate.Messages),
-		RetainedTurns:             countTurns(params.retainedMessages),
+		SummarizedMessages:        params.summarizedMessages,
 		RetainedMessages:          len(params.retainedMessages),
+		RetainedUnits:             retainedUnits,
+		RetainedUserMessages:      retainedUserMessages,
+		RetainedSubAgentResults:   retainedSubAgentResults,
 		SummaryTitle:              "compacted conversation history",
 		SummaryPreview:            summarizeTextPreview(params.summaryText, 120),
 		SummaryText:               params.summaryText,
@@ -202,7 +206,6 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		AfterPromptTokens:         params.afterFit.EstimatedPromptTokens,
 		AfterRawPromptTokens:      params.afterFit.RawEstimatedPromptTokens,
 		AfterUsagePercent:         params.afterFit.PromptUsage * 100,
-		RetainedRawTurns:          countTurns(params.retainedMessages),
 		SummaryTokenBudget:        params.summaryTokenBudget,
 		ThresholdAchieved:         compactionThresholdAchieved(params.afterFit),
 		PromptTokens:              params.afterFit.EstimatedPromptTokens,
@@ -221,6 +224,20 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		Notes:                     notes,
 	}))
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", params.turn, params.compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))
+}
+
+// countRetainedUserMessages splits retained user-role messages into genuine
+// user messages and synthetic sub-agent result deliveries.
+func countRetainedUserMessages(messages []Message) (user, subAgentResults int) {
+	for _, message := range messages {
+		switch {
+		case IsRealUserMessage(message):
+			user++
+		case message.Role == MessageRoleUser && message.Source == MessageSourceSubAgentResult:
+			subAgentResults++
+		}
+	}
+	return user, subAgentResults
 }
 
 func requestTokenBudgetStatus(fit prompt.RequestTokenBudget) string {

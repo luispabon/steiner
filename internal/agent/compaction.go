@@ -55,6 +55,9 @@ type CompactionOutcome struct {
 	Fit                prompt.RequestTokenBudget
 	Mode               prompt.CompactionMode
 	SummaryTokenBudget int
+	// SummarizedMessages is the number of source messages the adopted summary
+	// stage folded into the summary, excluding prior summary messages.
+	SummarizedMessages int
 	RetainedMessages   []Message
 	SummaryText        string
 	PromptText         string
@@ -410,6 +413,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		Fit:                 latestFit,
 		Mode:                params.mode,
 		SummaryTokenBudget:  params.maxTokens,
+		SummarizedMessages:  countSummarizedMessages(params.sourceMessages),
 		RetainedMessages:    retained,
 		SummaryText:         summaryText,
 		PromptText:          plan.promptText,
@@ -541,6 +545,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 			afterFit:             outcome.Fit,
 			mode:                 outcome.Mode,
 			summaryTokenBudget:   outcome.SummaryTokenBudget,
+			summarizedMessages:   outcome.SummarizedMessages,
 			retainedMessages:     outcome.RetainedMessages,
 			candidate:            outcome.Candidate,
 			summaryText:          outcome.SummaryText,
@@ -571,6 +576,19 @@ func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, b
 		return *beforeFit, nil
 	}
 	return fitConversationState(ctx, req, state)
+}
+
+// countSummarizedMessages counts the source messages a stage folds into its
+// summary, ignoring prior summary messages that are replaced rather than
+// summarized.
+func countSummarizedMessages(messages []Message) int {
+	count := 0
+	for _, message := range messages {
+		if message.Role != MessageRoleSummary {
+			count++
+		}
+	}
+	return count
 }
 
 func buildCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams) (compactionExecutionPlan, bool, error) {

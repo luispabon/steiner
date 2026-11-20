@@ -1223,14 +1223,13 @@ func TestModelCompactEventsKeepTranscriptCleanAndRestoreIdleState(t *testing.T) 
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewThinkingChunkEventWithSource(1, "thinking during compaction", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewAssistantChunkEventWithSource(1, "raw compaction summary text", output.ChunkSourceAssistant)})
 	m = updateModel(t, m, runtimeEventMsg{Event: output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
-		Kind:              "compaction",
-		Severity:          "warning",
-		CompactionCount:   3,
-		SessionState:      "fresh",
-		RestartGuidance:   "restart soon in a fresh session",
-		SummaryTitle:      "3 messages summarized into 1",
-		CompactedMessages: 3,
-		CompactedTurns:    1,
+		Kind:               "compaction",
+		Severity:           "warning",
+		CompactionCount:    3,
+		SessionState:       "fresh",
+		RestartGuidance:    "restart soon in a fresh session",
+		SummaryTitle:       "3 messages summarized into 1",
+		SummarizedMessages: 3,
 	})})
 
 	if got := m.sidebar.compaction.SidebarLabel(); got != "" {

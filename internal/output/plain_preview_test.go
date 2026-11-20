@@ -251,7 +251,7 @@ func TestCompactionSummaryPreviewWithTrimming(t *testing.T) {
 func TestSummarizeInspectionBasic(t *testing.T) {
 	events := []Event{
 		NewAssistantMessageEvent(1, "assistant", "test"),
-		NewContextCompactionEvent(1, 1, 1, 1, 1, 0, false, "summary"),
+		NewContextDiagnosticsEvent(ContextDiagnosticsEvent{Kind: "compaction", Turn: 1, SummaryTitle: "summary"}),
 	}
 
 	result := summarizeInspection(events, 10)

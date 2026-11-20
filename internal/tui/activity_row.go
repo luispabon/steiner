@@ -203,10 +203,8 @@ func compactedLabel(payload output.ContextCompactionEvent) string {
 	switch {
 	case strings.TrimSpace(payload.SummaryTitle) != "":
 		parts = append(parts, strings.TrimSpace(payload.SummaryTitle))
-	case payload.CompactedMessages > 0:
-		parts = append(parts, fmt.Sprintf("%d messages summarized", payload.CompactedMessages))
-	case payload.CompactedTurns > 0:
-		parts = append(parts, fmt.Sprintf("%d turns summarized", payload.CompactedTurns))
+	case payload.SummarizedMessages > 0:
+		parts = append(parts, fmt.Sprintf("%d messages summarized", payload.SummarizedMessages))
 	default:
 		parts = append(parts, "context compacted")
 	}

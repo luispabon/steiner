@@ -4,13 +4,13 @@ import "testing"
 
 func TestFormatCompactionFallbackSummary(t *testing.T) {
 	applied := ContextCompactionEvent{
-		Scope:             "conversation",
-		Turn:              3,
-		Severity:          "ok",
-		CompactedTurns:    2,
-		CompactedMessages: 4,
-		RetainedTurns:     1,
-		RetainedMessages:  2,
+		Scope:                "conversation",
+		Turn:                 3,
+		Severity:             "ok",
+		SummarizedMessages:   4,
+		RetainedMessages:     2,
+		RetainedUnits:        1,
+		RetainedUserMessages: 1,
 	}
 	blank := applied
 	blank.CompactionModel = " "
@@ -30,12 +30,12 @@ func TestFormatCompactionFallbackSummary(t *testing.T) {
 		{
 			name:    "unset fallback fields leave summary unchanged",
 			payload: applied,
-			want:    "ok: compaction turn 3 compacted 2 turns/4 messages; retained 1 turn/2 messages",
+			want:    "ok: compaction turn 3 4 messages summarized; 2 messages retained in 1 units; 1 user / 0 sub-agent result messages retained; retained units=1",
 		},
 		{
 			name:    "whitespace-only fallback fields are omitted",
 			payload: blank,
-			want:    "ok: compaction turn 3 compacted 2 turns/4 messages; retained 1 turn/2 messages",
+			want:    "ok: compaction turn 3 4 messages summarized; 2 messages retained in 1 units; 1 user / 0 sub-agent result messages retained; retained units=1",
 		},
 		{
 			name: "fallback used appends model, status, and reason",
@@ -43,16 +43,16 @@ func TestFormatCompactionFallbackSummary(t *testing.T) {
 				Scope:                applied.Scope,
 				Turn:                 applied.Turn,
 				Severity:             applied.Severity,
-				CompactedTurns:       applied.CompactedTurns,
-				CompactedMessages:    applied.CompactedMessages,
-				RetainedTurns:        applied.RetainedTurns,
+				SummarizedMessages:   applied.SummarizedMessages,
 				RetainedMessages:     applied.RetainedMessages,
+				RetainedUnits:        applied.RetainedUnits,
+				RetainedUserMessages: applied.RetainedUserMessages,
 				CompactionModel:      "claude-haiku-5-5",
 				CompactionModelAlias: "haiku",
 				FallbackStatus:       CompactionFallbackUsed,
 				FallbackReason:       "primary over budget",
 			},
-			want: "ok: compaction turn 3 compacted 2 turns/4 messages; retained 1 turn/2 messages; compaction_model=claude-haiku-5-5; compaction_model_alias=haiku; fallback_status=used; fallback_reason=primary over budget",
+			want: "ok: compaction turn 3 4 messages summarized; 2 messages retained in 1 units; 1 user / 0 sub-agent result messages retained; retained units=1; compaction_model=claude-haiku-5-5; compaction_model_alias=haiku; fallback_status=used; fallback_reason=primary over budget",
 		},
 		{
 			name: "fallback skipped appends status and reason",

@@ -51,8 +51,8 @@ func TestHandleCompactionNotAppliedEmitsSkippedTerminalEvent(t *testing.T) {
 	if want := []string{"compacting", "skipped"}; !slices.Equal(severities, want) {
 		t.Fatalf("compaction severities = %v, want %v", severities, want)
 	}
-	if skipped.CompactedTurns != 0 || skipped.CompactedMessages != 0 {
-		t.Errorf("skipped payload compacted turns=%d messages=%d, want 0", skipped.CompactedTurns, skipped.CompactedMessages)
+	if skipped.SummarizedMessages != 0 || skipped.RetainedMessages != 0 || skipped.RetainedUnits != 0 {
+		t.Errorf("skipped payload summarized=%d retained=%d units=%d, want 0", skipped.SummarizedMessages, skipped.RetainedMessages, skipped.RetainedUnits)
 	}
 	if skipped.Turn != 1 {
 		t.Errorf("skipped payload turn = %d, want 1", skipped.Turn)

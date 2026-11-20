@@ -246,50 +246,47 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 		return
 	}
 
-	msgCount := payload.CompactedMessages
+	summarized := payload.SummarizedMessages
 	summary := "context compacted"
 	switch {
 	case payload.SummaryTitle != "":
 		summary = payload.SummaryTitle
-	case msgCount > 0:
-		summary = fmt.Sprintf("%d messages summarized into 1", msgCount)
-	case payload.CompactedTurns > 0:
-		summary = fmt.Sprintf("%d turns summarized", payload.CompactedTurns)
+	case summarized > 0:
+		summary = fmt.Sprintf("%d messages summarized into 1", summarized)
 	}
 
 	b.upsertCompactionBanner(compactionBannerData{
-		label:                "Context compacted",
-		subtitle:             summary,
-		finished:             true,
-		summary:              summary,
-		msgCount:             msgCount,
-		compactionCount:      payload.CompactionCount,
-		compactedTurns:       payload.CompactedTurns,
-		compactedMessages:    payload.CompactedMessages,
-		retainedTurns:        payload.RetainedTurns,
-		retainedMessages:     payload.RetainedMessages,
-		retainedRawTurns:     payload.RetainedRawTurns,
-		mode:                 payload.Mode,
-		beforeTokens:         payload.BeforePromptTokens,
-		beforePct:            payload.BeforeUsagePercent,
-		afterTokens:          payload.AfterPromptTokens,
-		afterPct:             payload.AfterUsagePercent,
-		summaryTitle:         payload.SummaryTitle,
-		summaryBytes:         payload.SummaryBytes,
-		summaryTokenBudget:   payload.SummaryTokenBudget,
-		contextWindow:        payload.ContextWindow,
-		thresholdTokens:      payload.CompactionThresholdTokens,
-		compactionThreshold:  payload.CompactionThreshold,
-		thresholdAchieved:    payload.ThresholdAchieved,
-		truncated:            payload.Truncated,
-		elapsed:              finishElapsed(b, b.nowNanos()),
-		cacheReadTokens:      payload.CacheReadTokens,
-		inputTokens:          payload.InputTokens,
-		cacheCreateTokens:    payload.CacheCreateTokens,
-		compactionModel:      payload.CompactionModel,
-		compactionModelAlias: payload.CompactionModelAlias,
-		fallbackStatus:       payload.FallbackStatus,
-		fallbackReason:       payload.FallbackReason,
+		label:                   "Context compacted",
+		subtitle:                summary,
+		finished:                true,
+		summary:                 summary,
+		summarizedMessages:      summarized,
+		compactionCount:         payload.CompactionCount,
+		retainedMessages:        payload.RetainedMessages,
+		retainedUnits:           payload.RetainedUnits,
+		retainedUserMessages:    payload.RetainedUserMessages,
+		retainedSubAgentResults: payload.RetainedSubAgentResults,
+		mode:                    payload.Mode,
+		beforeTokens:            payload.BeforePromptTokens,
+		beforePct:               payload.BeforeUsagePercent,
+		afterTokens:             payload.AfterPromptTokens,
+		afterPct:                payload.AfterUsagePercent,
+		summaryTitle:            payload.SummaryTitle,
+		summaryBytes:            payload.SummaryBytes,
+		summaryTokenBudget:      payload.SummaryTokenBudget,
+		contextWindow:           payload.ContextWindow,
+		thresholdTokens:         payload.CompactionThresholdTokens,
+		compactionThreshold:     payload.CompactionThreshold,
+		thresholdAchieved:       payload.ThresholdAchieved,
+		truncated:               payload.Truncated,
+		elapsed:                 finishElapsed(b, b.nowNanos()),
+		cacheReadTokens:         payload.CacheReadTokens,
+		inputTokens:             payload.InputTokens,
+		cacheCreateTokens:       payload.CacheCreateTokens,
+		compactionModel:         payload.CompactionModel,
+		compactionModelAlias:    payload.CompactionModelAlias,
+		fallbackStatus:          payload.FallbackStatus,
+		fallbackReason:          payload.FallbackReason,
 	})
 }
 

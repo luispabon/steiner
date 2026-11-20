@@ -127,6 +127,8 @@ Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionSt
 - The summary output cap (`compactionSummaryMaxTokensForMode`) and the plan fit (`newCompactionExecutionPlanWithMode`, `FitCompactionRequest`) use the summary request's `ModelBudget`. On fallback that is the target's budget.
 - A plan that does not fit the target returns `errCompactionFallbackNotFit`. On main, the same failure is a not-applied outcome, and the emergency stage runs.
 
+After the adopted state is in place, `emitCompactionDiagnostics` (`internal/agent/events.go`) reports the counts in `ContextCompactionEvent`. `SummarizedMessages` is the adopted stage's source-message count excluding `MessageRoleSummary`, carried on `CompactionOutcome` so a two-stage result reports the last stage. `RetainedMessages` and `RetainedUnits` come from the retained slice, with units from `splitCompactionTurns`. `RetainedUserMessages` counts `IsRealUserMessage` matches and `RetainedSubAgentResults` counts the remaining user-role messages (`MessageSourceSubAgentResult`). The plain-text renderer (`internal/output/debug.go`) and the TUI banner report the same figures.
+
 Rerun (`compactionOnMainAfterFallback`):
 
 - A failed attempt (fit failure, provider error, resolve or build error, or empty fallback summary) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`, with `CompactionModel` and `CompactionModelAlias` naming main. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.

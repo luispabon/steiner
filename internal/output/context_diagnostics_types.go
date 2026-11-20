@@ -30,10 +30,11 @@ type ContextDiagnosticsEvent struct {
 	Path                      string   `json:"path,omitempty"`
 	CompactionCount           int      `json:"compaction_count,omitempty"`
 	RestartGuidance           string   `json:"restart_guidance,omitempty"`
-	RetainedTurns             int      `json:"retained_turns,omitempty"`
+	SummarizedMessages        int      `json:"summarized_messages,omitempty"`
 	RetainedMessages          int      `json:"retained_messages,omitempty"`
-	CompactedTurns            int      `json:"compacted_turns,omitempty"`
-	CompactedMessages         int      `json:"compacted_messages,omitempty"`
+	RetainedUnits             int      `json:"retained_units,omitempty"`
+	RetainedUserMessages      int      `json:"retained_user_messages,omitempty"`
+	RetainedSubAgentResults   int      `json:"retained_sub_agent_results,omitempty"`
 	SummaryTitle              string   `json:"summary_title,omitempty"`
 	SummaryPreview            string   `json:"summary_preview,omitempty"`
 	SummaryText               string   `json:"summary_text,omitempty"`
@@ -61,7 +62,6 @@ type ContextDiagnosticsEvent struct {
 	AfterPromptTokens         int      `json:"after_prompt_tokens,omitempty"`
 	AfterRawPromptTokens      int      `json:"after_raw_prompt_tokens,omitempty"`
 	AfterUsagePercent         float64  `json:"after_usage_percent,omitempty"`
-	RetainedRawTurns          int      `json:"retained_raw_turns,omitempty"`
 	SummaryTokenBudget        int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved         bool     `json:"threshold_achieved,omitempty"`
 	CompactionModel           string   `json:"compaction_model,omitempty"`
@@ -79,10 +79,11 @@ type ContextCompactionEvent struct {
 	SessionState              string   `json:"session_state,omitempty"`
 	CompactionCount           int      `json:"compaction_count,omitempty"`
 	RestartGuidance           string   `json:"restart_guidance,omitempty"`
-	RetainedTurns             int      `json:"retained_turns,omitempty"`
+	SummarizedMessages        int      `json:"summarized_messages,omitempty"`
 	RetainedMessages          int      `json:"retained_messages,omitempty"`
-	CompactedTurns            int      `json:"compacted_turns,omitempty"`
-	CompactedMessages         int      `json:"compacted_messages,omitempty"`
+	RetainedUnits             int      `json:"retained_units,omitempty"`
+	RetainedUserMessages      int      `json:"retained_user_messages,omitempty"`
+	RetainedSubAgentResults   int      `json:"retained_sub_agent_results,omitempty"`
 	SummaryTitle              string   `json:"summary_title,omitempty"`
 	SummaryPreview            string   `json:"summary_preview,omitempty"`
 	SummaryText               string   `json:"summary_text,omitempty"`
@@ -108,7 +109,6 @@ type ContextCompactionEvent struct {
 	AfterPromptTokens         int      `json:"after_prompt_tokens,omitempty"`
 	AfterRawPromptTokens      int      `json:"after_raw_prompt_tokens,omitempty"`
 	AfterUsagePercent         float64  `json:"after_usage_percent,omitempty"`
-	RetainedRawTurns          int      `json:"retained_raw_turns,omitempty"`
 	SummaryTokenBudget        int      `json:"summary_token_budget,omitempty"`
 	ThresholdAchieved         bool     `json:"threshold_achieved,omitempty"`
 	CompactionModel           string   `json:"compaction_model,omitempty"`
@@ -211,10 +211,11 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		SessionState:              payload.SessionState,
 		CompactionCount:           payload.CompactionCount,
 		RestartGuidance:           payload.RestartGuidance,
-		RetainedTurns:             payload.RetainedTurns,
+		SummarizedMessages:        payload.SummarizedMessages,
 		RetainedMessages:          payload.RetainedMessages,
-		CompactedTurns:            payload.CompactedTurns,
-		CompactedMessages:         payload.CompactedMessages,
+		RetainedUnits:             payload.RetainedUnits,
+		RetainedUserMessages:      payload.RetainedUserMessages,
+		RetainedSubAgentResults:   payload.RetainedSubAgentResults,
 		SummaryTitle:              payload.SummaryTitle,
 		SummaryPreview:            payload.SummaryPreview,
 		SummaryText:               payload.SummaryText,
@@ -240,7 +241,6 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		AfterPromptTokens:         payload.AfterPromptTokens,
 		AfterRawPromptTokens:      payload.AfterRawPromptTokens,
 		AfterUsagePercent:         payload.AfterUsagePercent,
-		RetainedRawTurns:          payload.RetainedRawTurns,
 		SummaryTokenBudget:        payload.SummaryTokenBudget,
 		ThresholdAchieved:         payload.ThresholdAchieved,
 		CompactionModel:           payload.CompactionModel,
@@ -330,10 +330,11 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			SessionState:              payload.SessionState,
 			CompactionCount:           payload.CompactionCount,
 			RestartGuidance:           payload.RestartGuidance,
-			RetainedTurns:             payload.RetainedTurns,
+			SummarizedMessages:        payload.SummarizedMessages,
 			RetainedMessages:          payload.RetainedMessages,
-			CompactedTurns:            payload.CompactedTurns,
-			CompactedMessages:         payload.CompactedMessages,
+			RetainedUnits:             payload.RetainedUnits,
+			RetainedUserMessages:      payload.RetainedUserMessages,
+			RetainedSubAgentResults:   payload.RetainedSubAgentResults,
 			SummaryTitle:              payload.SummaryTitle,
 			SummaryPreview:            payload.SummaryPreview,
 			SummaryText:               payload.SummaryText,
@@ -359,7 +360,6 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			AfterPromptTokens:         payload.AfterPromptTokens,
 			AfterRawPromptTokens:      payload.AfterRawPromptTokens,
 			AfterUsagePercent:         payload.AfterUsagePercent,
-			RetainedRawTurns:          payload.RetainedRawTurns,
 			SummaryTokenBudget:        payload.SummaryTokenBudget,
 			ThresholdAchieved:         payload.ThresholdAchieved,
 			CompactionModel:           payload.CompactionModel,

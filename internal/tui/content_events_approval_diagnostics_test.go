@@ -298,10 +298,9 @@ func TestCompactionBannerElapsedMeasuresFromFirstEventEvenWithInterleaved(t *tes
 	timeIdx = 2
 	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
 		Severity:           "compact",
-		CompactedMessages:  10,
+		SummarizedMessages: 10,
 		CompactionCount:    2,
-		CompactedTurns:     1,
-		RetainedTurns:      5,
+		RetainedUnits:      5,
 		RetainedMessages:   50,
 		BeforePromptTokens: 1000,
 		AfterPromptTokens:  500,

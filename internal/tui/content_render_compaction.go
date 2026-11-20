@@ -359,14 +359,14 @@ func compactionWindowDetail(cd *compactionBannerData) string {
 
 func compactionHistoryDetail(cd *compactionBannerData) string {
 	var parts []string
-	if cd.compactedTurns > 0 || cd.compactedMessages > 0 {
-		parts = append(parts, fmt.Sprintf("%d turns / %d messages compacted", cd.compactedTurns, cd.compactedMessages))
+	if cd.summarizedMessages > 0 {
+		parts = append(parts, fmt.Sprintf("%d messages summarized", cd.summarizedMessages))
 	}
-	if cd.retainedTurns > 0 || cd.retainedMessages > 0 {
-		parts = append(parts, fmt.Sprintf("%d turns / %d messages retained", cd.retainedTurns, cd.retainedMessages))
+	if cd.retainedMessages > 0 {
+		parts = append(parts, fmt.Sprintf("%d messages retained in %d units", cd.retainedMessages, cd.retainedUnits))
 	}
-	if cd.retainedRawTurns > 0 {
-		parts = append(parts, fmt.Sprintf("%d raw turns retained", cd.retainedRawTurns))
+	if cd.retainedUserMessages > 0 || cd.retainedSubAgentResults > 0 {
+		parts = append(parts, fmt.Sprintf("%d user / %d sub-agent result messages retained", cd.retainedUserMessages, cd.retainedSubAgentResults))
 	}
 	return strings.Join(parts, " · ")
 }
