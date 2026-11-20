@@ -51,7 +51,7 @@ func TestRegistryOverlayOnly(t *testing.T) {
 func TestRegistryOrder(t *testing.T) {
 	t.Parallel()
 	want := []string{
-		"/cache-stats",
+		"/token-stats",
 		"/clear",
 		"/compact",
 		"/config",
@@ -283,7 +283,7 @@ func TestProjectCompletionCandidatesTrue(t *testing.T) {
 	got := projectCompletionCandidates(true, nil)
 	// Only allowlist entries
 	for _, c := range got {
-		if c == "/oneshot" || c == "/clear" || c == "/cache-stats" {
+		if c == "/oneshot" || c == "/clear" || c == "/token-stats" {
 			t.Errorf("projectCompletionCandidates(true) includes non-allowlist %q", c)
 		}
 	}

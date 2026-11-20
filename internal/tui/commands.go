@@ -29,11 +29,11 @@ type helpBinding struct {
 // Order determines display order in the overlay and help.
 var slashCommands = []slashCommand{
 	{
-		ID:   "/cache-stats",
-		Name: "Cache stats",
-		Desc: "show cache hit rate stats",
+		ID:   "/token-stats",
+		Name: "Token stats",
+		Desc: "show token usage stats",
 		Build: func(_ string) inputAction {
-			return inputAction{openCacheStats: true}
+			return inputAction{openTokenStats: true}
 		},
 	},
 	{

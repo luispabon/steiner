@@ -1,6 +1,6 @@
 # Usage and cache statistics
 
-Steiner shows two kinds of usage information in the interactive TUI: subscription and spend limits reported by provider accounts (the `/usage` dashboard), and prompt-cache hit rates measured from model responses (the sidebar and `/cache-stats`).
+Steiner shows two kinds of usage information in the interactive TUI: subscription and spend limits reported by provider accounts (the `/usage` dashboard), and token usage measured from model responses (the sidebar and `/token-stats`).
 
 ## Usage dashboard
 
@@ -83,24 +83,29 @@ The `PERFORMANCE` card in the sidebar shows two values under `cache hit`: the la
 
 Sub-agent boxes show their own cache rate as each model request finishes, for example `Cache: NN.N% latest req · NN.N% session`. Finished compaction banners show the cache rate of the summary request.
 
-### `/cache-stats`
+### `/token-stats`
 
-`/cache-stats` opens a read-only overlay with these tables:
+`/token-stats` opens a read-only, scrollable overlay titled **Token usage**. From top to bottom it shows:
 
-- **This session**: one row for all calls in the current session, including sub-agent and advisor calls.
-- **Last hour**, **Last 24 hours**, and **Last 7 days**: one row per provider and model, from stored statistics. Advisor calls get separate rows marked `(advisor)`.
+1. A large ASCII headline for total tokens over the last calendar month, with requests, cache hit share, and cached, uncached, and output tokens. On narrow terminals the headline falls back to a bold line.
+2. **This week**, Monday to Sunday, with one bar per day.
+3. **Previous weeks**, Monday to Sunday, with one line per week. The oldest week may be partial.
+4. Tables for **This session**, **Last hour**, **Last 24 hours**, **Last 7 days**, and **Last calendar month**. Each has a summary of requests, the percentage of input from cache, output per request, and counts of models and providers.
+5. **By source (last calendar month)**, including each source's share of total tokens.
 
-| Column | Meaning |
-| --- | --- |
-| Provider, Model | The provider key and backend model ID. |
-| Hit rate | Token-weighted cache hit rate. |
-| Cached / Total | Cache-read tokens and total input tokens. |
-| Uncached/req | Average uncached input tokens per request. |
-| Cached/req | Average cache-read tokens per request. |
+Each table has Provider, Model, Reqs, Uncached (uncached input), Read (cache read), Write (cache write), Output, Total, and Hit (hit rate) columns, plus a Total row. Source rows (`parent`, `sub_agent`, `advisor`) appear nested under a model only when it has more than one source. Advisor calls are included as an `advisor` source, not as separate model rows.
 
-The two per-request averages show whether a rate changed because uncached tokens grew or cached tokens shrank. The windows are fixed and use hourly buckets. Scroll with `↑` and `↓`, and close with `esc`.
+```text
+Uncached in = prompt tokens - cache read - cache write
+Total = uncached in + cache read + cache write + output
+Hit rate = cache read / (uncached in + cache read + cache write)
+```
 
-The overlay includes the current session immediately. Statistics from other Steiner processes appear once those processes have saved them.
+Uncached input is floored at zero for each response. Numbers use raw values below 1,000 and one-decimal `k`, `M`, or `B` above that; zero is shown as `-`. Cost and reasoning tokens are not included.
+
+The last calendar month runs from the same day and time of the previous month to now in UTC, clamped to the last day when the previous month is shorter. Days and Monday-to-Sunday weeks use UTC. Windows use hourly buckets, so the lower edge can include up to one extra hour. Scroll with `↑` and `↓`, and close with `esc`.
+
+The overlay includes the current session immediately. Statistics from other Steiner processes appear once those processes have saved them. Data removed under the former 8-day retention period cannot be recovered, so monthly figures fill up over time.
 
 ### Usage telemetry file
 
@@ -132,7 +137,7 @@ Both features store data under `$XDG_STATE_HOME/steiner/`, or `~/.local/state/st
 | File | Contents | Retention |
 | --- | --- | --- |
 | `quota-history.json` | Usage dashboard readings: account identity, provider type, plan name, window and budget figures, reset times, credit text, fetch times, and whether each reading came from a fetch or from normal traffic. | Readings older than 35 days are removed on the next write. |
-| `cache-stats.json` | Cache statistics in hourly buckets: provider key and type, backend model ID, source (parent, sub-agent, or advisor), request count, and input, cache-read, cache-write, and output token counts. | 8 days. |
+| `cache-stats.json` | Token statistics in hourly buckets: provider key and type, backend model ID, source (parent, sub-agent, or advisor), request count, and input, cache-read, cache-write, and output token counts. | 33 days. |
 
 Neither file contains prompts, responses, file contents, or API keys. API-key accounts on the dashboard are identified by their provider key, not by the key or base URL. A removed provider's dashboard history stays in `quota-history.json` until it ages out, and reappears if you add the provider back.
 

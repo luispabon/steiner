@@ -218,11 +218,11 @@ func TestParseInputHandlesOneshotResumeCommand(t *testing.T) {
 	}
 }
 
-func TestParseInputHandlesCacheStatsCommand(t *testing.T) {
+func TestParseInputHandlesTokenStatsCommand(t *testing.T) {
 	t.Parallel()
-	action := parseInput("/cache-stats")
-	if !action.openCacheStats {
-		t.Fatal("openCacheStats = false, want true")
+	action := parseInput("/token-stats")
+	if !action.openTokenStats {
+		t.Fatal("openTokenStats = false, want true")
 	}
 	if action.submit != "" {
 		t.Fatalf("submit = %q, want empty", action.submit)

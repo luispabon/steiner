@@ -12,7 +12,7 @@ import (
 // set, every recorded Observation is appended to that file as one JSON line,
 // alongside the Codex WebSocket connection events written by internal/provider
 // to the same file. This exists to make per-turn cache behaviour observable in
-// headless runs, where the TUI's /cache-stats view is unavailable and the
+// headless runs, where the TUI's /token-stats view is unavailable and the
 // persisted store only keeps hour-bucketed aggregates.
 const TelemetryEnvVar = "STEINER_USAGE_TELEMETRY"
 
