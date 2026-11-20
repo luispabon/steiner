@@ -65,7 +65,7 @@ func TestToolCallQueuedCancellationFinishesBox(t *testing.T) {
 	if _, ok := buffer.queuedDelegations["call_1"]; ok {
 		t.Fatal("call_1 still queued after finished event, want entry removed")
 	}
-	if op := buffer.renderDelegationHeaderOperation(dd, 80); strings.Contains(op, "Waiting for slot") {
+	if op := buffer.renderDelegationHeaderOperation(dd, 80); strings.Contains(op, "Waiting for earlier calls or a slot") {
 		t.Fatalf("operation = %q, want no waiting text once failed", op)
 	}
 }
@@ -82,8 +82,8 @@ func TestQueuedDelegationHeaderRendering(t *testing.T) {
 	if width != 1 {
 		t.Fatalf("status width = %d, want 1", width)
 	}
-	if op := buffer.renderDelegationHeaderOperation(dd, 80); !strings.Contains(op, "Waiting for slot") {
-		t.Fatalf("operation = %q, want Waiting for slot", op)
+	if op := buffer.renderDelegationHeaderOperation(dd, 80); !strings.Contains(op, "Waiting for earlier calls or a slot") {
+		t.Fatalf("operation = %q, want Waiting for earlier calls or a slot", op)
 	}
 }
 
