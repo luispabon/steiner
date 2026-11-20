@@ -123,8 +123,11 @@ type UsageStats struct {
 	// field, even one reporting zero tokens. False means the provider said
 	// nothing about caching, which must not be read as a cache miss.
 	CacheReported bool `json:"cache_reported,omitempty"`
-	// CostUSD is the provider-reported cost of this call in US dollars. Nil
-	// means the provider reported no cost.
+	// CostUSD is the provider-reported cost of this call in US dollars, when the
+	// provider reports one. Nil means the provider reported no cost. Only an
+	// OpenRouter cost is recorded into usage statistics as a reported cost (see
+	// RecordedCostUSD); other providers' cost fields are envelope or session
+	// totals, not this call's price.
 	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 

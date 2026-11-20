@@ -71,8 +71,10 @@ func newTelemetryFromEnv() *telemetry {
 
 // record appends one observation. costMicroUSD is the cost the recorder
 // resolved for it, so a provider-reported and an estimated cost both appear.
-// Safe on a nil receiver.
-func (t *telemetry) record(obs Observation, at time.Time, costMicroUSD int64) {
+// reasoningTokens and cacheReported are the values Record normalized, so the
+// line agrees with the bucket the same observation lands in. Safe on a nil
+// receiver.
+func (t *telemetry) record(obs Observation, at time.Time, costMicroUSD int64, reasoningTokens int, cacheReported bool) {
 	if t == nil {
 		return
 	}
@@ -88,8 +90,8 @@ func (t *telemetry) record(obs Observation, at time.Time, costMicroUSD int64) {
 		CacheReadTokens:   obs.CacheReadTokens,
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
-		ReasoningTokens:   obs.ReasoningTokens,
-		CacheReported:     obs.CacheReported,
+		ReasoningTokens:   reasoningTokens,
+		CacheReported:     cacheReported,
 		CostMicroUSD:      costMicroUSD,
 	}
 	t.mu.Lock()

@@ -50,6 +50,12 @@ type Observation struct {
 	ProviderAlias string
 	// ProviderType is the provider driver type (e.g. "openai", "anthropic").
 	ProviderType string
+	// ConfiguredProviderType is the provider type from the model's provider
+	// configuration, before any transport override changes the effective type.
+	// Pricing keys on it because models.dev lookup rules follow the configured
+	// profile, the same source context-window resolution uses. It is not
+	// persisted.
+	ConfiguredProviderType string
 	// BackendModelID is the model identifier as reported by the backend.
 	BackendModelID string
 
@@ -70,7 +76,9 @@ type Observation struct {
 	// keep counting their cache traffic.
 	CacheReported bool
 	// ReportedCostUSD is the provider-reported cost of this call in US dollars.
-	// Nil means the provider reported no cost.
+	// Nil means the provider reported no cost. Only OpenRouter's per-call cost
+	// reaches this field; other providers' cost figures are envelope or
+	// cumulative session totals.
 	ReportedCostUSD *float64
 
 	// Source identifies which call surface produced this observation.
@@ -252,7 +260,8 @@ func (r *Recorder) Record(obs Observation) {
 	}
 	// Positive cache token counts prove the provider reported cache data, so
 	// they stand in for CacheReported on callers that predate the flag.
-	if obs.CacheReported || obs.CacheReadTokens+obs.CacheCreateTokens > 0 {
+	cacheReported := obs.CacheReported || obs.CacheReadTokens+obs.CacheCreateTokens > 0
+	if cacheReported {
 		delta.CacheReportedRequests = 1
 		delta.CacheReportedInputTokens = nonCached + obs.CacheReadTokens + obs.CacheCreateTokens
 	}
@@ -299,7 +308,7 @@ func (r *Recorder) Record(obs Observation) {
 	// blocking this goroutine on the cross-process store lock.
 	r.writer.add(key, delta)
 
-	r.telemetry.record(obs, at, micro)
+	r.telemetry.record(obs, at, micro, reasoning, cacheReported)
 }
 
 // Drain waits until every usage delta this process queued for the store has

@@ -403,6 +403,57 @@ models:
 	closeRuntime(&rt)
 }
 
+// TestBuildRuntimeWarmsModelsDevIndex pins that runtime construction starts the
+// models.dev warm-up for the pricer's resolver and that closing the runtime
+// cancels it.
+func TestBuildRuntimeWarmsModelsDevIndex(t *testing.T) {
+	useSeededModelsDevCache(t)
+	var warmResolver *provider.Resolver
+	var warmCtx context.Context
+	oldWarm := warmModelsDevIndex
+	t.Cleanup(func() { warmModelsDevIndex = oldWarm })
+	warmModelsDevIndex = func(resolver *provider.Resolver, ctx context.Context) {
+		warmResolver, warmCtx = resolver, ctx
+	}
+
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(projectRoot, "config.yaml")
+	writeFile(t, configPath, `providers:
+  openrouter:
+    type: openrouter
+    api_key: sk-test
+models:
+  profiles:
+    default:
+      default_model: router
+  definitions:
+    router:
+      provider: openrouter
+      id: anthropic/claude-sonnet-5-5
+`)
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	flags := &cliFlags{configPath: configPath, trustProjectConfig: true, exec: true}
+
+	rt, err := buildRuntimeWithRoots(context.Background(), cmd, flags, projectRoot, projectRoot, "")
+	if err != nil {
+		t.Fatalf("buildRuntimeWithRoots() error = %v", err)
+	}
+	if warmResolver == nil || warmResolver != rt.modelResolver {
+		t.Fatalf("warm-up resolver = %p, want the runtime's model resolver %p", warmResolver, rt.modelResolver)
+	}
+	if warmCtx == nil || warmCtx.Err() != nil {
+		t.Fatalf("warm-up context = %v, want a live context", warmCtx)
+	}
+
+	closeRuntime(&rt)
+	if warmCtx.Err() == nil {
+		t.Fatal("warm-up context still live after closeRuntime, want cancelled")
+	}
+}
+
 func TestBuildRuntimeProviderFactoryClaudeSubscriptionDispatchesAndRequiresPool(t *testing.T) {
 	rm := provider.ResolvedModel{Alias: "claude", ProviderConfig: config.ProviderConfig{Type: config.ProviderTypeClaudeSubscription}, EffectiveProviderType: config.ProviderTypeClaudeSubscription}
 	if _, err := buildRuntimeProviderFactory(nil, nil, nil, nil)(rm, "session"); err == nil || err.Error() != "the claude_subscription provider is not available for this run" {

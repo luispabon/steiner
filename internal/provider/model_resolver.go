@@ -114,6 +114,17 @@ func (r *Resolver) Resolve(ctx context.Context, cfg config.Config, reference str
 	return cloneResolvedModel(model), err
 }
 
+// WarmModelsDev loads the models.dev index in the background so the first
+// ModelPrice call finds it loaded. ModelPrice never starts a load itself
+// because it runs on the usage recorder's goroutine. The load stops when ctx
+// ends; a nil Resolver is a no-op.
+func (r *Resolver) WarmModelsDev(ctx context.Context) {
+	if r == nil || r.mdLoader == nil {
+		return
+	}
+	go r.mdLoader.loadWarm(ctx)
+}
+
 // Invalidate drops all memoized resolutions (e.g. after a config or catalog
 // refresh). The models.dev index stays loaded — only per-model results reset.
 func (r *Resolver) Invalidate() {

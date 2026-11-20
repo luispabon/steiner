@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -140,6 +141,64 @@ func TestDecodeAnthropicStreamWithHandler_ReturnsUnexpectedEOFWithoutMessageStop
 	}
 	if chunks[0].Done {
 		t.Fatal("text chunk Done = true, want false")
+	}
+}
+
+// TestMergeAnthropicUsage covers how message_start and message_delta usage
+// objects combine. A message_delta repeats input_tokens but omits the cache
+// keys message_start reported, so the cache values must survive it.
+func TestMergeAnthropicUsage(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []*anthropicUsage
+		want   UsageStats
+	}{
+		{
+			name: "delta without cache keys keeps the cache values message_start reported",
+			events: []*anthropicUsage{
+				{InputTokens: 4, CacheCreationInputTokens: intPtr(10), CacheReadInputTokens: intPtr(25)},
+				{InputTokens: 4, OutputTokens: 4},
+			},
+			want: UsageStats{
+				PromptTokens: 39, CompletionTokens: 4, TotalTokens: 43,
+				CacheCreationInputTokens: 10, CacheReadInputTokens: 25,
+				CacheReported: true,
+			},
+		},
+		{
+			name: "delta with an explicit zero cache read clears it",
+			events: []*anthropicUsage{
+				{InputTokens: 4, CacheCreationInputTokens: intPtr(10), CacheReadInputTokens: intPtr(25)},
+				{InputTokens: 7, CacheReadInputTokens: intPtr(0), OutputTokens: 2},
+			},
+			want: UsageStats{
+				PromptTokens: 17, CompletionTokens: 2, TotalTokens: 19,
+				CacheCreationInputTokens: 10, CacheReadInputTokens: 0,
+				CacheReported: true,
+			},
+		},
+		{
+			name: "start reporting zero cache tokens is reported cache data",
+			events: []*anthropicUsage{
+				{InputTokens: 11, CacheCreationInputTokens: intPtr(0), CacheReadInputTokens: intPtr(0)},
+			},
+			want: UsageStats{PromptTokens: 11, TotalTokens: 11, CacheReported: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := anthropicStreamState{}
+			for _, usage := range tt.events {
+				mergeAnthropicUsage(&state, usage)
+			}
+			if state.usage == nil {
+				t.Fatal("usage = nil, want merged usage")
+			}
+			if !reflect.DeepEqual(*state.usage, tt.want) {
+				t.Fatalf("usage = %+v, want %+v", *state.usage, tt.want)
+			}
+		})
 	}
 }
 

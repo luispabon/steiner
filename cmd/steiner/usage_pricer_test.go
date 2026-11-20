@@ -4,9 +4,11 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
+	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -62,7 +64,7 @@ type priceResult struct {
 // recordingLookup returns a priceLookup that records how often it is called and
 // answers from a per-call plan, falling back to the last result.
 func recordingLookup(calls *int, results ...priceResult) priceLookup {
-	return func(context.Context, string, config.ProviderType, string) (*metadata.ModelPrice, bool) {
+	return func(string, config.ProviderType, string) (*metadata.ModelPrice, bool) {
 		index := min(*calls, len(results)-1)
 		(*calls)++
 		return results[index].price, results[index].available
@@ -76,7 +78,10 @@ func TestUsagePricerMemoizesPricedModels(t *testing.T) {
 		lookup: recordingLookup(&calls, priceResult{price: price, available: true}),
 		prices: make(map[usagePriceKey]usagePrice),
 	}
-	obs := usagestats.Observation{ProviderAlias: "alpha", ProviderType: string(config.ProviderTypeAnthropic), BackendModelID: "claude-sonnet-5-5"}
+	obs := usagestats.Observation{
+		ProviderAlias: "alpha", ProviderType: string(config.ProviderTypeAnthropic),
+		ConfiguredProviderType: string(config.ProviderTypeAnthropic), BackendModelID: "claude-sonnet-5-5",
+	}
 
 	for i := 0; i < 2; i++ {
 		rates, ok := pricer.Price(obs)
@@ -104,7 +109,10 @@ func TestUsagePricerMemoizesUnpricedModels(t *testing.T) {
 		lookup: recordingLookup(&calls, priceResult{available: true}),
 		prices: make(map[usagePriceKey]usagePrice),
 	}
-	obs := usagestats.Observation{ProviderAlias: "alpha", ProviderType: string(config.ProviderTypeOllama), BackendModelID: "llama3"}
+	obs := usagestats.Observation{
+		ProviderAlias: "alpha", ProviderType: string(config.ProviderTypeOllama),
+		ConfiguredProviderType: string(config.ProviderTypeOllama), BackendModelID: "llama3",
+	}
 
 	for i := 0; i < 2; i++ {
 		if rates, ok := pricer.Price(obs); ok || !reflect.DeepEqual(rates, usagestats.Rates{}) {
@@ -126,7 +134,10 @@ func TestUsagePricerDoesNotMemoizeUnavailableIndex(t *testing.T) {
 		),
 		prices: make(map[usagePriceKey]usagePrice),
 	}
-	obs := usagestats.Observation{ProviderAlias: "alpha", ProviderType: string(config.ProviderTypeOpenAI), BackendModelID: "gpt-6-luna"}
+	obs := usagestats.Observation{
+		ProviderAlias: "alpha", ProviderType: string(config.ProviderTypeOpenAI),
+		ConfiguredProviderType: string(config.ProviderTypeOpenAI), BackendModelID: "gpt-6-luna",
+	}
 
 	if _, ok := pricer.Price(obs); ok {
 		t.Fatal("first call ok = true, want unpriced while models.dev is unavailable")
@@ -149,4 +160,74 @@ func TestUsagePricerNilLookup(t *testing.T) {
 	if _, ok := nilResolver.Price(usagestats.Observation{}); ok {
 		t.Fatal("nil pricer ok = true, want unpriced")
 	}
+}
+
+// pricingFixture prices one model under the anthropic profile and one through
+// an openrouter-style namespaced ID.
+const pricingFixture = `{
+  "anthropic": {
+    "models": { "claude-sonnet-5-5": { "cost": { "input": 3, "output": 15 } } }
+  },
+  "openrouter": {
+    "models": { "anthropic/claude-sonnet-5-5": { "cost": { "input": 3.2, "output": 16 } } }
+  }
+}`
+
+// TestUsagePricerUsesConfiguredProviderType proves pricing follows the
+// configured provider profile, matching context-window resolution, not the
+// effective type a transport override can change.
+func TestUsagePricerUsesConfiguredProviderType(t *testing.T) {
+	resolver := provider.NewResolver(provider.ResolverOptions{ModelsDev: func(context.Context) metadata.LoadResult {
+		return metadata.LoadResult{Data: []byte(pricingFixture)}
+	}})
+	resolver.WarmModelsDev(context.Background())
+	awaitPriceIndex(t, resolver)
+	pricer := newUsagePricer(resolver)
+
+	tests := []struct {
+		name string
+		obs  usagestats.Observation
+		want usagestats.Rates
+		ok   bool
+	}{
+		{
+			name: "generic alias overridden to anthropic prices as generic",
+			obs: usagestats.Observation{
+				ProviderAlias: "mybox", ProviderType: string(config.ProviderTypeAnthropic),
+				ConfiguredProviderType: string(config.ProviderTypeOpenAICompat), BackendModelID: "claude-sonnet-5-5",
+			},
+		},
+		{
+			name: "generic alias naming a models.dev provider stays priced",
+			obs: usagestats.Observation{
+				ProviderAlias: "openrouter", ProviderType: string(config.ProviderTypeAnthropic),
+				ConfiguredProviderType: string(config.ProviderTypeLiteLLM), BackendModelID: "anthropic/claude-sonnet-5-5",
+			},
+			want: usagestats.Rates{Input: 3.2, Output: 16},
+			ok:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rates, ok := pricer.Price(tt.obs)
+			if ok != tt.ok || !reflect.DeepEqual(rates, tt.want) {
+				t.Fatalf("Price() = (%#v, %t), want (%#v, %t)", rates, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+// awaitPriceIndex waits for the background models.dev warm-up, since ModelPrice
+// never loads the index itself.
+func awaitPriceIndex(t *testing.T, resolver *provider.Resolver) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, available := resolver.ModelPrice("openrouter", config.ProviderTypeOpenRouter, "anthropic/claude-sonnet-5-5"); available {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("models.dev index did not load from the warm-up within 5s")
 }

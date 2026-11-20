@@ -110,12 +110,12 @@ The Cost column shows what the group's requests cost, and the Total column follo
 - `-` when no request in the group has a price.
 - `<$0.01` when the amount is positive but below one cent.
 - `~$3.12` when the amount is estimated from the model's models.dev prices.
-- `$3.12` when every priced request reported its own cost, as OpenRouter does. Provider-reported amounts are used as they are.
+- `$3.12` when every priced request reported its own cost. Provider-reported amounts are used as they are, and only OpenRouter's per-call cost counts as reported; other providers' cost fields are ignored, so their calls are estimated or stay unpriced.
 - A trailing `+` when some requests in the group have no price at all; those requests are not included in the amount.
 
 Estimates use models.dev base rates plus context-length tiers: a request whose prompt exceeds a tier's size is priced entirely at that tier's rates. They do not account for service tiers, flex or priority processing, or audio. Cache writes are priced at the first (5 minute) cache TTL rate, so one-hour cache writes, such as advisor calls, may be underpriced. Subscription providers show API-equivalent cost, not what the subscription charges.
 
-Cost is fixed when the request is recorded and is never repriced. Models that models.dev does not price, such as local models and unmatched model IDs, stay unpriced, and calls recorded while the models.dev cache is unavailable stay unpriced.
+Cost is fixed when the request is recorded and is never repriced. Models that models.dev does not price, such as local models and unmatched model IDs, stay unpriced, and calls recorded while the models.dev cache is unavailable stay unpriced. A model reached through a generic provider (`openai_compat`, `ollama`, `litellm`) is priced only when that provider's alias is itself a models.dev provider key; otherwise the model stays unpriced rather than priced from another provider's rates.
 
 The last calendar month runs from the same day and time of the previous month to now in UTC, clamped to the last day when the previous month is shorter. Days and Monday-to-Sunday weeks use UTC. Windows use hourly buckets, so the lower edge can include up to one extra hour. Scroll with `↑` and `↓`, and close with `esc`.
 

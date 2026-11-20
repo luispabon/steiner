@@ -254,17 +254,18 @@ func recordAdvisorUsage(recorder *usagestats.Recorder, model provider.ResolvedMo
 		return
 	}
 	recorder.Record(usagestats.Observation{
-		ProviderAlias:     model.ProviderAlias,
-		ProviderType:      string(model.EffectiveProviderType),
-		BackendModelID:    model.BackendModelID,
-		PromptTokens:      usage.PromptTokens,
-		CompletionTokens:  usage.CompletionTokens,
-		CacheReadTokens:   usage.CacheReadInputTokens,
-		CacheCreateTokens: usage.CacheCreationInputTokens,
-		ReasoningTokens:   usage.ReasoningTokens,
-		CacheReported:     usage.CacheReported,
-		ReportedCostUSD:   usage.CostUSD,
-		Source:            usagestats.SourceAdvisor,
+		ProviderAlias:          model.ProviderAlias,
+		ProviderType:           string(model.EffectiveProviderType),
+		ConfiguredProviderType: string(model.ProviderConfig.Type),
+		BackendModelID:         model.BackendModelID,
+		PromptTokens:           usage.PromptTokens,
+		CompletionTokens:       usage.CompletionTokens,
+		CacheReadTokens:        usage.CacheReadInputTokens,
+		CacheCreateTokens:      usage.CacheCreationInputTokens,
+		ReasoningTokens:        usage.ReasoningTokens,
+		CacheReported:          usage.CacheReported,
+		ReportedCostUSD:        provider.RecordedCostUSD(usage, model.EffectiveProviderType),
+		Source:                 usagestats.SourceAdvisor,
 	})
 }
 

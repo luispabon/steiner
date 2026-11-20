@@ -306,11 +306,23 @@ func mergeAnthropicUsage(state *anthropicStreamState, usage *anthropicUsage) {
 	}
 	cacheCreation := usage.cacheCreationTokens()
 	cacheRead := usage.cacheReadTokens()
-	promptTokens := usage.InputTokens + cacheCreation + cacheRead
-	if promptTokens > 0 {
-		state.usage.PromptTokens = promptTokens
+	// message_delta omits the cache keys message_start reported, so only a
+	// present key replaces a retained value: an omitted key is not a zero.
+	// PromptTokens is the total, so it is rebuilt from the retained cache
+	// values plus this event's input_tokens.
+	if usage.CacheCreationInputTokens != nil {
 		state.usage.CacheCreationInputTokens = cacheCreation
+	}
+	if usage.CacheReadInputTokens != nil {
 		state.usage.CacheReadInputTokens = cacheRead
+	}
+	// PromptTokens is the total, so it is rebuilt from the retained cache
+	// values plus this event's input_tokens. An event carrying neither input
+	// tokens nor cache keys (the usual message_delta) leaves it alone.
+	promptTokens := usage.InputTokens + state.usage.CacheCreationInputTokens + state.usage.CacheReadInputTokens
+	carriesPrompt := usage.InputTokens > 0 || usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil
+	if carriesPrompt && promptTokens > 0 {
+		state.usage.PromptTokens = promptTokens
 	}
 	// Cache presence is sticky: message_delta omits the cache keys message_start
 	// reported, and that omission must not read as an unreported cache.

@@ -147,9 +147,9 @@ func TestParseIndexPriceKeepsOtherMetadata(t *testing.T) {
 	}
 }
 
-// TestLookupMergedPrice covers price exposure through both lookup paths. A
-// merged result keeps the first priced entry in sorted provider order, since
-// prices are not blended across providers.
+// TestLookupMergedPrice covers price exposure through the merged lookup path.
+// A merged result never carries a price: the entries can disagree, and none of
+// them prices the configured backend.
 func TestLookupMergedPrice(t *testing.T) {
 	data, err := os.ReadFile("testdata/models_dev_cost.json")
 	if err != nil {
@@ -161,14 +161,19 @@ func TestLookupMergedPrice(t *testing.T) {
 	if merged.Reason != LookupReasonMerged {
 		t.Fatalf("Reason = %q, want %q", merged.Reason, LookupReasonMerged)
 	}
-	want := &ModelPrice{Input: 2, Output: 4}
-	if !reflect.DeepEqual(merged.Info.Price, want) {
-		t.Errorf("merged Price = %s, want %s", formatPrice(merged.Info.Price), formatPrice(want))
+	if merged.Info.Price != nil {
+		t.Errorf("merged Price = %s, want nil for a cross-provider merge", formatPrice(merged.Info.Price))
 	}
 
+	// A merge matching one provider still drops its price, because the generic
+	// alias may route to any backend.
 	single := idx.LookupMerged("merged-unpriced")
 	if !single.Info.Found || single.Info.Price != nil {
 		t.Errorf("merged-unpriced result = %+v, want found with nil Price", single.Info)
+	}
+	priced := idx.LookupProvider("openai", "merged-cost-model")
+	if priced.Info.Price == nil {
+		t.Fatal("strict lookup Price = nil, want the provider's own price")
 	}
 }
 

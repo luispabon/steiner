@@ -3,7 +3,9 @@ package provider
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
@@ -36,13 +38,15 @@ const priceLookupFixture = `{
             { "input": 0.2, "output": 0.75, "tier": { "type": "context", "size": 272000 } }
           ]
         }
-      }
+      },
+      "shared-model": { "cost": { "input": 1, "output": 2 } }
     }
   },
   "openrouter": {
     "npm": "@openrouter/ai-sdk-provider",
     "models": {
-      "anthropic/claude-sonnet-5-5": { "cost": { "input": 3.2, "output": 16 } }
+      "anthropic/claude-sonnet-5-5": { "cost": { "input": 3.2, "output": 16 } },
+      "shared-model": { "cost": { "input": 9, "output": 18 } }
     }
   }
 }`
@@ -108,18 +112,25 @@ func TestLookupModelPrice(t *testing.T) {
 			want:          &metadata.ModelPrice{Input: 3.2, Output: 16},
 		},
 		{
-			name:          "generic alias without a provider key merges across providers",
-			providerAlias: "llama",
-			providerType:  config.ProviderTypeOllama,
-			modelID:       "claude-sonnet-5-5",
-			want:          anthropicPrice,
-		},
-		{
 			name:          "generic alias matching a provider key wins the strict lookup",
 			providerAlias: "openrouter",
 			providerType:  config.ProviderTypeLiteLLM,
 			modelID:       "anthropic/claude-sonnet-5-5",
 			want:          &metadata.ModelPrice{Input: 3.2, Output: 16},
+		},
+		{
+			name:          "generic alias merging across providers is unpriced",
+			providerAlias: "mybox",
+			providerType:  config.ProviderTypeOllama,
+			modelID:       "shared-model",
+			want:          nil,
+		},
+		{
+			name:          "generic alias whose model has one provider entry is still unpriced",
+			providerAlias: "mybox",
+			providerType:  config.ProviderTypeOpenAICompat,
+			modelID:       "claude-sonnet-5-5",
+			want:          nil,
 		},
 		{
 			name:          "generic alias with no models.dev match is unpriced",
@@ -165,11 +176,15 @@ func TestLookupModelPriceUnavailable(t *testing.T) {
 }
 
 func TestResolverModelPriceAvailability(t *testing.T) {
-	t.Run("loaded index is available", func(t *testing.T) {
+	t.Run("warmed index is available", func(t *testing.T) {
 		resolver := NewResolver(ResolverOptions{ModelsDev: func(context.Context) metadata.LoadResult {
 			return metadata.LoadResult{Data: []byte(priceLookupFixture)}
 		}})
-		price, available := resolver.ModelPrice(context.Background(), "openai", config.ProviderTypeOpenAI, "gpt-6-luna")
+		resolver.WarmModelsDev(context.Background())
+		if !awaitPriceAvailable(t, resolver, "openai", config.ProviderTypeOpenAI, "gpt-6-luna") {
+			t.Fatal("available = false after warm-up, want true for a loaded index")
+		}
+		price, available := resolver.ModelPrice("openai", config.ProviderTypeOpenAI, "gpt-6-luna")
 		if !available {
 			t.Fatal("available = false, want true for a loaded index")
 		}
@@ -178,25 +193,65 @@ func TestResolverModelPriceAvailability(t *testing.T) {
 		}
 		// A miss on a loaded index is still an available lookup; the price is
 		// what is missing, not the index.
-		if price, available := resolver.ModelPrice(context.Background(), "openai", config.ProviderTypeOpenAI, "absent"); !available || price != nil {
+		if price, available := resolver.ModelPrice("openai", config.ProviderTypeOpenAI, "absent"); !available || price != nil {
 			t.Fatalf("absent model = (%#v, %t), want (nil, true)", price, available)
 		}
 	})
 
-	t.Run("unloaded index is unavailable", func(t *testing.T) {
+	t.Run("unloaded index is unavailable and stays unloaded", func(t *testing.T) {
+		var loads atomic.Int32
 		resolver := NewResolver(ResolverOptions{ModelsDev: func(context.Context) metadata.LoadResult {
-			return metadata.LoadResult{}
+			loads.Add(1)
+			return metadata.LoadResult{Data: []byte(priceLookupFixture)}
 		}})
-		price, available := resolver.ModelPrice(context.Background(), "openai", config.ProviderTypeOpenAI, "gpt-6-luna")
+		price, available := resolver.ModelPrice("openai", config.ProviderTypeOpenAI, "gpt-6-luna")
 		if price != nil || available {
 			t.Fatalf("unloaded index = (%#v, %t), want (nil, false)", price, available)
+		}
+		if got := loads.Load(); got != 0 {
+			t.Fatalf("loads = %d, want 0: ModelPrice must not start a models.dev load", got)
+		}
+	})
+
+	t.Run("warm-up load stops with its context", func(t *testing.T) {
+		started := make(chan struct{})
+		finished := make(chan struct{})
+		resolver := NewResolver(ResolverOptions{ModelsDev: func(ctx context.Context) metadata.LoadResult {
+			close(started)
+			<-ctx.Done()
+			close(finished)
+			return metadata.LoadResult{}
+		}})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		resolver.WarmModelsDev(ctx)
+		<-started
+		cancel()
+		<-finished
+		if price, available := resolver.ModelPrice("openai", config.ProviderTypeOpenAI, "gpt-6-luna"); price != nil || available {
+			t.Fatalf("cancelled warm-up = (%#v, %t), want (nil, false)", price, available)
 		}
 	})
 
 	t.Run("nil resolver is unavailable", func(t *testing.T) {
 		var resolver *Resolver
-		if price, available := resolver.ModelPrice(context.Background(), "openai", config.ProviderTypeOpenAI, "gpt-6-luna"); price != nil || available {
+		if price, available := resolver.ModelPrice("openai", config.ProviderTypeOpenAI, "gpt-6-luna"); price != nil || available {
 			t.Fatalf("nil resolver = (%#v, %t), want (nil, false)", price, available)
 		}
+		resolver.WarmModelsDev(context.Background())
 	})
+}
+
+// awaitPriceAvailable polls ModelPrice until the background warm-up publishes
+// the index, since ModelPrice itself never waits for a load.
+func awaitPriceAvailable(t *testing.T, resolver *Resolver, providerAlias string, providerType config.ProviderType, modelID string) bool {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, available := resolver.ModelPrice(providerAlias, providerType, modelID); available {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
 }
