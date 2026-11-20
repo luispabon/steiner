@@ -177,6 +177,11 @@ func mergeModelInfos(entries []ModelInfo) ModelInfo {
 		} else if merged.InterleavedField != entry.InterleavedField {
 			merged.InterleavedField = ""
 		}
+		// Prices are not blended across providers: the first entry in sorted
+		// provider order that carries a price wins.
+		if merged.Price == nil {
+			merged.Price = entry.Price
+		}
 	}
 	merged.ReasoningSupportedEfforts = intersectEfforts(entries)
 	return merged
@@ -228,6 +233,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) (Mode
 			Type   string   `json:"type"`
 			Values []string `json:"values"`
 		} `json:"reasoning_options"`
+		Cost json.RawMessage `json:"cost"`
 	}
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return ModelInfo{}, err
@@ -250,6 +256,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) (Mode
 		ModelProviderAPI:          entry.Provider.API,
 		InterleavedField:          entry.Interleaved.Field,
 		VisionInput:               containsFold(entry.Modalities.Input, "image"),
+		Price:                     parseModelPrice(entry.Cost),
 		Found:                     true,
 		ProviderCount:             1,
 	}, nil

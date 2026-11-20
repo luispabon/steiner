@@ -69,14 +69,13 @@ func newTelemetryFromEnv() *telemetry {
 	return &telemetry{file: f, runID: os.Getenv(TelemetryRunEnvVar)}
 }
 
-// record appends one observation. Safe on a nil receiver.
-func (t *telemetry) record(obs Observation, at time.Time) {
+// record appends one observation. costMicroUSD is the cost the recorder
+// resolved for it, so a provider-reported and an estimated cost both appear.
+// Safe on a nil receiver.
+func (t *telemetry) record(obs Observation, at time.Time, costMicroUSD int64) {
 	if t == nil {
 		return
 	}
-	// Only a provider-reported cost is available in this phase, so an unpriced
-	// call writes no cost field at all.
-	micro, _, _ := costFor(obs)
 	line := telemetryLine{
 		Kind:              "usage",
 		Timestamp:         at.UTC().Format(time.RFC3339Nano),
@@ -91,7 +90,7 @@ func (t *telemetry) record(obs Observation, at time.Time) {
 		CompletionTokens:  obs.CompletionTokens,
 		ReasoningTokens:   obs.ReasoningTokens,
 		CacheReported:     obs.CacheReported,
-		CostMicroUSD:      micro,
+		CostMicroUSD:      costMicroUSD,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()

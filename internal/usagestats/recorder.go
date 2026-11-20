@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -190,6 +191,9 @@ type Recorder struct {
 
 	now   func() time.Time
 	store *store
+	// pricer, when set, estimates cost for observations the provider did not
+	// price. SetPricer swaps it atomically and Price runs with no lock held.
+	pricer atomic.Pointer[Pricer]
 	// writer persists coalesced deltas off the recording goroutine, so Record
 	// never waits on the cross-process store lock.
 	writer *persistWriter
@@ -252,7 +256,7 @@ func (r *Recorder) Record(obs Observation) {
 		delta.CacheReportedRequests = 1
 		delta.CacheReportedInputTokens = nonCached + obs.CacheReadTokens + obs.CacheCreateTokens
 	}
-	micro, reported, priced := costFor(obs)
+	micro, reported, priced := r.costFor(obs)
 	delta.CostMicroUSD = micro
 	if reported {
 		delta.ReportedCostRequests = 1
@@ -295,7 +299,7 @@ func (r *Recorder) Record(obs Observation) {
 	// blocking this goroutine on the cross-process store lock.
 	r.writer.add(key, delta)
 
-	r.telemetry.record(obs, at)
+	r.telemetry.record(obs, at, micro)
 }
 
 // Drain waits until every usage delta this process queued for the store has
@@ -369,17 +373,22 @@ func (r *Recorder) SessionReportFor(source Source) SessionReport {
 }
 
 // costFor returns the micro-USD cost to count for one observation, and whether
-// that cost was provider-reported and whether the request is priced at all.
-// This is the single place phase 2b's estimator hooks in: an unpriced request
-// currently stays UnpricedRequests, and a priced-but-not-reported one would
-// count towards CostMicroUSD without ReportedCostRequests.
-func costFor(obs Observation) (micro int64, reported bool, priced bool) {
-	if obs.ReportedCostUSD == nil {
-		return 0, false, false
+// that cost was provider-reported and whether the request is priced at all. A
+// provider-reported cost wins; otherwise an installed Pricer's estimate counts
+// as priced without incrementing ReportedCostRequests. The pricer runs outside
+// any Recorder lock because it may do its own lookups.
+func (r *Recorder) costFor(obs Observation) (micro int64, reported bool, priced bool) {
+	if obs.ReportedCostUSD != nil {
+		micro = int64(math.Round(*obs.ReportedCostUSD * 1e6))
+		if micro < 0 {
+			micro = 0
+		}
+		return micro, true, true
 	}
-	micro = int64(math.Round(*obs.ReportedCostUSD * 1e6))
-	if micro < 0 {
-		micro = 0
+	if pricer := r.pricerOrNil(); pricer != nil {
+		if rates, ok := pricer.Price(obs); ok {
+			return rates.EstimateMicroUSD(obs.PromptTokens, obs.CacheReadTokens, obs.CacheCreateTokens, obs.CompletionTokens), false, true
+		}
 	}
-	return micro, true, true
+	return 0, false, false
 }
