@@ -113,13 +113,13 @@ func TestTokenStatsPreviousWeeks(t *testing.T) {
 	}
 
 	fullBar := barString(2300, 2300, tokenStatsBarWidth)
-	bound := fmt.Sprintf("Nov 9 to Nov 15%s%7s%s%s", tokenStatsSpacing, formatTokens(2300), tokenStatsSpacing, fullBar)
+	bound := fmt.Sprintf("Nov  9 to Nov 15%s%7s%s%s", tokenStatsSpacing, formatTokens(2300), tokenStatsSpacing, fullBar)
 	if !strings.Contains(got, bound) {
 		t.Fatalf("report = %q, want the previous week row %q", got, bound)
 	}
 
-	newest := strings.Index(got, "Nov 9 to Nov 15")
-	older := strings.Index(got, "Nov 2 to Nov 8")
+	newest := strings.Index(got, "Nov  9 to Nov 15")
+	older := strings.Index(got, "Nov  2 to Nov  8")
 	if newest < 0 || older < 0 || newest > older {
 		t.Fatalf("report = %q, want weeks newest first", got)
 	}

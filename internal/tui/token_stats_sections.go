@@ -95,8 +95,9 @@ func writePreviousWeeksSection(sb *strings.Builder, rec *usagestats.Recorder, no
 	sb.WriteString("### Previous weeks\n\n")
 	lines := make([]string, 0, len(weeks))
 	for _, week := range weeks {
-		span := fmt.Sprintf("%s to %s", shortMonthDay(week.Start), shortMonthDay(week.Start.AddDate(0, 0, 6)))
-		line := fmt.Sprintf("%-15s%s%7s%s%s", span, tokenStatsSpacing, formatTokens(week.Total()),
+		// "_2" space-pads the day so every span is the same width.
+		span := week.Start.UTC().Format("Jan _2") + " to " + week.Start.AddDate(0, 0, 6).UTC().Format("Jan _2")
+		line := fmt.Sprintf("%-16s%s%7s%s%s", span, tokenStatsSpacing, formatTokens(week.Total()),
 			tokenStatsSpacing, barString(week.Total(), busiest, tokenStatsBarWidth))
 		if week.Start.Before(retentionStart) {
 			line += tokenStatsSpacing + "(partial)"
