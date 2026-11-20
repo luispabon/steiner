@@ -151,29 +151,30 @@ type compactionBannerData struct {
 	expanded bool
 
 	// compaction statistics (populated on finish)
-	summarizedMessages      int
-	retainedMessages        int
-	retainedUnits           int
-	retainedUserMessages    int
-	retainedSubAgentResults int
-	requestBlock            string  // output.RequestBlock* status of the verbatim latest request
-	requestBlockBytes       int     // size of the verbatim latest request
-	mode                    string  // compaction mode reported by the engine
-	beforeTokens            int     // prompt tokens before compaction
-	beforePct               float64 // context usage % before compaction
-	afterTokens             int     // prompt tokens after compaction
-	afterPct                float64 // context usage % after compaction
-	summaryTitle            string  // human-readable summary title
-	summaryBytes            int     // size of the generated summary
-	summaryTokenBudget      int     // token budget for the summary call
-	contextWindow           int     // model context window
-	thresholdTokens         int     // token count that triggers compaction
-	compactionThreshold     float64 // compaction trigger as a percentage of the context window
-	thresholdAchieved       bool    // whether compaction brought usage under the threshold
-	truncated               bool    // whether the prompt was truncated
-	cacheReadTokens         int
-	inputTokens             int
-	cacheCreateTokens       int
+	summarizedMessages       int
+	retainedMessages         int
+	retainedUnits            int
+	retainedUserMessages     int
+	retainedSubAgentResults  int
+	requestBlock             string  // output.RequestBlock* status of the verbatim latest request
+	requestBlockBytes        int     // size of the verbatim latest request
+	mode                     string  // compaction mode reported by the engine
+	beforeTokens             int     // prompt tokens before compaction
+	beforePct                float64 // context usage % before compaction
+	afterTokens              int     // prompt tokens after compaction
+	afterPct                 float64 // context usage % after compaction
+	summaryTitle             string  // human-readable summary title
+	summaryBytes             int     // size of the generated summary
+	summaryTokenBudget       int     // token budget for the summary call
+	contextWindow            int     // model context window
+	thresholdTokens          int     // token count that triggers compaction
+	compactionThreshold      float64 // compaction trigger as a percentage of the context window
+	thresholdAchieved        bool    // whether compaction brought usage under the threshold
+	truncated                bool    // whether the prompt was truncated
+	cacheReadTokens          int
+	inputTokens              int
+	cacheCreateTokens        int
+	cacheReportedInputTokens int
 }
 
 type separatorData struct {
@@ -251,13 +252,16 @@ type delegationDisplayState struct {
 	cacheReadTokens    int
 	inputTokens        int
 	cacheCreateTokens  int
-	modelName          string
-	reasoning          string
-	promptTokens       int
-	contextWindow      int
-	contextFillPct     float64 // last known context window occupancy %, 0 if unknown
-	compactionCount    int     // cumulative child compactions this run; sub-agent boxes only
-	outputTPS          float64 // latest per-turn output tokens/sec, 0 if unknown
+	// cacheReportedInputTokens holds the prompt-side input total of the calls
+	// whose provider reported cache data; zero means none did.
+	cacheReportedInputTokens int
+	modelName                string
+	reasoning                string
+	promptTokens             int
+	contextWindow            int
+	contextFillPct           float64 // last known context window occupancy %, 0 if unknown
+	compactionCount          int     // cumulative child compactions this run; sub-agent boxes only
+	outputTPS                float64 // latest per-turn output tokens/sec, 0 if unknown
 	// failure field
 	errMsg        string
 	failureReason string // raw failure text from DelegationFailed; feeds the delivery row only, never rendered in the box

@@ -64,8 +64,9 @@ func (b *contentBuffer) applyScopedDelegationEvent(dd *delegationDisplayState, e
 				dd.cacheReadTokens += payload.CacheReadTokens
 				dd.inputTokens += nonCached
 				dd.cacheCreateTokens += payload.CacheCreateTokens
-				dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(dd.cacheReadTokens, dd.inputTokens, dd.cacheCreateTokens)
-				dd.latestCacheHitRate, dd.latestCacheHitOK = usagestats.HitRate(payload.CacheReadTokens, nonCached, payload.CacheCreateTokens)
+				dd.cacheReportedInputTokens += payload.CacheReportedInputTokens
+				dd.cacheHitRate, dd.cacheHitOK = usagestats.ReportedHitRate(dd.cacheReadTokens, dd.cacheReportedInputTokens)
+				dd.latestCacheHitRate, dd.latestCacheHitOK = usagestats.ReportedHitRate(payload.CacheReadTokens, payload.CacheReportedInputTokens)
 				dd.tokenCount += payload.CompletionTokens
 			}
 		}

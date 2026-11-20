@@ -146,10 +146,40 @@ type anthropicResponse struct {
 }
 
 type anthropicUsage struct {
-	InputTokens              int `json:"input_tokens,omitempty"`
-	OutputTokens             int `json:"output_tokens,omitempty"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+	// Cache fields are pointers so a present zero is distinguishable from an
+	// absent field: message_delta omits what message_start already reported.
+	CacheCreationInputTokens *int                          `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int                          `json:"cache_read_input_tokens,omitempty"`
+	OutputTokensDetails      *anthropicOutputTokensDetails `json:"output_tokens_details,omitempty"`
+}
+
+// anthropicOutputTokensDetails carries the optional reasoning breakdown of an
+// Anthropic usage object. Most responses omit it.
+type anthropicOutputTokensDetails struct {
+	ThinkingTokens *int `json:"thinking_tokens,omitempty"`
+}
+
+func (u *anthropicUsage) cacheCreationTokens() int {
+	if u.CacheCreationInputTokens == nil {
+		return 0
+	}
+	return *u.CacheCreationInputTokens
+}
+
+func (u *anthropicUsage) cacheReadTokens() int {
+	if u.CacheReadInputTokens == nil {
+		return 0
+	}
+	return *u.CacheReadInputTokens
+}
+
+func (u *anthropicUsage) thinkingTokens() int {
+	if u.OutputTokensDetails == nil || u.OutputTokensDetails.ThinkingTokens == nil {
+		return 0
+	}
+	return clampReasoningTokens(*u.OutputTokensDetails.ThinkingTokens)
 }
 
 func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool) anthropicRequest {
@@ -575,12 +605,19 @@ func (u *anthropicUsage) toUsageStats() *UsageStats {
 	if u == nil {
 		return nil
 	}
-	promptTokens := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 	usage := &UsageStats{
-		PromptTokens:             promptTokens,
-		CompletionTokens:         u.OutputTokens,
-		CacheCreationInputTokens: u.CacheCreationInputTokens,
-		CacheReadInputTokens:     u.CacheReadInputTokens,
+		PromptTokens:     u.InputTokens,
+		CompletionTokens: u.OutputTokens,
+		ReasoningTokens:  u.thinkingTokens(),
+		CacheReported:    u.CacheCreationInputTokens != nil || u.CacheReadInputTokens != nil,
+	}
+	if u.CacheCreationInputTokens != nil {
+		usage.PromptTokens += *u.CacheCreationInputTokens
+		usage.CacheCreationInputTokens = *u.CacheCreationInputTokens
+	}
+	if u.CacheReadInputTokens != nil {
+		usage.PromptTokens += *u.CacheReadInputTokens
+		usage.CacheReadInputTokens = *u.CacheReadInputTokens
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	return usage

@@ -85,7 +85,7 @@ func (b *contentBuffer) handleAdvisorComplete(event output.Event) {
 	dd.output = payload.Note
 	dd.status = "complete"
 	dd.resultStatus = "complete"
-	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
+	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.CacheReportedInputTokens, payload.TokenCount)
 	if strings.TrimSpace(payload.Error) != "" {
 		dd.output = payload.Error
 		dd.status = "failed"

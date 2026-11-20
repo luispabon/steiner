@@ -75,12 +75,14 @@ func TestSyncSidebarUsesParentOnlySessionReport(t *testing.T) {
 	now := time.Unix(1000, 0)
 	rec := newUsageRecorder(t, func() time.Time { return now })
 
-	// Parent observation: 0% cache hit rate (no cache reads).
+	// Parent observation: the provider reported cache data and all of it
+	// missed, so the sidebar shows 0% rather than the no-data placeholder.
 	rec.Record(usagestats.Observation{
 		ProviderAlias:  "local",
 		ProviderType:   "ollama",
 		BackendModelID: "llama2",
 		PromptTokens:   100,
+		CacheReported:  true,
 		Source:         usagestats.SourceParent,
 		At:             now,
 	})

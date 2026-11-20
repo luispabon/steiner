@@ -61,7 +61,7 @@ Warnings are derived once from final facts (`model_warnings.go`). Only two cases
 
 ## Resolver lifetime
 
-`provider.Resolver` is created per interactive session or CLI run. It memoizes successful resolutions by reference plus a fingerprint of the resolved model and provider config, so an edited alias resolves again. Concurrent identical calls share one resolution. Failures are not memoized. `Invalidate` drops memoized entries and keeps the loaded models.dev index, which is parsed once (`ParseIndex`) and loaded at most once via `sync.Once`.
+`provider.Resolver` is created per interactive session or CLI run. It memoizes successful resolutions by reference plus a fingerprint of the resolved model and provider config, so an edited alias resolves again. Concurrent identical calls share one resolution. Failures are not memoized. `Invalidate` drops memoized entries and keeps the loaded models.dev index, which is parsed once (`ParseIndex`) and loaded at most once via `sync.Once`. The same index carries each model's `ModelPrice` (`internal/metadata/price.go`), which `(*Resolver).ModelPrice` serves to the usage recorder's cost estimates ([prompt caching](prompt-caching.md#usage-statistics-storage)).
 
 ## Compaction fallback
 

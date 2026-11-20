@@ -151,6 +151,7 @@ func TestOverlayRenderKeys(t *testing.T) {
 			"content":           "already reflowed into renderedLines",
 			"lineCount":         "len(renderedLines)",
 			"glamourStyleSheet": "only used by reflow",
+			"contentForWidth":   "only used by reflow",
 			"renderer":          "only used by reflow",
 			"renderWidth":       "only used by reflow",
 			"styles":            "the render reads Model.styles, keyed separately",

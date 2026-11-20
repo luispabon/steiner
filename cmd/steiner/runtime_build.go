@@ -225,6 +225,19 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	closeFn = joinClosers(closeFn, approvalClose)
 	rt.closeFn = closeFn
 
+	// Pricing shares the resolver's models.dev index, so no extra fetch runs.
+	// ModelPrice never starts a load on the recording goroutine, so warm the
+	// index in the background and cancel an in-flight warm-up at shutdown.
+	warmCtx, stopWarm := context.WithCancel(ctx)
+	closeFn = joinClosers(closeFn, func() error {
+		stopWarm()
+		return nil
+	})
+	rt.closeFn = closeFn
+	warmModelsDevIndex(modelResolver, warmCtx)
+	usageRecorder := usagestats.New(nil)
+	usageRecorder.SetPricer(newUsagePricer(modelResolver))
+
 	return cliRuntime{
 		cfg:                          cfg,
 		sandboxStatus:                status,
@@ -265,7 +278,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationAdvisorBudgetStore: delegation.NewAdvisorBudgetStore(),
 		advisorState:                 advisor.NewSharedState(),
 		compactionLogFile:            compactionLogFile,
-		usageRecorder:                usagestats.New(nil),
+		usageRecorder:                usageRecorder,
 		imageStore:                   agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),
 		visionCapabilities:           agent.NewVisionCapabilities(cfg.Models.Effective.SubAgents["vision"] != ""),
 		modelCatalog:                 modelCatalog,
@@ -281,6 +294,13 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 // newClaudeSubscriptionPool builds the claude_subscription pool. Tests replace
 // it to inspect the options passed to the pool.
 var newClaudeSubscriptionPool = provider.NewClaudeSubscriptionPool
+
+// warmModelsDevIndex starts the background models.dev load that primes the
+// usage pricer's index. Runtime-building tests replace it so constructing a
+// runtime never reaches the network.
+var warmModelsDevIndex = func(resolver *provider.Resolver, ctx context.Context) {
+	resolver.WarmModelsDev(ctx)
+}
 
 // buildRuntimeQuotaService returns the process quota service. Snapshots persist
 // to the default store path. When that path cannot be resolved, the failure is

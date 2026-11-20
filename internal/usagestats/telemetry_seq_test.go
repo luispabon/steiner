@@ -33,7 +33,7 @@ func TestTelemetrySeqMatchesLineOrderUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < perGoroutine; i++ {
-				tel.record(Observation{Source: SourceParent}, time.Now())
+				tel.record(Observation{Source: SourceParent}, time.Now(), 0, 0, false)
 			}
 		}()
 	}

@@ -193,18 +193,19 @@ func SpawnDelegate(ctx context.Context, spec Spec, req agent.RunRequest, runner 
 	result.Output = appendAdvisorSummaryLine(result.Output, result.AdvisorUses, result.AdvisorDenied)
 	if events != nil {
 		events.Emit(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-			DelegationOccurrence: specOccurrence(spec),
-			Status:               string(result.Status),
-			TurnCount:            result.TurnCount,
-			TokenCount:           result.TokenCount,
-			ToolCallCount:        result.ToolCallCount,
-			Output:               result.Output,
-			InputTokens:          result.InputTokens,
-			CacheReadTokens:      result.CacheReadTokens,
-			CacheCreateTokens:    result.CacheCreateTokens,
-			AdvisorBudget:        result.AdvisorBudget,
-			AdvisorUses:          result.AdvisorUses,
-			AdvisorDenied:        result.AdvisorDenied,
+			DelegationOccurrence:     specOccurrence(spec),
+			Status:                   string(result.Status),
+			TurnCount:                result.TurnCount,
+			TokenCount:               result.TokenCount,
+			ToolCallCount:            result.ToolCallCount,
+			Output:                   result.Output,
+			InputTokens:              result.InputTokens,
+			CacheReadTokens:          result.CacheReadTokens,
+			CacheCreateTokens:        result.CacheCreateTokens,
+			CacheReportedInputTokens: result.CacheReportedInputTokens,
+			AdvisorBudget:            result.AdvisorBudget,
+			AdvisorUses:              result.AdvisorUses,
+			AdvisorDenied:            result.AdvisorDenied,
 		}))
 	}
 	if fields := toolCallTraceFields(spec.AgentID); fields != nil {
@@ -309,19 +310,20 @@ func failedDelegateExecution(spec Spec, state agent.RunState, runUsage TokenUsag
 	advisorUses, advisorDenied := countAdvisorUsage(state.Conversation)
 	total := spec.PriorTokenUsage.Add(runUsage)
 	result := Result{
-		AgentID:           spec.AgentID,
-		Status:            status,
-		TurnCount:         state.TurnCount,
-		TokenCount:        total.OutputTokens,
-		InputTokens:       total.InputTokens,
-		CacheReadTokens:   total.CacheReadTokens,
-		CacheCreateTokens: total.CacheCreateTokens,
-		ToolCallCount:     countToolCalls(state.Conversation),
-		StopReason:        stopReason,
-		SessionResumable:  ctxCancelled || ctxDeadline,
-		AdvisorBudget:     spec.AdvisorBudget,
-		AdvisorUses:       advisorUses,
-		AdvisorDenied:     advisorDenied,
+		AgentID:                  spec.AgentID,
+		Status:                   status,
+		TurnCount:                state.TurnCount,
+		TokenCount:               total.OutputTokens,
+		InputTokens:              total.InputTokens,
+		CacheReadTokens:          total.CacheReadTokens,
+		CacheCreateTokens:        total.CacheCreateTokens,
+		CacheReportedInputTokens: total.CacheReportedInputTokens,
+		ToolCallCount:            countToolCalls(state.Conversation),
+		StopReason:               stopReason,
+		SessionResumable:         ctxCancelled || ctxDeadline,
+		AdvisorBudget:            spec.AdvisorBudget,
+		AdvisorUses:              advisorUses,
+		AdvisorDenied:            advisorDenied,
 	}
 	if msg, ok := agent.LastAssistantMessage(state.Conversation); ok {
 		result.Output = msg.Content

@@ -135,11 +135,11 @@ func (d *claudeSubDecoder) appendThinking(thinking string) []claudeSubDecoded {
 
 // usageEvents merges a usage snapshot into the current message's cumulative
 // usage and surfaces the running total. Each component is merged only when the
-// snapshot reports it, so a later snapshot that omits an input or cache
-// component retains the earlier value instead of clearing it: the CLI splits a
-// message's usage across message_start and message_delta and omits what it has
-// not (re)reported. Each event is the cumulative value for the message, not a
-// delta, and is a fresh conversion so a caller that keeps an event is not
+// snapshot reports it, so a later snapshot that omits an input, cache or
+// reasoning component retains the earlier value instead of clearing it: the CLI
+// splits a message's usage across message_start and message_delta and omits what
+// it has not (re)reported. Each event is the cumulative value for the message,
+// not a delta, and is a fresh conversion so a caller that keeps an event is not
 // affected by a later merge.
 func (d *claudeSubDecoder) usageEvents(u *claudeSubUsage) []claudeSubDecoded {
 	if u == nil {
@@ -159,6 +159,9 @@ func (d *claudeSubDecoder) usageEvents(u *claudeSubUsage) []claudeSubDecoded {
 	}
 	if u.OutputTokens != nil {
 		d.usage.OutputTokens = u.OutputTokens
+	}
+	if u.OutputTokensDetails != nil && u.OutputTokensDetails.ThinkingTokens != nil {
+		d.usage.OutputTokensDetails = u.OutputTokensDetails
 	}
 	return []claudeSubDecoded{{Kind: claudeSubDecodeUsage, Usage: d.usage.toUsageStats()}}
 }

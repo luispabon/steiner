@@ -60,7 +60,7 @@ func TestWindow_reportAggregatesAndOrdering(t *testing.T) {
 	if report.Providers != 2 {
 		t.Errorf("Providers = %d, want 2", report.Providers)
 	}
-	wantTotal := Totals{Requests: 3, InputTokens: 60}
+	wantTotal := Totals{Requests: 3, InputTokens: 60, UnpricedRequests: 3}
 	if report.Total != wantTotal {
 		t.Errorf("Total = %+v, want %+v", report.Total, wantTotal)
 	}
@@ -92,10 +92,10 @@ func TestBySource_ordersAndFilters(t *testing.T) {
 
 	got := r.BySource(baseTime.Add(-time.Hour))
 	want := []SourceTotals{
-		{Source: SourceParent, Totals: Totals{Requests: 1, InputTokens: 30}},
-		{Source: SourceSubAgent, Totals: Totals{Requests: 1, InputTokens: 10}},
-		{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20}},
-		{Source: SourceUnknown, Totals: Totals{Requests: 1, InputTokens: 40}},
+		{Source: SourceParent, Totals: Totals{Requests: 1, InputTokens: 30, UnpricedRequests: 1}},
+		{Source: SourceSubAgent, Totals: Totals{Requests: 1, InputTokens: 10, UnpricedRequests: 1}},
+		{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20, UnpricedRequests: 1}},
+		{Source: SourceUnknown, Totals: Totals{Requests: 1, InputTokens: 40, UnpricedRequests: 1}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("BySource = %+v, want %+v", got, want)
@@ -113,9 +113,9 @@ func TestDaily_zeroFillAndOrder(t *testing.T) {
 		time.Date(2024, 1, 4, 2, 0, 0, 0, time.UTC),
 	)
 	want := []PeriodTotals{
-		{Start: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 10}},
+		{Start: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 10, UnpricedRequests: 1}},
 		{Start: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)},
-		{Start: time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 20}},
+		{Start: time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 20, UnpricedRequests: 1}},
 		{Start: time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC)},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -139,8 +139,8 @@ func TestWeekly_boundaries(t *testing.T) {
 
 	got := r.Weekly(time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC), time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC))
 	want := []PeriodTotals{
-		{Start: time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 10}},
-		{Start: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 20}},
+		{Start: time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 10, UnpricedRequests: 1}},
+		{Start: time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC), Totals: Totals{Requests: 1, InputTokens: 20, UnpricedRequests: 1}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Weekly = %+v, want %+v", got, want)
@@ -177,19 +177,28 @@ func TestSessionWindow_perModelAndSource(t *testing.T) {
 		Rows: []Row{
 			{
 				ProviderAlias: "p", ProviderType: "t", BackendModelID: "m1",
-				Totals: Totals{Requests: 2, InputTokens: 70, CacheReadTokens: 50, CompletionTokens: 10},
+				Totals: Totals{
+					Requests: 2, InputTokens: 70, CacheReadTokens: 50, CompletionTokens: 10,
+					CacheReportedRequests: 1, CacheReportedInputTokens: 100, UnpricedRequests: 2,
+				},
 				Sources: []SourceTotals{
-					{Source: SourceParent, Totals: Totals{Requests: 1, InputTokens: 50, CacheReadTokens: 50, CompletionTokens: 10}},
-					{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20}},
+					{Source: SourceParent, Totals: Totals{
+						Requests: 1, InputTokens: 50, CacheReadTokens: 50, CompletionTokens: 10,
+						CacheReportedRequests: 1, CacheReportedInputTokens: 100, UnpricedRequests: 1,
+					}},
+					{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20, UnpricedRequests: 1}},
 				},
 			},
 			{
 				ProviderAlias: "p", ProviderType: "t", BackendModelID: "m2",
-				Totals:  Totals{Requests: 1, InputTokens: 30},
-				Sources: []SourceTotals{{Source: SourceSubAgent, Totals: Totals{Requests: 1, InputTokens: 30}}},
+				Totals:  Totals{Requests: 1, InputTokens: 30, UnpricedRequests: 1},
+				Sources: []SourceTotals{{Source: SourceSubAgent, Totals: Totals{Requests: 1, InputTokens: 30, UnpricedRequests: 1}}},
 			},
 		},
-		Total:     Totals{Requests: 3, InputTokens: 100, CacheReadTokens: 50, CompletionTokens: 10},
+		Total: Totals{
+			Requests: 3, InputTokens: 100, CacheReadTokens: 50, CompletionTokens: 10,
+			CacheReportedRequests: 1, CacheReportedInputTokens: 100, UnpricedRequests: 3,
+		},
 		Models:    2,
 		Providers: 1,
 	}

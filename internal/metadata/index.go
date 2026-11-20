@@ -119,7 +119,9 @@ func (idx *Index) LookupProvider(providerID, modelID string) LookupResult {
 // LookupMerged looks up modelID across every provider in the index and
 // merges every non-malformed entry found. It is used for generic provider
 // profiles whose configured alias does not correspond to a models.dev provider
-// key, so no single provider entry is authoritative for the model.
+// key, so no single provider entry is authoritative for the model. A merged
+// result never carries Info.Price, because provider prices disagree and none
+// of them is the rate the configured backend charges.
 func (idx *Index) LookupMerged(modelID string) LookupResult {
 	if idx.malformed {
 		return LookupResult{Reason: LookupReasonMalformed}
@@ -145,7 +147,9 @@ func (idx *Index) LookupMerged(modelID string) LookupResult {
 	case len(valid) == 0:
 		return LookupResult{Reason: LookupReasonNotFound}
 	case len(valid) == 1:
-		return LookupResult{Info: valid[0]}
+		info := valid[0]
+		info.Price = nil
+		return LookupResult{Info: info}
 	default:
 		return LookupResult{Info: mergeModelInfos(valid), Reason: LookupReasonMerged}
 	}
@@ -178,6 +182,8 @@ func mergeModelInfos(entries []ModelInfo) ModelInfo {
 			merged.InterleavedField = ""
 		}
 	}
+	// Price is deliberately left nil: a cross-provider merge cannot tell which
+	// entry, if any, prices the backend the request actually goes to.
 	merged.ReasoningSupportedEfforts = intersectEfforts(entries)
 	return merged
 }
@@ -228,6 +234,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) (Mode
 			Type   string   `json:"type"`
 			Values []string `json:"values"`
 		} `json:"reasoning_options"`
+		Cost json.RawMessage `json:"cost"`
 	}
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return ModelInfo{}, err
@@ -250,6 +257,7 @@ func parseModelEntry(providerNPM, providerAPI string, raw json.RawMessage) (Mode
 		ModelProviderAPI:          entry.Provider.API,
 		InterleavedField:          entry.Interleaved.Field,
 		VisionInput:               containsFold(entry.Modalities.Input, "image"),
+		Price:                     parseModelPrice(entry.Cost),
 		Found:                     true,
 		ProviderCount:             1,
 	}, nil

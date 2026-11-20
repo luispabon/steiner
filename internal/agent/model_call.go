@@ -41,12 +41,15 @@ func recordModelUsage(req RunRequest, usage *provider.UsageStats, kind usagestat
 		return
 	}
 	req.UsageRecorder.Record(usagestats.Observation{
-		ProviderAlias:  req.ResolvedModel.ProviderAlias,
-		ProviderType:   string(req.ResolvedModel.EffectiveProviderType),
-		BackendModelID: req.ResolvedModel.BackendModelID,
-		PromptTokens:   usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
+		ProviderAlias:          req.ResolvedModel.ProviderAlias,
+		ProviderType:           string(req.ResolvedModel.EffectiveProviderType),
+		ConfiguredProviderType: string(req.ResolvedModel.ProviderConfig.Type),
+		BackendModelID:         req.ResolvedModel.BackendModelID,
+		PromptTokens:           usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
 		CacheReadTokens: usage.CacheReadInputTokens, CacheCreateTokens: usage.CacheCreationInputTokens,
-		Source: req.UsageSource, CallKind: kind,
+		ReasoningTokens: usage.ReasoningTokens, CacheReported: usage.CacheReported,
+		ReportedCostUSD: provider.RecordedCostUSD(usage, req.ResolvedModel.EffectiveProviderType),
+		Source:          req.UsageSource, CallKind: kind,
 	})
 }
 

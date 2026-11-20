@@ -112,6 +112,11 @@ type Result struct {
 	// CacheCreateTokens is the total cache-create tokens used by the child.
 	CacheCreateTokens int `json:"cache_create_tokens,omitempty"`
 
+	// CacheReportedInputTokens is the prompt-side input total (uncached plus
+	// cache read plus cache create) over the calls whose provider reported cache
+	// data. Zero means none did, so a cache hit rate is not defined.
+	CacheReportedInputTokens int `json:"cache_reported_input_tokens,omitempty"`
+
 	// StopReason carries the raw stop reason string when Status is StatusPartial.
 	// It distinguishes budget exhaustion cause (e.g. "max_turns", "max_tokens").
 	StopReason string `json:"stop_reason,omitempty"`

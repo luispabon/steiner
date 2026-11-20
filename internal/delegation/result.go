@@ -108,16 +108,17 @@ func buildResultInternal(agentID string, state agent.RunState, tc *traceCollecto
 
 	uses, denied := countAdvisorUsage(state.Conversation)
 	result := Result{
-		AgentID:           agentID,
-		Output:            output,
-		TurnCount:         state.TurnCount,
-		TokenCount:        cache.OutputTokens,
-		ToolCallCount:     countToolCalls(state.Conversation),
-		AdvisorUses:       uses,
-		AdvisorDenied:     denied,
-		InputTokens:       cache.InputTokens,
-		CacheReadTokens:   cache.CacheReadTokens,
-		CacheCreateTokens: cache.CacheCreateTokens,
+		AgentID:                  agentID,
+		Output:                   output,
+		TurnCount:                state.TurnCount,
+		TokenCount:               cache.OutputTokens,
+		ToolCallCount:            countToolCalls(state.Conversation),
+		AdvisorUses:              uses,
+		AdvisorDenied:            denied,
+		InputTokens:              cache.InputTokens,
+		CacheReadTokens:          cache.CacheReadTokens,
+		CacheCreateTokens:        cache.CacheCreateTokens,
+		CacheReportedInputTokens: cache.CacheReportedInputTokens,
 	}
 
 	rawReason := string(state.StopReason)

@@ -326,16 +326,16 @@ func TestAdvisorEventsRender(t *testing.T) {
 		t.Fatalf("complete text = %q, want no cache= field when there is no cache-bearing usage", got)
 	}
 
-	completeWithUsage := NewAdvisorCompleteEvent(AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first", CacheReadTokens: 10, CacheCreateTokens: 20, InputTokens: 30})
+	completeWithUsage := NewAdvisorCompleteEvent(AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first", CacheReadTokens: 10, CacheCreateTokens: 20, InputTokens: 30, CacheReportedInputTokens: 60})
 	payload, ok := completeWithUsage.Payload.(AdvisorCompleteEvent)
 	if !ok {
 		t.Fatalf("payload = %T, want AdvisorCompleteEvent", completeWithUsage.Payload)
 	}
-	if payload.CacheReadTokens != 10 || payload.CacheCreateTokens != 20 || payload.InputTokens != 30 {
-		t.Fatalf("payload usage = %+v, want CacheReadTokens=10 CacheCreateTokens=20 InputTokens=30", payload)
+	if payload.CacheReadTokens != 10 || payload.CacheCreateTokens != 20 || payload.InputTokens != 30 || payload.CacheReportedInputTokens != 60 {
+		t.Fatalf("payload usage = %+v, want CacheReadTokens=10 CacheCreateTokens=20 InputTokens=30 CacheReportedInputTokens=60", payload)
 	}
 	completeWithUsageRendered := renderEvent(completeWithUsage)
-	wantCacheField := "cache=16.7%" // 10 / (30+10+20) = 16.666...%
+	wantCacheField := "cache=16.7%" // 10 / 60 = 16.666...%
 	if got := completeWithUsageRendered.Text; !strings.Contains(got, wantCacheField) {
 		t.Fatalf("complete-with-usage text = %q, want %q", got, wantCacheField)
 	}
@@ -346,14 +346,55 @@ func TestAdvisorEventsRender(t *testing.T) {
 	}
 }
 
-// TestAdvisorCompleteEventCacheHitRateNotDoubleCounted pins Fix 0 (issue
-// #490): InputTokens must already be the non-cached portion of the prompt, so
-// for a turn with 100 total prompt tokens where 50 were served from cache,
-// the rendered hit rate must be 50/100 = 50.0%, not 50/150.
-func TestAdvisorCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
-	rendered := renderEvent(NewAdvisorCompleteEvent(AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "note", CacheReadTokens: 50, InputTokens: 50}))
-	if got := rendered.Text; !strings.Contains(got, "cache=50.0%") {
-		t.Fatalf("text = %q, want cache=50.0%%", got)
+// TestAdvisorCompleteEventCacheHitRateFollowsPresenceRule pins the cache
+// presence rule: the hit rate divides cache reads by the reported-cache input
+// total, shows 0.0% when the provider reported cache data with no reads, and
+// disappears entirely when the provider reported nothing about caching.
+func TestAdvisorCompleteEventCacheHitRateFollowsPresenceRule(t *testing.T) {
+	tests := []struct {
+		name          string
+		cacheRead     int
+		reportedInput int
+		wantCache     string
+	}{
+		{
+			name:          "reported with zero reads shows a zero rate",
+			reportedInput: 100,
+			wantCache:     "cache=0.0%",
+		},
+		{
+			name:      "provider reported no cache data",
+			wantCache: "",
+		},
+		{
+			name:          "normal hit is read over reported input, not doubled",
+			cacheRead:     50,
+			reportedInput: 100,
+			wantCache:     "cache=50.0%",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered := renderEvent(NewAdvisorCompleteEvent(AdvisorCompleteParams{
+				Model:                    "advisor-model",
+				UseNumber:                1,
+				MaxUses:                  2,
+				Note:                     "note",
+				CacheReadTokens:          tc.cacheRead,
+				InputTokens:              100 - tc.cacheRead,
+				CacheReportedInputTokens: tc.reportedInput,
+			}))
+			if tc.wantCache == "" {
+				if strings.Contains(rendered.Text, "cache=") {
+					t.Fatalf("text = %q, want no cache= field", rendered.Text)
+				}
+				return
+			}
+			if !strings.Contains(rendered.Text, tc.wantCache) {
+				t.Fatalf("text = %q, want %q", rendered.Text, tc.wantCache)
+			}
+		})
 	}
 }
 
@@ -370,14 +411,15 @@ func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 	}
 
 	withUsage := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
-		DelegationOccurrence: DelegationOccurrence{AgentID: "child-2"},
-		Status:               "complete",
-		TurnCount:            4,
-		TokenCount:           8123,
-		ToolCallCount:        12,
-		InputTokens:          50,
-		CacheReadTokens:      950,
-		CacheCreateTokens:    0,
+		DelegationOccurrence:     DelegationOccurrence{AgentID: "child-2"},
+		Status:                   "complete",
+		TurnCount:                4,
+		TokenCount:               8123,
+		ToolCallCount:            12,
+		InputTokens:              50,
+		CacheReadTokens:          950,
+		CacheCreateTokens:        0,
+		CacheReportedInputTokens: 1000,
 	}))
 	if got := withUsage.Text; !strings.Contains(got, "cache=95.0%") {
 		t.Fatalf("with-usage text = %q, want cache=95.0%%", got)
@@ -389,20 +431,53 @@ func TestDelegationCompleteEventRendersCacheHitRate(t *testing.T) {
 	}
 }
 
-// TestDelegationCompleteEventCacheHitRateNotDoubleCounted pins Fix 0 (issue
-// #490): InputTokens must already be the non-cached portion of the prompt, so
-// for a turn with 100 total prompt tokens where 50 were served from cache,
-// the rendered hit rate must be 50/100 = 50.0%, not 50/150.
-func TestDelegationCompleteEventCacheHitRateNotDoubleCounted(t *testing.T) {
-	rendered := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
-		DelegationOccurrence: DelegationOccurrence{AgentID: "child-3"},
-		Status:               "complete",
-		InputTokens:          50,
-		CacheReadTokens:      50,
-		CacheCreateTokens:    0,
-	}))
-	if got := rendered.Text; !strings.Contains(got, "cache=50.0%") {
-		t.Fatalf("text = %q, want cache=50.0%%", got)
+// TestDelegationCompleteEventCacheHitRateFollowsPresenceRule pins the cache
+// presence rule for sub-agent cards: reported cache data with no reads renders
+// 0.0%, and a provider that reported nothing yields no cache field at all.
+func TestDelegationCompleteEventCacheHitRateFollowsPresenceRule(t *testing.T) {
+	tests := []struct {
+		name          string
+		cacheRead     int
+		reportedInput int
+		wantCache     string
+	}{
+		{
+			name:          "reported with zero reads shows a zero rate",
+			reportedInput: 100,
+			wantCache:     "cache=0.0%",
+		},
+		{
+			name:      "provider reported no cache data",
+			wantCache: "",
+		},
+		{
+			name:          "normal hit is read over reported input, not doubled",
+			cacheRead:     50,
+			reportedInput: 100,
+			wantCache:     "cache=50.0%",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rendered := renderEvent(NewDelegationCompleteEvent(DelegationCompleteParams{
+				DelegationOccurrence:     DelegationOccurrence{AgentID: "child-3"},
+				Status:                   "complete",
+				InputTokens:              100 - tc.cacheRead,
+				CacheReadTokens:          tc.cacheRead,
+				CacheCreateTokens:        0,
+				CacheReportedInputTokens: tc.reportedInput,
+			}))
+			if tc.wantCache == "" {
+				if strings.Contains(rendered.Text, "cache=") {
+					t.Fatalf("text = %q, want no cache= field", rendered.Text)
+				}
+				return
+			}
+			if !strings.Contains(rendered.Text, tc.wantCache) {
+				t.Fatalf("text = %q, want %q", rendered.Text, tc.wantCache)
+			}
+		})
 	}
 }
 

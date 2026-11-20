@@ -103,9 +103,13 @@ type DelegationCompleteEvent struct {
 	InputTokens       int    `json:"input_tokens,omitempty"`
 	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
 	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
-	AdvisorBudget     int    `json:"advisor_budget,omitempty"`
-	AdvisorUses       int    `json:"advisor_uses,omitempty"`
-	AdvisorDenied     int    `json:"advisor_denied,omitempty"`
+	// CacheReportedInputTokens is the prompt-side input total of the child's
+	// calls whose provider reported cache data. Zero means none did, so no hit
+	// rate is shown rather than a 0% miss.
+	CacheReportedInputTokens int `json:"cache_reported_input_tokens,omitempty"`
+	AdvisorBudget            int `json:"advisor_budget,omitempty"`
+	AdvisorUses              int `json:"advisor_uses,omitempty"`
+	AdvisorDenied            int `json:"advisor_denied,omitempty"`
 }
 
 // DelegationFailedEvent records a failed delegated child task.
@@ -199,9 +203,12 @@ type DelegationCompleteParams struct {
 	InputTokens       int
 	CacheReadTokens   int
 	CacheCreateTokens int
-	AdvisorBudget     int
-	AdvisorUses       int
-	AdvisorDenied     int
+	// CacheReportedInputTokens is the prompt-side input total of the calls whose
+	// provider reported cache data; zero means none reported.
+	CacheReportedInputTokens int
+	AdvisorBudget            int
+	AdvisorUses              int
+	AdvisorDenied            int
 }
 
 // NewDelegationCompleteEvent creates a new delegation complete event.

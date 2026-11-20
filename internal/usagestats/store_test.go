@@ -469,6 +469,7 @@ func TestStoreWriteRefusesUnreadableFile(t *testing.T) {
 		{"invalid entry", []byte(`{"schema_version":2,"entries":[{"requests":"many"}]}`), errStoreCorrupt},
 		{"trailing data", []byte(`{"schema_version":2,"entries":[]}{"schema_version":2}`), errStoreCorrupt},
 		{"unsupported schema version", []byte("{\"schema_version\":999,\"entries\":[]}"), errStoreUnsupportedSchema},
+		{"next schema version", []byte("{\"schema_version\":4,\"entries\":[]}"), errStoreUnsupportedSchema},
 	}
 
 	for _, tt := range tests {

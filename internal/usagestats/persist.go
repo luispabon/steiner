@@ -86,6 +86,12 @@ func (w *persistWriter) add(key bucketKey, delta bucket) {
 	b.CacheReadTokens += delta.CacheReadTokens
 	b.CacheCreateTokens += delta.CacheCreateTokens
 	b.CompletionTokens += delta.CompletionTokens
+	b.ReasoningTokens += delta.ReasoningTokens
+	b.CacheReportedRequests += delta.CacheReportedRequests
+	b.CacheReportedInputTokens += delta.CacheReportedInputTokens
+	b.CostMicroUSD += delta.CostMicroUSD
+	b.ReportedCostRequests += delta.ReportedCostRequests
+	b.UnpricedRequests += delta.UnpricedRequests
 	w.mu.Unlock()
 
 	select {

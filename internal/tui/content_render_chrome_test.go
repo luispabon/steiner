@@ -102,12 +102,13 @@ func TestCompactionFinishedHeaderShowsCacheRateBeforeElapsed(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
-		finished:          true,
-		elapsed:           "3s",
-		compactionCount:   2,
-		cacheReadTokens:   950,
-		inputTokens:       50,
-		cacheCreateTokens: 0,
+		finished:                 true,
+		elapsed:                  "3s",
+		compactionCount:          2,
+		cacheReadTokens:          950,
+		inputTokens:              50,
+		cacheCreateTokens:        0,
+		cacheReportedInputTokens: 1000,
 	}
 
 	out := b.renderCompactionBanner(cd, 80)
@@ -134,6 +135,8 @@ func TestCompactionFinishedHeaderShowsZeroCacheRate(t *testing.T) {
 		elapsed:         "3s",
 		compactionCount: 2,
 		inputTokens:     100,
+		// A provider that reported cache data with no reads shows 0.0%.
+		cacheReportedInputTokens: 100,
 	}
 
 	out := b.renderCompactionBanner(cd, 80)
@@ -180,14 +183,15 @@ func TestCompactionHeaderSeparatesMetaWithMiddots(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
 	cd := &compactionBannerData{
-		finished:             true,
-		subtitle:             "context compacted",
-		elapsed:              "3s",
-		compactionCount:      2,
-		compactionModel:      "opencode-go/deepseek-v4.1-flash",
-		compactionModelAlias: "haiku",
-		cacheReadTokens:      950,
-		inputTokens:          50,
+		finished:                 true,
+		subtitle:                 "context compacted",
+		elapsed:                  "3s",
+		compactionCount:          2,
+		compactionModel:          "opencode-go/deepseek-v4.1-flash",
+		compactionModelAlias:     "haiku",
+		cacheReadTokens:          950,
+		inputTokens:              50,
+		cacheReportedInputTokens: 1000,
 	}
 
 	out := stripANSI(b.renderCompactionBanner(cd, 120))
@@ -200,12 +204,13 @@ func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
 	b.handleCompactionDiagnostics(output.ContextCompactionEvent{
-		Severity:          "ok",
-		CompactionCount:   1,
-		SummaryTitle:      "ctx",
-		CacheReadTokens:   30,
-		InputTokens:       50,
-		CacheCreateTokens: 20,
+		Severity:                 "ok",
+		CompactionCount:          1,
+		SummaryTitle:             "ctx",
+		CacheReadTokens:          30,
+		InputTokens:              50,
+		CacheCreateTokens:        20,
+		CacheReportedInputTokens: 100,
 	})
 
 	if len(b.segments) == 0 {
@@ -219,8 +224,8 @@ func TestCompactionDiagnosticsWiresBannerUsage(t *testing.T) {
 	if !data.finished {
 		t.Fatal("finished compaction banner has finished = false")
 	}
-	if data.cacheReadTokens != 30 || data.inputTokens != 50 || data.cacheCreateTokens != 20 {
-		t.Fatalf("banner usage = %d/%d/%d, want 30/50/20", data.cacheReadTokens, data.inputTokens, data.cacheCreateTokens)
+	if data.cacheReadTokens != 30 || data.inputTokens != 50 || data.cacheCreateTokens != 20 || data.cacheReportedInputTokens != 100 {
+		t.Fatalf("banner usage = %d/%d/%d reported=%d, want 30/50/20 reported=100", data.cacheReadTokens, data.inputTokens, data.cacheCreateTokens, data.cacheReportedInputTokens)
 	}
 	if rendered := b.renderCompactionBanner(data, 80); !strings.Contains(rendered, "cache ") {
 		t.Fatalf("rendered banner = %q, want cache rate", rendered)

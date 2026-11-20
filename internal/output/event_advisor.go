@@ -22,17 +22,20 @@ type AdvisorReductionInfo struct {
 
 // AdvisorCompleteEvent records a completed advisor call.
 type AdvisorCompleteEvent struct {
-	Model             string                `json:"model,omitempty"`
-	UseNumber         int                   `json:"use_number"`
-	MaxUses           int                   `json:"max_uses"`
-	Note              string                `json:"note,omitempty"`
-	Error             string                `json:"error,omitempty"`
-	Truncated         bool                  `json:"truncated,omitempty"`
-	CacheReadTokens   int                   `json:"cache_read_tokens,omitempty"`
-	CacheCreateTokens int                   `json:"cache_create_tokens,omitempty"`
-	InputTokens       int                   `json:"input_tokens,omitempty"`
-	TokenCount        int                   `json:"token_count,omitempty"`
-	Reduction         *AdvisorReductionInfo `json:"reduction,omitempty"`
+	Model             string `json:"model,omitempty"`
+	UseNumber         int    `json:"use_number"`
+	MaxUses           int    `json:"max_uses"`
+	Note              string `json:"note,omitempty"`
+	Error             string `json:"error,omitempty"`
+	Truncated         bool   `json:"truncated,omitempty"`
+	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
+	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
+	InputTokens       int    `json:"input_tokens,omitempty"`
+	// CacheReportedInputTokens is the prompt-side input total of the advisor
+	// calls whose provider reported cache data. Zero means none did.
+	CacheReportedInputTokens int                   `json:"cache_reported_input_tokens,omitempty"`
+	TokenCount               int                   `json:"token_count,omitempty"`
+	Reduction                *AdvisorReductionInfo `json:"reduction,omitempty"`
 }
 
 // AdvisorBudgetExhaustedEvent records a skipped advisor call after the per-run
@@ -68,23 +71,27 @@ type AdvisorCompleteParams struct {
 	CacheReadTokens   int
 	CacheCreateTokens int
 	InputTokens       int
-	TokenCount        int
-	Reduction         *AdvisorReductionInfo
+	// CacheReportedInputTokens is the prompt-side input total of the calls whose
+	// provider reported cache data; zero means none reported.
+	CacheReportedInputTokens int
+	TokenCount               int
+	Reduction                *AdvisorReductionInfo
 }
 
 // NewAdvisorCompleteEvent creates an advisor_complete event.
 func NewAdvisorCompleteEvent(p AdvisorCompleteParams) Event {
 	payload := AdvisorCompleteEvent{
-		Model:             strings.TrimSpace(p.Model),
-		UseNumber:         p.UseNumber,
-		MaxUses:           p.MaxUses,
-		Note:              strings.TrimSpace(p.Note),
-		Truncated:         p.Truncated,
-		CacheReadTokens:   p.CacheReadTokens,
-		CacheCreateTokens: p.CacheCreateTokens,
-		InputTokens:       p.InputTokens,
-		TokenCount:        p.TokenCount,
-		Reduction:         cloneAdvisorReductionInfo(p.Reduction),
+		Model:                    strings.TrimSpace(p.Model),
+		UseNumber:                p.UseNumber,
+		MaxUses:                  p.MaxUses,
+		Note:                     strings.TrimSpace(p.Note),
+		Truncated:                p.Truncated,
+		CacheReadTokens:          p.CacheReadTokens,
+		CacheCreateTokens:        p.CacheCreateTokens,
+		InputTokens:              p.InputTokens,
+		CacheReportedInputTokens: p.CacheReportedInputTokens,
+		TokenCount:               p.TokenCount,
+		Reduction:                cloneAdvisorReductionInfo(p.Reduction),
 	}
 	if p.Err != nil {
 		payload.Error = p.Err.Error()

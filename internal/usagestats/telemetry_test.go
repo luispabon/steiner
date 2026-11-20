@@ -111,6 +111,32 @@ func TestTelemetryUnwritablePathDoesNotFailRecording(t *testing.T) {
 	recorder.Record(Observation{PromptTokens: 10})
 }
 
+func TestTelemetryUsesRecordedReasoningAndCachePresence(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "telemetry-normalized.jsonl")
+	t.Setenv(TelemetryEnvVar, path)
+	t.Setenv(TelemetryRunEnvVar, "")
+
+	recorder := newTestRecorder(t, nil)
+	recorder.Record(Observation{
+		ProviderAlias: "p", PromptTokens: 100, CompletionTokens: 5,
+		ReasoningTokens: 40, CacheReadTokens: 10,
+	})
+
+	lines := readTelemetryLines(t, path)
+	if len(lines) != 1 {
+		t.Fatalf("got %d telemetry lines, want 1", len(lines))
+	}
+	// Record clamps reasoning to the completion count the line reports.
+	if got, want := lines[0].ReasoningTokens, 5; got != want {
+		t.Errorf("reasoning_tokens = %d, want %d", got, want)
+	}
+	// Positive cache tokens count as reported cache data even without the flag.
+	if !lines[0].CacheReported {
+		t.Error("cache_reported = false, want true for positive cache read tokens")
+	}
+}
+
 func TestSourceName(t *testing.T) {
 	tests := []struct {
 		name   string

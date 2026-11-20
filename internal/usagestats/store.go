@@ -22,11 +22,16 @@ const (
 	// either boundary. The JSONL telemetry file (see telemetry.go) remains the
 	// long-term benchmark substrate; this store stays the glanceable surface.
 	retentionDays = 33
-	// schemaVersion 2 adds storeEntry.Source so the persisted store can break
-	// results down by call surface (parent/sub-agent/advisor). legacySchemaVersion
-	// covers files written before that field existed; those decode with an
-	// empty/unknown source rather than being discarded.
-	schemaVersion       = 2
+	// sourceSchemaVersion 2 adds storeEntry.Source so the persisted store can
+	// break results down by call surface (parent/sub-agent/advisor).
+	sourceSchemaVersion = 2
+	// schemaVersion 3 adds reasoning tokens, cache-report presence and
+	// provider-reported cost. decode backfills those fields for older files
+	// (see backfillLegacyPresence).
+	schemaVersion = 3
+	// legacySchemaVersion is the oldest layout decode still accepts. It predates
+	// storeEntry.Source, so those entries decode with an empty/unknown source
+	// rather than being discarded.
 	legacySchemaVersion = 1
 )
 
@@ -55,7 +60,9 @@ func defaultStorePath() string {
 
 // storeEntry is the on-disk representation of a bucket. Source is absent from
 // files written before schema version 2; decodeBuckets treats a missing value
-// as an unknown/unspecified source rather than failing to decode.
+// as an unknown/unspecified source rather than failing to decode. The
+// reasoning, cache-presence and cost fields are absent from files written
+// before schema version 3; decode backfills them.
 type storeEntry struct {
 	Provider          string `json:"provider"`
 	ProviderType      string `json:"provider_type"`
@@ -67,6 +74,13 @@ type storeEntry struct {
 	CacheReadTokens   int    `json:"cache_read_tokens"`
 	CacheCreateTokens int    `json:"cache_create_tokens"`
 	CompletionTokens  int    `json:"completion_tokens"`
+
+	ReasoningTokens          int   `json:"reasoning_tokens,omitempty"`
+	CacheReportedRequests    int   `json:"cache_reported_requests,omitempty"`
+	CacheReportedInputTokens int   `json:"cache_reported_input_tokens,omitempty"`
+	CostMicroUSD             int64 `json:"cost_micro_usd,omitempty"`
+	ReportedCostRequests     int   `json:"reported_cost_requests,omitempty"`
+	UnpricedRequests         int   `json:"unpriced_requests,omitempty"`
 }
 
 // storeFile is the on-disk format.
@@ -148,16 +162,20 @@ func (s *store) decode(data []byte) (map[bucketKey]*bucket, error) {
 	if err := json.Unmarshal(data, &sf); err != nil {
 		return nil, fmt.Errorf("%w: %w", errStoreCorrupt, err)
 	}
-	if sf.SchemaVersion != schemaVersion && sf.SchemaVersion != legacySchemaVersion {
+	if sf.SchemaVersion < legacySchemaVersion || sf.SchemaVersion > schemaVersion {
 		return nil, fmt.Errorf("%w: %d", errStoreUnsupportedSchema, sf.SchemaVersion)
 	}
 
-	// Entries from a legacySchemaVersion file predate storeEntry.Source: they
+	// Entries from a pre-sourceSchemaVersion file predate storeEntry.Source: they
 	// carry no per-source attribution at all, so decode them as SourceUnknown
 	// rather than parseSourceName's default of SourceParent, which would
 	// misrepresent pre-upgrade aggregate history as current parent-run
 	// traffic in a per-source breakdown.
-	legacy := sf.SchemaVersion == legacySchemaVersion
+	legacySource := sf.SchemaVersion < sourceSchemaVersion
+	// Entries from a pre-schemaVersion file predate the reasoning, cache-presence
+	// and cost fields. Backfill them here, once, so aggregation only ever sees
+	// schema 3 semantics and a later write persists the backfilled values.
+	legacyPresence := sf.SchemaVersion < schemaVersion
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
 	for _, ent := range sf.Entries {
@@ -165,7 +183,7 @@ func (s *store) decode(data []byte) (map[bucketKey]*bucket, error) {
 			continue
 		}
 		source := SourceUnknown
-		if !legacy {
+		if !legacySource {
 			source = parseSourceName(ent.Source)
 		}
 		key := bucketKey{
@@ -175,16 +193,41 @@ func (s *store) decode(data []byte) (map[bucketKey]*bucket, error) {
 			hourUnix:       ent.HourUnix,
 			source:         source,
 		}
-		buckets[key] = &bucket{
-			Requests:          ent.Requests,
-			InputTokens:       ent.InputTokens,
-			CacheReadTokens:   ent.CacheReadTokens,
-			CacheCreateTokens: ent.CacheCreateTokens,
-			CompletionTokens:  ent.CompletionTokens,
+		b := &bucket{
+			Requests:                 ent.Requests,
+			InputTokens:              ent.InputTokens,
+			CacheReadTokens:          ent.CacheReadTokens,
+			CacheCreateTokens:        ent.CacheCreateTokens,
+			CompletionTokens:         ent.CompletionTokens,
+			ReasoningTokens:          ent.ReasoningTokens,
+			CacheReportedRequests:    ent.CacheReportedRequests,
+			CacheReportedInputTokens: ent.CacheReportedInputTokens,
+			CostMicroUSD:             ent.CostMicroUSD,
+			ReportedCostRequests:     ent.ReportedCostRequests,
+			UnpricedRequests:         ent.UnpricedRequests,
 		}
+		if legacyPresence {
+			backfillLegacyPresence(b)
+		}
+		buckets[key] = b
 	}
 
 	return buckets, nil
+}
+
+// backfillLegacyPresence rebuilds the presence fields for an entry decoded from
+// a schema version that never recorded them. No request in those files carried
+// a provider-reported cost, so every one of them is unpriced. Cache traffic is
+// only claimed when the stored token sums prove the provider reported some: a
+// zero cache read and zero cache create is indistinguishable from a provider
+// that said nothing about caching, so such entries stay out of the hit rate's
+// denominator instead of counting as misses.
+func backfillLegacyPresence(b *bucket) {
+	b.UnpricedRequests = b.Requests
+	if b.CacheReadTokens+b.CacheCreateTokens > 0 {
+		b.CacheReportedRequests = b.Requests
+		b.CacheReportedInputTokens = b.InputTokens + b.CacheReadTokens + b.CacheCreateTokens
+	}
 }
 
 // atomicWrite marshals buckets to JSON and writes to disk with temp+rename.
@@ -192,16 +235,22 @@ func (s *store) atomicWrite(buckets map[bucketKey]*bucket) error {
 	entries := make([]storeEntry, 0, len(buckets))
 	for key, b := range buckets {
 		entries = append(entries, storeEntry{
-			Provider:          key.providerAlias,
-			ProviderType:      key.providerType,
-			Model:             key.backendModelID,
-			HourUnix:          key.hourUnix,
-			Source:            sourceName(key.source),
-			Requests:          b.Requests,
-			InputTokens:       b.InputTokens,
-			CacheReadTokens:   b.CacheReadTokens,
-			CacheCreateTokens: b.CacheCreateTokens,
-			CompletionTokens:  b.CompletionTokens,
+			Provider:                 key.providerAlias,
+			ProviderType:             key.providerType,
+			Model:                    key.backendModelID,
+			HourUnix:                 key.hourUnix,
+			Source:                   sourceName(key.source),
+			Requests:                 b.Requests,
+			InputTokens:              b.InputTokens,
+			CacheReadTokens:          b.CacheReadTokens,
+			CacheCreateTokens:        b.CacheCreateTokens,
+			CompletionTokens:         b.CompletionTokens,
+			ReasoningTokens:          b.ReasoningTokens,
+			CacheReportedRequests:    b.CacheReportedRequests,
+			CacheReportedInputTokens: b.CacheReportedInputTokens,
+			CostMicroUSD:             b.CostMicroUSD,
+			ReportedCostRequests:     b.ReportedCostRequests,
+			UnpricedRequests:         b.UnpricedRequests,
 		})
 	}
 
@@ -282,6 +331,12 @@ func (s *store) writeBatch(deltas map[bucketKey]*bucket) error {
 		b.CacheReadTokens += delta.CacheReadTokens
 		b.CacheCreateTokens += delta.CacheCreateTokens
 		b.CompletionTokens += delta.CompletionTokens
+		b.ReasoningTokens += delta.ReasoningTokens
+		b.CacheReportedRequests += delta.CacheReportedRequests
+		b.CacheReportedInputTokens += delta.CacheReportedInputTokens
+		b.CostMicroUSD += delta.CostMicroUSD
+		b.ReportedCostRequests += delta.ReportedCostRequests
+		b.UnpricedRequests += delta.UnpricedRequests
 	}
 
 	cutoff := s.clock().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()

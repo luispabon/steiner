@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/metadata"
@@ -21,6 +22,9 @@ type modelsDevLoader struct {
 	once     sync.Once
 	index    *metadata.Index
 	err      string // LoadStatus.Reason if the load degraded; "" if clean
+	// loaded publishes index and err once the first load attempt finished, so
+	// loadedIndex can read them without triggering (or waiting on) a load.
+	loaded atomic.Bool
 }
 
 // newModelsDevLoader returns a modelsDevLoader that loads from cache on
@@ -37,21 +41,47 @@ func newModelsDevLoaderWithFunc(fn func(context.Context) metadata.LoadResult) *m
 }
 
 func (l *modelsDevLoader) load(ctx context.Context) (*metadata.Index, string) {
-	l.once.Do(func() {
-		var result metadata.LoadResult
-		if l.loadFunc != nil {
-			result = l.loadFunc(ctx)
-		} else {
-			loadCtx, cancel := context.WithTimeout(context.Background(), discoveryTimeout)
-			defer cancel()
-			result = l.cache.LoadBestEffortWithStatus(loadCtx)
-		}
-		if result.Data != nil {
-			l.index = metadata.ParseIndex(result.Data)
-		}
-		l.err = result.Status.Reason
-	})
+	// Cancelling the caller must not poison the shared index for the rest of the
+	// session; the load's own timeout still bounds it.
+	l.once.Do(func() { l.loadNow(context.WithoutCancel(ctx)) })
 	return l.index, l.err
+}
+
+// loadWarm is load for the background warm-up: the load stops when ctx ends, so
+// a shutdown does not leave it fetching. A cancelled warm-up leaves whatever
+// the cache already holds on disk.
+func (l *modelsDevLoader) loadWarm(ctx context.Context) (*metadata.Index, string) {
+	l.once.Do(func() { l.loadNow(ctx) })
+	return l.index, l.err
+}
+
+// loadNow performs the load itself. Callers run it inside once.Do, so index and
+// err are written at most once and published by loaded.
+func (l *modelsDevLoader) loadNow(ctx context.Context) {
+	var result metadata.LoadResult
+	if l.loadFunc != nil {
+		result = l.loadFunc(ctx)
+	} else {
+		loadCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+		defer cancel()
+		result = l.cache.LoadBestEffortWithStatus(loadCtx)
+	}
+	if result.Data != nil {
+		l.index = metadata.ParseIndex(result.Data)
+	}
+	l.err = result.Status.Reason
+	l.loaded.Store(true)
+}
+
+// loadedIndex returns the already-loaded index without starting a load. ok is
+// false until the first load attempt finishes, which lets callers that must not
+// block (the usage recorder's price lookup) skip the index instead of waiting
+// on a network refresh.
+func (l *modelsDevLoader) loadedIndex() (idx *metadata.Index, loadErr string, ok bool) {
+	if !l.loaded.Load() {
+		return nil, "", false
+	}
+	return l.index, l.err, true
 }
 
 // modelsDevSource answers facts from a lazily-loaded models.dev index. The

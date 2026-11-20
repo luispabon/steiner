@@ -11,6 +11,7 @@ import (
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 // compactConversationFn is the compaction operation decoupled from *Runner.
@@ -106,19 +107,20 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	}
 
 	emitEvent(p.request.Events, output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{
-		Turn:              turn,
-		Model:             p.request.ResolvedModel.BackendModelID,
-		FinishReason:      response.FinishReason,
-		ToolCalls:         len(response.Message.ToolCalls),
-		CompletionTokens:  turnTokens,
-		PromptTokens:      promptUsageTokens(response.Usage),
-		CacheReadTokens:   cacheReadUsageTokens(response.Usage),
-		CacheCreateTokens: cacheCreateUsageTokens(response.Usage),
-		DurationMs:        durationMs,
-		TTFTMs:            ttftMs,
-		OutputTPS:         outputTPS,
-		Success:           true,
-		CacheColdAt:       cacheColdAt,
+		Turn:                     turn,
+		Model:                    p.request.ResolvedModel.BackendModelID,
+		FinishReason:             response.FinishReason,
+		ToolCalls:                len(response.Message.ToolCalls),
+		CompletionTokens:         turnTokens,
+		PromptTokens:             promptUsageTokens(response.Usage),
+		CacheReadTokens:          cacheReadUsageTokens(response.Usage),
+		CacheCreateTokens:        cacheCreateUsageTokens(response.Usage),
+		CacheReportedInputTokens: cacheReportedInputTokens(response.Usage),
+		DurationMs:               durationMs,
+		TTFTMs:                   ttftMs,
+		OutputTPS:                outputTPS,
+		Success:                  true,
+		CacheColdAt:              cacheColdAt,
 	}))
 	if content := strings.TrimSpace(response.Message.Content); content != "" || len(response.Message.ToolCalls) > 0 {
 		emitEvent(p.request.Events, output.NewAssistantMessageEvent(turn, string(response.Message.Role), response.Message.Content))
@@ -202,6 +204,17 @@ func cacheCreateUsageTokens(usage *provider.UsageStats) int {
 	return usage.CacheCreationInputTokens
 }
 
+// cacheReportedInputTokens returns usage's prompt-side input total when its
+// provider reported cache data, and zero otherwise. Summing it over calls keeps
+// calls that reported nothing out of a hit rate's denominator.
+func cacheReportedInputTokens(usage *provider.UsageStats) int {
+	if usage == nil {
+		return 0
+	}
+	tokens, _ := usagestats.CacheReportedInput(usage.PromptTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens, usage.CacheReported)
+	return tokens
+}
+
 func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, response provider.ChatResponse) (RunState, int) {
 	state.TurnCount = turn
 	turnTokens := tokenCount(response.Usage)
@@ -211,6 +224,7 @@ func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, respon
 		state.InputTokens += nonCached
 		state.CacheReadTokens += response.Usage.CacheReadInputTokens
 		state.CacheCreateTokens += response.Usage.CacheCreationInputTokens
+		state.CacheReportedInputTokens += cacheReportedInputTokens(response.Usage)
 	}
 	return state, turnTokens
 }

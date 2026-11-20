@@ -28,6 +28,12 @@ func (t *Totals) addBucket(b *bucket) {
 	t.CacheReadTokens += b.CacheReadTokens
 	t.CacheCreateTokens += b.CacheCreateTokens
 	t.CompletionTokens += b.CompletionTokens
+	t.ReasoningTokens += b.ReasoningTokens
+	t.CacheReportedRequests += b.CacheReportedRequests
+	t.CacheReportedInputTokens += b.CacheReportedInputTokens
+	t.CostMicroUSD += b.CostMicroUSD
+	t.ReportedCostRequests += b.ReportedCostRequests
+	t.UnpricedRequests += b.UnpricedRequests
 }
 
 // merge adds o to t.
@@ -37,6 +43,12 @@ func (t *Totals) merge(o Totals) {
 	t.CacheReadTokens += o.CacheReadTokens
 	t.CacheCreateTokens += o.CacheCreateTokens
 	t.CompletionTokens += o.CompletionTokens
+	t.ReasoningTokens += o.ReasoningTokens
+	t.CacheReportedRequests += o.CacheReportedRequests
+	t.CacheReportedInputTokens += o.CacheReportedInputTokens
+	t.CostMicroUSD += o.CostMicroUSD
+	t.ReportedCostRequests += o.ReportedCostRequests
+	t.UnpricedRequests += o.UnpricedRequests
 }
 
 // Window sums all buckets whose hour intersects the interval [now-d, now] and

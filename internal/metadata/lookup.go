@@ -23,6 +23,8 @@ type ModelInfo struct {
 	// LookupMerged result that matched exactly one provider; it is 2+ for a
 	// LookupMerged result that combined multiple providers' entries.
 	ProviderCount int
+	// Price holds the model's models.dev prices; nil means no price is known.
+	Price *ModelPrice
 }
 
 // LookupResult contains metadata and a degradation reason when lookup could not

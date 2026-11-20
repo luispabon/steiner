@@ -135,24 +135,27 @@ func emitCompactionFallbackSelectedEvent(sink output.EventSink, turn int, model,
 }
 
 type compactionDiagnosticsParams struct {
-	turn                 int
-	compactionCount      int
-	beforeFit            prompt.RequestTokenBudget
-	afterFit             prompt.RequestTokenBudget
-	mode                 prompt.CompactionMode
-	summaryTokenBudget   int
-	summarizedMessages   int
-	retainedMessages     []Message
-	requestBlock         string
-	requestBlockBytes    int
-	candidate            ConversationCandidate
-	summaryText          string
-	promptText           string
-	usage                *provider.UsageStats
-	compactionModel      string
-	compactionModelAlias string
-	fallbackStatus       string
-	fallbackReason       string
+	turn               int
+	compactionCount    int
+	beforeFit          prompt.RequestTokenBudget
+	afterFit           prompt.RequestTokenBudget
+	mode               prompt.CompactionMode
+	summaryTokenBudget int
+	summarizedMessages int
+	retainedMessages   []Message
+	requestBlock       string
+	requestBlockBytes  int
+	candidate          ConversationCandidate
+	summaryText        string
+	promptText         string
+	usage              *provider.UsageStats
+	// cacheReportedInputTokens is the summed prompt-side input total of the
+	// summary calls whose provider reported cache data.
+	cacheReportedInputTokens int
+	compactionModel          string
+	compactionModelAlias     string
+	fallbackStatus           string
+	fallbackReason           string
 }
 
 func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
@@ -207,6 +210,7 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		CacheReadTokens:           cacheReadTokens,
 		InputTokens:               inputTokens,
 		CacheCreateTokens:         cacheCreateTokens,
+		CacheReportedInputTokens:  params.cacheReportedInputTokens,
 		Mode:                      string(params.mode),
 		BeforePromptTokens:        params.beforeFit.EstimatedPromptTokens,
 		BeforeRawPromptTokens:     params.beforeFit.RawEstimatedPromptTokens,

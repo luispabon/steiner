@@ -8,11 +8,14 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
+
+func floatPtr(v float64) *float64 { return &v }
 
 type fakeProvider struct {
 	requests         []provider.ChatRequest
@@ -683,5 +686,55 @@ func TestHandlerDoesNotRecordFabricatedUsageWhenProviderReportsNone(t *testing.T
 		if row.BackendModelID == backendModelID {
 			t.Fatalf("unexpected recorded row for %q: %#v (no usage means no observation recorded)", backendModelID, row)
 		}
+	}
+}
+
+// TestRecordAdvisorUsageReportedCostOnlyFromOpenRouter pins that the advisor
+// records a provider-reported cost for OpenRouter only; other providers' cost
+// fields fall through to the pricer or stay unpriced.
+func TestRecordAdvisorUsageReportedCostOnlyFromOpenRouter(t *testing.T) {
+	tests := []struct {
+		name         string
+		providerType config.ProviderType
+		wantMicroUSD int64
+		wantReported int
+		wantUnpriced int
+	}{
+		{
+			name:         "openrouter reports its own cost",
+			providerType: config.ProviderTypeOpenRouter,
+			wantMicroUSD: 500000,
+			wantReported: 1,
+		},
+		{
+			name:         "openai cost is not recorded",
+			providerType: config.ProviderTypeOpenAI,
+			wantUnpriced: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			rec := newUsageRecorder(t)
+			const backendModelID = "advisor-cost-model"
+			recordAdvisorUsage(rec, provider.ResolvedModel{
+				ProviderAlias:         "alias",
+				BackendModelID:        backendModelID,
+				ProviderConfig:        config.ProviderConfig{Type: tt.providerType},
+				EffectiveProviderType: tt.providerType,
+			}, &provider.UsageStats{PromptTokens: 10, CompletionTokens: 5, CostUSD: floatPtr(0.5)})
+
+			row := findUsageRow(t, rec, backendModelID)
+			if row.CostMicroUSD != tt.wantMicroUSD {
+				t.Errorf("CostMicroUSD = %d, want %d", row.CostMicroUSD, tt.wantMicroUSD)
+			}
+			if row.ReportedCostRequests != tt.wantReported {
+				t.Errorf("ReportedCostRequests = %d, want %d", row.ReportedCostRequests, tt.wantReported)
+			}
+			if row.UnpricedRequests != tt.wantUnpriced {
+				t.Errorf("UnpricedRequests = %d, want %d", row.UnpricedRequests, tt.wantUnpriced)
+			}
+		})
 	}
 }

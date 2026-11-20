@@ -304,14 +304,38 @@ func mergeAnthropicUsage(state *anthropicStreamState, usage *anthropicUsage) {
 	if state.usage == nil {
 		state.usage = &UsageStats{}
 	}
-	promptTokens := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
-	if promptTokens > 0 {
+	cacheCreation := usage.cacheCreationTokens()
+	cacheRead := usage.cacheReadTokens()
+	// message_delta omits the cache keys message_start reported, so only a
+	// present key replaces a retained value: an omitted key is not a zero.
+	// PromptTokens is the total, so it is rebuilt from the retained cache
+	// values plus this event's input_tokens.
+	if usage.CacheCreationInputTokens != nil {
+		state.usage.CacheCreationInputTokens = cacheCreation
+	}
+	if usage.CacheReadInputTokens != nil {
+		state.usage.CacheReadInputTokens = cacheRead
+	}
+	// PromptTokens is the total, so it is rebuilt from the retained cache
+	// values plus this event's input_tokens. An event carrying neither input
+	// tokens nor cache keys (the usual message_delta) leaves it alone.
+	promptTokens := usage.InputTokens + state.usage.CacheCreationInputTokens + state.usage.CacheReadInputTokens
+	carriesPrompt := usage.InputTokens > 0 || usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil
+	if carriesPrompt && promptTokens > 0 {
 		state.usage.PromptTokens = promptTokens
-		state.usage.CacheCreationInputTokens = usage.CacheCreationInputTokens
-		state.usage.CacheReadInputTokens = usage.CacheReadInputTokens
+	}
+	// Cache presence is sticky: message_delta omits the cache keys message_start
+	// reported, and that omission must not read as an unreported cache.
+	if usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil {
+		state.usage.CacheReported = true
 	}
 	if usage.OutputTokens > 0 {
 		state.usage.CompletionTokens = usage.OutputTokens
+	}
+	// Thinking tokens arrive as a per-message total on the final message_delta,
+	// so the latest non-zero value replaces the previous one rather than summing.
+	if thinking := usage.thinkingTokens(); thinking > 0 {
+		state.usage.ReasoningTokens = thinking
 	}
 	state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens
 }

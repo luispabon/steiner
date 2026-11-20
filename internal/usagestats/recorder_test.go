@@ -351,32 +351,32 @@ func TestHitRate(t *testing.T) {
 		wantOK   bool
 	}{
 		{
-			name:     "zero cache read, positive input → rate 0.0, ok true",
-			totals:   Totals{InputTokens: 100, CacheReadTokens: 0, CacheCreateTokens: 0},
+			name:     "zero cache read, positive input makes a reported cache data point of 0.0, ok true",
+			totals:   Totals{InputTokens: 100, CacheReadTokens: 0, CacheCreateTokens: 0, CacheReportedInputTokens: 100},
 			wantRate: 0.0,
 			wantOK:   true,
 		},
 		{
-			name:     "all cache read → rate 1.0",
-			totals:   Totals{InputTokens: 0, CacheReadTokens: 100, CacheCreateTokens: 0},
+			name:     "all cache read makes 1.0",
+			totals:   Totals{InputTokens: 0, CacheReadTokens: 100, CacheCreateTokens: 0, CacheReportedInputTokens: 100},
 			wantRate: 1.0,
 			wantOK:   true,
 		},
 		{
 			name:     "mixed cache and input",
-			totals:   Totals{InputTokens: 75, CacheReadTokens: 25, CacheCreateTokens: 0},
+			totals:   Totals{InputTokens: 75, CacheReadTokens: 25, CacheCreateTokens: 0, CacheReportedInputTokens: 100},
 			wantRate: 0.25,
 			wantOK:   true,
 		},
 		{
-			name:     "total input zero → ok false, no NaN",
-			totals:   Totals{InputTokens: 0, CacheReadTokens: 0, CacheCreateTokens: 0},
+			name:     "no request reported cache data makes ok false, no NaN",
+			totals:   Totals{InputTokens: 100, CacheReadTokens: 0, CacheCreateTokens: 0},
 			wantRate: 0.0,
 			wantOK:   false,
 		},
 		{
 			name:     "cache create counts in denominator",
-			totals:   Totals{InputTokens: 0, CacheReadTokens: 50, CacheCreateTokens: 50},
+			totals:   Totals{InputTokens: 0, CacheReadTokens: 50, CacheCreateTokens: 50, CacheReportedInputTokens: 100},
 			wantRate: 0.5,
 			wantOK:   true,
 		},
@@ -409,9 +409,18 @@ func TestSessionReport(t *testing.T) {
 			wantHitRateOK: false,
 		},
 		{
-			name: "only non-cached tokens",
+			name: "only non-cached tokens, cache unreported",
 			observations: []Observation{
 				{PromptTokens: 100, CompletionTokens: 20, At: baseTime},
+			},
+			wantCacheRead:  0,
+			wantTotalInput: 100,
+			wantHitRateOK:  false,
+		},
+		{
+			name: "only non-cached tokens, provider reported zero cache",
+			observations: []Observation{
+				{PromptTokens: 100, CompletionTokens: 20, CacheReported: true, At: baseTime},
 			},
 			wantCacheRead:  0,
 			wantTotalInput: 100,
@@ -503,8 +512,11 @@ func TestSessionReportFor_lastRequestAndMergedWindowRows(t *testing.T) {
 		t.Fatalf("window row totals = %+v, want 3 requests, 170 uncached, 150 cache read", row.Totals)
 	}
 	wantSources := []SourceTotals{
-		{Source: SourceParent, Totals: Totals{Requests: 2, InputTokens: 150, CacheReadTokens: 150}},
-		{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20}},
+		{Source: SourceParent, Totals: Totals{
+			Requests: 2, InputTokens: 150, CacheReadTokens: 150,
+			CacheReportedRequests: 2, CacheReportedInputTokens: 300, UnpricedRequests: 2,
+		}},
+		{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20, UnpricedRequests: 1}},
 	}
 	if !reflect.DeepEqual(row.Sources, wantSources) {
 		t.Fatalf("window row sources = %+v, want %+v", row.Sources, wantSources)
@@ -549,7 +561,10 @@ func TestSessionReport_independentOfBuckets(t *testing.T) {
 		t.Fatalf("Window rows: got %d, want 1", len(report.Rows))
 	}
 	got := report.Rows[0].Totals
-	want := Totals{Requests: 1, InputTokens: 100, CacheReadTokens: 100}
+	want := Totals{
+		Requests: 1, InputTokens: 100, CacheReadTokens: 100,
+		CacheReportedRequests: 1, CacheReportedInputTokens: 200, UnpricedRequests: 1,
+	}
 	if got != want {
 		t.Errorf("Window row totals: got %+v, want %+v", got, want)
 	}

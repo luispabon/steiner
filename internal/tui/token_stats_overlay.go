@@ -32,8 +32,9 @@ type tokenStatsWindow struct {
 
 // formatTokenStatsReport renders the token usage dashboard as markdown: a
 // headline month total, daily and weekly strips, one table per fixed window,
-// and the per-source split. now pins the calendar arithmetic and width is the
-// overlay width available for the banner.
+// and the per-source split. now pins the calendar arithmetic. width is the
+// markdown width the overlay renders the report at: it bounds the banner and
+// decides which table columns fit.
 func formatTokenStatsReport(rec *usagestats.Recorder, now time.Time, width int) string {
 	if rec == nil {
 		return tokenStatsEmptyReport
@@ -46,15 +47,36 @@ func formatTokenStatsReport(rec *usagestats.Recorder, now time.Time, width int) 
 		return tokenStatsEmptyReport
 	}
 
+	sessionTable := tokenStatsWindowTable(session)
+	windows := tokenStatsWindows(rec, monthFrom)
+	tables := make([]tokenStatsTable, 0, len(windows)+2)
+	if len(session.Rows) > 0 {
+		tables = append(tables, sessionTable)
+	}
+	windowTables := make([]tokenStatsTable, len(windows))
+	for i, window := range windows {
+		windowTables[i] = tokenStatsWindowTable(window.report)
+		if len(window.report.Rows) > 0 {
+			tables = append(tables, windowTables[i])
+		}
+	}
+	sourceTable, hasSource := tokenStatsSourceTable(rec, monthFrom)
+	if hasSource {
+		tables = append(tables, sourceTable)
+	}
+	plan := planTokenStatsTables(tables, tokenStatsTableLimit(width))
+
 	var sb strings.Builder
 	writeTokenHeadline(&sb, month, monthFrom, now, width)
 	writeThisWeekSection(&sb, rec, now)
 	writePreviousWeeksSection(&sb, rec, now)
-	writeWindowSection(&sb, "This session", session)
-	for _, window := range tokenStatsWindows(rec, monthFrom) {
-		writeWindowSection(&sb, window.label, window.report)
+	writeWindowSection(&sb, "This session", session, sessionTable, plan)
+	for i, window := range windows {
+		writeWindowSection(&sb, window.label, window.report, windowTables[i], plan)
 	}
-	writeBySourceSection(&sb, rec, monthFrom)
+	if hasSource {
+		writeBySourceSection(&sb, sourceTable, plan)
+	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
@@ -71,8 +93,13 @@ func tokenStatsWindows(rec *usagestats.Recorder, monthFrom time.Time) []tokenSta
 
 // executeOpenTokenStatsAction opens the token usage dashboard overlay.
 func (m *Model) executeOpenTokenStatsAction() (tea.Model, tea.Cmd) {
-	content := formatTokenStatsReport(m.recorder, time.Now(), m.width)
-	m.contextOverlay = openContextOverlay("Token usage", content, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+	m.contextOverlay = openContextOverlay("Token usage", tokenStatsEmptyReport, m.width, m.height, m.styles, m.content.glamourStyleSheet)
+	// The table columns depend on the report width, so the overlay rebuilds the
+	// report on every reflow, including a terminal resize.
+	m.contextOverlay.contentForWidth = func(width int) string {
+		return formatTokenStatsReport(m.recorder, time.Now(), width)
+	}
+	m.contextOverlay = m.contextOverlay.reflow()
 	m.input.Reset()
 	m.relayoutInput()
 	m.syncViewport()

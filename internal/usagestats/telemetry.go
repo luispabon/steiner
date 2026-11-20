@@ -35,6 +35,9 @@ type telemetryLine struct {
 	CacheReadTokens   int    `json:"cache_read_tokens"`
 	CacheCreateTokens int    `json:"cache_create_tokens"`
 	CompletionTokens  int    `json:"completion_tokens"`
+	ReasoningTokens   int    `json:"reasoning_tokens,omitempty"`
+	CacheReported     bool   `json:"cache_reported,omitempty"`
+	CostMicroUSD      int64  `json:"cost_micro_usd,omitempty"`
 }
 
 // telemetry appends JSON lines to a file. A nil *telemetry writes nothing, so
@@ -66,8 +69,12 @@ func newTelemetryFromEnv() *telemetry {
 	return &telemetry{file: f, runID: os.Getenv(TelemetryRunEnvVar)}
 }
 
-// record appends one observation. Safe on a nil receiver.
-func (t *telemetry) record(obs Observation, at time.Time) {
+// record appends one observation. costMicroUSD is the cost the recorder
+// resolved for it, so a provider-reported and an estimated cost both appear.
+// reasoningTokens and cacheReported are the values Record normalized, so the
+// line agrees with the bucket the same observation lands in. Safe on a nil
+// receiver.
+func (t *telemetry) record(obs Observation, at time.Time, costMicroUSD int64, reasoningTokens int, cacheReported bool) {
 	if t == nil {
 		return
 	}
@@ -83,6 +90,9 @@ func (t *telemetry) record(obs Observation, at time.Time) {
 		CacheReadTokens:   obs.CacheReadTokens,
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
+		ReasoningTokens:   reasoningTokens,
+		CacheReported:     cacheReported,
+		CostMicroUSD:      costMicroUSD,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
