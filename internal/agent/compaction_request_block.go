@@ -178,7 +178,8 @@ func legacyRequestText(content string) string {
 }
 
 // stripRequestBlocks returns a copy of messages without the latest-request
-// trailer on summary messages, so a summarizer never sees or re-quotes it.
+// trailer on summary messages, for sources that must not re-quote the verbatim
+// request, such as the history archive note.
 func stripRequestBlocks(messages []Message) []Message {
 	out := cloneMessages(messages)
 	for i := range out {

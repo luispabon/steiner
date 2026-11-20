@@ -169,6 +169,9 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 	escalation := compactionEscalationForFit(params.compactionCount, params.afterFit)
 	retainedUserMessages, retainedSubAgentResults := countRetainedUserMessages(params.retainedMessages)
 	retainedUnits := len(splitCompactionTurns(params.retainedMessages))
+	// SummaryBytes measures the summary text alone. The verbatim request block
+	// has its own reported size, whether the block was kept or dropped.
+	summaryBody, _, _ := SplitRequestBlock(params.summaryText)
 	notes := []string{
 		fmt.Sprintf("source generation=%d view=%s", params.candidate.GenerationID, params.candidate.View),
 		fmt.Sprintf("mode=%s", params.mode),
@@ -200,7 +203,7 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		SummaryTitle:              "compacted conversation history",
 		SummaryPreview:            summarizeTextPreview(params.summaryText, 120),
 		SummaryText:               params.summaryText,
-		SummaryBytes:              len(params.summaryText),
+		SummaryBytes:              len(summaryBody),
 		CacheReadTokens:           cacheReadTokens,
 		InputTokens:               inputTokens,
 		CacheCreateTokens:         cacheCreateTokens,

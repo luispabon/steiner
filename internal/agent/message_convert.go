@@ -85,9 +85,9 @@ func toProviderMessage(message Message) provider.Message {
 	if message.Role == MessageRoleSummary {
 		role = provider.MessageRoleUser
 		body, request, ok := SplitRequestBlock(content)
-		content = summaryContextPrefix + body + summaryContextSuffix
+		content = summaryContextPrefix + escapeCompactionTags(body, summaryTagPattern) + summaryContextSuffix
 		if ok {
-			content += "\n\n" + requestContextPrefix + request + requestContextSuffix
+			content += "\n\n" + requestContextPrefix + escapeCompactionTags(request, requestTagPattern) + requestContextSuffix
 		}
 	}
 	out := provider.Message{

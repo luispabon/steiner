@@ -134,6 +134,7 @@ func (s summarizeCompactionStages) run(
 	outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
 	if err == nil {
 		outcome.StageCount = 2
+		outcome.Usage = sumUsageStats(normalOutcome.Usage, outcome.Usage)
 		outcome.SummarizedMessages += normalOutcome.SummarizedMessages
 		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
 		return outcome, nil
@@ -144,6 +145,7 @@ func (s summarizeCompactionStages) run(
 	// any other error stays an error.
 	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome, err); ok {
 		dropped.StageCount = 2
+		dropped.Usage = sumUsageStats(normalOutcome.Usage, dropped.Usage)
 		dropped.SummarizedMessages += normalOutcome.SummarizedMessages
 		dropped.pendingArchive = append(normalOutcome.pendingArchive, dropped.pendingArchive...)
 		return dropped, nil
@@ -151,6 +153,12 @@ func (s summarizeCompactionStages) run(
 	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, normalOutcome, err); ok {
 		// Either attempt may have retired the main generation's backend state.
 		dropped.BackendStateCleared = dropped.BackendStateCleared || outcome.BackendStateCleared
+		if outcome.Applied {
+			// The emergency call ran and its summary was discarded, but its tokens
+			// were spent and its stage escalated the compaction count.
+			dropped.StageCount = 2
+			dropped.Usage = sumUsageStats(dropped.Usage, outcome.Usage)
+		}
 		return dropped, nil
 	}
 	outcome, err = compactionFailedOutcome(outcome, err)
@@ -212,6 +220,27 @@ func isCompactionBudgetMiss(err error) bool {
 	return errors.As(err, &miss)
 }
 
+// sumUsageStats returns the token accounting of two summary calls. A nil record
+// adds nothing, and two nil records stay nil, so a stage that issued no call is
+// not reported as usage.
+func sumUsageStats(a, b *provider.UsageStats) *provider.UsageStats {
+	if a == nil && b == nil {
+		return nil
+	}
+	out := provider.UsageStats{}
+	if a != nil {
+		out = *a
+	}
+	if b != nil {
+		out.PromptTokens += b.PromptTokens
+		out.CompletionTokens += b.CompletionTokens
+		out.TotalTokens += b.TotalTokens
+		out.CacheCreationInputTokens += b.CacheCreationInputTokens
+		out.CacheReadInputTokens += b.CacheReadInputTokens
+	}
+	return &out
+}
+
 // adoptWithoutRequestBlock retries an applied stage without its stored
 // latest-request block: it rewrites the stored summary text, issues no model
 // call, and refits with the stage's fit runner. It reports false when cause is
@@ -254,9 +283,6 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 
 	requestBlock, requestBlockStatus := latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
-	// The summarizer sees only summary bodies, never a carried block, so it
-	// cannot paraphrase or re-quote the verbatim request.
-	params.sourceMessages = stripRequestBlocks(params.sourceMessages)
 
 	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, params)
 	if err != nil {
@@ -302,7 +328,10 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 
 	var pendingArchive [][]Message
 	if req.HistoryArchive != nil {
-		summaryText, pendingArchive = withHistoryNote(req, summaryText, params.sourceMessages)
+		// The archive note must not re-quote the verbatim request. The summary
+		// request itself keeps the block, because it replays this conversation
+		// exactly as a main request projects it, so the shared prefix stays cached.
+		summaryText, pendingArchive = withHistoryNote(req, summaryText, stripRequestBlocks(params.sourceMessages))
 	}
 	summaryText = withRequestBlock(summaryText, requestBlock)
 

@@ -194,14 +194,21 @@ func TestCompactionRequestBlockSurvivesStages(t *testing.T) {
 			if !ok || body != "handoff summary" || request != round.wantRequest {
 				t.Fatalf("stored summary = (%q, %q, %t), want body and request %q", body, request, ok, round.wantRequest)
 			}
-			for _, sent := range prov.requests {
-				text := messagesText(sent.Messages)
-				if strings.Contains(text, requestBlockHeaderPrefix) {
-					t.Fatalf("summarizer request leaked the request block header: %q", text)
+			// The summarizer replays main's projection of the same conversation,
+			// request block included, so the shared prefix stays cached.
+			wantProjection := toProviderMessage(conv[0]).Content
+			first := -1
+			for i, message := range prov.requests[0].Messages {
+				if message.Role != provider.MessageRoleSystem {
+					first = i
+					break
 				}
-				if round.wantStatus == output.RequestBlockCarried && strings.Contains(text, round.wantRequest) {
-					t.Fatalf("summarizer request leaked the carried request %q", round.wantRequest)
-				}
+			}
+			if first < 0 || prov.requests[0].Messages[first].Content != wantProjection {
+				t.Fatalf("summarizer first message = %q, want main's projection %q", prov.requests[0].Messages[first].Content, wantProjection)
+			}
+			if round.wantStatus == output.RequestBlockCarried && !strings.Contains(wantProjection, round.wantRequest) {
+				t.Fatalf("main projection = %q, want the carried request %q", wantProjection, round.wantRequest)
 			}
 			conv = outcome.State.Conversation
 		})
@@ -747,7 +754,9 @@ func TestSummarizeCompactionStagesDropsBlockFromNormalStage(t *testing.T) {
 	if outcome.SummaryText != "normal summary" {
 		t.Fatalf("SummaryText = %q, want the normal summary", outcome.SummaryText)
 	}
-	if got, want := outcome.StageCount, 1; got != want {
+	// The emergency summary applied but could not be kept, so its call ran and
+	// escalated the compaction count.
+	if got, want := outcome.StageCount, 2; got != want {
 		t.Fatalf("StageCount = %d, want %d", got, want)
 	}
 }
@@ -863,7 +872,8 @@ func TestSummarizeCompactionStagesNormalOnlyAdoptCarriesEmergencyClear(t *testin
 	if !outcome.BackendStateCleared {
 		t.Error("BackendStateCleared = false, want the emergency attempt's clear carried")
 	}
-	if got, want := outcome.StageCount, 1; got != want {
+	// The emergency summary call ran even though its summary was discarded.
+	if got, want := outcome.StageCount, 2; got != want {
 		t.Fatalf("StageCount = %d, want %d", got, want)
 	}
 }
