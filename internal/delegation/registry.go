@@ -305,25 +305,27 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 	return advisorForChild, nil
 }
 
-// BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
-// and registering advisor, delegation, and specialized sub-agent tools when enabled.
-func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
-	delegationDisabled := !deps.SubAgentCfg.Enabled && !deps.AdvisorCfg.Enabled
-	if delegationDisabled && deps.Searcher == nil {
-		return deps.BaseRegistry, nil
-	}
-
+// cloneWithWebSearch clones the base registry and adds web_search. It is a
+// plain tool that does not depend on delegation, so every cloned path gets it.
+func cloneWithWebSearch(deps DelegateDeps) *tool.Registry {
 	cloned := deps.BaseRegistry.Clone()
-
-	// web_search is a plain tool: it does not depend on delegation, so it is
-	// registered on every cloned path, not just the sub-agent one.
 	if deps.Searcher != nil {
 		cloned.Register(builtin.NewWebSearchTool(deps.Searcher))
 	}
+	return cloned
+}
 
-	if delegationDisabled {
-		return cloned, nil
+// BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
+// and registering advisor, delegation, and specialized sub-agent tools when enabled.
+func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
+	if !deps.SubAgentCfg.Enabled && !deps.AdvisorCfg.Enabled {
+		if deps.Searcher == nil {
+			return deps.BaseRegistry, nil
+		}
+		return cloneWithWebSearch(deps), nil
 	}
+
+	cloned := cloneWithWebSearch(deps)
 
 	advisorForChild, err := buildAdvisorTools(cloned, deps)
 	if err != nil {
