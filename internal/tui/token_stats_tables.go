@@ -17,8 +17,8 @@ func writeWindowSection(sb *strings.Builder, label string, report usagestats.Rep
 	}
 	fmt.Fprintf(sb, "### %s · %d models · %d providers\n\n", label, report.Models, report.Providers)
 	sb.WriteString(windowSummaryLine(report.Total))
-	sb.WriteString("\n\n| Provider | Model | Reqs | Uncached | Read | Write | Output | Total | Hit |\n")
-	sb.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|\n")
+	sb.WriteString("\n\n| Provider | Model | Reqs | Uncached | Read | Write | Output | Reason | Total | Hit | Cost |\n")
+	sb.WriteString("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, row := range report.Rows {
 		writeTotalsRow(sb, row.ProviderAlias, row.BackendModelID, row.Totals)
 		if len(row.Sources) > 1 {
@@ -49,18 +49,20 @@ func outputPerRequest(t usagestats.Totals) float64 {
 	return float64(t.CompletionTokens) / float64(t.Requests)
 }
 
-// writeTotalsRow writes one table row of token counts.
+// writeTotalsRow writes one table row of token counts and cost.
 func writeTotalsRow(sb *strings.Builder, provider, model string, t usagestats.Totals) {
 	rate, ok := t.HitRate()
-	fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+	fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
 		provider, model,
 		formatTokens(t.Requests),
 		formatTokens(t.InputTokens),
 		formatTokens(t.CacheReadTokens),
 		formatTokens(t.CacheCreateTokens),
 		formatTokens(t.CompletionTokens),
+		formatTokens(t.ReasoningTokens),
 		formatTokens(t.Total()),
 		formatPercent(rate, ok),
+		formatCostCell(t),
 	)
 }
 
@@ -91,15 +93,17 @@ func writeBySourceSection(sb *strings.Builder, rec *usagestats.Recorder, from ti
 	}
 
 	sb.WriteString("### By source (last calendar month)\n\n")
-	sb.WriteString("| Source | Reqs | Uncached in | Cache read | Output | Share of total |\n")
-	sb.WriteString("|---|---:|---:|---:|---:|---:|\n")
+	sb.WriteString("| Source | Reqs | Uncached in | Cache read | Output | Reason | Cost | Share of total |\n")
+	sb.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|\n")
 	for _, source := range sources {
-		fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			tokenStatsSourceLabel(source.Source),
 			formatTokens(source.Requests),
 			formatTokens(source.InputTokens),
 			formatTokens(source.CacheReadTokens),
 			formatTokens(source.CompletionTokens),
+			formatTokens(source.ReasoningTokens),
+			formatCostCell(source.Totals),
 			formatShare(source.Total(), total))
 	}
 	sb.WriteString("\n")

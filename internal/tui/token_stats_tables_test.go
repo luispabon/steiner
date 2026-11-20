@@ -22,10 +22,10 @@ func TestTokenStatsWindowTable(t *testing.T) {
 		t.Fatalf("section = %q, want the summary line", section)
 	}
 	for _, want := range []string{
-		"| Provider | Model | Reqs | Uncached | Read | Write | Output | Total | Hit |",
-		"|---|---|---:|---:|---:|---:|---:|---:|---:|",
-		"| alpha | m1 | 1 | 400 | 500 | 100 | 200 | 1.2k | 50.0% |",
-		"| **Total** |  | 1 | 400 | 500 | 100 | 200 | 1.2k | 50.0% |",
+		"| Provider | Model | Reqs | Uncached | Read | Write | Output | Reason | Total | Hit | Cost |",
+		"|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+		"| alpha | m1 | 1 | 400 | 500 | 100 | 200 | - | 1.2k | 50.0% | - |",
+		"| **Total** |  | 1 | 400 | 500 | 100 | 200 | - | 1.2k | 50.0% | - |",
 	} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("section = %q, want %q", section, want)
@@ -73,10 +73,10 @@ func TestTokenStatsBySourceShares(t *testing.T) {
 	section := tokenStatsSection(t, got, "### By source (last calendar month)")
 
 	for _, want := range []string{
-		"| Source | Reqs | Uncached in | Cache read | Output | Share of total |",
-		"| parent | 1 | 1.0k | - | 200 | 80% |",
-		"| advisor | 1 | 300 | - | - | 20% |",
-		"| sub_agent | 1 | - | - | - | - |",
+		"| Source | Reqs | Uncached in | Cache read | Output | Reason | Cost | Share of total |",
+		"| parent | 1 | 1.0k | - | 200 | - | - | 80% |",
+		"| advisor | 1 | 300 | - | - | - | - | 20% |",
+		"| sub_agent | 1 | - | - | - | - | - | - |",
 	} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("section = %q, want %q", section, want)

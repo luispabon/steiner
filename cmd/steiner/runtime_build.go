@@ -225,6 +225,10 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	closeFn = joinClosers(closeFn, approvalClose)
 	rt.closeFn = closeFn
 
+	// Pricing shares the resolver's models.dev index, so no extra fetch runs.
+	usageRecorder := usagestats.New(nil)
+	usageRecorder.SetPricer(newUsagePricer(modelResolver))
+
 	return cliRuntime{
 		cfg:                          cfg,
 		sandboxStatus:                status,
@@ -265,7 +269,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationAdvisorBudgetStore: delegation.NewAdvisorBudgetStore(),
 		advisorState:                 advisor.NewSharedState(),
 		compactionLogFile:            compactionLogFile,
-		usageRecorder:                usagestats.New(nil),
+		usageRecorder:                usageRecorder,
 		imageStore:                   agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),
 		visionCapabilities:           agent.NewVisionCapabilities(cfg.Models.Effective.SubAgents["vision"] != ""),
 		modelCatalog:                 modelCatalog,

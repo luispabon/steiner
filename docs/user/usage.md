@@ -93,7 +93,7 @@ Sub-agent boxes show their own cache rate as each model request finishes, for ex
 4. Tables for **This session**, **Last hour**, **Last 24 hours**, **Last 7 days**, and **Last calendar month**. Each has a summary of requests, the percentage of input from cache, output per request, and counts of models and providers.
 5. **By source (last calendar month)**, including each source's share of total tokens.
 
-Each table has Provider, Model, Reqs, Uncached (uncached input), Read (cache read), Write (cache write), Output, Total, and Hit (hit rate) columns, plus a Total row. Source rows (`parent`, `sub_agent`, `advisor`) appear nested under a model only when it has more than one source. Advisor calls are included as an `advisor` source, not as separate model rows.
+Each table has Provider, Model, Reqs, Uncached (uncached input), Read (cache read), Write (cache write), Output, Reason (reasoning tokens, part of Output), Total, Hit (hit rate), and Cost columns, plus a Total row. Source rows (`parent`, `sub_agent`, `advisor`) appear nested under a model only when it has more than one source. Advisor calls are included as an `advisor` source, not as separate model rows.
 
 ```text
 Uncached in = prompt tokens - cache read - cache write
@@ -101,7 +101,21 @@ Total = uncached in + cache read + cache write + output
 Hit rate = cache read / (uncached in + cache read + cache write)
 ```
 
-Uncached input is floored at zero for each response. Numbers use raw values below 1,000 and one-decimal `k`, `M`, or `B` above that; zero is shown as `-`. Cost and reasoning tokens are not included.
+Reason is part of Output and is never added to Total. Uncached input is floored at zero for each response. Numbers use raw values below 1,000 and one-decimal `k`, `M`, or `B` above that; zero is shown as `-`.
+
+Hit rate counts only requests whose provider reported cache data, so a provider that says nothing about caching is not counted as a miss. When no request in a group reported cache data, Hit shows `-`.
+
+The Cost column shows what the group's requests cost, and the Total column follows the same rules for the whole table:
+
+- `-` when no request in the group has a price.
+- `<$0.01` when the amount is positive but below one cent.
+- `~$3.12` when the amount is estimated from the model's models.dev prices.
+- `$3.12` when every priced request reported its own cost, as OpenRouter does. Provider-reported amounts are used as they are.
+- A trailing `+` when some requests in the group have no price at all; those requests are not included in the amount.
+
+Estimates use models.dev base rates plus context-length tiers: a request whose prompt exceeds a tier's size is priced entirely at that tier's rates. They do not account for service tiers, flex or priority processing, or audio. Cache writes are priced at the first (5 minute) cache TTL rate, so one-hour cache writes, such as advisor calls, may be underpriced. Subscription providers show API-equivalent cost, not what the subscription charges.
+
+Cost is fixed when the request is recorded and is never repriced. Models that models.dev does not price, such as local models and unmatched model IDs, stay unpriced, and calls recorded while the models.dev cache is unavailable stay unpriced.
 
 The last calendar month runs from the same day and time of the previous month to now in UTC, clamped to the last day when the previous month is shorter. Days and Monday-to-Sunday weeks use UTC. Windows use hourly buckets, so the lower edge can include up to one extra hour. Scroll with `↑` and `↓`, and close with `esc`.
 
@@ -137,8 +151,8 @@ Both features store data under `$XDG_STATE_HOME/steiner/`, or `~/.local/state/st
 | File | Contents | Retention |
 | --- | --- | --- |
 | `quota-history.json` | Usage dashboard readings: account identity, provider type, plan name, window and budget figures, reset times, credit text, fetch times, and whether each reading came from a fetch or from normal traffic. | Readings older than 35 days are removed on the next write. |
-| `cache-stats.json` | Token statistics in hourly buckets: provider key and type, backend model ID, source (parent, sub-agent, or advisor), request count, and input, cache-read, cache-write, and output token counts. | 33 days. |
+| `cache-stats.json` | Token statistics in hourly buckets: provider key and type, backend model ID, source (parent, sub-agent, or advisor), request count, input, cache-read, cache-write, output, and reasoning token counts, cache-reported request and input counts, cost in micro-USD, and reported-cost and unpriced request counts. | 33 days. |
 
 Neither file contains prompts, responses, file contents, or API keys. API-key accounts on the dashboard are identified by their provider key, not by the key or base URL. A removed provider's dashboard history stays in `quota-history.json` until it ages out, and reappears if you add the provider back.
 
-If `cache-stats.json` is corrupt or was written by a schema version your Steiner build does not support, its stored history shows as empty, new cache statistics are never saved, and the refusal is logged. Steiner does not overwrite a file it cannot read. To resume saving, keep a copy of the file and then either repair it, restore it from a backup, or run a Steiner version that supports its schema version; otherwise move it aside and Steiner starts a new, empty file.
+If `cache-stats.json` is corrupt or was written by a schema version your Steiner build does not support, its stored history shows as empty, new cache statistics are never saved, and the refusal is logged. Steiner does not overwrite a file it cannot read. To resume saving, keep a copy of the file and then either repair it, restore it from a backup, or run a Steiner version that supports its schema version; otherwise move it aside and Steiner starts a new, empty file. The current file is schema version 3, so older Steiner binaries cannot read it: they treat it as an unsupported version, show no stored history, and stop saving new statistics until their file is moved aside.

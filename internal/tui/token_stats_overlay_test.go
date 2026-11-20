@@ -86,7 +86,7 @@ func TestFormatTokenStatsReportSessionRows(t *testing.T) {
 	section := tokenStatsSection(t, got, "### This session")
 	// Two requests, 900 uncached input, 2000 cache read, 100 cache write,
 	// 500 output, 3500 total, hit rate 2000/3000.
-	wantRow := "| alpha | m1 | 2 | 900 | 2.0k | 100 | 500 | 3.5k | 66.7% |"
+	wantRow := "| alpha | m1 | 2 | 900 | 2.0k | 100 | 500 | - | 3.5k | 66.7% | - |"
 	if !strings.Contains(section, wantRow) {
 		t.Fatalf("session section = %q, want row %q", section, wantRow)
 	}
