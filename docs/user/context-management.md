@@ -18,7 +18,7 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - the system prompt and tool definitions
 - summaries from earlier compactions
 - the most recent conversation turns, verbatim
-- your latest request from before the summarized part, verbatim, truncated past 16 KB or past 5% of the context window when that is smaller (images in it are not kept). It holds the text you typed only: mode notices and sub-agent results from the same turn are left out. If keeping it alone would make the compaction fail, it is dropped and the banner says so
+- your latest request from before the summarized part, verbatim, truncated past 16 KB or past 5% of the context window when that is smaller (images in it are not kept; a turn with only an image is skipped, so the request comes from your last turn with text). It holds the text you typed only: mode notices and sub-agent results from the same turn are left out. If keeping it alone would make the compaction fail, it is dropped and the banner says so
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 
