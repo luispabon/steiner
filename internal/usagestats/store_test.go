@@ -108,7 +108,7 @@ func TestStoreLoadWithPruning(t *testing.T) {
 	path := filepath.Join(dir, "pruned.json")
 
 	now := time.Date(2024, 6, 21, 12, 0, 0, 0, time.UTC)
-	oldHour := now.Add(-10 * 24 * time.Hour).Truncate(time.Hour)
+	oldHour := now.Add(-40 * 24 * time.Hour).Truncate(time.Hour)
 	newHour := now.Add(-2 * 24 * time.Hour).Truncate(time.Hour)
 
 	entries := []storeEntry{
@@ -130,7 +130,7 @@ func TestStoreLoadWithPruning(t *testing.T) {
 	s := newStore(clock.Now)
 	buckets := s.load()
 
-	// Only the new entry (within 8 days) should be kept.
+	// Only the new entry (within 33 days) should be kept.
 	if len(buckets) != 1 {
 		t.Errorf("load with pruning: got %d buckets, want 1", len(buckets))
 	}
@@ -367,7 +367,7 @@ func TestStorePruningOnWrite(t *testing.T) {
 
 	// Write an old entry on disk first.
 	s := newStore(clock.Now)
-	oldHour := now.Add(-10 * 24 * time.Hour).Truncate(time.Hour)
+	oldHour := now.Add(-40 * 24 * time.Hour).Truncate(time.Hour)
 	oldKey := bucketKey{
 		providerAlias:  "old",
 		providerType:   "t",
@@ -414,9 +414,9 @@ func TestStorePruningBoundary(t *testing.T) {
 		ageHours   int
 		shouldKeep bool
 	}{
-		{"just inside 8 days", 8*24 - 1, true},
-		{"exactly 8 days", 8 * 24, true},
-		{"just outside 8 days", 8*24 + 1, false},
+		{"just inside 33 days", 33*24 - 1, true},
+		{"exactly 33 days", 33 * 24, true},
+		{"just outside 33 days", 33*24 + 1, false},
 	}
 
 	for _, tt := range tests {

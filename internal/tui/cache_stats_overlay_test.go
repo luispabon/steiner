@@ -225,7 +225,7 @@ func TestFormatCacheStatsReportDeterministicOrdering(t *testing.T) {
 	}
 }
 
-func TestFormatCacheStatsReportAdvisorLabelAndOrdering(t *testing.T) {
+func TestFormatCacheStatsReportMergesCallSurfaces(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	now := time.Unix(1000, 0)
 	rec := newUsageRecorder(t, func() time.Time { return now })
@@ -236,13 +236,14 @@ func TestFormatCacheStatsReportAdvisorLabelAndOrdering(t *testing.T) {
 		rec.Record(observation)
 	}
 	got := formatCacheStatsReport(rec)
-	want := "| local | model-a |"
-	advisor := "| local | model-a (advisor) |"
-	if !strings.Contains(got, want) || !strings.Contains(got, advisor) {
-		t.Fatalf("report = %q, want advisor label on model", got)
+	// Advisor traffic no longer gets its own row: both calls merge into the
+	// model row of every window section.
+	if strings.Contains(got, "(advisor)") {
+		t.Fatalf("report = %q, want advisor traffic merged into the model row", got)
 	}
-	if strings.Index(got, want) >= strings.Index(got, advisor) {
-		t.Fatalf("report rows are not deterministically ordered: %q", got)
+	want := "| local | model-a | 0.0% | 0 / 20 | 10 | 0 |"
+	if n := strings.Count(got, want); n != 3 {
+		t.Fatalf("report = %q, want %d merged model rows, got %d", got, 3, n)
 	}
 }
 

@@ -14,12 +14,11 @@ import (
 )
 
 const (
-	// retentionDays intentionally stays at its original value: the JSONL
-	// telemetry file (see telemetry.go) is now the benchmark substrate for
-	// before/after comparisons, and this store stays the glanceable
-	// /cache-stats surface. Do not extend retention here; extend the JSONL
-	// consumer instead.
-	retentionDays = 8
+	// retentionDays is 33 so the token dashboard can cover the same day of the
+	// previous month through now (at most 31 days) plus the hourly bucket at
+	// either boundary. The JSONL telemetry file (see telemetry.go) remains the
+	// long-term benchmark substrate; this store stays the glanceable surface.
+	retentionDays = 33
 	// schemaVersion 2 adds storeEntry.Source so the persisted store can break
 	// results down by call surface (parent/sub-agent/advisor). legacySchemaVersion
 	// covers files written before that field existed; those decode with an

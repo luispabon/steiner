@@ -2,6 +2,7 @@ package usagestats
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -85,7 +86,7 @@ func TestRecorderResetSession(t *testing.T) {
 	}
 
 	after := r.Window(time.Hour)
-	if len(after.Rows) != 1 || after.Rows[0] != before.Rows[0] {
+	if len(after.Rows) != 1 || !reflect.DeepEqual(after.Rows[0], before.Rows[0]) {
 		t.Fatalf("Window after reset = %+v, want persisted row %+v", after.Rows, before.Rows)
 	}
 }
@@ -345,37 +346,37 @@ func TestWindow(t *testing.T) {
 func TestHitRate(t *testing.T) {
 	tests := []struct {
 		name     string
-		row      Row
+		totals   Totals
 		wantRate float64
 		wantOK   bool
 	}{
 		{
 			name:     "zero cache read, positive input → rate 0.0, ok true",
-			row:      Row{InputTokens: 100, CacheReadTokens: 0, CacheCreateTokens: 0},
+			totals:   Totals{InputTokens: 100, CacheReadTokens: 0, CacheCreateTokens: 0},
 			wantRate: 0.0,
 			wantOK:   true,
 		},
 		{
 			name:     "all cache read → rate 1.0",
-			row:      Row{InputTokens: 0, CacheReadTokens: 100, CacheCreateTokens: 0},
+			totals:   Totals{InputTokens: 0, CacheReadTokens: 100, CacheCreateTokens: 0},
 			wantRate: 1.0,
 			wantOK:   true,
 		},
 		{
 			name:     "mixed cache and input",
-			row:      Row{InputTokens: 75, CacheReadTokens: 25, CacheCreateTokens: 0},
+			totals:   Totals{InputTokens: 75, CacheReadTokens: 25, CacheCreateTokens: 0},
 			wantRate: 0.25,
 			wantOK:   true,
 		},
 		{
 			name:     "total input zero → ok false, no NaN",
-			row:      Row{InputTokens: 0, CacheReadTokens: 0, CacheCreateTokens: 0},
+			totals:   Totals{InputTokens: 0, CacheReadTokens: 0, CacheCreateTokens: 0},
 			wantRate: 0.0,
 			wantOK:   false,
 		},
 		{
 			name:     "cache create counts in denominator",
-			row:      Row{InputTokens: 0, CacheReadTokens: 50, CacheCreateTokens: 50},
+			totals:   Totals{InputTokens: 0, CacheReadTokens: 50, CacheCreateTokens: 50},
 			wantRate: 0.5,
 			wantOK:   true,
 		},
@@ -383,7 +384,7 @@ func TestHitRate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rate, ok := tc.row.HitRate()
+			rate, ok := tc.totals.HitRate()
 			if ok != tc.wantOK {
 				t.Errorf("ok: got %v, want %v", ok, tc.wantOK)
 			}
@@ -476,7 +477,7 @@ func TestSessionReport(t *testing.T) {
 // (which only touched internal/agent's turn_progression.go accumulation).
 // For a turn with 100 total prompt tokens where 50 were served from cache,
 // the recorded hit rate must be 50/100 = 50%, not 50/150.
-func TestSessionReportFor_lastRequestAndWindowAdvisorRows(t *testing.T) {
+func TestSessionReportFor_lastRequestAndMergedWindowRows(t *testing.T) {
 	isolateTest(t)
 	r := newTestRecorder(t, fixedClock(baseTime))
 	r.Record(Observation{ProviderAlias: "p", BackendModelID: "m", PromptTokens: 100, CacheReadTokens: 50, Source: SourceParent, At: baseTime})
@@ -493,18 +494,20 @@ func TestSessionReportFor_lastRequestAndWindowAdvisorRows(t *testing.T) {
 	if got := r.SessionReport(); got.LastCacheReadTokens != 0 || got.LastTotalInputTokens != 0 {
 		t.Fatalf("blended last fields = %d/%d, want zero", got.LastCacheReadTokens, got.LastTotalInputTokens)
 	}
-	rows := r.Window(time.Hour).Rows
-	if len(rows) != 2 {
-		t.Fatalf("window rows = %d, want parent/advisor split", len(rows))
+	report := r.Window(time.Hour)
+	if len(report.Rows) != 1 {
+		t.Fatalf("window rows = %d, want 1 merged model row", len(report.Rows))
 	}
-	advisorRows := 0
-	for _, row := range rows {
-		if row.Advisor {
-			advisorRows++
-		}
+	row := report.Rows[0]
+	if row.Requests != 3 || row.InputTokens != 170 || row.CacheReadTokens != 150 {
+		t.Fatalf("window row totals = %+v, want 3 requests, 170 uncached, 150 cache read", row.Totals)
 	}
-	if advisorRows != 1 {
-		t.Fatalf("advisor rows = %d, want 1", advisorRows)
+	wantSources := []SourceTotals{
+		{Source: SourceParent, Totals: Totals{Requests: 2, InputTokens: 150, CacheReadTokens: 150}},
+		{Source: SourceAdvisor, Totals: Totals{Requests: 1, InputTokens: 20}},
+	}
+	if !reflect.DeepEqual(row.Sources, wantSources) {
+		t.Fatalf("window row sources = %+v, want %+v", row.Sources, wantSources)
 	}
 }
 
@@ -545,9 +548,10 @@ func TestSessionReport_independentOfBuckets(t *testing.T) {
 	if len(report.Rows) != 1 {
 		t.Fatalf("Window rows: got %d, want 1", len(report.Rows))
 	}
-	want := Row{Requests: 1, InputTokens: 100, CacheReadTokens: 100}
-	if report.Rows[0] != want {
-		t.Errorf("Window row: got %+v, want %+v", report.Rows[0], want)
+	got := report.Rows[0].Totals
+	want := Totals{Requests: 1, InputTokens: 100, CacheReadTokens: 100}
+	if got != want {
+		t.Errorf("Window row totals: got %+v, want %+v", got, want)
 	}
 }
 

@@ -38,20 +38,20 @@ func TestHitRate_Direct(t *testing.T) {
 	}
 }
 
-func TestRow_PerRequest(t *testing.T) {
-	row := Row{Requests: 4, InputTokens: 40, CacheReadTokens: 60, CacheCreateTokens: 20}
+func TestTotals_PerRequest(t *testing.T) {
+	totals := Totals{Requests: 4, InputTokens: 40, CacheReadTokens: 60, CacheCreateTokens: 20}
 
-	uncached, ok := row.UncachedPerRequest()
+	uncached, ok := totals.UncachedPerRequest()
 	if !ok || uncached != 15 {
 		t.Fatalf("UncachedPerRequest() = (%v, %v), want (15, true)", uncached, ok)
 	}
-	cached, ok := row.CachedPerRequest()
+	cached, ok := totals.CachedPerRequest()
 	if !ok || cached != 15 {
 		t.Fatalf("CachedPerRequest() = (%v, %v), want (15, true)", cached, ok)
 	}
 
 	// The two per-request figures must reproduce HitRate: cached / (cached + uncached).
-	rate, rateOK := row.HitRate()
+	rate, rateOK := totals.HitRate()
 	if !rateOK {
 		t.Fatal("HitRate() ok = false, want true")
 	}
@@ -59,12 +59,61 @@ func TestRow_PerRequest(t *testing.T) {
 		t.Errorf("cached/(cached+uncached) = %v, want HitRate() = %v", got, rate)
 	}
 
-	zero := Row{}
+	zero := Totals{}
 	if _, ok := zero.UncachedPerRequest(); ok {
 		t.Error("UncachedPerRequest() on zero requests: ok = true, want false")
 	}
 	if _, ok := zero.CachedPerRequest(); ok {
 		t.Error("CachedPerRequest() on zero requests: ok = true, want false")
+	}
+}
+
+func TestTotals_TotalAndInputTotal(t *testing.T) {
+	tests := []struct {
+		name       string
+		totals     Totals
+		wantTotal  int
+		wantInput  int
+		wantRate   float64
+		wantRateOK bool
+	}{
+		{
+			name: "zero value",
+		},
+		{
+			name:       "every field counted once",
+			totals:     Totals{Requests: 2, InputTokens: 10, CacheReadTokens: 60, CacheCreateTokens: 20, CompletionTokens: 5},
+			wantTotal:  95,
+			wantInput:  90,
+			wantRate:   60.0 / 90.0,
+			wantRateOK: true,
+		},
+		{
+			name:       "completion tokens stay out of the hit-rate denominator",
+			totals:     Totals{InputTokens: 30, CacheReadTokens: 30, CompletionTokens: 40},
+			wantTotal:  100,
+			wantInput:  60,
+			wantRate:   0.5,
+			wantRateOK: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.totals.Total(); got != tc.wantTotal {
+				t.Errorf("Total() = %d, want %d", got, tc.wantTotal)
+			}
+			if got := tc.totals.InputTotal(); got != tc.wantInput {
+				t.Errorf("InputTotal() = %d, want %d", got, tc.wantInput)
+			}
+			rate, ok := tc.totals.HitRate()
+			if ok != tc.wantRateOK {
+				t.Errorf("HitRate() ok = %v, want %v", ok, tc.wantRateOK)
+			}
+			if rate != tc.wantRate {
+				t.Errorf("HitRate() rate = %v, want %v", rate, tc.wantRate)
+			}
+		})
 	}
 }
 

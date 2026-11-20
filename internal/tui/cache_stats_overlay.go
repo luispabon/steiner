@@ -85,9 +85,6 @@ func formatCacheStatsReport(rec *usagestats.Recorder) string {
 
 				cachedTotal := row.CacheReadTokens + row.InputTokens + row.CacheCreateTokens
 				model := row.BackendModelID
-				if row.Advisor {
-					model += " (advisor)"
-				}
 				fmt.Fprintf(&sb, "| %s | %s | %s | %d / %d | %s | %s |\n",
 					row.ProviderAlias,
 					model,
@@ -117,13 +114,7 @@ func compareCacheStatsRows(a, b usagestats.Row) int {
 	if a.BackendModelID != b.BackendModelID {
 		return strings.Compare(a.BackendModelID, b.BackendModelID)
 	}
-	if a.Advisor == b.Advisor {
-		return 0
-	}
-	if !a.Advisor {
-		return -1
-	}
-	return 1
+	return strings.Compare(a.ProviderType, b.ProviderType)
 }
 
 // formatPerRequest renders a per-request token average, or "—" when there

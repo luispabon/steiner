@@ -1,18 +1,11 @@
 package usagestats
 
-// Row holds aggregated token counts and request count for a single
-// (provider, providerType, model) group within a time window.
-type Row struct {
-	// ProviderAlias is the user-configured alias for the provider.
-	ProviderAlias string
-	// ProviderType is the provider driver type (e.g. "openai", "anthropic").
-	ProviderType string
-	// BackendModelID is the model identifier as reported by the backend.
-	BackendModelID string
-	// Advisor marks rows sourced from advisor calls.
-	Advisor bool
+import "time"
 
-	// Requests is the total number of API calls in this group.
+// Totals holds additive token counts and a request count for one aggregation
+// group. Every field is a sum over the group's requests.
+type Totals struct {
+	// Requests is the total number of API calls in the group.
 	Requests int
 	// InputTokens is the non-cached portion of prompt tokens.
 	InputTokens int
@@ -24,11 +17,23 @@ type Row struct {
 	CompletionTokens int
 }
 
-// HitRate returns the token-weighted cache hit rate for this row.
-// It is defined as CacheReadTokens / (InputTokens + CacheReadTokens + CacheCreateTokens).
-// When total input is zero, ok is false and rate is 0; callers should render "—".
-func (r Row) HitRate() (rate float64, ok bool) {
-	return HitRate(r.CacheReadTokens, r.InputTokens, r.CacheCreateTokens)
+// Total returns the sum of all token fields: uncached input, cache reads,
+// cache creates, and completion tokens.
+func (t Totals) Total() int {
+	return t.InputTokens + t.CacheReadTokens + t.CacheCreateTokens + t.CompletionTokens
+}
+
+// InputTotal returns the prompt-side token count: uncached input plus cache
+// reads plus cache creates. It is HitRate's denominator.
+func (t Totals) InputTotal() int {
+	return t.InputTokens + t.CacheReadTokens + t.CacheCreateTokens
+}
+
+// HitRate returns the token-weighted cache hit rate, defined as
+// CacheReadTokens / InputTotal. When InputTotal is zero, ok is false and rate
+// is 0; callers should render "—".
+func (t Totals) HitRate() (rate float64, ok bool) {
+	return HitRate(t.CacheReadTokens, t.InputTokens, t.CacheCreateTokens)
 }
 
 // UncachedPerRequest returns the average per-request tokens that did not
@@ -38,14 +43,40 @@ func (r Row) HitRate() (rate float64, ok bool) {
 // and CachedPerRequest decompose that ambiguity, which HitRate alone cannot,
 // while staying consistent with it: CachedPerRequest / (CachedPerRequest +
 // UncachedPerRequest) reproduces HitRate. Zero requests returns (0, false).
-func (r Row) UncachedPerRequest() (float64, bool) {
-	return perRequest(r.InputTokens+r.CacheCreateTokens, r.Requests)
+func (t Totals) UncachedPerRequest() (float64, bool) {
+	return perRequest(t.InputTokens+t.CacheCreateTokens, t.Requests)
 }
 
 // CachedPerRequest returns the average cache-read prompt tokens per
 // request. Zero requests returns (0, false).
-func (r Row) CachedPerRequest() (float64, bool) {
-	return perRequest(r.CacheReadTokens, r.Requests)
+func (t Totals) CachedPerRequest() (float64, bool) {
+	return perRequest(t.CacheReadTokens, t.Requests)
+}
+
+// SourceTotals is one call surface's share of an aggregation group.
+type SourceTotals struct {
+	// Source identifies the call surface that produced this traffic.
+	Source Source
+	// Totals is that surface's summed token usage and request count.
+	Totals
+}
+
+// Row holds one aggregation group's totals. Report rows group by
+// (ProviderAlias, ProviderType, BackendModelID) regardless of call surface;
+// the group's per-source split is in Sources.
+type Row struct {
+	// ProviderAlias is the user-configured alias for the provider.
+	ProviderAlias string
+	// ProviderType is the provider driver type (e.g. "openai", "anthropic").
+	ProviderType string
+	// BackendModelID is the model identifier as reported by the backend.
+	BackendModelID string
+	// Totals is the group's usage summed across every call surface.
+	Totals
+	// Sources breaks the group's usage down by call surface, ordered parent,
+	// sub-agent, advisor, unknown. Sources with no traffic in the queried
+	// range are omitted.
+	Sources []SourceTotals
 }
 
 func perRequest(tokens, requests int) (float64, bool) {
@@ -55,11 +86,29 @@ func perRequest(tokens, requests int) (float64, bool) {
 	return float64(tokens) / float64(requests), true
 }
 
-// Report is the result of a Window query, containing one Row per
-// (provider, providerType, model) combination found in the queried interval.
+// Report is the result of a window or session aggregation, containing one Row
+// per (provider, providerType, model) combination.
 type Report struct {
-	// Rows contains one aggregated entry per attribution group.
+	// Rows contains one entry per model group, sorted by provider alias, then
+	// model identifier.
 	Rows []Row
+	// Total is the sum of every row.
+	Total Totals
+	// Models is the number of distinct BackendModelID values across rows.
+	Models int
+	// Providers is the number of distinct ProviderAlias values across rows.
+	Providers int
+}
+
+// PeriodTotals is one UTC day or week of aggregated usage. Daily and Weekly
+// reports return these in ascending Start order, zero-filled for periods with
+// no recorded data.
+type PeriodTotals struct {
+	// Start is the period's inclusive start: midnight UTC for a day, Monday
+	// 00:00 UTC for a week.
+	Start time.Time
+	// Totals is the period's summed token usage and request count.
+	Totals
 }
 
 // SessionReport holds process-lifetime cache statistics derived from

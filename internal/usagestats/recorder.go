@@ -9,8 +9,8 @@ import (
 // Source identifies which call surface produced an Observation, for
 // session-scoped attribution (e.g. sidebar orchestrator-only reporting) and,
 // since schema version 2, for per-source breakdown in the persisted store's
-// buckets. Window splits advisor traffic into separate rows while combining
-// parent, sub-agent, and unknown-source traffic by provider and model.
+// buckets. Reports group rows by provider and model, then break each row down
+// by source in Row.Sources.
 type Source int
 
 const (
@@ -86,11 +86,32 @@ type bucket struct {
 	CompletionTokens  int
 }
 
+// add sums o into b.
+func (b *bucket) add(o bucket) {
+	b.Requests += o.Requests
+	b.InputTokens += o.InputTokens
+	b.CacheReadTokens += o.CacheReadTokens
+	b.CacheCreateTokens += o.CacheCreateTokens
+	b.CompletionTokens += o.CompletionTokens
+}
+
+// sessionModelKey identifies one per-model, per-source session counter. It has
+// no hour component: session aggregation spans the whole process lifetime.
+type sessionModelKey struct {
+	providerAlias  string
+	providerType   string
+	backendModelID string
+	source         Source
+}
+
 // Recorder accumulates per-hour token usage observations in memory.
 // It is safe for concurrent use.
 type Recorder struct {
 	mu      sync.Mutex
 	buckets map[bucketKey]*bucket
+	// sessionModels aggregates the same observations per model and source for
+	// SessionWindow; ResetSession clears it.
+	sessionModels map[sessionModelKey]*bucket
 
 	sessionCacheRead  map[Source]int64
 	sessionTotalInput map[Source]int64
@@ -117,6 +138,7 @@ func New(now func() time.Time) *Recorder {
 	st := newStore(now)
 	r := &Recorder{
 		buckets:           st.load(),
+		sessionModels:     make(map[sessionModelKey]*bucket),
 		sessionCacheRead:  make(map[Source]int64),
 		sessionTotalInput: make(map[Source]int64),
 		sessionRequests:   make(map[Source]int64),
@@ -152,17 +174,33 @@ func (r *Recorder) Record(obs Observation) {
 		source:         obs.Source,
 	}
 
+	delta := bucket{
+		Requests:          1,
+		InputTokens:       nonCached,
+		CacheReadTokens:   obs.CacheReadTokens,
+		CacheCreateTokens: obs.CacheCreateTokens,
+		CompletionTokens:  obs.CompletionTokens,
+	}
+	sessionKey := sessionModelKey{
+		providerAlias:  obs.ProviderAlias,
+		providerType:   obs.ProviderType,
+		backendModelID: obs.BackendModelID,
+		source:         obs.Source,
+	}
+
 	r.mu.Lock()
 	b, ok := r.buckets[key]
 	if !ok {
 		b = &bucket{}
 		r.buckets[key] = b
 	}
-	b.Requests++
-	b.InputTokens += nonCached
-	b.CacheReadTokens += obs.CacheReadTokens
-	b.CacheCreateTokens += obs.CacheCreateTokens
-	b.CompletionTokens += obs.CompletionTokens
+	b.add(delta)
+	if sm, ok := r.sessionModels[sessionKey]; ok {
+		sm.add(delta)
+	} else {
+		counted := delta
+		r.sessionModels[sessionKey] = &counted
+	}
 
 	r.sessionCacheRead[obs.Source] += int64(obs.CacheReadTokens)
 	r.sessionTotalInput[obs.Source] += int64(nonCached + obs.CacheReadTokens + obs.CacheCreateTokens)
@@ -175,13 +213,6 @@ func (r *Recorder) Record(obs Observation) {
 	// Hand the delta to the background writer: the delta fields are additive, so
 	// queued observations coalesce into one locked read/merge/write instead of
 	// blocking this goroutine on the cross-process store lock.
-	delta := bucket{
-		Requests:          1,
-		InputTokens:       nonCached,
-		CacheReadTokens:   obs.CacheReadTokens,
-		CacheCreateTokens: obs.CacheCreateTokens,
-		CompletionTokens:  obs.CompletionTokens,
-	}
 	r.writer.add(key, delta)
 
 	r.telemetry.record(obs, at)
@@ -221,72 +252,13 @@ func (r *Recorder) Close() {
 func (r *Recorder) ResetSession() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	clear(r.sessionModels)
 	clear(r.sessionCacheRead)
 	clear(r.sessionTotalInput)
 	clear(r.sessionRequests)
 	clear(r.lastCacheRead)
 	clear(r.lastTotalInput)
 	clear(r.lastCallKind)
-}
-
-// Window sums all buckets whose hour intersects the interval [now-d, now] and
-// returns a Report with one Row per (ProviderAlias, ProviderType, BackendModelID)
-// group. It uses hour-granularity buckets and may include up to one hour of
-// extra data at the lower boundary (e.g. a 1-hour query at 10:30 includes all
-// of the 09:00 bucket, not just data from 09:30-10:30).
-func (r *Recorder) Window(d time.Duration) Report {
-	now := r.now().UTC()
-	cutoff := now.Add(-d)
-
-	type groupKey struct {
-		providerAlias  string
-		providerType   string
-		backendModelID string
-		advisor        bool
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	groups := make(map[groupKey]*bucket)
-	for k, b := range r.buckets {
-		t := time.Unix(k.hourUnix, 0).UTC()
-		if !t.Before(cutoff.Truncate(time.Hour)) && !t.After(now) {
-			gk := groupKey{
-				providerAlias:  k.providerAlias,
-				providerType:   k.providerType,
-				backendModelID: k.backendModelID,
-				advisor:        k.source == SourceAdvisor,
-			}
-			g, ok := groups[gk]
-			if !ok {
-				g = &bucket{}
-				groups[gk] = g
-			}
-			g.Requests += b.Requests
-			g.InputTokens += b.InputTokens
-			g.CacheReadTokens += b.CacheReadTokens
-			g.CacheCreateTokens += b.CacheCreateTokens
-			g.CompletionTokens += b.CompletionTokens
-		}
-	}
-
-	rows := make([]Row, 0, len(groups))
-	for gk, g := range groups {
-		rows = append(rows, Row{
-			ProviderAlias:     gk.providerAlias,
-			ProviderType:      gk.providerType,
-			BackendModelID:    gk.backendModelID,
-			Advisor:           gk.advisor,
-			Requests:          g.Requests,
-			InputTokens:       g.InputTokens,
-			CacheReadTokens:   g.CacheReadTokens,
-			CacheCreateTokens: g.CacheCreateTokens,
-			CompletionTokens:  g.CompletionTokens,
-		})
-	}
-
-	return Report{Rows: rows}
 }
 
 // SessionReport returns the process-lifetime cache statistics derived from
