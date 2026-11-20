@@ -91,7 +91,7 @@ The per-call `bash` timeout is capped by `limits.tool_timeouts.bash` (600s by de
 
 ## Web search
 
-`web_search` returns URL, title, and description results. It is off until you set `search.backend`, and it is registered only while sub-agent delegation is enabled (the default). When available, the `research` sub-agent gets it too.
+`web_search` returns URL, title, and description results. It is off until you set `search.backend`; it does not depend on sub-agent delegation. When available, the `research` sub-agent gets it too.
 
 ```yaml
 search:

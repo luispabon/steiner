@@ -308,11 +308,22 @@ func buildAdvisorTools(cloned *tool.Registry, deps DelegateDeps) (func(string) (
 // BuildDelegateRegistry assembles the active registry for a run, cloning the base registry
 // and registering advisor, delegation, and specialized sub-agent tools when enabled.
 func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
-	if !deps.SubAgentCfg.Enabled && !deps.AdvisorCfg.Enabled {
+	delegationDisabled := !deps.SubAgentCfg.Enabled && !deps.AdvisorCfg.Enabled
+	if delegationDisabled && deps.Searcher == nil {
 		return deps.BaseRegistry, nil
 	}
 
 	cloned := deps.BaseRegistry.Clone()
+
+	// web_search is a plain tool: it does not depend on delegation, so it is
+	// registered on every cloned path, not just the sub-agent one.
+	if deps.Searcher != nil {
+		cloned.Register(builtin.NewWebSearchTool(deps.Searcher))
+	}
+
+	if delegationDisabled {
+		return cloned, nil
+	}
 
 	advisorForChild, err := buildAdvisorTools(cloned, deps)
 	if err != nil {
@@ -395,11 +406,6 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 
 	// Register the follow_up tool.
 	cloned.Register(FollowUpToolDef(NewFollowUpHandler(subAgentDeps)))
-
-	// Conditionally expose web_search to the parent model.
-	if deps.Searcher != nil {
-		cloned.Register(builtin.NewWebSearchTool(deps.Searcher))
-	}
 
 	// Build a model resolver for specialized tools to use per-type model aliases.
 	modelResolver := buildModelResolver(deps)

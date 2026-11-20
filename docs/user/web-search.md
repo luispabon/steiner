@@ -1,6 +1,6 @@
 # Web search
 
-`web_search` lets the model search the web. It returns a URL, title and description for each result. The tool is off until you configure `search.backend`, and Steiner registers it only while sub-agent delegation is enabled (the default). With a backend configured, the `research` sub-agent also gets the tool; without one, that sub-agent type is not offered.
+`web_search` lets the model search the web. It returns a URL, title and description for each result. The tool is off until you configure `search.backend`; it is independent of `sub_agent.enabled`. With a backend configured, the `research` sub-agent also gets the tool; without one, that sub-agent type is not offered.
 
 Each call takes a query and an optional `limit` (default 10, capped at 30). Only the three fields above enter the conversation, so pages are not injected wholesale; use `fetch_url` on a result URL when you need the content.
 
@@ -8,7 +8,6 @@ This page covers the three backends, their setup, a local SearXNG example, and c
 
 ## Prerequisites
 
-- Sub-agent delegation enabled. `sub_agent.enabled` defaults to `true`; when it is `false`, `web_search` is not registered at all, even with a backend configured.
 - Exactly one backend selected in `search.backend`.
 - The credentials that backend needs, in config or in the environment.
 

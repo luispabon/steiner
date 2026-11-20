@@ -682,6 +682,26 @@ func TestBuildActiveRegistry_WebSearchAbsent_WhenNoSearcher(t *testing.T) {
 	}
 }
 
+func TestBuildActiveRegistry_WebSearchPresent_WhenSubAgentDisabled(t *testing.T) {
+	searcher, err := builtin.NewSearxngSearcher("http://localhost:8080")
+	if err != nil {
+		t.Fatalf("NewSearxngSearcher() error = %v", err)
+	}
+	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
+	cfg := config.Config{}
+	reg, err := buildActiveRegistry(base, config.SubAgentConfig{Enabled: false}, config.AdvisorConfig{}, stubProvider{}, noopSink{}, "/tmp", "", provider.ResolvedModel{}, 0, false, nil, cfg, nil, nil, searcher)
+	if err != nil {
+		t.Fatalf("buildActiveRegistry() error = %v", err)
+	}
+
+	if _, ok := reg.Get("web_search"); !ok {
+		t.Errorf("web_search missing from registry when sub-agent delegation is disabled; got %v", reg.Names())
+	}
+	if _, ok := base.Get("web_search"); ok {
+		t.Errorf("web_search leaked into base registry; got %v", base.Names())
+	}
+}
+
 func TestBuildActiveRegistry_ResearchAbsent_WhenNoSearcher(t *testing.T) {
 	base := tool.NewRegistry(tool.ToolDef{Name: "bash", Description: "run bash"})
 	subAgentCfg := config.SubAgentConfig{Enabled: true}
