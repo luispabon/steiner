@@ -90,20 +90,18 @@ func TestClaudeSubResumeRebuildsImageFingerprints(t *testing.T) {
 }
 
 // TestClaudeSubImageClaimUsesOnlyBytes proves only bytes present on a message
-// are a delivery claim: a stripped message claims nothing, path-only images
-// claim nothing, and cleanup never leaves a claim behind.
+// are a delivery claim: a stripped message and a path-only image claim nothing.
 func TestClaudeSubImageClaimUsesOnlyBytes(t *testing.T) {
 	image := ImageBlock{MediaType: "image/png", Data: "AAAA"}
 	want := ImageFingerprint("image/png", "AAAA")
-
-	if got, ok := claudeSubImageClaim(Message{Role: MessageRoleUser, Images: []ImageBlock{image}}); !ok || len(got) != 1 || got[0] != want {
-		t.Fatalf("computed claim = (%v, %t), want %q", got, ok, want)
+	if got := claudeSubImageClaim(Message{Role: MessageRoleUser, Images: []ImageBlock{image}}); len(got) != 1 || got[0] != want {
+		t.Fatalf("claim = %v, want %q", got, want)
 	}
-	if got, ok := claudeSubImageClaim(Message{Role: MessageRoleUser, Images: []ImageBlock{{MediaType: "image/png", FilePath: "/tmp/a.png"}}}); !ok || len(got) != 0 {
-		t.Fatalf("path-only claim = (%v, %t), want none", got, ok)
+	if got := claudeSubImageClaim(Message{Role: MessageRoleUser, Images: []ImageBlock{{MediaType: "image/png", FilePath: "/tmp/a.png"}}}); len(got) != 0 {
+		t.Fatalf("path-only claim = %v, want none", got)
 	}
-	if got, ok := claudeSubImageClaim(Message{Role: MessageRoleUser, Content: "look"}); !ok || len(got) != 0 {
-		t.Fatalf("stripped claim = (%v, %t), want none", got, ok)
+	if got := claudeSubImageClaim(Message{Role: MessageRoleUser, Content: "look"}); len(got) != 0 {
+		t.Fatalf("stripped claim = %v, want none", got)
 	}
 }
 
@@ -254,42 +252,47 @@ func TestClaudeSubTamperedEntryImagesRejected(t *testing.T) {
 	}
 }
 
-// TestClaudeSubSecondReseedIsStable proves reseeding the same history twice
-// converges: the second record equals the first and a later live turn checkpoints
-// and restores silently.
+// TestClaudeSubSecondReseedIsStable proves reseeding an existing record
+// converges: the prior record, rebuilt from the same history, yields identical
+// entries, and a later live turn still checkpoints and restores silently.
 func TestClaudeSubSecondReseedIsStable(t *testing.T) {
 	stripped := deliveredImageMessage("AAAA")
 	stripped.Images = nil
 	assistant := Message{Role: MessageRoleAssistant, Content: "ok"}
 	history := []Message{stripped, assistant}
 
-	build := func() *claudeSubSync {
-		s := &claudeSubSync{}
-		delta := claudeSubReseedDelta(history)
-		s.adopt(delta)
-		s.commitSent(delta)
-		s.fingerprint = "fp"
-		s.cliSessionID = "cli-1"
-		return s
+	// The prior record was written by a process that received the image.
+	prior := &claudeSubSync{started: true}
+	prior.commitSent(claudeSubDelta{User: []Message{{Role: MessageRoleUser, Content: stripped.Content}}})
+	prior.commitAssistant(assistant, "u1")
+	prior.fingerprint = "fp"
+	prior.cliSessionID = "cli-1"
+	if len(prior.entries[0].Images) != 0 {
+		t.Fatalf("prior entry images = %v, want none for the stripped history", prior.entries[0].Images)
 	}
-	first := build()
-	second := build()
-	if !reflect.DeepEqual(first.entries, second.entries) {
-		t.Fatalf("second reseed entries = %+v, want %+v", second.entries, first.entries)
-	}
-	if got := second.entries[0].Images; len(got) != 0 {
-		t.Fatalf("second reseed images = %v, want none", got)
+
+	// A replacement process reseeds the same history over that record.
+	delta := claudeSubReseedDelta(history)
+	prior.adopt(delta)
+	prior.commitSent(delta)
+
+	fresh := &claudeSubSync{}
+	freshDelta := claudeSubReseedDelta(history)
+	fresh.adopt(freshDelta)
+	fresh.commitSent(freshDelta)
+	if !reflect.DeepEqual(prior.entries, fresh.entries) {
+		t.Fatalf("reseeding an existing record gave %+v, want %+v", prior.entries, fresh.entries)
 	}
 
 	newUser := Message{Role: MessageRoleUser, Content: "next"}
-	delta, err := second.plan(ChatRequest{Messages: append(append([]Message{}, history...), newUser)})
+	live, err := prior.plan(ChatRequest{Messages: append(append([]Message{}, history...), newUser)})
 	if err != nil {
 		t.Fatalf("live plan after second reseed = %v", err)
 	}
-	claudeSubSyncCommit(second, delta)
+	claudeSubSyncCommit(prior, live)
 	newAssistant := Message{Role: MessageRoleAssistant, Content: "done"}
-	second.commitAssistant(newAssistant, "u2")
-	stored, ok, err := second.checkpoint("key")
+	prior.commitAssistant(newAssistant, "u2")
+	stored, ok, err := prior.checkpoint("key")
 	if err != nil || !ok {
 		t.Fatalf("checkpoint = (%+v, %t, %v), want a state", stored, ok, err)
 	}

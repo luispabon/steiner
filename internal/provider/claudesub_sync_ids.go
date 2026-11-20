@@ -14,12 +14,7 @@ func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
 	if m.Role == MessageRoleTool && entry.ToolCallID != m.ToolCallID {
 		return false
 	}
-	cur, ok := claudeSubImageClaim(m)
-	if !ok {
-		// The message contradicts its own delivery record, so it cannot match.
-		return false
-	}
-	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(cur, entry.Images)
+	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(claudeSubImageClaim(m), entry.Images)
 }
 
 // claudeSubEntriesFromMessages returns the sync entry of each message in msgs.
@@ -32,15 +27,10 @@ func claudeSubEntriesFromMessages(msgs []Message) []claudeSubEntry {
 }
 
 func claudeSubEntryFromMessage(m Message) claudeSubEntry {
-	images, ok := claudeSubImageClaim(m)
-	if !ok {
-		// Fail closed: record no image claim rather than an unverifiable one.
-		images = nil
-	}
 	return claudeSubEntry{
 		Role:        m.Role,
 		Digest:      claudeSubDigest(m),
-		Images:      images,
+		Images:      claudeSubImageClaim(m),
 		ToolCallIDs: claudeSubToolCallIDs(m),
 		ToolCallID:  m.ToolCallID,
 	}

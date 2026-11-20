@@ -32,13 +32,13 @@ func claudeSubDigest(m Message) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// claudeSubImageClaim returns the images a delivery of this message can include
-// and whether the message is self-consistent. Only bytes present on the message
-// are a delivery claim: a stripped history message claims nothing even though an
-// earlier process received its image, which keeps a reseeded record, later live
-// appends and checkpoint restore on one baseline.
-func claudeSubImageClaim(m Message) ([]string, bool) {
-	return claudeSubDeliveryImageFingerprints(m), true
+// claudeSubImageClaim returns the images a delivery of this message can
+// include. Only bytes present on the message are a delivery claim: a stripped
+// history message claims nothing even though an earlier process received its
+// image, which keeps a reseeded record, later live appends and checkpoint
+// restore on one baseline.
+func claudeSubImageClaim(m Message) []string {
+	return claudeSubDeliveryImageFingerprints(m)
 }
 
 // claudeSubDeliveryImageFingerprints returns the fingerprints of the image bytes

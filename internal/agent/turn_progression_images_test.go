@@ -236,18 +236,6 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 			want:   `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB; use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`,
 		},
 		{
-			name: "image with ID and no vision sub-agent",
-			img: ImageBlock{
-				ID:        "img-1",
-				FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
-				MediaType: "image/png",
-				Width:     1920,
-				Height:    1080,
-				SizeBytes: 456789,
-			},
-			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB; use the read tool to re-examine]`,
-		},
-		{
 			name: "image with ID but no size",
 			img: ImageBlock{
 				ID:        "img-2",

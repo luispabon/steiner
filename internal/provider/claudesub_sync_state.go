@@ -159,10 +159,7 @@ func claudeSubResumeEntries(msgs []Message, stored claudeSubBackendState) ([]cla
 	entries := claudeSubEntriesFromMessages(msgs[:n])
 	for i := range entries {
 		recorded := stored.SyncEntryImagesAt(i)
-		current, ok := claudeSubImageClaim(msgs[i])
-		if !ok {
-			return nil, false
-		}
+		current := claudeSubImageClaim(msgs[i])
 		switch {
 		case len(recorded) == 0 && len(current) == 0:
 		case len(recorded) == 0:

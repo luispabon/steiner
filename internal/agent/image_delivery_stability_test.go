@@ -58,10 +58,10 @@ func TestRunnerImageTextStableAcrossDelivery(t *testing.T) {
 	}
 }
 
-// TestRunnerImageFingerprintOnlyWhenDelivered proves a request whose model
-// cannot receive images freezes the same text but records no fingerprint, so a
-// provider record never claims an image that was stripped from the wire.
-func TestRunnerImageFingerprintOnlyWhenDelivered(t *testing.T) {
+// TestRunnerVisionDisabledWireCarriesNoImages proves a request whose model
+// cannot receive images freezes the same text and ships no image bytes, so the
+// prompt stays stable without the provider receiving the image.
+func TestRunnerVisionDisabledWireCarriesNoImages(t *testing.T) {
 	image := ImageBlock{ID: "img-1", FilePath: "/tmp/shot.png", MediaType: "image/png", Data: "image-bytes", Width: 4, Height: 5, SizeBytes: 2048}
 	providerStub := &fakeProvider{responses: []provider.ChatResponse{
 		{Message: provider.Message{Role: provider.MessageRoleAssistant, Content: "done"}},
@@ -109,10 +109,9 @@ func imageMessageInRequest(t *testing.T, msgs []provider.Message) provider.Messa
 	return provider.Message{}
 }
 
-// TestRunnerFailedCallRecordsNoFingerprint proves a model call that fails never
-// claims a delivery: the frozen text stays, the request record keeps the user's
-// words, and no fingerprint is recorded.
-func TestRunnerFailedCallRecordsNoFingerprint(t *testing.T) {
+// TestRunnerFailedCallKeepsFrozenTextAndRequest proves a failed model call runs
+// no cleanup that would lose the frozen text or the user's recorded words.
+func TestRunnerFailedCallKeepsFrozenTextAndRequest(t *testing.T) {
 	image := ImageBlock{ID: "img-1", FilePath: "/tmp/shot.png", MediaType: "image/png", Data: "image-bytes", Width: 4, Height: 5, SizeBytes: 2048}
 	providerStub := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 		return provider.ChatResponse{}, errors.New("model unavailable")
@@ -157,5 +156,31 @@ func TestStripImagesIfVisionDisabledStripsOnlyImageMessages(t *testing.T) {
 	}
 	if len(got[1].Images) != 0 {
 		t.Fatalf("current message = %#v, want images cleared", got[1])
+	}
+}
+
+// TestVisionSubAgentAvailableForRequest proves the hint helper reads the
+// request's own vision configuration and never claims a route a child does not
+// have.
+func TestVisionSubAgentAvailableForRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		req  RunRequest
+		want bool
+	}{
+		{name: "no capabilities", want: false},
+		{name: "delegation disabled", req: RunRequest{VisionCapabilities: NewVisionCapabilities(false)}, want: false},
+		{name: "vision sub-agent available", req: RunRequest{VisionCapabilities: NewVisionCapabilities(true)}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := visionSubAgentAvailableForRequest(tt.req); got != tt.want {
+				t.Fatalf("visionSubAgentAvailableForRequest() = %t, want %t", got, tt.want)
+			}
+			progressor := &turnProgressor{request: tt.req}
+			if got := progressor.visionSubAgentAvailable(); got != tt.want {
+				t.Fatalf("visionSubAgentAvailable() = %t, want %t", got, tt.want)
+			}
+		})
 	}
 }
