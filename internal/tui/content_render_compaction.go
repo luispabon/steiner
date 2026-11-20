@@ -6,7 +6,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -359,14 +361,14 @@ func compactionWindowDetail(cd *compactionBannerData) string {
 
 func compactionHistoryDetail(cd *compactionBannerData) string {
 	var parts []string
-	if cd.compactedTurns > 0 || cd.compactedMessages > 0 {
-		parts = append(parts, fmt.Sprintf("%d turns / %d messages compacted", cd.compactedTurns, cd.compactedMessages))
+	if cd.summarizedMessages > 0 {
+		parts = append(parts, fmt.Sprintf("%d messages summarized", cd.summarizedMessages))
 	}
-	if cd.retainedTurns > 0 || cd.retainedMessages > 0 {
-		parts = append(parts, fmt.Sprintf("%d turns / %d messages retained", cd.retainedTurns, cd.retainedMessages))
+	if cd.retainedMessages > 0 {
+		parts = append(parts, fmt.Sprintf("%d messages retained in %d units", cd.retainedMessages, cd.retainedUnits))
 	}
-	if cd.retainedRawTurns > 0 {
-		parts = append(parts, fmt.Sprintf("%d raw turns retained", cd.retainedRawTurns))
+	if cd.retainedUserMessages > 0 || cd.retainedSubAgentResults > 0 {
+		parts = append(parts, fmt.Sprintf("%d user / %d sub-agent result messages retained", cd.retainedUserMessages, cd.retainedSubAgentResults))
 	}
 	return strings.Join(parts, " · ")
 }
@@ -382,10 +384,27 @@ func compactionSummaryDetail(cd *compactionBannerData) string {
 	if cd.summaryTokenBudget > 0 {
 		parts = append(parts, fmt.Sprintf("budget %d tokens", cd.summaryTokenBudget))
 	}
+	switch cd.requestBlock {
+	case output.RequestBlockNew, output.RequestBlockCarried:
+		parts = append(parts, fmt.Sprintf("latest request kept verbatim (%s)", cd.requestBlock))
+	case output.RequestBlockDropped:
+		parts = append(parts, "latest request dropped to fit")
+	}
 	if cd.truncated {
 		parts = append(parts, "truncated")
 	}
 	return strings.Join(parts, " · ")
+}
+
+// compactionResultMarkdown renders a stored compaction summary for display: its
+// stored body, then the verbatim latest request fenced under its own heading
+// instead of the storage header.
+func compactionResultMarkdown(summaryText string) string {
+	body, request, ok := agent.SplitRequestBlock(summaryText)
+	if !ok {
+		return body
+	}
+	return body + "\n\nLatest request (verbatim):\n\n" + session.FenceVerbatim(request)
 }
 
 func compactionCacheDetail(cd *compactionBannerData) string {

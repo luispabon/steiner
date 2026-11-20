@@ -89,7 +89,7 @@ func newFallbackOperationRun(now time.Time) *fallbackOperationRun {
 		Provider:      r.main,
 		ResolvedModel: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-main"},
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               6000,
+			ContextSize:               6066,
 			MaxCompletionTokens:       128,
 			SummaryMaxTokens:          64,
 			NormalSummaryMaxTokens:    64,

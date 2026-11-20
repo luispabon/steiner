@@ -12,6 +12,9 @@ import (
 // MessageSourceSubAgentResult identifies a user message containing only sub-agent results.
 const MessageSourceSubAgentResult = "sub_agent_result"
 
+// subAgentResultCloseTag closes a rendered sub-agent result envelope.
+const subAgentResultCloseTag = "</steiner-sub-agent-result>"
+
 // subAgentResultEnvelopeOpenRE matches a result envelope open tag anchored at the start.
 var subAgentResultEnvelopeOpenRE = regexp.MustCompile(
 	`\A<steiner-sub-agent-result agent_id=("(?:[^"\\]|\\.)*") type=("(?:[^"\\]|\\.)*") status=("(?:[^"\\]|\\.)*") call_id=("(?:[^"\\]|\\.)*") bytes="(\d+)">\n`,
@@ -36,7 +39,7 @@ func RenderSubAgentResultEnvelope(c SubAgentCompletion) string {
 		strconv.Quote(c.ParentCallID),
 		len(inner),
 	)
-	return open + inner + "\n</steiner-sub-agent-result>"
+	return open + inner + "\n" + subAgentResultCloseTag
 }
 
 // renderPendingSubAgentsLine renders the pending line for a slice of pending sub-agents,
@@ -135,16 +138,19 @@ func BuildDeliveryMessage(in DeliveryParts) (Message, bool) {
 	}
 
 	return Message{
-		Role:    MessageRoleUser,
-		Content: content,
-		Source:  source,
-		Images:  in.Images,
+		Role:        MessageRoleUser,
+		Content:     content,
+		Source:      source,
+		RequestText: in.UserText,
+		Images:      in.Images,
 	}, true
 }
 
-// IsRealUserMessage reports whether m is a genuine user message (not a sub-agent result batch).
+// IsRealUserMessage reports whether m carries a user's own words: a user-role
+// message with no synthetic source (sub-agent results, runtime notices, and
+// skill replays are all sourced).
 func IsRealUserMessage(m Message) bool {
-	return m.Role == MessageRoleUser && m.Source != MessageSourceSubAgentResult
+	return m.Role == MessageRoleUser && m.Source == ""
 }
 
 // ParsedSubAgentResult is a minimally-parsed sub-agent result envelope.

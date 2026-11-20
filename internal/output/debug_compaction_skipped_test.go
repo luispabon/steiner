@@ -14,12 +14,11 @@ func TestFormatCompactionSkippedSummary(t *testing.T) {
 		Notes:    []string{"compaction skipped: no stage applied"},
 	}
 	applied := ContextDiagnosticsEvent{
-		Kind:              "compaction",
-		Scope:             "conversation",
-		Turn:              3,
-		Severity:          "ok",
-		CompactedTurns:    2,
-		CompactedMessages: 4,
+		Kind:               "compaction",
+		Scope:              "conversation",
+		Turn:               3,
+		Severity:           "ok",
+		SummarizedMessages: 4,
 	}
 
 	tests := []struct {
@@ -37,10 +36,10 @@ func TestFormatCompactionSkippedSummary(t *testing.T) {
 			wantAbsent:  []string{"compacted "},
 		},
 		{
-			name:        "applied keeps compacted counts",
+			name:        "applied keeps summarized counts",
 			payload:     applied,
 			wantPrefix:  "ok: compaction turn 3",
-			wantContain: []string{"compacted 2 turns/4 messages"},
+			wantContain: []string{"4 messages summarized"},
 		},
 	}
 	for _, tt := range tests {

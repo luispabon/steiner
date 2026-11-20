@@ -82,6 +82,10 @@ func denseHistoryConversation() []Message {
 	return msgs
 }
 
+// denseEmergencyRequest is the latest real user message the emergency stage of
+// denseHistoryConversation folds into its summary, trimmed as the block stores it.
+var denseEmergencyRequest = strings.TrimSpace(strings.Repeat("turn 3 user detail ", 4))
+
 func historyArchiveState(conv []Message) RunState {
 	return RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
 }
@@ -104,6 +108,16 @@ func historyArchiveContents(msgs []Message) []string {
 		contents = append(contents, msg.Content)
 	}
 	return contents
+}
+
+// assertSummaryBodyRequest asserts a stored summary splits into wantBody and the
+// verbatim latest request wantRequest.
+func assertSummaryBodyRequest(t *testing.T, content, wantBody, wantRequest string) {
+	t.Helper()
+	body, request, ok := SplitRequestBlock(content)
+	if !ok || body != wantBody || request != wantRequest {
+		t.Errorf("summary = %q, want body %q with request %q", content, wantBody, wantRequest)
+	}
 }
 
 // assertSingleCompactWarning checks that rec holds exactly one conversation
@@ -140,9 +154,7 @@ func TestHistoryArchiveNilKeepsSummaryUnchanged(t *testing.T) {
 	if !compactIntoState(t, req, &state) {
 		t.Fatal("applied = false, want true")
 	}
-	if got, want := state.Conversation[0].Content, "summary handoff text"; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "summary handoff text", "turn 1 user")
 }
 
 // TestHistoryArchiveSuccessAppendsSourceOnAdoption proves the note is appended
@@ -161,9 +173,7 @@ func TestHistoryArchiveSuccessAppendsSourceOnAdoption(t *testing.T) {
 	if got := historyArchiveContents(archive.appends[0]); !slices.Equal(got, want) {
 		t.Errorf("appended contents = %q, want %q", got, want)
 	}
-	if got, want := state.Conversation[0].Content, "summary handoff text\n\n"+testHistoryNote; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "summary handoff text\n\n"+testHistoryNote, "turn 1 user")
 }
 
 // TestHistoryArchiveAppendsImageBearingSource proves the archive receives the
@@ -202,9 +212,7 @@ func TestHistoryArchiveNoteErrorAppliesWithoutNoteOrAppend(t *testing.T) {
 	if !compactIntoState(t, req, &state) {
 		t.Fatal("applied = false, want true")
 	}
-	if got, want := state.Conversation[0].Content, "summary handoff text"; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "summary handoff text", "turn 1 user")
 	if len(archive.appends) != 0 {
 		t.Errorf("Append calls = %d, want 0", len(archive.appends))
 	}
@@ -223,9 +231,7 @@ func TestHistoryArchiveAppendErrorAfterAdoptionKeepsState(t *testing.T) {
 	if !compactIntoState(t, req, &state) {
 		t.Fatal("applied = false, want true")
 	}
-	if got, want := state.Conversation[0].Content, "summary handoff text\n\n"+testHistoryNote; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "summary handoff text\n\n"+testHistoryNote, "turn 1 user")
 	if len(archive.appends) != 1 {
 		t.Errorf("Append calls = %d, want 1", len(archive.appends))
 	}
@@ -303,9 +309,7 @@ func TestHistoryArchiveStaleNoteReplaced(t *testing.T) {
 	if !compactIntoState(t, req, &state) {
 		t.Fatal("applied = false, want true")
 	}
-	if got, want := state.Conversation[0].Content, "kept detail\nmore detail\n\n"+testHistoryNote; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "kept detail\nmore detail\n\n"+testHistoryNote, "turn 1 user")
 }
 
 // TestHistoryArchiveSecondCompactionSourceStartsWithSummary proves that the
@@ -425,9 +429,7 @@ func TestHistoryArchiveEmptyNoteAppliesWithoutNoteOrAppend(t *testing.T) {
 	if len(archive.notes) != 1 {
 		t.Errorf("Note calls = %d, want 1", len(archive.notes))
 	}
-	if got, want := state.Conversation[0].Content, "summary handoff text"; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "summary handoff text", "turn 1 user")
 	if len(archive.appends) != 0 {
 		t.Errorf("Append calls = %d, want 0", len(archive.appends))
 	}
@@ -459,9 +461,7 @@ func TestHistoryArchiveTwoStageEmergencyNoteErrorKeepsNormalAppend(t *testing.T)
 			t.Errorf("appended source contains a summary, want only the normal stage's raw turns")
 		}
 	}
-	if got, want := state.Conversation[0].Content, "emergency handoff summary"; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "emergency handoff summary", denseEmergencyRequest)
 	assertSingleCompactWarning(t, &rec, "archive compacted history: disk full")
 }
 
@@ -480,9 +480,7 @@ func TestHistoryArchiveTwoStageAppendErrorStopsAfterFirstSource(t *testing.T) {
 	if len(archive.appends) != 1 {
 		t.Fatalf("Append calls = %d, want 1 (stop after first error)", len(archive.appends))
 	}
-	if got, want := state.Conversation[0].Content, "emergency handoff summary\n\n"+testHistoryNote; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, state.Conversation[0].Content, "emergency handoff summary\n\n"+testHistoryNote, denseEmergencyRequest)
 	assertSingleCompactWarning(t, &rec, "archive compacted history: write failed")
 }
 
@@ -501,9 +499,7 @@ func TestHistoryArchiveManualPathAppendsOnceWithNote(t *testing.T) {
 	if len(archive.appends) != 1 {
 		t.Fatalf("Append calls = %d, want 1", len(archive.appends))
 	}
-	if got, want := compacted[0].Content, "summary handoff text\n\n"+testHistoryNote; got != want {
-		t.Errorf("summary content = %q, want %q", got, want)
-	}
+	assertSummaryBodyRequest(t, compacted[0].Content, "summary handoff text\n\n"+testHistoryNote, "turn 1 user")
 }
 
 // TestHistoryArchiveManualPathAppendErrorReachesEvents proves the manual path

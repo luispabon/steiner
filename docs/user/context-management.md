@@ -18,7 +18,7 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - the system prompt and tool definitions
 - summaries from earlier compactions
 - the most recent conversation turns, verbatim
-- your latest message, verbatim, when it fits
+- your latest request from before the summarized part, verbatim, truncated past 16 KB or past 5% of the context window when that is smaller (images in it are not kept; a turn with only an image is skipped, so the request comes from your last turn with text). It holds the text you typed only: mode notices and sub-agent results from the same turn are left out. If keeping it alone would make the compaction fail, it is dropped and the banner says so
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 
@@ -40,7 +40,7 @@ The summary request carries the tool definitions a normal turn would send. After
 
 ### Compaction history archive
 
-Interactive sessions and oneshot phases save the messages each compaction removes to `history.md` in `~/.config/steiner/sessions/<session-id>/`. It holds user and assistant text and short tool-call summaries, not tool output or model reasoning. The summary tells the model where the archive is so it can `grep` and `read` it for a missing detail.
+Interactive sessions and oneshot phases save the messages each compaction removes to `history.md` in `~/.config/steiner/sessions/<session-id>/`. It holds user and assistant text and short tool-call summaries, not tool output or model reasoning. The summary tells the model where the archive is so it can `grep` and `read` it for a missing detail. The summary's latest-request section is written inside a code block, fenced longer than any backtick run in the request, so markdown in it is not interpreted. The compaction result in the transcript renders it the same way.
 
 Use `/recall` to view the current session's archive. `--exec` runs and sub-agents do not keep an archive. Deleting a session deletes its archive; a forked session starts its own archive.
 
@@ -48,7 +48,7 @@ Use `/recall` to view the current session's archive. `--exec` runs and sub-agent
 
 When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive cold-cache threshold on the main model's provider. The threshold is `compaction_fallback_after`; when that key is unset it uses the provider's `prompt_cache_ttl` (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). The fallback stays off when the resulting threshold is `0`; negative values are invalid. See [Configuration](configuration.md#providers-block).
 
-If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, history counts, summary size and budget, and cache components. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
+If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, the number of messages summarized, the retained messages and compaction units, how many retained user messages are real user input versus sub-agent results, summary size and budget, and cache components. The summary row ends with `latest request kept verbatim (new)` or `latest request kept verbatim (carried)` when the summary carries your latest request, or `latest request dropped to fit` when it was dropped to keep the compaction within the context window. When the fallback is skipped the header reads `fallback skipped`; the reason stays in the expanded details and in plain and JSON output.
 
 A resumed or forked session keeps the last main request it saved, so the cold-cache decision uses the real idle time rather than assuming no request. A request recorded for another model is ignored when the session resumes on the current model; the stored record is replaced by the next successful main request. A record whose prompt cache key no longer matches the session is discarded.
 

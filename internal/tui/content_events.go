@@ -130,7 +130,6 @@ type compactionBannerData struct {
 	finished bool
 	skipped  bool // finished without a compaction; renders no success mark
 	summary  string
-	msgCount int // number of messages compacted (for finished summary)
 
 	// timing — set on first "compacting" event; computed on finish
 	startTime int64  // unix nano; 0 when replaying history (no wall-clock available)
@@ -152,27 +151,29 @@ type compactionBannerData struct {
 	expanded bool
 
 	// compaction statistics (populated on finish)
-	compactedTurns      int
-	compactedMessages   int
-	retainedTurns       int
-	retainedMessages    int
-	retainedRawTurns    int
-	mode                string  // compaction mode reported by the engine
-	beforeTokens        int     // prompt tokens before compaction
-	beforePct           float64 // context usage % before compaction
-	afterTokens         int     // prompt tokens after compaction
-	afterPct            float64 // context usage % after compaction
-	summaryTitle        string  // human-readable summary title
-	summaryBytes        int     // size of the generated summary
-	summaryTokenBudget  int     // token budget for the summary call
-	contextWindow       int     // model context window
-	thresholdTokens     int     // token count that triggers compaction
-	compactionThreshold float64 // compaction trigger as a percentage of the context window
-	thresholdAchieved   bool    // whether compaction brought usage under the threshold
-	truncated           bool    // whether the prompt was truncated
-	cacheReadTokens     int
-	inputTokens         int
-	cacheCreateTokens   int
+	summarizedMessages      int
+	retainedMessages        int
+	retainedUnits           int
+	retainedUserMessages    int
+	retainedSubAgentResults int
+	requestBlock            string  // output.RequestBlock* status of the verbatim latest request
+	requestBlockBytes       int     // size of the verbatim latest request
+	mode                    string  // compaction mode reported by the engine
+	beforeTokens            int     // prompt tokens before compaction
+	beforePct               float64 // context usage % before compaction
+	afterTokens             int     // prompt tokens after compaction
+	afterPct                float64 // context usage % after compaction
+	summaryTitle            string  // human-readable summary title
+	summaryBytes            int     // size of the generated summary
+	summaryTokenBudget      int     // token budget for the summary call
+	contextWindow           int     // model context window
+	thresholdTokens         int     // token count that triggers compaction
+	compactionThreshold     float64 // compaction trigger as a percentage of the context window
+	thresholdAchieved       bool    // whether compaction brought usage under the threshold
+	truncated               bool    // whether the prompt was truncated
+	cacheReadTokens         int
+	inputTokens             int
+	cacheCreateTokens       int
 }
 
 type separatorData struct {

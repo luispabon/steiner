@@ -461,17 +461,17 @@ func TestNewMCPStatusEvent(t *testing.T) {
 	}
 }
 
-func TestNewContextCompactionEvent(t *testing.T) {
+func TestNewContextDiagnosticsEventCompactionPreview(t *testing.T) {
 	tests := []struct {
 		name    string
 		turn    int
-		summary []string
+		preview string
 		check   func(t *testing.T, event Event)
 	}{
 		{
 			name:    "zero turn",
 			turn:    0,
-			summary: []string{},
+			preview: "",
 			check: func(t *testing.T, event Event) {
 				if event.Type != EventTypeContextDiagnostics {
 					t.Fatalf("Type = %q, want %q", event.Type, EventTypeContextDiagnostics)
@@ -482,9 +482,9 @@ func TestNewContextCompactionEvent(t *testing.T) {
 			},
 		},
 		{
-			name:    "with turn and one summary",
+			name:    "with turn and a preview",
 			turn:    5,
-			summary: []string{"summary text"},
+			preview: "summary text",
 			check: func(t *testing.T, event Event) {
 				if event.Type != EventTypeContextDiagnostics {
 					t.Fatalf("Type = %q", event.Type)
@@ -501,41 +501,15 @@ func TestNewContextCompactionEvent(t *testing.T) {
 				}
 			},
 		},
-		{
-			name:    "with multiple summary args (only first used)",
-			turn:    1,
-			summary: []string{"first", "second", "third"},
-			check: func(t *testing.T, event Event) {
-				p, ok := event.Payload.(ContextCompactionEvent)
-				if !ok {
-					t.Fatalf("Payload type = %T", event.Payload)
-				}
-				if p.SummaryPreview != "first" {
-					t.Fatalf("SummaryPreview = %q, want %q", p.SummaryPreview, "first")
-				}
-			},
-		},
-		{
-			name:    "no summary args",
-			turn:    2,
-			summary: []string{},
-			check: func(t *testing.T, event Event) {
-				p, ok := event.Payload.(ContextCompactionEvent)
-				if !ok {
-					t.Fatalf("Payload type = %T", event.Payload)
-				}
-				if p.SummaryPreview != "" {
-					t.Fatalf("SummaryPreview = %q, want empty", p.SummaryPreview)
-				}
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := NewContextCompactionEvent(
-				tt.turn, 0, 0, 0, 0, 0, false, "", tt.summary...,
-			)
+			event := NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+				Kind:           "compaction",
+				Turn:           tt.turn,
+				SummaryPreview: tt.preview,
+			})
 			tt.check(t, event)
 		})
 	}

@@ -35,19 +35,3 @@ func firstMessageContentByRole(messages []Message, role MessageRole) string {
 func summarizeTextPreview(text string, limit int) string {
 	return output.TruncateWithEllipsis(text, limit)
 }
-
-func countTurns(messages []Message) int {
-	if len(messages) == 0 {
-		return 0
-	}
-	turns := 0
-	for _, message := range messages {
-		if message.Role == MessageRoleUser {
-			turns++
-		}
-	}
-	if turns == 0 {
-		return 1
-	}
-	return turns
-}

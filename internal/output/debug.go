@@ -11,25 +11,6 @@ func NewContextDiagnosticsEvent(payload ContextDiagnosticsEvent) Event {
 	return contextDiagnosticEvent(contextDiagnosticFromLegacy(payload))
 }
 
-// NewContextCompactionEvent creates a new context compaction event.
-func NewContextCompactionEvent(turn, retainedTurns, retainedMessages, compactedTurns, compactedMessages, summaryBytes int, truncated bool, summaryTitle string, summaryPreview ...string) Event {
-	preview := ""
-	if len(summaryPreview) > 0 {
-		preview = summaryPreview[0]
-	}
-	return contextDiagnosticEvent(ContextCompactionEvent{
-		Turn:              turn,
-		RetainedTurns:     retainedTurns,
-		RetainedMessages:  retainedMessages,
-		CompactedTurns:    compactedTurns,
-		CompactedMessages: compactedMessages,
-		SummaryTitle:      summaryTitle,
-		SummaryPreview:    strings.TrimSpace(preview),
-		SummaryBytes:      summaryBytes,
-		Truncated:         truncated,
-	})
-}
-
 // NewContextSessionHealthEvent creates a new context session health event.
 func NewContextSessionHealthEvent(scope string, turn, compactionCount int, severity, sessionState, restartGuidance string, notes ...string) Event {
 	return contextDiagnosticEvent(ContextSessionHealthEvent{
@@ -260,8 +241,8 @@ func formatCompactionUsage(payload ContextDiagnosticsEvent) []string {
 
 func formatCompactionBudget(payload ContextDiagnosticsEvent) []string {
 	parts := make([]string, 0, 3)
-	if payload.RetainedRawTurns > 0 {
-		parts = append(parts, fmt.Sprintf("retained raw turns=%d", payload.RetainedRawTurns))
+	if payload.RetainedUnits > 0 {
+		parts = append(parts, fmt.Sprintf("retained units=%d", payload.RetainedUnits))
 	}
 	if payload.SummaryTokenBudget > 0 {
 		parts = append(parts, fmt.Sprintf("summary token budget=%d", payload.SummaryTokenBudget))
@@ -273,12 +254,18 @@ func formatCompactionBudget(payload ContextDiagnosticsEvent) []string {
 }
 
 func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if summary := compactionSummaryPreview(payload); summary != "" {
 		parts = append(parts, fmt.Sprintf("kept summary %q", TruncateWithEllipsis(summary, 160)))
 	}
 	if payload.SummaryBytes > 0 {
 		parts = append(parts, fmt.Sprintf("summary %d bytes", payload.SummaryBytes))
+	}
+	switch status := strings.TrimSpace(payload.RequestBlock); status {
+	case RequestBlockNew, RequestBlockCarried:
+		parts = append(parts, fmt.Sprintf("latest request kept verbatim (%s)", status))
+	case RequestBlockDropped:
+		parts = append(parts, "latest request dropped to fit")
 	}
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")
@@ -386,19 +373,25 @@ func formatDiagnosticHeadline(payload ContextDiagnosticsEvent, subject string) s
 		parts = append(parts, fmt.Sprintf("turn %d", payload.Turn))
 	}
 	if subject == "compaction" && payload.Severity != "skipped" {
-		parts = append(parts, fmt.Sprintf(
-			"compacted %d %s/%d %s; retained %d %s/%d %s",
-			payload.CompactedTurns,
-			PluralSuffix(payload.CompactedTurns, "turn", "turns"),
-			payload.CompactedMessages,
-			PluralSuffix(payload.CompactedMessages, "message", "messages"),
-			payload.RetainedTurns,
-			PluralSuffix(payload.RetainedTurns, "turn", "turns"),
-			payload.RetainedMessages,
-			PluralSuffix(payload.RetainedMessages, "message", "messages"),
-		))
+		parts = append(parts, strings.Join(formatCompactionCounts(payload), "; "))
 	}
 	return strings.Join(parts, " ")
+}
+
+// formatCompactionCounts reports what a compaction summarized and what it kept,
+// splitting retained user messages into genuine ones and sub-agent results.
+func formatCompactionCounts(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 3)
+	if payload.SummarizedMessages > 0 {
+		parts = append(parts, fmt.Sprintf("%d messages summarized", payload.SummarizedMessages))
+	}
+	if payload.RetainedMessages > 0 {
+		parts = append(parts, fmt.Sprintf("%d messages retained in %d units", payload.RetainedMessages, payload.RetainedUnits))
+	}
+	if payload.RetainedUserMessages > 0 || payload.RetainedSubAgentResults > 0 {
+		parts = append(parts, fmt.Sprintf("%d user / %d sub-agent result messages retained", payload.RetainedUserMessages, payload.RetainedSubAgentResults))
+	}
+	return parts
 }
 
 func formatDiagnosticEscalation(payload ContextDiagnosticsEvent) []string {

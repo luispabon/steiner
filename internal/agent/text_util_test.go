@@ -122,81 +122,40 @@ func TestTextUtil_FirstMessageContentByRole(t *testing.T) {
 	}
 }
 
-func TestTextUtil_CountTurns_noUserMessages(t *testing.T) {
+func TestTextUtil_CountSummarizedMessages(t *testing.T) {
 	tests := []struct {
 		name     string
 		messages []Message
 		want     int
 	}{
 		{
-			name:     "empty slice returns 0",
+			name:     "empty",
 			messages: nil,
 			want:     0,
 		},
 		{
-			name: "only assistant returns 1",
+			name: "prior summary is not summarized again",
 			messages: []Message{
-				{Role: MessageRoleAssistant, Content: "a"},
+				{Role: MessageRoleSummary, Content: "prior summary"},
+				{Role: MessageRoleUser, Content: "question"},
+				{Role: MessageRoleAssistant, Content: "answer"},
 			},
-			want: 1,
+			want: 2,
 		},
 		{
-			name: "only tool returns 1",
+			name: "counts every non-summary role",
 			messages: []Message{
-				{Role: MessageRoleTool, Content: "b"},
+				{Role: MessageRoleUser, Content: "question"},
+				{Role: MessageRoleAssistant, Content: "answer"},
+				{Role: MessageRoleTool, Content: "output"},
 			},
-			want: 1,
+			want: 3,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := countTurns(tt.messages)
-			if got != tt.want {
-				t.Errorf("got %d, want %d", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestTextUtil_CountTurns_countsUserMessages(t *testing.T) {
-	tests := []struct {
-		name     string
-		messages []Message
-		want     int
-	}{
-		{
-			name: "single user message",
-			messages: []Message{
-				{Role: MessageRoleUser, Content: "hello"},
-			},
-			want: 1,
-		},
-		{
-			name: "multiple user messages",
-			messages: []Message{
-				{Role: MessageRoleUser, Content: "a"},
-				{Role: MessageRoleAssistant, Content: "b"},
-				{Role: MessageRoleUser, Content: "c"},
-			},
-			want: 2,
-		},
-		{
-			name: "mixed roles only counts user",
-			messages: []Message{
-				{Role: MessageRoleTool, Content: "t1"},
-				{Role: MessageRoleUser, Content: "u1"},
-				{Role: MessageRoleAssistant, Content: "a1"},
-				{Role: MessageRoleUser, Content: "u2"},
-				{Role: MessageRoleSummary, Content: "s1"},
-			},
-			want: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := countTurns(tt.messages)
+			got := countSummarizedMessages(tt.messages, nil)
 			if got != tt.want {
 				t.Errorf("got %d, want %d", got, tt.want)
 			}

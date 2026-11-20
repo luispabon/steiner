@@ -99,6 +99,17 @@ type Message struct {
 	Source           string       `json:"source,omitempty"`
 	ByteSize         int          `json:"byte_size,omitempty"`
 	Turn             int          `json:"turn,omitempty"`
+	// RequestText holds the user's own words from a real user message, without
+	// the mode notice, skill blocks, pending line, or sub-agent results its
+	// Content may also carry. Compaction reads it for the latest-request block;
+	// it is never projected to a provider.
+	RequestText string `json:"request_text,omitempty"`
+	// VisionRouted marks a real user message whose content image handling
+	// rewrote with routed descriptions or placeholder tokens. Those words are
+	// model or runtime text, not the user's own, so compaction never selects the
+	// message through its content; image handling records the user's original
+	// words in RequestText before it rewrites.
+	VisionRouted bool `json:"vision_routed,omitempty"`
 	// Timestamp records when the message entered the conversation. It is display
 	// metadata for resumed transcripts and never reaches the model.
 	Timestamp time.Time `json:"timestamp,omitzero"`

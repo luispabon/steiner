@@ -13,7 +13,7 @@ func TestContextDiagnosticKind(t *testing.T) {
 		{
 			name: "compaction event",
 			payload: ContextCompactionEvent{
-				CompactedTurns: 1,
+				SummarizedMessages: 1,
 			},
 			want: "compaction",
 		},
@@ -193,27 +193,27 @@ func TestAsContextCompactionEvent(t *testing.T) {
 		{
 			name: "typed compaction event",
 			payload: ContextCompactionEvent{
-				CompactedTurns:    5,
-				CompactedMessages: 20,
+				SummarizedMessages: 5,
+				RetainedUnits:      2,
 			},
 			wantOk: true,
 			check: func(t *testing.T, event ContextCompactionEvent) {
-				if event.CompactedTurns != 5 {
-					t.Errorf("CompactedTurns = %d", event.CompactedTurns)
+				if event.SummarizedMessages != 5 {
+					t.Errorf("SummarizedMessages = %d", event.SummarizedMessages)
 				}
 			},
 		},
 		{
 			name: "legacy compaction event",
 			payload: ContextDiagnosticsEvent{
-				Kind:              "compaction",
-				CompactedTurns:    3,
-				CompactedMessages: 10,
+				Kind:                    "compaction",
+				RetainedSubAgentResults: 3,
+				RetainedUserMessages:    10,
 			},
 			wantOk: true,
 			check: func(t *testing.T, event ContextCompactionEvent) {
-				if event.CompactedTurns != 3 {
-					t.Errorf("CompactedTurns = %d", event.CompactedTurns)
+				if event.RetainedSubAgentResults != 3 {
+					t.Errorf("RetainedSubAgentResults = %d", event.RetainedSubAgentResults)
 				}
 			},
 		},
@@ -407,8 +407,8 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 		{
 			name: "clone compaction event",
 			payload: ContextCompactionEvent{
-				CompactedTurns: 5,
-				Notes:          []string{"note1"},
+				RetainedUnits: 5,
+				Notes:         []string{"note1"},
 			},
 			wantOk: true,
 			check: func(t *testing.T, src, cloned any) {
@@ -416,8 +416,8 @@ func TestCloneContextDiagnosticPayload(t *testing.T) {
 				if !ok {
 					t.Fatalf("type = %T", cloned)
 				}
-				if ce.CompactedTurns != 5 {
-					t.Errorf("CompactedTurns = %d", ce.CompactedTurns)
+				if ce.RetainedUnits != 5 {
+					t.Errorf("RetainedUnits = %d", ce.RetainedUnits)
 				}
 				if ce.Notes[0] != "note1" {
 					t.Errorf("Notes[0] = %q, want %q", ce.Notes[0], "note1")

@@ -106,18 +106,17 @@ func TestFormatContextDiagnosticsEvent(t *testing.T) {
 		{
 			name: "compaction kind",
 			payload: ContextDiagnosticsEvent{
-				Kind:              "compaction",
-				CompactedTurns:    5,
-				CompactedMessages: 20,
-				RetainedTurns:     2,
-				RetainedMessages:  8,
+				Kind:               "compaction",
+				SummarizedMessages: 20,
+				RetainedMessages:   8,
+				RetainedUnits:      2,
 			},
 			check: func(t *testing.T, result string) {
 				if !strings.Contains(result, "compaction") {
 					t.Error("missing compaction keyword")
 				}
-				if !strings.Contains(result, "5") {
-					t.Error("missing compacted turns count")
+				if !strings.Contains(result, "20 messages summarized") {
+					t.Error("missing summarized message count")
 				}
 			},
 		},
@@ -199,10 +198,11 @@ func TestFormatAnyContextDiagnosticsEvent(t *testing.T) {
 		{
 			name: "typed compaction event",
 			payload: ContextCompactionEvent{
-				CompactedTurns:    3,
-				CompactedMessages: 12,
-				RetainedTurns:     1,
-				RetainedMessages:  4,
+				SummarizedMessages:      3,
+				RetainedMessages:        4,
+				RetainedUnits:           1,
+				RetainedUserMessages:    1,
+				RetainedSubAgentResults: 2,
 			},
 			check: func(t *testing.T, result string) {
 				if result == "" {
@@ -565,15 +565,14 @@ func TestFormatDiagnosticHeadline(t *testing.T) {
 		{
 			name: "compaction subject includes counts",
 			payload: ContextDiagnosticsEvent{
-				CompactedTurns:    2,
-				CompactedMessages: 8,
-				RetainedTurns:     1,
-				RetainedMessages:  3,
+				SummarizedMessages: 8,
+				RetainedMessages:   3,
+				RetainedUnits:      2,
 			},
 			subject: "compaction",
 			check: func(t *testing.T, result string) {
-				if !strings.Contains(result, "2") || !strings.Contains(result, "8") {
-					t.Error("missing compacted counts")
+				if !strings.Contains(result, "8 messages summarized") || !strings.Contains(result, "3 messages retained in 2 units") {
+					t.Error("missing compaction counts")
 				}
 			},
 		},

@@ -6,6 +6,10 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
+// MessageSourceSkillReplay identifies the user-role message that re-injects
+// active skill envelopes after compaction. It is not user input.
+const MessageSourceSkillReplay = "skill_replay"
+
 // activeSkillBlocks returns the skill blocks still active in the latest
 // generation. The scan covers the full generation, so it sees early activation
 // messages alongside any late switch retained in the tail.
@@ -51,5 +55,5 @@ func replayedSkillMessage(active []prompt.SkillBlock) (Message, bool) {
 	for _, block := range active {
 		texts = append(texts, block.Text)
 	}
-	return Message{Role: MessageRoleUser, Content: strings.Join(texts, "\n\n")}, true
+	return Message{Role: MessageRoleUser, Source: MessageSourceSkillReplay, Content: strings.Join(texts, "\n\n")}, true
 }

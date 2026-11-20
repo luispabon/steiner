@@ -84,13 +84,44 @@ func historyHeading(msg agent.Message) string {
 }
 
 // summaryParts renders a compaction summary as a divider followed by its text
-// with archive note lines removed.
+// with archive note lines removed, then the verbatim latest request fenced under
+// its own heading.
 func summaryParts(content string) []string {
 	parts := []string{historyDivider}
-	if text := agent.StripHistoryNotes(content); text != "" {
+	body, request, ok := agent.SplitRequestBlock(content)
+	if text := agent.StripHistoryNotes(body); text != "" {
 		parts = append(parts, text)
 	}
+	if ok {
+		parts = append(parts, "Latest request (verbatim):", FenceVerbatim(request))
+	}
 	return parts
+}
+
+// FenceVerbatim returns text as a fenced code block. The fence is one backtick
+// longer than the longest backtick run in text, and never shorter than three, so
+// markdown in the text renders as typed instead of closing the block. The
+// opening fence carries no info string.
+func FenceVerbatim(text string) string {
+	fence := strings.Repeat("`", verbatimFenceLength(text))
+	return fence + "\n" + text + "\n" + fence
+}
+
+// verbatimFenceLength returns the fence length FenceVerbatim needs: one more
+// backtick than the longest run in text, and never fewer than three.
+func verbatimFenceLength(text string) int {
+	longest, run := 0, 0
+	for _, r := range text {
+		if r != '`' {
+			run = 0
+			continue
+		}
+		run++
+		if run > longest {
+			longest = run
+		}
+	}
+	return max(longest+1, 3)
 }
 
 // userParts renders a user message. Active skill envelopes become one
