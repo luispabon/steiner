@@ -3,8 +3,6 @@ package agent
 import (
 	"fmt"
 	"strings"
-
-	"github.com/luispabon/steiner/internal/provider"
 )
 
 // formatSize returns a human-readable size string like "2KB" or "1.5MB".
@@ -62,13 +60,6 @@ func imageBlockPlaceholder(img ImageBlock, visionAvailable bool) string {
 	return fmt.Sprintf("[image: %s %s]", dims, fmtStr)
 }
 
-// imageFingerprint is the provider-side identity of one delivered image. Both
-// sides of the provider boundary share provider.ImageFingerprint so a recorded
-// fingerprint can be checked against the bytes a message still carries.
-func imageFingerprint(img ImageBlock) string {
-	return provider.ImageFingerprint(img.MediaType, img.Data)
-}
-
 // imageBlockPlaceholders returns the tokens the message's data-carrying images
 // still need, given the tokens already frozen into it. Tokens are claimed in
 // image order, one per data image, so the recorded list alone decides coverage
@@ -117,54 +108,20 @@ func freezeImagePlaceholders(msgs []Message, visionAvailable bool) []Message {
 	return out
 }
 
-// deliveredImageFingerprints returns recorded extended with one fingerprint per
-// image carrying data. It keeps multiplicity, so the same image pasted twice
-// records two fingerprints, and repeated calls add nothing.
-func deliveredImageFingerprints(recorded []string, images []ImageBlock) []string {
-	want := make(map[string]int, len(images))
-	order := make([]string, 0, len(images))
-	for _, img := range images {
-		if img.Data == "" {
-			continue
-		}
-		fingerprint := imageFingerprint(img)
-		if want[fingerprint] == 0 {
-			order = append(order, fingerprint)
-		}
-		want[fingerprint]++
-	}
-	if len(want) == 0 {
-		return recorded
-	}
-	have := make(map[string]int, len(recorded))
-	for _, fingerprint := range recorded {
-		have[fingerprint]++
-	}
-	out := recorded
-	for _, fingerprint := range order {
-		for have[fingerprint] < want[fingerprint] {
-			if out == nil {
-				out = make([]string, 0, len(order))
-			}
-			out = append(out, fingerprint)
-			have[fingerprint]++
-		}
-	}
-	return out
-}
-
 // stripImagesFromMessages clears the Data field of every ImageBlock in msgs so
 // the payload is not re-sent on later turns. Placeholder tokens frozen before
 // delivery are left untouched; a message that never went through the freeze
-// (a legacy in-memory state) gets its placeholders and request record here,
-// before the data is dropped.
-func stripImagesFromMessages(msgs []Message) []Message {
+// (a legacy in-memory state or an image no request delivered) gets its
+// placeholders and request record here, before the data is dropped.
+// visionAvailable names the vision sub-agent route only for a caller that knows
+// one is configured; a child with delegation disabled passes false.
+func stripImagesFromMessages(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
 		// A message that never went through the freeze gets its tokens here, and
 		// records the user's words first. Frozen messages append nothing.
-		needed := imageBlockPlaceholders(out[i], false)
+		needed := imageBlockPlaceholders(out[i], visionAvailable)
 		if len(needed) > 0 && len(out[i].ImagePlaceholders) == 0 {
 			recordImageRewrite(&out[i])
 		}
@@ -178,28 +135,28 @@ func stripImagesFromMessages(msgs []Message) []Message {
 
 // stripImagesFromMessagesExceptDeferredRead strips all image data except read
 // tool results, which remain available for the immediately following model request.
-func stripImagesFromMessagesExceptDeferredRead(msgs []Message) []Message {
+func stripImagesFromMessagesExceptDeferredRead(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
 		if isDeferredReadImageMessage(out[i]) {
 			continue
 		}
-		out[i] = stripImagesFromMessages([]Message{out[i]})[0]
+		out[i] = stripImagesFromMessages([]Message{out[i]}, visionAvailable)[0]
 	}
 	return out
 }
 
 // stripDeferredReadImages removes read image data after the next model request
 // has consumed it. It does not affect pasted images or other tool messages.
-func stripDeferredReadImages(msgs []Message) []Message {
+func stripDeferredReadImages(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
 		if !isDeferredReadImageMessage(out[i]) {
 			continue
 		}
-		out[i] = stripImagesFromMessages([]Message{out[i]})[0]
+		out[i] = stripImagesFromMessages([]Message{out[i]}, visionAvailable)[0]
 	}
 	return out
 }

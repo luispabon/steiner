@@ -73,14 +73,10 @@ func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, mode
 	stripped := provider.CloneMessages(messages)
 	for i := range stripped {
 		if len(stripped[i].Images) == 0 {
-			// Nothing was stripped from this message, so its delivered-image
-			// record still describes earlier history and must survive.
+			// Nothing was stripped from this message, so it is left untouched.
 			continue
 		}
 		stripped[i].Images = nil
-		// No image of this message reached the provider, so none may be
-		// recorded as sent.
-		stripped[i].SentImageFingerprints = nil
 	}
 	emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{
 		Turn: turn, Severity: "warning", Kind: "vision_disabled",

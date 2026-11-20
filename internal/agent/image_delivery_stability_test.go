@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -57,18 +56,6 @@ func TestRunnerImageTextStableAcrossDelivery(t *testing.T) {
 	if len(after.Images) != 0 {
 		t.Fatalf("image bytes survived the run: %#v", after.Images)
 	}
-	if len(after.SentImageFingerprints) != 1 || after.SentImageFingerprints[0] != imageFingerprint(image) {
-		t.Fatalf("SentImageFingerprints = %v, want the delivered fingerprint kept", after.SentImageFingerprints)
-	}
-	// The delivered record is projected to the provider for later requests, and
-	// only as local metadata it never serializes.
-	projected := ToProviderMessages(state.Conversation)[0]
-	if len(projected.SentImageFingerprints) != 1 || projected.SentImageFingerprints[0] != imageFingerprint(image) {
-		t.Fatalf("projected SentImageFingerprints = %v, want the delivered fingerprint", projected.SentImageFingerprints)
-	}
-	if raw, err := json.Marshal(projected); err != nil || strings.Contains(string(raw), "sent_image_fingerprints") {
-		t.Fatalf("provider message serialized the local record: %s (%v)", raw, err)
-	}
 }
 
 // TestRunnerImageFingerprintOnlyWhenDelivered proves a request whose model
@@ -98,18 +85,12 @@ func TestRunnerImageFingerprintOnlyWhenDelivered(t *testing.T) {
 	if len(sent.Images) != 0 {
 		t.Fatalf("sent Images = %#v, want the request stripped of images", sent.Images)
 	}
-	if len(sent.SentImageFingerprints) != 0 {
-		t.Fatalf("sent SentImageFingerprints = %v, want none", sent.SentImageFingerprints)
-	}
 	wantContent := "look\n" + imageBlockPlaceholder(image, false)
 	if sent.Content != wantContent {
 		t.Fatalf("sent Content = %q, want the frozen placeholder %q", sent.Content, wantContent)
 	}
 	if state.Conversation[0].Content != wantContent {
 		t.Fatalf("content after cleanup = %q, want %q", state.Conversation[0].Content, wantContent)
-	}
-	if len(state.Conversation[0].SentImageFingerprints) != 0 {
-		t.Fatalf("SentImageFingerprints = %v, want none", state.Conversation[0].SentImageFingerprints)
 	}
 }
 
@@ -152,9 +133,6 @@ func TestRunnerFailedCallRecordsNoFingerprint(t *testing.T) {
 		t.Fatal("Run() error = nil, want the model failure")
 	}
 	after := state.Conversation[0]
-	if len(after.SentImageFingerprints) != 0 {
-		t.Fatalf("SentImageFingerprints = %v, want none after a failed call", after.SentImageFingerprints)
-	}
 	if after.RequestText != "look" {
 		t.Fatalf("RequestText = %q, want the user's words", after.RequestText)
 	}
@@ -163,21 +141,21 @@ func TestRunnerFailedCallRecordsNoFingerprint(t *testing.T) {
 	}
 }
 
-// TestStripImagesIfVisionDisabledKeepsEarlierFingerprints proves the wire-level
-// strip clears the record only for the message it strips, so earlier history
-// delivered with images keeps its fingerprints.
-func TestStripImagesIfVisionDisabledKeepsEarlierFingerprints(t *testing.T) {
+// TestStripImagesIfVisionDisabledStripsOnlyImageMessages proves the wire-level
+// strip removes images only from the messages that carry them, leaving earlier
+// history untouched and failing closed on messages without images.
+func TestStripImagesIfVisionDisabledStripsOnlyImageMessages(t *testing.T) {
 	vision := false
-	earlier := provider.Message{Role: provider.MessageRoleUser, Content: "old", SentImageFingerprints: []string{"old-fingerprint"}}
-	current := provider.Message{Role: provider.MessageRoleUser, Content: "new", Images: []provider.ImageBlock{{MediaType: "image/png", Data: "AAAA"}}, SentImageFingerprints: []string{"new-fingerprint"}}
+	earlier := provider.Message{Role: provider.MessageRoleUser, Content: "old"}
+	current := provider.Message{Role: provider.MessageRoleUser, Content: "new", Images: []provider.ImageBlock{{MediaType: "image/png", Data: "AAAA"}}}
 	got, stripped := stripImagesIfVisionDisabled(&vision, []provider.Message{earlier, current}, "alias", 1, nil, nil)
 	if !stripped {
 		t.Fatal("stripped = false, want the images stripped")
 	}
-	if len(got[0].SentImageFingerprints) != 1 || got[0].SentImageFingerprints[0] != "old-fingerprint" {
-		t.Fatalf("earlier fingerprints = %v, want the earlier delivery kept", got[0].SentImageFingerprints)
+	if got[0].Content != "old" || len(got[0].Images) != 0 {
+		t.Fatalf("earlier message = %#v, want it untouched", got[0])
 	}
-	if len(got[1].SentImageFingerprints) != 0 || len(got[1].Images) != 0 {
-		t.Fatalf("current message = %#v, want images and fingerprints cleared", got[1])
+	if len(got[1].Images) != 0 {
+		t.Fatalf("current message = %#v, want images cleared", got[1])
 	}
 }

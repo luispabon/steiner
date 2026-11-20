@@ -282,7 +282,7 @@ func (p *turnProgressor) finalizeCancelledTurn(ctx context.Context, state RunSta
 	// waiting box is still open.
 	p.drainQueuedDelegations(state.TurnCount)
 	cancelled, _ := contextCancellationState(ctx, state)
-	cancelled.Lineage = cancelled.Lineage.WithCurrentMessages(stripImagesFromMessages(cancelled.Lineage.SummaryPrefixStrippedMessages()))
+	cancelled.Lineage = cancelled.Lineage.WithCurrentMessages(stripImagesFromMessages(cancelled.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
 	cancelled.Conversation = cancelled.Lineage.FullMessages()
 	cancelled = replaySafeRunState(cancelled)
 	emitStop(p.request.Events, cancelled, nil)
@@ -300,9 +300,9 @@ func liveConversationSnapshot(state RunState) []provider.Message {
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 	messages := state.Lineage.SummaryPrefixStrippedMessages()
 	if p.request.VisionCapabilities != nil {
-		messages = stripImagesFromMessagesExceptDeferredRead(messages)
+		messages = stripImagesFromMessagesExceptDeferredRead(messages, p.visionSubAgentAvailable())
 	} else {
-		messages = stripImagesFromMessages(messages)
+		messages = stripImagesFromMessages(messages, p.visionSubAgentAvailable())
 	}
 	state.Lineage = state.Lineage.WithCurrentMessages(messages)
 	state.Conversation = state.Lineage.FullMessages()

@@ -85,9 +85,8 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		state.ParentUsage.StatefulFloor = p.statefulFloor
 	}
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
-	state = p.recordDeliveredImageFingerprints(state)
 	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
-	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages()))
+	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
 	state.Conversation = state.Lineage.FullMessages()
 
 	ttftMs := durationMs
@@ -218,8 +217,8 @@ func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, respon
 
 func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 	state.StopReason = StopReasonComplete
-	state.Conversation = stripImagesFromMessages(state.Conversation)
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
+	state.Conversation = stripImagesFromMessages(state.Conversation, p.visionSubAgentAvailable())
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
 	return turnOutcome{State: state, Stop: true}
 }
 
@@ -230,11 +229,12 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunSta
 // latest generation's messages are stripped and the conversation is rebuilt
 // from the lineage.
 func finalizeImagesAtRunExitForRequest(req RunRequest, state RunState) RunState {
+	visionAvailable := visionSubAgentAvailableForRequest(req)
 	if state.Lineage.Empty() {
-		state.Conversation = stripImagesFromMessages(state.Conversation)
+		state.Conversation = stripImagesFromMessages(state.Conversation, visionAvailable)
 		return state
 	}
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages()))
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionAvailable))
 	state.Conversation = state.Lineage.FullMessages()
 	return state
 }
@@ -520,43 +520,17 @@ func (p *turnProgressor) freezeImagesBeforeDelivery(state RunState) RunState {
 	return state
 }
 
-// recordDeliveredImageFingerprints records the fingerprints of the images the
-// provider just received. It runs only after a model call succeeds, so a
-// cancelled, failed or rerouted attempt leaves no record claiming a delivery
-// that never happened.
-func (p *turnProgressor) recordDeliveredImageFingerprints(state RunState) RunState {
-	// The decision is made after the call: a capability latched during it means
-	// the attempt that succeeded may not have received the images.
-	if !p.providerReceivesImages() {
-		return state
-	}
-	if vc := p.request.VisionCapabilities; vc != nil && vc.Get(p.request.ResolvedModel.Alias) == VisionIncapable {
-		return state
-	}
-	record := func(msgs []Message) []Message {
-		out := make([]Message, len(msgs))
-		copy(out, msgs)
-		for i := range out {
-			if len(out[i].Images) == 0 {
-				continue
-			}
-			out[i].SentImageFingerprints = deliveredImageFingerprints(out[i].SentImageFingerprints, out[i].Images)
-		}
-		return out
-	}
-	if state.Lineage.Empty() {
-		state.Conversation = record(state.Conversation)
-		return state
-	}
-	state.Lineage = state.Lineage.WithCurrentMessages(record(state.Lineage.SummaryPrefixStrippedMessages()))
-	state.Conversation = state.Lineage.FullMessages()
-	return state
-}
-
 // visionSubAgentAvailable reports whether a vision sub-agent is configured, the
 // only condition under which the placeholder may advertise that route.
 func (p *turnProgressor) visionSubAgentAvailable() bool {
-	if vc := p.request.VisionCapabilities; vc != nil {
+	return visionSubAgentAvailableForRequest(p.request)
+}
+
+// visionSubAgentAvailableForRequest reports whether the request's own vision
+// configuration offers a vision sub-agent, so a child with delegation disabled
+// never advertises that route.
+func visionSubAgentAvailableForRequest(req RunRequest) bool {
+	if vc := req.VisionCapabilities; vc != nil {
 		return vc.SubAgentConfigured()
 	}
 	return false

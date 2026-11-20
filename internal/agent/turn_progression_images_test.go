@@ -15,7 +15,7 @@ func TestStripImagesFromMessages_basic(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs)
+	got := stripImagesFromMessages(msgs, false)
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
@@ -43,7 +43,7 @@ func TestStripImagesFromMessages_multiple(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs)
+	got := stripImagesFromMessages(msgs, false)
 	if got[0].Images != nil {
 		t.Fatal("expected Images to be nil after stripping")
 	}
@@ -65,7 +65,7 @@ func TestStripImagesFromMessages_noImages(t *testing.T) {
 		{Role: MessageRoleUser, Content: "plain text"},
 		{Role: MessageRoleAssistant, Content: "response"},
 	}
-	got := stripImagesFromMessages(msgs)
+	got := stripImagesFromMessages(msgs, false)
 	for i, m := range got {
 		if m.Content != msgs[i].Content {
 			t.Fatalf("msg[%d].Content changed: got %q, want %q", i, m.Content, msgs[i].Content)
@@ -83,7 +83,7 @@ func TestStripImagesFromMessages_preservesContent(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs)
+	got := stripImagesFromMessages(msgs, false)
 	wantContent := "existing tool output\n[image: ? png]"
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -100,7 +100,7 @@ func TestStripImagesFromMessages_alreadyStripped(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs)
+	got := stripImagesFromMessages(msgs, false)
 	// No Data to strip, Content must not grow.
 	if got[0].Content != msgs[0].Content {
 		t.Fatalf("Content changed for already-stripped image: got %q, want %q", got[0].Content, msgs[0].Content)
@@ -130,14 +130,14 @@ func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
 				Role:    MessageRoleUser,
 				Content: tt.content,
 				Images:  []ImageBlock{{MediaType: "image/png", Data: "aaa", Width: 10, Height: 10, SizeBytes: 1024}},
-			}})[0]
+			}}, false)[0]
 			if first.RequestText != tt.content {
 				t.Fatalf("first strip RequestText = %q, want %q", first.RequestText, tt.content)
 			}
 
 			// An image arriving later joins the already-routed message.
 			first.Images = []ImageBlock{{MediaType: "image/png", Data: "bbb", Width: 20, Height: 20, SizeBytes: 2048}}
-			second := stripImagesFromMessages([]Message{first})[0]
+			second := stripImagesFromMessages([]Message{first}, false)[0]
 			if second.RequestText != tt.content {
 				t.Fatalf("second strip RequestText = %q, want %q, not the placeholder text", second.RequestText, tt.content)
 			}
@@ -150,7 +150,7 @@ func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
 			}
 
 			// Once the image data is gone, another pass changes nothing.
-			third := stripImagesFromMessages([]Message{second})[0]
+			third := stripImagesFromMessages([]Message{second}, false)[0]
 			if third.Content != second.Content || third.RequestText != second.RequestText || len(third.Images) != 0 {
 				t.Fatalf("third strip = (%q, RequestText %q, %d images), want (%q, %q, 0)", third.Content, third.RequestText, len(third.Images), second.Content, second.RequestText)
 			}
@@ -290,7 +290,7 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs)
+	got := stripImagesFromMessages(msgs, false)
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
@@ -324,9 +324,6 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 	if len(frozen[0].ImagePlaceholders) != 1 || frozen[0].ImagePlaceholders[0] != imageBlockPlaceholder(img, false) {
 		t.Fatalf("ImagePlaceholders = %v, want the frozen token", frozen[0].ImagePlaceholders)
 	}
-	if len(frozen[0].SentImageFingerprints) != 0 {
-		t.Fatalf("SentImageFingerprints = %v, want none before delivery is confirmed", frozen[0].SentImageFingerprints)
-	}
 	if len(frozen[0].Images) != 1 || frozen[0].Images[0].Data != "AAAA" {
 		t.Fatalf("freeze removed image data: %#v", frozen[0].Images)
 	}
@@ -337,7 +334,7 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 		t.Fatalf("second freeze = (%q, %v), want (%q, one token)", again[0].Content, again[0].ImagePlaceholders, wantContent)
 	}
 
-	stripped := stripImagesFromMessages(again)
+	stripped := stripImagesFromMessages(again, false)
 	if stripped[0].Content != wantContent {
 		t.Fatalf("stripped Content = %q, want the frozen text %q", stripped[0].Content, wantContent)
 	}
@@ -373,7 +370,7 @@ func TestFreezeImagePlaceholdersRecordsRequestBeforeTokens(t *testing.T) {
 			if !frozen.VisionRouted {
 				t.Fatal("VisionRouted = false after freeze, want true")
 			}
-			stripped := stripImagesFromMessages([]Message{frozen})[0]
+			stripped := stripImagesFromMessages([]Message{frozen}, false)[0]
 			if stripped.RequestText != tt.wantRequest {
 				t.Fatalf("RequestText after strip = %q, want %q", stripped.RequestText, tt.wantRequest)
 			}
@@ -465,7 +462,7 @@ func TestStripImagesFromMessagesRecordsUserRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := stripImagesFromMessages([]Message{tt.message})[0]
+			got := stripImagesFromMessages([]Message{tt.message}, false)[0]
 			if got.RequestText != tt.wantRequest {
 				t.Fatalf("RequestText = %q, want %q", got.RequestText, tt.wantRequest)
 			}

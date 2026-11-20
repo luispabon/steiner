@@ -34,19 +34,11 @@ func claudeSubDigest(m Message) string {
 
 // claudeSubImageClaim returns the images a delivery of this message can include
 // and whether the message is self-consistent. Only bytes present on the message
-// are a delivery claim: the separate SentImageFingerprints record describes an
-// earlier delivery to a process that may no longer be the one being matched, so
-// it never adds images to the current record. When both are present they must
-// agree; a contradiction fails closed instead of trusting either side.
+// are a delivery claim: a stripped history message claims nothing even though an
+// earlier process received its image, which keeps a reseeded record, later live
+// appends and checkpoint restore on one baseline.
 func claudeSubImageClaim(m Message) ([]string, bool) {
-	computed := claudeSubDeliveryImageFingerprints(m)
-	if len(computed) > 0 && len(m.SentImageFingerprints) > 0 {
-		recorded := m.SentImageFingerprints
-		if !claudeSubImagesSubset(computed, recorded) || !claudeSubImagesSubset(recorded, computed) {
-			return nil, false
-		}
-	}
-	return computed, true
+	return claudeSubDeliveryImageFingerprints(m), true
 }
 
 // claudeSubDeliveryImageFingerprints returns the fingerprints of the image bytes

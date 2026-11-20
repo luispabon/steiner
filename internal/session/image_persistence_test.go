@@ -27,8 +27,7 @@ func TestSaveStripsImagePayloadWithoutMutatingCaller(t *testing.T) {
 				}},
 				Messages: []agent.Message{{
 					Role: agent.MessageRoleTool, Name: "read", Content: "read result",
-					Images:                []agent.ImageBlock{{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "image-bytes"}},
-					SentImageFingerprints: []string{"delivered-fingerprint"},
+					Images: []agent.ImageBlock{{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "image-bytes"}},
 				}},
 			},
 		},
@@ -74,11 +73,6 @@ func TestSaveStripsImagePayloadWithoutMutatingCaller(t *testing.T) {
 	}
 	if !strings.Contains(messages[0].Content, "[image img-1:") {
 		t.Fatalf("persisted message missing placeholder: %q", messages[0].Content)
-	}
-	// The delivered fingerprint is metadata, not bytes: it must survive so a
-	// resumed stateful provider can rebuild what the process holds.
-	if len(messages[0].SentImageFingerprints) != 1 || messages[0].SentImageFingerprints[0] != "delivered-fingerprint" {
-		t.Fatalf("persisted fingerprints = %v, want the delivered record", messages[0].SentImageFingerprints)
 	}
 	if !strings.Contains(loaded.Lineage.Generations[0].SummaryPrefix[0].Content, "[image img-prefix:") {
 		t.Fatalf("persisted prefix missing placeholder: %q", loaded.Lineage.Generations[0].SummaryPrefix[0].Content)

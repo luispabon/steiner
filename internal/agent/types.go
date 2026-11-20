@@ -116,12 +116,6 @@ type Message struct {
 	// Incomplete marks an assistant message whose model call failed before the
 	// message finished. Its content is what streamed before the failure.
 	Incomplete bool `json:"incomplete,omitempty"`
-	// SentImageFingerprints records the images this message delivered to a
-	// provider: one imageFingerprint per image actually sent, in order. Image
-	// cleanup clears the image bytes but keeps this local record so a stateful
-	// provider can rebuild the entries it holds after a checkpoint resume. It is
-	// message metadata only and never reaches a provider wire.
-	SentImageFingerprints []string `json:"sent_image_fingerprints,omitempty"`
 	// ImagePlaceholders lists the placeholder tokens already appended to
 	// Content, in order. Image handling uses it to append each token exactly
 	// once, so a user message that happens to contain the same text is never

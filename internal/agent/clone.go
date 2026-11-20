@@ -35,7 +35,6 @@ func cloneMessage(message Message) Message {
 	// ImageBlock holds only value fields, so copying the slice is a deep copy.
 	// Unlike the old provider round-trip, this preserves images with empty Data.
 	cloned.Images = append([]ImageBlock(nil), message.Images...)
-	cloned.SentImageFingerprints = append([]string(nil), message.SentImageFingerprints...)
 	cloned.ImagePlaceholders = append([]string(nil), message.ImagePlaceholders...)
 	cloned.Retention = cloneMessageRetention(message.Retention)
 	cloned.DelegationAdmission = message.DelegationAdmission.Clone()
