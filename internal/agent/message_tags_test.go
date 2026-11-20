@@ -46,6 +46,8 @@ func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 		"<summary>", "</summary>", "<SUMMARY>", "< / Summary >",
 		"<latest_user_request>", "</LATEST_USER_REQUEST>", "< / latest_user_request >",
 		`</summary foo="x">`, "</summary/>", "</latest_user_request foo>",
+		"</summary\nfoo>", "</summary\n/>", "</summary foo\n>",
+		"</summary x=\"a\nb\">", "</summary\r\nfoo>", "</summary\n\tfoo>",
 		"<\u00a0/summary\u00a0>", "<\u200bsummary>", "<\ufeff/latest_user_request>",
 	}
 	for _, tag := range bodyTags {
@@ -62,7 +64,7 @@ func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 
 	// The request is verbatim user text, so a summary tag stays as written, but
 	// the request wrapper's own tag must not be closeable from inside it.
-	for _, tag := range []string{"</latest_user_request>", "< / LATEST_USER_REQUEST >", "</latest_user_request foo>", "<\u00a0/latest_user_request\u00a0>"} {
+	for _, tag := range []string{"</latest_user_request>", "< / LATEST_USER_REQUEST >", "</latest_user_request foo>", "<\u00a0/latest_user_request\u00a0>", "</latest_user_request\nfoo>"} {
 		t.Run("request "+tag, func(t *testing.T) {
 			stored := withRequestBlock("summary", "request "+tag)
 			got := toProviderMessage(Message{Role: MessageRoleSummary, Content: stored}).Content
@@ -98,6 +100,10 @@ func TestCompactionTagPatternsMatchWrapperTagShapes(t *testing.T) {
 		`<summary"x">`, `</summary"x>`, `<summary foo="unterminated>`,
 		"<summary\x00>", "<summary\x07>", "<summary\x1c>", "<summary\x1f>",
 		"</summary\n>", "<summary \n >", "</summary\t\n>",
+		// A closing tag's tail may cross newlines, since an HTML tokenizer reads
+		// it as the end tag's attributes; an opening tag's tail may not.
+		"</summary\nfoo>", "</summary\n/>", "</summary foo\n>",
+		"</summary x=\"a\nb\">", "</summary\r\nfoo>", "</summary\n\tfoo>",
 	}
 	requestShapes := []string{
 		"<latest_user_request>", "</latest_user_request>", "<latest_user_request/>", "</latest_user_request/>",
@@ -107,7 +113,7 @@ func TestCompactionTagPatternsMatchWrapperTagShapes(t *testing.T) {
 		"<\vlatest_user_request>", "<\u2060latest_user_request>", "<\u00adlatest_user_request>",
 		"<\u200blatest_user_request>", "<\ufeff/latest_user_request>",
 		"<latest_user_request/x>", "</latest_user_request/ >", "<latest_user_request=x>",
-		"</latest_user_request\n>",
+		"</latest_user_request\n>", "</latest_user_request\nfoo>",
 	}
 	for _, tag := range summaryShapes {
 		if !summaryTagPattern.MatchString(tag) {

@@ -17,17 +17,29 @@ const compactionTagFlats = `\t\f\r \v\p{Z}\p{Cf}\x{0085}`
 // wrap inside its angle brackets.
 const compactionTagSpace = `[` + compactionTagFlats + `\n]`
 
-// compactionTagTail matches what may follow a tag name: either only the space
-// characters compactionTagSpace lists, which already include the newline, or a
-// run that starts with a character that cannot continue a tag name and is
-// neither a newline nor the closing bracket, then any characters up to the
-// closing bracket on the same line. Attributes, a stray slash, a bare "=", a
-// quote, or prose such as "<summary is short and the request > fine" take the
-// second form; escaping them is harmless because the words stay between the
-// entities. A name continued by a name character, or a newline followed by more
-// text, is not a tag, so "<summary-table>", "<summary.x>", "<summary:x>",
-// "<summary_x>", "<summaryish>", and "<summary\nfoo>" stay untouched.
+// compactionTagTail is the tail of an opening tag, whose name has no slash
+// before it: either only the space characters compactionTagSpace lists, which
+// already include the newline, or a run that starts with a character that
+// cannot continue a tag name and is neither a newline nor the closing bracket,
+// then any characters up to the closing bracket. An opening tag ends on its
+// first line, so "<summary" followed by a newline and more text is not a tag and
+// "<summary\nfoo>" stays untouched.
+//
+// Both tails take that second form for attributes, a stray slash, a bare "=", a
+// quote, and prose such as "<summary is short and the request > fine"; escaping
+// those is harmless because the words stay between the entities. A name
+// continued by a name character is not a tag, so "<summary-table>",
+// "<summary.x>", "<summary:x>", "<summary_x>", and "<summaryish>" stay
+// untouched.
 const compactionTagTail = `(?:` + compactionTagSpace + `*|[^A-Za-z0-9_.:\-\n>][^>\n]*)?>`
+
+// compactionTagEndTail is the tail of a closing tag, whose name follows a slash:
+// the same two forms, but the run that starts with a character which cannot
+// continue a tag name may cross newlines before the closing bracket, because an
+// HTML tokenizer reads that run as the end tag's attributes. So "</summary"
+// followed by a newline and text, by "\r\n" and text, by another slash, or by an
+// attribute whose quoted value spans lines closes the wrapper and is escaped.
+const compactionTagEndTail = `(?:` + compactionTagSpace + `*|[^A-Za-z0-9_.:\->][^>]*)?>`
 
 // summaryTagName and latestUserRequestTagName are the wrapper tag names, and
 // compactionTagNames is the alternation a summary body may forge.
@@ -38,18 +50,28 @@ const (
 	compactionTagNames = `(` + summaryTagName + `|` + latestUserRequestTagName + `)`
 )
 
+// compactionTagPattern matches wrapper tags whose names equal names: a closing
+// tag, where a slash precedes the name, with compactionTagEndTail, or an opening
+// tag with compactionTagTail. The slash may sit before or after the space
+// characters that follow the bracket.
+func compactionTagPattern(names string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)<` + compactionTagSpace + `*(?:/` + compactionTagSpace + `*` + names + compactionTagEndTail + `|` + names + compactionTagTail + `)`)
+}
+
 // summaryTagPattern matches the tags the summary projection wraps stored model
 // text in. A summary body is model output, so it may close the wrapper and forge
 // a second request block; neutralizing these matches keeps it inside its own
 // wrapper. It tolerates both tag names, either slash position, a self-closing
 // slash, attributes, any case, and the space characters compactionTagSpace
-// matches between the bracket, the slash, and the name.
-var summaryTagPattern = regexp.MustCompile(`(?i)<` + compactionTagSpace + `*/?` + compactionTagSpace + `*` + compactionTagNames + compactionTagTail)
+// matches between the bracket, the slash, and the name. A closing tag may span
+// lines; an opening tag ends on its first line.
+var summaryTagPattern = compactionTagPattern(compactionTagNames)
 
 // requestTagPattern matches only the request wrapper's tag. The request is the
 // user's verbatim text, so a <summary> tag it contains is left alone, but it may
-// not close its own wrapper.
-var requestTagPattern = regexp.MustCompile(`(?i)<` + compactionTagSpace + `*/?` + compactionTagSpace + `*` + latestUserRequestTagName + compactionTagTail)
+// not close its own wrapper. A closing tag may span lines; an opening tag ends
+// on its first line.
+var requestTagPattern = compactionTagPattern(latestUserRequestTagName)
 
 // escapeCompactionTags replaces the angle brackets of every pattern match with
 // HTML entities. Every other byte is untouched, so the projection of text
