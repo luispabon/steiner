@@ -74,7 +74,6 @@ Type `/` in an empty composer to open the overlay of commands and skills. While 
 
 | Command | Purpose | Details |
 |---------|---------|---------|
-| `/cache-stats` | Show prompt cache hit rate stats | [Usage](usage.md) |
 | `/clear` | Start a new, empty session | [Sessions](#sessions) |
 | `/compact [focus]` | Compact the conversation, optionally steering the summary | [Context management](context-management.md) |
 | `/config` | Show the resolved configuration | [Configuration](configuration.md) |
@@ -85,6 +84,7 @@ Type `/` in an empty composer to open the overlay of commands and skills. While 
 | `/ls [path]` | List directory contents | |
 | `/lsp` | Show LSP server status | [LSP](lsp.md) |
 | `/mcp` | Show MCP server status | [MCP](mcp.md) |
+| `/token-stats` | Show token usage statistics | [Usage](usage.md) |
 | `/usage` | Show provider subscription usage (same as `ctrl+o`) | [Usage](usage.md) |
 | `/model [ref]` | Switch the orchestrator model; no argument opens the picker | [Provider and model setup](provider-and-model-setup.md) |
 | `/profile [name]` | Switch the profile for future role assignments; no argument opens the picker | [Provider and model setup](provider-and-model-setup.md) |
