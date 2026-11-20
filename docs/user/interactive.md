@@ -147,7 +147,7 @@ Press `ctrl+v` to paste an image. Steiner reads an image from the clipboard; if 
 - Each image appears in the composer as a marker such as `[img-3]`. You can paste several before sending. `Backspace` at the end of a marker or `Delete` at its start removes that image. Labels are not reused.
 - If the current model cannot view images and no vision sub-agent is configured, the paste is ignored with a notice. See [Sub-agent delegation](sub-agent-delegation.md).
 
-Image data is removed from the conversation once the model has responded. A text placeholder with the image ID and file path stays in the history, so the model can look at the image again later.
+Image data is removed from the conversation once the model has responded. A text placeholder with the image ID and file path stays in the history, so the model can look at the image again later. Steiner writes the placeholder before the image is first sent, so removing the data later does not change the conversation text.
 
 Images are stored under `.steiner/tmp/images/<session id>/` in the project. Folders unused for 30 days are removed at startup. `--exec` and `oneshot` runs use a temporary folder that is removed on exit. `/clear` discards images that have not been sent.
 

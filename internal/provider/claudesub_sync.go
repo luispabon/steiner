@@ -32,10 +32,14 @@ func claudeSubDigest(m Message) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// claudeSubImageFingerprints returns the fingerprints of the images actually
-// sent for a message: an image block is only delivered when it carries data
-// (FilePath-only images are skipped by claudeSubUserBlocks).
+// claudeSubImageFingerprints returns the fingerprints of the images delivered
+// for a message. The separate SentImageFingerprints record wins: steiner strips
+// image bytes once they are consumed, so a checkpoint rebuilt from request
+// history would otherwise lose the images the CLI process still holds.
 func claudeSubImageFingerprints(m Message) []string {
+	if len(m.SentImageFingerprints) > 0 {
+		return append([]string(nil), m.SentImageFingerprints...)
+	}
 	var out []string
 	for _, img := range m.Images {
 		if img.Data == "" {

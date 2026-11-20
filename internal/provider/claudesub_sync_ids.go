@@ -58,6 +58,7 @@ func claudeSubTextOnlyAssistant(m Message) bool {
 		m.ToolCallID == "" &&
 		len(m.ToolCalls) == 0 &&
 		len(m.Images) == 0 &&
+		len(m.SentImageFingerprints) == 0 &&
 		m.Turn == 0 &&
 		m.ProviderMetadata == nil
 }

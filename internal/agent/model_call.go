@@ -73,6 +73,8 @@ func stripImagesIfVisionDisabled(vision *bool, messages []provider.Message, mode
 	stripped := make([]provider.Message, len(messages))
 	for i, msg := range messages {
 		msg.Images = nil
+		// No image reached the provider, so none may be recorded as sent.
+		msg.SentImageFingerprints = nil
 		stripped[i] = msg
 	}
 	emitEvent(events, output.NewProviderDiagnosticEvent(output.ProviderDiagnosticEvent{

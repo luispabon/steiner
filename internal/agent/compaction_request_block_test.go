@@ -692,7 +692,7 @@ func TestLatestRequestBlockSkipsPlaceholderOnlyTurns(t *testing.T) {
 				{Role: MessageRoleAssistant, Content: "ok"},
 				{Role: MessageRoleUser, Content: tt.userText, Images: []ImageBlock{{ID: "img-1", Data: "base64data"}}},
 			}
-			stripped := stripImagesFromMessages(msgs, VisionUnknown, false)
+			stripped := stripImagesFromMessages(msgs)
 			last := stripped[len(stripped)-1]
 			if !last.VisionRouted {
 				t.Fatalf("VisionRouted = false on %q, want true", last.Content)

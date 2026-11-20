@@ -115,8 +115,14 @@ type Message struct {
 	Timestamp time.Time `json:"timestamp,omitzero"`
 	// Incomplete marks an assistant message whose model call failed before the
 	// message finished. Its content is what streamed before the failure.
-	Incomplete          bool                      `json:"incomplete,omitempty"`
-	Retention           *MessageRetention         `json:"retention,omitempty"`
-	DelegationAdmission *tool.DelegationAdmission `json:"delegation_admission,omitempty"`
-	ProviderMetadata    *MessageProviderMetadata  `json:"provider_metadata,omitempty"`
+	Incomplete bool `json:"incomplete,omitempty"`
+	// SentImageFingerprints records the images this message delivered to a
+	// provider: one imageFingerprint per image actually sent, in order. Image
+	// cleanup clears the image bytes but keeps this local record so a stateful
+	// provider can rebuild the entries it holds after a checkpoint resume. It is
+	// message metadata only and never reaches a provider wire.
+	SentImageFingerprints []string                  `json:"sent_image_fingerprints,omitempty"`
+	Retention             *MessageRetention         `json:"retention,omitempty"`
+	DelegationAdmission   *tool.DelegationAdmission `json:"delegation_admission,omitempty"`
+	ProviderMetadata      *MessageProviderMetadata  `json:"provider_metadata,omitempty"`
 }

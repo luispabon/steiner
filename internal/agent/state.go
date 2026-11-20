@@ -397,10 +397,10 @@ func LineageWithoutImageData(lineage ConversationLineage) ConversationLineage {
 	out := lineage.Clone()
 	for i := range out.Generations {
 		if len(out.Generations[i].SummaryPrefix) > 0 {
-			out.Generations[i].SummaryPrefix = stripImagesFromMessages(out.Generations[i].SummaryPrefix, VisionUnknown, false)
+			out.Generations[i].SummaryPrefix = stripImagesFromMessages(out.Generations[i].SummaryPrefix)
 		}
 		if len(out.Generations[i].Messages) > 0 {
-			out.Generations[i].Messages = stripImagesFromMessages(out.Generations[i].Messages, VisionUnknown, false)
+			out.Generations[i].Messages = stripImagesFromMessages(out.Generations[i].Messages)
 		}
 	}
 	return out

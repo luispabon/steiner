@@ -99,6 +99,9 @@ func toProviderMessage(message Message) provider.Message {
 		Turn:             message.Turn,
 		ProviderMetadata: toProviderMessageMetadata(message.ProviderMetadata),
 	}
+	if len(message.SentImageFingerprints) > 0 {
+		out.SentImageFingerprints = append([]string(nil), message.SentImageFingerprints...)
+	}
 	if message.Role == MessageRoleAssistant && message.Incomplete {
 		out.Content += interruptedAssistantNote
 		// IncompleteText keeps the exact streamed text, so a consumer that labels

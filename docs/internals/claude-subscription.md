@@ -55,7 +55,7 @@ Every `system` envelope is ignored except `api_retry`, which the CLI emits when 
 
 ## Transcript synchronization
 
-The sync record is append-only. User and tool messages are compared by content digest (`claudeSubDigest`). Images are excluded from the digest because steiner strips image data after use, and image fingerprints are compared separately. Assistant entries are matched by tool-call IDs, since the CLI may normalize their text. Any other rewrite, omission, or reorder makes the live process unusable for that request: the process is retired, and the request forks or reseeds.
+The sync record is append-only. User and tool messages are compared by content digest (`claudeSubDigest`). Images are excluded from the digest because steiner strips image data after use, and image fingerprints are compared separately. The placeholder text that replaces an image is frozen into the message before its first delivery (`freezeImagePlaceholders` in `internal/agent`), so cleanup removes only the bytes and the digest never changes afterwards. Each message also carries the fingerprints of the images it delivered in `Message.SentImageFingerprints`, local metadata that no provider wire receives; `claudeSubImageFingerprints` reads it so a checkpoint rebuilt from request history (`claudeSubResumeEntries`) reproduces the entries the process holds. Assistant entries are matched by tool-call IDs, since the CLI may normalize their text. Any other rewrite, omission, or reorder makes the live process unusable for that request: the process is retired, and the request forks or reseeds.
 
 ## Session recovery
 

@@ -104,6 +104,12 @@ type Message struct {
 	// transcript, so no provider sends it, it is not part of any digest, and no
 	// persisted format stores it.
 	IncompleteText string `json:"-"`
+	// SentImageFingerprints is the local record of the images this message
+	// delivered, carried from the agent message's own record. Image cleanup
+	// clears image bytes while this survives, so a stateful provider can rebuild
+	// the entries it holds from request history. It is never serialized and no
+	// provider wire carries it.
+	SentImageFingerprints []string `json:"-"`
 }
 
 // UsageStats carries token accounting returned by a provider.

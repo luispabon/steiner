@@ -247,7 +247,7 @@ func TestSteerInjectionWithImages(t *testing.T) {
 		secondReq := providerStub.requests[1]
 		var steerMsg provider.Message
 		for _, msg := range secondReq.Messages {
-			if msg.Role == provider.MessageRoleUser && msg.Content == "see [Image 1]" {
+			if msg.Role == provider.MessageRoleUser && strings.HasPrefix(msg.Content, "see [Image 1]") {
 				steerMsg = msg
 				break
 			}
@@ -465,7 +465,7 @@ func TestSteerInjectionMultipleImages(t *testing.T) {
 		if steerMsg.Images[1].Data != "fourth-image-data" {
 			t.Errorf("second steer image data = %q, want %q", steerMsg.Images[1].Data, "fourth-image-data")
 		}
-		wantContent := "first queued message\n\nsecond queued message\n\nthird queued message [Image 1]\n\nfourth queued message [Image 1]"
+		wantContent := "first queued message\n\nsecond queued message\n\nthird queued message [Image 1]\n\nfourth queued message [Image 1]\n[image: ? png]\n[image: ? png]"
 		if steerMsg.Content != wantContent {
 			t.Errorf("steer content = %q, want %q", steerMsg.Content, wantContent)
 		}

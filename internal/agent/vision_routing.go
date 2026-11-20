@@ -103,6 +103,7 @@ func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Messag
 	originalContent := userText
 	newImages := make([]ImageBlock, len(msg.Images))
 	copy(newImages, msg.Images)
+	rewritten := false
 
 	for j := range newImages {
 		if newImages[j].Data == "" {
@@ -122,8 +123,14 @@ func (p *turnProgressor) processImagesInMessage(ctx context.Context, msg *Messag
 		} else {
 			p.stripImageFallback(msg, &newImages[j])
 		}
+		rewritten = true
 	}
 
+	if rewritten {
+		// The message now carries model-written text instead of the images, so
+		// no image of it reached the provider as an image.
+		msg.SentImageFingerprints = nil
+	}
 	msg.Images = nil
 }
 
