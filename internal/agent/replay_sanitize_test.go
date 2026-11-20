@@ -82,6 +82,54 @@ func TestReplaySafeConversation_DropsAssistantThatBecomesEmptyAfterToolCallRemov
 	}
 }
 
+func TestReplaySafeConversation_DropsIncompleteToolRun(t *testing.T) {
+	assistant := Message{
+		Role:    MessageRoleAssistant,
+		Content: "running searches",
+		ToolCalls: []ToolCall{
+			{ID: "call-1", Name: "grep"},
+			{ID: "call-2", Name: "read"},
+		},
+	}
+
+	cases := []struct {
+		name string
+		tail []Message
+	}{
+		{
+			name: "short run",
+			tail: []Message{
+				{Role: MessageRoleTool, Content: "first match", ToolCallID: "call-1"},
+			},
+		},
+		{
+			name: "mismatched call id",
+			tail: []Message{
+				{Role: MessageRoleTool, Content: "first match", ToolCallID: "call-1"},
+				{Role: MessageRoleTool, Content: "wrong call", ToolCallID: "call-9"},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conversation := append([]Message{{Role: MessageRoleUser, Content: "investigate"}, assistant}, tc.tail...)
+			conversation = append(conversation, Message{Role: MessageRoleAssistant, Content: "done"})
+
+			got := ReplaySafeConversation(conversation)
+			if len(got) != 3 {
+				t.Fatalf("len(got) = %d, want 3", len(got))
+			}
+			if len(got[1].ToolCalls) != 0 {
+				t.Fatalf("got[1].ToolCalls = %#v, want cleared partial tool calls", got[1].ToolCalls)
+			}
+			if got[2].Role != MessageRoleAssistant || got[2].Content != "done" {
+				t.Fatalf("got[2] = %#v, want trailing assistant preserved", got[2])
+			}
+		})
+	}
+}
+
 func TestReplaySafeConversation_PreservesPairedToolResults(t *testing.T) {
 	conversation := []Message{
 		{Role: MessageRoleUser, Content: "investigate"},

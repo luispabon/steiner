@@ -16,11 +16,12 @@ func ReplaySafeConversation(conversation []Message) []Message {
 
 	out := make([]Message, 0, len(conversation))
 	for i := 0; i < len(conversation); i++ {
-		msg := cloneMessage(conversation[i])
-
-		if msg.Role == MessageRoleTool {
+		// Tool results are cloned only once their assistant's exchange is
+		// validated, so a dropped or unpaired result costs no copy.
+		if conversation[i].Role == MessageRoleTool {
 			continue
 		}
+		msg := cloneMessage(conversation[i])
 		if msg.Role != MessageRoleAssistant || len(msg.ToolCalls) == 0 {
 			if replayDropsEmptyAssistant(msg) {
 				continue
@@ -29,7 +30,7 @@ func ReplaySafeConversation(conversation []Message) []Message {
 			continue
 		}
 
-		pairedTools, nextIndex, ok := replayPairedToolMessages(conversation, i, len(msg.ToolCalls))
+		nextIndex, ok := replayPairedToolEnd(conversation, i, len(msg.ToolCalls))
 		if !ok {
 			msg.ToolCalls = nil
 			if replayDropsEmptyAssistant(msg) {
@@ -40,39 +41,42 @@ func ReplaySafeConversation(conversation []Message) []Message {
 		}
 
 		out = append(out, msg)
-		out = append(out, pairedTools...)
+		for toolIndex := i + 1; toolIndex < nextIndex; toolIndex++ {
+			out = append(out, cloneMessage(conversation[toolIndex]))
+		}
 		i = nextIndex - 1
 	}
 
 	return out
 }
 
-func replayPairedToolMessages(conversation []Message, assistantIndex, toolCallCount int) ([]Message, int, bool) {
+// replayPairedToolEnd reports the index just past the complete run of tool
+// results that follows the assistant message at assistantIndex. It clones
+// nothing, so callers copy the run straight into their output slice.
+func replayPairedToolEnd(conversation []Message, assistantIndex, toolCallCount int) (int, bool) {
 	if assistantIndex < 0 || assistantIndex >= len(conversation) {
-		return nil, assistantIndex, false
+		return assistantIndex, false
 	}
 
 	assistant := conversation[assistantIndex]
-	paired := make([]Message, 0, toolCallCount)
 	nextIndex := assistantIndex + 1
 
 	for toolIndex := 0; toolIndex < toolCallCount; toolIndex++ {
 		if nextIndex >= len(conversation) {
-			return nil, nextIndex, false
+			return nextIndex, false
 		}
 		toolMsg := conversation[nextIndex]
 		if toolMsg.Role != MessageRoleTool {
-			return nil, nextIndex, false
+			return nextIndex, false
 		}
 		expectedID := assistant.ToolCalls[toolIndex].ID
 		if expectedID != "" && toolMsg.ToolCallID != expectedID {
-			return nil, nextIndex, false
+			return nextIndex, false
 		}
-		paired = append(paired, cloneMessage(toolMsg))
 		nextIndex++
 	}
 
-	return paired, nextIndex, true
+	return nextIndex, true
 }
 
 func replaySafeRunState(state RunState) RunState {
