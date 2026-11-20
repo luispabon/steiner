@@ -14,7 +14,7 @@ func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
 	if m.Role == MessageRoleTool && entry.ToolCallID != m.ToolCallID {
 		return false
 	}
-	cur, ok := claudeSubImageFingerprints(m)
+	cur, ok := claudeSubImageClaim(m)
 	if !ok {
 		// The message contradicts its own delivery record, so it cannot match.
 		return false
@@ -32,7 +32,7 @@ func claudeSubEntriesFromMessages(msgs []Message) []claudeSubEntry {
 }
 
 func claudeSubEntryFromMessage(m Message) claudeSubEntry {
-	images, ok := claudeSubImageFingerprints(m)
+	images, ok := claudeSubImageClaim(m)
 	if !ok {
 		// Fail closed: record no image claim rather than an unverifiable one.
 		images = nil

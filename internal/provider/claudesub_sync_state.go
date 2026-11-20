@@ -159,7 +159,7 @@ func claudeSubResumeEntries(msgs []Message, stored claudeSubBackendState) ([]cla
 	entries := claudeSubEntriesFromMessages(msgs[:n])
 	for i := range entries {
 		recorded := stored.SyncEntryImagesAt(i)
-		current, ok := claudeSubImageFingerprints(msgs[i])
+		current, ok := claudeSubImageClaim(msgs[i])
 		if !ok {
 			return nil, false
 		}

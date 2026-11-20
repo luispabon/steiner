@@ -512,10 +512,10 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 // delivery describe the same text.
 func (p *turnProgressor) freezeImagesBeforeDelivery(state RunState) RunState {
 	if state.Lineage.Empty() {
-		state.Conversation = freezeImagePlaceholders(state.Conversation)
+		state.Conversation = freezeImagePlaceholders(state.Conversation, p.visionSubAgentAvailable())
 		return state
 	}
-	state.Lineage = state.Lineage.WithCurrentMessages(freezeImagePlaceholders(state.Lineage.SummaryPrefixStrippedMessages()))
+	state.Lineage = state.Lineage.WithCurrentMessages(freezeImagePlaceholders(state.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
 	state.Conversation = state.Lineage.FullMessages()
 	return state
 }
@@ -525,7 +525,12 @@ func (p *turnProgressor) freezeImagesBeforeDelivery(state RunState) RunState {
 // cancelled, failed or rerouted attempt leaves no record claiming a delivery
 // that never happened.
 func (p *turnProgressor) recordDeliveredImageFingerprints(state RunState) RunState {
+	// The decision is made after the call: a capability latched during it means
+	// the attempt that succeeded may not have received the images.
 	if !p.providerReceivesImages() {
+		return state
+	}
+	if vc := p.request.VisionCapabilities; vc != nil && vc.Get(p.request.ResolvedModel.Alias) == VisionIncapable {
 		return state
 	}
 	record := func(msgs []Message) []Message {
@@ -546,6 +551,15 @@ func (p *turnProgressor) recordDeliveredImageFingerprints(state RunState) RunSta
 	state.Lineage = state.Lineage.WithCurrentMessages(record(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
 	return state
+}
+
+// visionSubAgentAvailable reports whether a vision sub-agent is configured, the
+// only condition under which the placeholder may advertise that route.
+func (p *turnProgressor) visionSubAgentAvailable() bool {
+	if vc := p.request.VisionCapabilities; vc != nil {
+		return vc.SubAgentConfigured()
+	}
+	return false
 }
 
 // providerReceivesImages mirrors stripImagesIfVisionDisabled, the request-level

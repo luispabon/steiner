@@ -39,7 +39,7 @@ func TestRunnerImageTextStableAcrossDelivery(t *testing.T) {
 		t.Fatalf("provider requests = %d, want 1", len(providerStub.requests))
 	}
 	sent := imageMessageInRequest(t, providerStub.requests[0].Messages)
-	wantContent := "look\n" + imageBlockPlaceholder(image)
+	wantContent := "look\n" + imageBlockPlaceholder(image, false)
 	if sent.Content != wantContent {
 		t.Fatalf("sent Content = %q, want the frozen placeholder %q", sent.Content, wantContent)
 	}
@@ -101,7 +101,7 @@ func TestRunnerImageFingerprintOnlyWhenDelivered(t *testing.T) {
 	if len(sent.SentImageFingerprints) != 0 {
 		t.Fatalf("sent SentImageFingerprints = %v, want none", sent.SentImageFingerprints)
 	}
-	wantContent := "look\n" + imageBlockPlaceholder(image)
+	wantContent := "look\n" + imageBlockPlaceholder(image, false)
 	if sent.Content != wantContent {
 		t.Fatalf("sent Content = %q, want the frozen placeholder %q", sent.Content, wantContent)
 	}
@@ -158,7 +158,7 @@ func TestRunnerFailedCallRecordsNoFingerprint(t *testing.T) {
 	if after.RequestText != "look" {
 		t.Fatalf("RequestText = %q, want the user's words", after.RequestText)
 	}
-	if after.Content != "look\n"+imageBlockPlaceholder(image) {
+	if after.Content != "look\n"+imageBlockPlaceholder(image, false) {
 		t.Fatalf("Content = %q, want the frozen placeholder kept", after.Content)
 	}
 }

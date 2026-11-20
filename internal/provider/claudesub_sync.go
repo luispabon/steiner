@@ -32,25 +32,21 @@ func claudeSubDigest(m Message) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// claudeSubImageFingerprints returns the fingerprints of the images delivered
-// for a message and whether its two records agree. Image bytes, when present,
-// are authoritative: a message that still carries bytes whose fingerprints the
-// separate record does not describe is a contradiction image cleanup never
-// produces, and callers fail closed instead of trusting either side. When the
-// bytes are gone the separate record is what survives cleanup.
-func claudeSubImageFingerprints(m Message) ([]string, bool) {
+// claudeSubImageClaim returns the images a delivery of this message can include
+// and whether the message is self-consistent. Only bytes present on the message
+// are a delivery claim: the separate SentImageFingerprints record describes an
+// earlier delivery to a process that may no longer be the one being matched, so
+// it never adds images to the current record. When both are present they must
+// agree; a contradiction fails closed instead of trusting either side.
+func claudeSubImageClaim(m Message) ([]string, bool) {
 	computed := claudeSubDeliveryImageFingerprints(m)
-	if len(m.SentImageFingerprints) == 0 {
-		return computed, true
+	if len(computed) > 0 && len(m.SentImageFingerprints) > 0 {
+		recorded := m.SentImageFingerprints
+		if !claudeSubImagesSubset(computed, recorded) || !claudeSubImagesSubset(recorded, computed) {
+			return nil, false
+		}
 	}
-	recorded := append([]string(nil), m.SentImageFingerprints...)
-	if len(computed) == 0 {
-		return recorded, true
-	}
-	if !claudeSubImagesSubset(computed, recorded) || !claudeSubImagesSubset(recorded, computed) {
-		return nil, false
-	}
-	return recorded, true
+	return computed, true
 }
 
 // claudeSubDeliveryImageFingerprints returns the fingerprints of the image bytes

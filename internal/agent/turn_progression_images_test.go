@@ -160,9 +160,10 @@ func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
 
 func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 	tests := []struct {
-		name string
-		img  ImageBlock
-		want string
+		name   string
+		img    ImageBlock
+		vision bool
+		want   string
 	}{
 		{
 			name: "basic image without size",
@@ -206,7 +207,7 @@ func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := imageBlockPlaceholder(tt.img)
+			got := imageBlockPlaceholder(tt.img, tt.vision)
 			if got != tt.want {
 				t.Fatalf("imageBlockPlaceholder() = %q, want %q", got, tt.want)
 			}
@@ -216,12 +217,13 @@ func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 
 func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 	tests := []struct {
-		name string
-		img  ImageBlock
-		want string
+		name   string
+		img    ImageBlock
+		vision bool
+		want   string
 	}{
 		{
-			name: "image with ID and file path",
+			name: "image with ID and file path, vision sub-agent available",
 			img: ImageBlock{
 				ID:        "img-1",
 				FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
@@ -230,7 +232,20 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    1080,
 				SizeBytes: 456789,
 			},
-			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`,
+			vision: true,
+			want:   `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB; use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`,
+		},
+		{
+			name: "image with ID and no vision sub-agent",
+			img: ImageBlock{
+				ID:        "img-1",
+				FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
+				MediaType: "image/png",
+				Width:     1920,
+				Height:    1080,
+				SizeBytes: 456789,
+			},
+			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB; use the read tool to re-examine]`,
 		},
 		{
 			name: "image with ID but no size",
@@ -242,13 +257,14 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    480,
 				SizeBytes: 0,
 			},
-			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use the read tool, or sub_agent type "vision" with image_id "img-2", to re-examine]`,
+			vision: true,
+			want:   `[image img-2: /tmp/test.jpg 640x480 jpeg; use the read tool, or sub_agent type "vision" with image_id "img-2", to re-examine]`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := imageBlockPlaceholder(tt.img)
+			got := imageBlockPlaceholder(tt.img, tt.vision)
 			if got != tt.want {
 				t.Fatalf("imageBlockPlaceholder() = %q, want %q", got, tt.want)
 			}
@@ -282,7 +298,7 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 		t.Fatalf("Images = %v, want nil", got[0].Images)
 	}
 	// Should contain the new format placeholder with the read tool hint.
-	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`
+	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB; use the read tool to re-examine]`
 	wantContent := "look at this image\n" + wantPlaceholder
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -300,12 +316,12 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20, SizeBytes: 2048}
 	msgs := []Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{img}}}
 
-	frozen := freezeImagePlaceholders(msgs)
-	wantContent := "look\n" + imageBlockPlaceholder(img)
+	frozen := freezeImagePlaceholders(msgs, false)
+	wantContent := "look\n" + imageBlockPlaceholder(img, false)
 	if frozen[0].Content != wantContent {
 		t.Fatalf("frozen Content = %q, want %q", frozen[0].Content, wantContent)
 	}
-	if len(frozen[0].ImagePlaceholders) != 1 || frozen[0].ImagePlaceholders[0] != imageBlockPlaceholder(img) {
+	if len(frozen[0].ImagePlaceholders) != 1 || frozen[0].ImagePlaceholders[0] != imageBlockPlaceholder(img, false) {
 		t.Fatalf("ImagePlaceholders = %v, want the frozen token", frozen[0].ImagePlaceholders)
 	}
 	if len(frozen[0].SentImageFingerprints) != 0 {
@@ -316,7 +332,7 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 	}
 
 	// A second freeze pass must not duplicate text or metadata.
-	again := freezeImagePlaceholders(frozen)
+	again := freezeImagePlaceholders(frozen, false)
 	if again[0].Content != wantContent || len(again[0].ImagePlaceholders) != 1 {
 		t.Fatalf("second freeze = (%q, %v), want (%q, one token)", again[0].Content, again[0].ImagePlaceholders, wantContent)
 	}
@@ -350,7 +366,7 @@ func TestFreezeImagePlaceholdersRecordsRequestBeforeTokens(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := Message{Role: MessageRoleUser, Content: tt.content, Images: []ImageBlock{img}}
-			frozen := freezeImagePlaceholders([]Message{msg})[0]
+			frozen := freezeImagePlaceholders([]Message{msg}, false)[0]
 			if frozen.RequestText != tt.wantRequest {
 				t.Fatalf("RequestText after freeze = %q, want %q", frozen.RequestText, tt.wantRequest)
 			}
@@ -373,10 +389,10 @@ func TestFreezeImagePlaceholdersRecordsRequestBeforeTokens(t *testing.T) {
 // image: idempotence comes from recorded metadata, not text matching.
 func TestFreezeImagePlaceholdersIgnoresUserTextCollision(t *testing.T) {
 	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
-	token := imageBlockPlaceholder(img)
+	token := imageBlockPlaceholder(img, false)
 	msgs := []Message{{Role: MessageRoleUser, Content: "compare with " + token, Images: []ImageBlock{img}}}
 
-	frozen := freezeImagePlaceholders(msgs)
+	frozen := freezeImagePlaceholders(msgs, false)
 	if want := "compare with " + token + "\n" + token; frozen[0].Content != want {
 		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
@@ -391,8 +407,8 @@ func TestFreezeImagePlaceholdersKeepsDuplicateImages(t *testing.T) {
 	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
 	msgs := []Message{{Role: MessageRoleUser, Images: []ImageBlock{img, img}}}
 
-	frozen := freezeImagePlaceholders(msgs)
-	token := imageBlockPlaceholder(img)
+	frozen := freezeImagePlaceholders(msgs, false)
+	token := imageBlockPlaceholder(img, false)
 	if want := token + "\n" + token; frozen[0].Content != want {
 		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
@@ -458,6 +474,32 @@ func TestStripImagesFromMessagesRecordsUserRequest(t *testing.T) {
 			}
 			if got.Images != nil {
 				t.Fatalf("Images = %v, want nil", got.Images)
+			}
+		})
+	}
+}
+
+// TestFreezeImagePlaceholdersHintsOnlyAvailableRoutes proves the frozen token
+// advertises the vision sub-agent route only when one is configured, and keeps
+// the read route either way.
+func TestFreezeImagePlaceholdersHintsOnlyAvailableRoutes(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 1, Height: 1}
+	tests := []struct {
+		name            string
+		visionAvailable bool
+		wantSubAgent    bool
+	}{
+		{name: "delegation disabled", visionAvailable: false, wantSubAgent: false},
+		{name: "vision sub-agent available", visionAvailable: true, wantSubAgent: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frozen := freezeImagePlaceholders([]Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{img}}}, tt.visionAvailable)[0]
+			if !strings.Contains(frozen.Content, "use the read tool") {
+				t.Fatalf("Content = %q, want the read route kept", frozen.Content)
+			}
+			if got := strings.Contains(frozen.Content, "sub_agent type"); got != tt.wantSubAgent {
+				t.Fatalf("sub-agent hint present = %t, want %t in %q", got, tt.wantSubAgent, frozen.Content)
 			}
 		})
 	}

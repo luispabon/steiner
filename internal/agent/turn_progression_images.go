@@ -19,12 +19,12 @@ func formatSize(sizeBytes int) string {
 }
 
 // imageBlockPlaceholder returns a compact text token describing an image whose
-// binary data has been stripped. The wording never depends on vision capability
-// or discovery state: the message text a stateful provider has already been
-// sent must stay byte-identical when its image bytes are removed, so the token
-// is frozen before the image's first delivery and both routes for looking at
-// the image again stay available.
-func imageBlockPlaceholder(img ImageBlock) string {
+// binary data has been stripped. The wording never depends on the model's vision
+// capability or discovery state: the message text a stateful provider has
+// already been sent must stay byte-identical when its image bytes are removed,
+// so the token is frozen before the image's first delivery. visionAvailable
+// names the vision sub-agent route only when one is actually configured.
+func imageBlockPlaceholder(img ImageBlock, visionAvailable bool) string {
 	var dims string
 	if img.Width > 0 && img.Height > 0 {
 		dims = fmt.Sprintf("%dx%d", img.Width, img.Height)
@@ -49,7 +49,10 @@ func imageBlockPlaceholder(img ImageBlock) string {
 			descriptive = fmt.Sprintf("[image %s: %s %s %s",
 				img.ID, img.FilePath, dims, fmtStr)
 		}
-		return descriptive + fmt.Sprintf(" — use the read tool, or sub_agent type \"vision\" with image_id \"%s\", to re-examine]", img.ID)
+		if visionAvailable {
+			return descriptive + fmt.Sprintf("; use the read tool, or sub_agent type \"vision\" with image_id \"%s\", to re-examine]", img.ID)
+		}
+		return descriptive + "; use the read tool to re-examine]"
 	}
 
 	// Legacy format for backward compat (when ID/FilePath are not set).
@@ -66,58 +69,48 @@ func imageFingerprint(img ImageBlock) string {
 	return provider.ImageFingerprint(img.MediaType, img.Data)
 }
 
-// imagePlaceholders returns the placeholder tokens the message's data-carrying
-// images need, in image order and with duplicates counted. Image order keeps
-// the appended text deterministic.
-func imagePlaceholders(msg Message) (order []string, counts map[string]int) {
-	counts = make(map[string]int, len(msg.Images))
+// imageBlockPlaceholders returns the tokens the message's data-carrying images
+// still need, given the tokens already frozen into it. Tokens are claimed in
+// image order, one per data image, so the recorded list alone decides coverage
+// and user text can never be mistaken for a frozen token.
+func imageBlockPlaceholders(msg Message, visionAvailable bool) []string {
+	var out []string
+	frozen := len(msg.ImagePlaceholders)
+	seen := 0
 	for _, img := range msg.Images {
 		if img.Data == "" {
 			continue
 		}
-		token := imageBlockPlaceholder(img)
-		if counts[token] == 0 {
-			order = append(order, token)
+		seen++
+		if seen <= frozen {
+			continue
 		}
-		counts[token]++
+		out = append(out, imageBlockPlaceholder(img, visionAvailable))
 	}
-	return order, counts
-}
-
-// countTokens counts the occurrences of each token.
-func countTokens(tokens []string) map[string]int {
-	counts := make(map[string]int, len(tokens))
-	for _, token := range tokens {
-		counts[token]++
-	}
-	return counts
+	return out
 }
 
 // freezeImagePlaceholders appends each image's placeholder token to the
-// containing message's Content before the message first reaches a provider. The
-// tokens are recorded in Message.ImagePlaceholders, so cleanup never appends
-// twice and user text that happens to match a token is never mistaken for a
-// frozen one. This runs before delivery because the sent text must not change
-// when image bytes are later removed.
-func freezeImagePlaceholders(msgs []Message) []Message {
+// containing message's Content before the message first reaches a provider,
+// recording the tokens in Message.ImagePlaceholders. Cleanup later removes only
+// the bytes, so the text a stateful provider was sent never changes. The
+// recorded list makes a second pass a no-op and keeps user text that matches a
+// token from being mistaken for one.
+func freezeImagePlaceholders(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
-		order, want := imagePlaceholders(out[i])
-		if len(order) == 0 {
+		needed := imageBlockPlaceholders(out[i], visionAvailable)
+		if len(needed) == 0 {
 			continue
 		}
 		// Record the user's own words before the content starts carrying
 		// model-facing tokens. Tool and sourced messages stay unmarked.
 		recordImageRewrite(&out[i])
-		have := countTokens(out[i].ImagePlaceholders)
 		frozen := append([]string(nil), out[i].ImagePlaceholders...)
-		for _, token := range order {
-			for have[token] < want[token] {
-				out[i].Content = appendContentToken(out[i].Content, token)
-				frozen = append(frozen, token)
-				have[token]++
-			}
+		for _, token := range needed {
+			out[i].Content = appendContentToken(out[i].Content, token)
+			frozen = append(frozen, token)
 		}
 		out[i].ImagePlaceholders = frozen
 	}
@@ -169,20 +162,14 @@ func stripImagesFromMessages(msgs []Message) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
-		order, want := imagePlaceholders(out[i])
-		if len(order) == 0 {
-			out[i].Images = nil
-			continue
-		}
-		if len(out[i].ImagePlaceholders) == 0 {
+		// A message that never went through the freeze gets its tokens here, and
+		// records the user's words first. Frozen messages append nothing.
+		needed := imageBlockPlaceholders(out[i], false)
+		if len(needed) > 0 && len(out[i].ImagePlaceholders) == 0 {
 			recordImageRewrite(&out[i])
 		}
-		have := countTokens(out[i].ImagePlaceholders)
-		for _, token := range order {
-			for have[token] < want[token] {
-				out[i].Content = appendContentToken(out[i].Content, token)
-				have[token]++
-			}
+		for _, token := range needed {
+			out[i].Content = appendContentToken(out[i].Content, token)
 		}
 		out[i].Images = nil
 	}

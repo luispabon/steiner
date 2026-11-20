@@ -105,19 +105,21 @@ func TestClaudeSubImageFingerprintRecordWins(t *testing.T) {
 	sum := sha256.Sum256([]byte("image/png\x00AAAA"))
 	want := hex.EncodeToString(sum[:])
 
+	// Bytes are the only delivery claim: a record on a stripped message does not
+	// add images to the record being matched, so it can never reseed forever.
 	strippedOnly := Message{Role: MessageRoleUser, SentImageFingerprints: []string{"recorded"}}
-	if got, ok := claudeSubImageFingerprints(strippedOnly); !ok || len(got) != 1 || got[0] != "recorded" {
-		t.Fatalf("recorded fingerprints = (%v, %t), want the separate record", got, ok)
+	if got, ok := claudeSubImageClaim(strippedOnly); !ok || len(got) != 0 {
+		t.Fatalf("stripped claim = (%v, %t), want no images", got, ok)
 	}
 	withoutRecord := Message{Role: MessageRoleUser, Images: []ImageBlock{image}}
-	if got, ok := claudeSubImageFingerprints(withoutRecord); !ok || len(got) != 1 || got[0] != want {
+	if got, ok := claudeSubImageClaim(withoutRecord); !ok || len(got) != 1 || got[0] != want {
 		t.Fatalf("computed fingerprints = (%v, %t), want %q", got, ok, want)
 	}
-	if got, ok := claudeSubImageFingerprints(Message{Role: MessageRoleUser, Images: []ImageBlock{{MediaType: "image/png", FilePath: "/tmp/a.png"}}}); !ok || len(got) != 0 {
+	if got, ok := claudeSubImageClaim(Message{Role: MessageRoleUser, Images: []ImageBlock{{MediaType: "image/png", FilePath: "/tmp/a.png"}}}); !ok || len(got) != 0 {
 		t.Fatalf("path-only image fingerprints = (%v, %t), want none", got, ok)
 	}
 	contradiction := Message{Role: MessageRoleUser, Images: []ImageBlock{image}, SentImageFingerprints: []string{"something-else"}}
-	if _, ok := claudeSubImageFingerprints(contradiction); ok {
+	if _, ok := claudeSubImageClaim(contradiction); ok {
 		t.Fatal("contradictory bytes and record were trusted, want fail closed")
 	}
 }
@@ -143,5 +145,103 @@ func TestClaudeSubReseedRecordsOnlyDeliveredImages(t *testing.T) {
 	}
 	if len(delta.User) != 1 || len(delta.User[0].Images) != 1 {
 		t.Fatalf("transcript images = %+v, want only the carried image", delta.User)
+	}
+}
+
+// TestClaudeSubReseedThenLiveAppendCheckpointRestore reproduces the reseed loop:
+// a stripped history message still carries its old delivery record, but the
+// reseed transcript did not deliver it. The live record must accept the append,
+// the checkpoint must describe only what was delivered, and a restore from the
+// same history must succeed instead of reseeding forever.
+func TestClaudeSubReseedThenLiveAppendCheckpointRestore(t *testing.T) {
+	stripped := deliveredImageMessage(t, "AAAA", true)
+	stripped.Images = nil
+	firstAssistant := Message{Role: MessageRoleAssistant, Content: "ok"}
+	newUser := Message{Role: MessageRoleUser, Content: "next"}
+	secondAssistant := Message{Role: MessageRoleAssistant, Content: "done"}
+
+	history := []Message{stripped, firstAssistant}
+	s := &claudeSubSync{}
+	reseeded := claudeSubReseedDelta(history)
+	if len(reseeded.keep[0].Images) != 0 {
+		t.Fatalf("reseed claim = %v, want the stripped image excluded", reseeded.keep[0].Images)
+	}
+	s.adopt(reseeded)
+	s.commitSent(reseeded)
+	s.fingerprint = "fp"
+	s.cliSessionID = "cli-1"
+
+	delta, err := s.plan(ChatRequest{Messages: []Message{stripped, firstAssistant, newUser}})
+	if err != nil {
+		t.Fatalf("live plan after reseed = %v, want the append accepted", err)
+	}
+	if len(delta.User) != 1 || delta.User[0].Content != "next" {
+		t.Fatalf("live delta user = %q, want only the new message", claudeSubSyncContents(delta.User))
+	}
+	claudeSubSyncCommit(s, delta)
+	s.commitAssistant(secondAssistant, "u2")
+
+	stored, ok, err := s.checkpoint("key")
+	if err != nil || !ok {
+		t.Fatalf("checkpoint = (%+v, %t, %v), want a state", stored, ok, err)
+	}
+	if got := stored.SyncEntryImagesAt(0); len(got) != 0 {
+		t.Fatalf("stored entry images = %v, want none for the stripped history", got)
+	}
+	full := []Message{stripped, firstAssistant, newUser, secondAssistant}
+	if _, restorable, reason, err := claudeSubRestoreFor(full, stored, true, "key", "fp"); err != nil || !restorable || reason != "" {
+		t.Fatalf("restore after reseed = (%t, %q, %v), want a silent restore", restorable, reason, err)
+	}
+}
+
+// TestClaudeSubUpgradeFromPriorStateReseedsOnce proves a checkpoint written
+// before per-entry image fingerprints existed reseeds once and then stabilizes:
+// the rebuilt record no longer claims the stripped image, so later restores are
+// silent.
+func TestClaudeSubUpgradeFromPriorStateReseedsOnce(t *testing.T) {
+	stripped := deliveredImageMessage(t, "AAAA", true)
+	stripped.Images = nil
+	assistant := Message{Role: MessageRoleAssistant, Content: "ok"}
+	history := []Message{stripped, assistant}
+
+	live := &claudeSubSync{started: true}
+	live.commitSent(claudeSubDelta{User: []Message{stripped}})
+	live.commitAssistant(assistant, "u1")
+	live.fingerprint = "fp"
+	live.cliSessionID = "cli-1"
+	stored, ok, err := live.checkpoint("key")
+	if err != nil || !ok {
+		t.Fatalf("checkpoint = (%+v, %t, %v), want a state", stored, ok, err)
+	}
+	// A prior-version state stores no per-entry image fingerprints.
+	stored.SyncEntryImages = nil
+	stored.SyncPrefixDigest = "prior-version"
+	if _, restorable, reason, err := claudeSubRestoreFor(history, stored, true, "key", "fp"); err != nil || restorable || reason != claudeSubReseedPrefix {
+		t.Fatalf("prior state restore = (%t, %q, %v), want reseed reason %q", restorable, reason, err, claudeSubReseedPrefix)
+	}
+
+	upgraded := &claudeSubSync{}
+	delta := claudeSubReseedDelta(history)
+	upgraded.adopt(delta)
+	upgraded.commitSent(delta)
+	upgraded.fingerprint = "fp"
+	upgraded.cliSessionID = "cli-1"
+	// The reseeded CLI reports no per-message uuids for the flattened history, so
+	// the record becomes resumable once the next turn's assistant arrives.
+	newUser := Message{Role: MessageRoleUser, Content: "next"}
+	delta, err = upgraded.plan(ChatRequest{Messages: append(append([]Message{}, history...), newUser)})
+	if err != nil {
+		t.Fatalf("live plan after upgrade reseed = %v", err)
+	}
+	claudeSubSyncCommit(upgraded, delta)
+	newAssistant := Message{Role: MessageRoleAssistant, Content: "done"}
+	upgraded.commitAssistant(newAssistant, "u2")
+	rebuilt, ok, err := upgraded.checkpoint("key")
+	if err != nil || !ok {
+		t.Fatalf("rebuilt checkpoint = (%+v, %t, %v), want a state", rebuilt, ok, err)
+	}
+	full := append(append([]Message{}, history...), newUser, newAssistant)
+	if _, restorable, reason, err := claudeSubRestoreFor(full, rebuilt, true, "key", "fp"); err != nil || !restorable || reason != "" {
+		t.Fatalf("restore after upgrade = (%t, %q, %v), want a silent restore", restorable, reason, err)
 	}
 }
