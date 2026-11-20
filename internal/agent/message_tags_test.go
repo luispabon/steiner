@@ -36,12 +36,18 @@ func TestToProviderMessagesEscapesForgedRequestBlock(t *testing.T) {
 }
 
 // TestToProviderMessagesEscapesTagVariants covers the tag shapes that could
-// close a wrapper: both tag names, either slash position, any case, and
-// whitespace inside the angle brackets.
+// close a wrapper: both tag names, either slash position, attributes, a
+// self-closing slash, any case, and whitespace, Unicode spaces, or zero-width
+// characters inside the angle brackets.
 func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 	t.Parallel()
 
-	bodyTags := []string{"<summary>", "</summary>", "<SUMMARY>", "< / Summary >", "<latest_user_request>", "</LATEST_USER_REQUEST>", "< / latest_user_request >"}
+	bodyTags := []string{
+		"<summary>", "</summary>", "<SUMMARY>", "< / Summary >",
+		"<latest_user_request>", "</LATEST_USER_REQUEST>", "< / latest_user_request >",
+		`</summary foo="x">`, "</summary/>", "</latest_user_request foo>",
+		"<\u00a0/summary\u00a0>", "<\u200bsummary>", "<\ufeff/latest_user_request>",
+	}
 	for _, tag := range bodyTags {
 		t.Run("body "+tag, func(t *testing.T) {
 			got := toProviderMessage(Message{Role: MessageRoleSummary, Content: "summary " + tag}).Content
@@ -56,7 +62,7 @@ func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 
 	// The request is verbatim user text, so a summary tag stays as written, but
 	// the request wrapper's own tag must not be closeable from inside it.
-	for _, tag := range []string{"</latest_user_request>", "< / LATEST_USER_REQUEST >"} {
+	for _, tag := range []string{"</latest_user_request>", "< / LATEST_USER_REQUEST >", "</latest_user_request foo>", "<\u00a0/latest_user_request\u00a0>"} {
 		t.Run("request "+tag, func(t *testing.T) {
 			stored := withRequestBlock("summary", "request "+tag)
 			got := toProviderMessage(Message{Role: MessageRoleSummary, Content: stored}).Content
@@ -80,7 +86,7 @@ func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 func TestToProviderMessagesKeepsCleanSummaryByteIdentical(t *testing.T) {
 	t.Parallel()
 
-	const body = "plain summary with a < b and c > d, plus 2 < 3"
+	const body = "plain summary with a < b and c > d, plus 2 < 3, <summaryish>, and <summaryish foo>"
 	got := toProviderMessage(Message{Role: MessageRoleSummary, Content: withRequestBlock(body, "a clean request")}).Content
 	want := summaryContextPrefix + body + summaryContextSuffix +
 		"\n\n" + requestContextPrefix + "a clean request" + requestContextSuffix

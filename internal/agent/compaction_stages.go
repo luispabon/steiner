@@ -284,7 +284,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 
 	requestBlock, requestBlockStatus := latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
 
-	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, params)
+	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, params)
 	if err != nil {
 		return CompactionOutcome{}, err
 	}
@@ -365,6 +365,30 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		BackendStateCleared: cleared,
 		pendingArchive:      pendingArchive,
 	}, nil
+}
+
+// compactionStagePlan builds the summary plan for a stage. The plan normally
+// replays the source exactly as main projects it, carried latest-request block
+// included, so the summarizer shares main's cached prefix. When that plan does
+// not fit and the source carries a block, it rebuilds the plan once without the
+// blocks: dropping the block is the only way a tight window can still
+// summarize, because the block is what pushed the request over.
+func compactionStagePlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams) (compactionExecutionPlan, bool, error) {
+	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, params)
+	if err != nil || ok {
+		return plan, ok, err
+	}
+	strippedMessages, hasBlock := stripRequestBlockSource(params.sourceMessages)
+	if !hasBlock {
+		return plan, false, nil
+	}
+	strippedParams := params
+	strippedParams.sourceMessages = strippedMessages
+	strippedPlan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, strippedParams)
+	if err != nil || !ok {
+		return plan, false, err
+	}
+	return strippedPlan, true, nil
 }
 
 func fitConversationState(ctx context.Context, req RunRequest, state RunState) (prompt.RequestTokenBudget, error) {

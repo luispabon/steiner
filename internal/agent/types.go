@@ -104,6 +104,10 @@ type Message struct {
 	// Content also carries. Compaction reads it for the latest-request block; it
 	// is never projected to a provider.
 	RequestText string `json:"request_text,omitempty"`
+	// VisionRouted marks a message whose content vision routing rewrote with
+	// image descriptions. Those words are model or runtime text, not the user's
+	// own, so compaction never selects the message through its content.
+	VisionRouted bool `json:"vision_routed,omitempty"`
 	// Timestamp records when the message entered the conversation. It is display
 	// metadata for resumed transcripts and never reaches the model.
 	Timestamp time.Time `json:"timestamp,omitzero"`

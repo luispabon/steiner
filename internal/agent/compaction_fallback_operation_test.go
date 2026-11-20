@@ -89,9 +89,7 @@ func newFallbackOperationRun(now time.Time) *fallbackOperationRun {
 		Provider:      r.main,
 		ResolvedModel: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-main"},
 		ModelBudget: prompt.ModelTokenBudget{
-			// The emergency summary request replays the projected summary with its
-			// latest-request block, so the window needs headroom for the block.
-			ContextSize:               7500,
+			ContextSize:               6066,
 			MaxCompletionTokens:       128,
 			SummaryMaxTokens:          64,
 			NormalSummaryMaxTokens:    64,

@@ -155,12 +155,24 @@ func latestRequestBlock(sourceMessages []Message, contextWindow int) (request, s
 
 // requestMessageText returns the user's own words from a real user message:
 // RequestText when the delivery recorded it, else the text recovered from the
-// stored content.
+// stored content. Vision routing rewrote content it touched, so that content
+// never supplies the request.
 func requestMessageText(message Message) string {
 	if text := strings.TrimSpace(prompt.StripSkillBlocks(message.RequestText)); text != "" {
 		return text
 	}
+	if message.VisionRouted {
+		return ""
+	}
 	return legacyRequestText(message.Content)
+}
+
+// UserRequestText returns the user's own words from a real user message: the
+// recorded request text when the delivery has it, else the text recovered from
+// the stored content. It returns empty for a message whose content vision
+// routing rewrote.
+func UserRequestText(message Message) string {
+	return requestMessageText(message)
 }
 
 // legacyRequestText recovers the user's text from a delivery message stored
@@ -175,6 +187,20 @@ func legacyRequestText(content string) string {
 		rest = rest[idx+len(subAgentResultCloseTag):]
 	}
 	return strings.TrimSpace(rest)
+}
+
+// stripRequestBlockSource returns messages without the latest-request trailer on
+// summary messages, reporting whether any summary carried one.
+func stripRequestBlockSource(messages []Message) ([]Message, bool) {
+	for _, message := range messages {
+		if message.Role != MessageRoleSummary {
+			continue
+		}
+		if _, _, ok := SplitRequestBlock(message.Content); ok {
+			return stripRequestBlocks(messages), true
+		}
+	}
+	return messages, false
 }
 
 // stripRequestBlocks returns a copy of messages without the latest-request

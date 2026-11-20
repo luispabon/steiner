@@ -616,6 +616,49 @@ func TestLatestRequestBlockRecapsCarriedRequest(t *testing.T) {
 	}
 }
 
+// TestLatestRequestBlockSkipsVisionRoutedTurns proves vision routing's image
+// descriptions never become the request: an image-only turn is skipped so an
+// older text request wins, and an image-plus-text turn keeps only its text.
+func TestLatestRequestBlockSkipsVisionRoutedTurns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		userText    string
+		wantRequest string
+	}{
+		{name: "image-only turn after a text request", wantRequest: "the real text request"},
+		{name: "image and text turn", userText: "what is this?", wantRequest: "what is this?"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vc := NewVisionCapabilities(false)
+			vc.LatchIncapable("test-model")
+			msgs := []Message{
+				{Role: MessageRoleUser, Content: "the real text request", RequestText: "the real text request"},
+				{Role: MessageRoleAssistant, Content: "ok"},
+				{Role: MessageRoleUser, Content: tt.userText, RequestText: tt.userText, Images: []ImageBlock{{ID: "img-1", Data: "base64data"}}},
+			}
+			state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
+			req := RunRequest{
+				ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+				VisionCapabilities: vc,
+			}
+			p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
+			if !p.handleImagesForVision(context.Background(), &state) {
+				t.Fatal("handleImagesForVision() = false, want true")
+			}
+			last := state.Conversation[len(state.Conversation)-1]
+			if !last.VisionRouted {
+				t.Fatalf("VisionRouted = false on %q, want true", last.Content)
+			}
+			if request, status := latestRequestBlock(state.Conversation, 0); request != tt.wantRequest || status != output.RequestBlockNew {
+				t.Fatalf("latestRequestBlock() = (%q, %q), want (%q, %q)", request, status, tt.wantRequest, output.RequestBlockNew)
+			}
+		})
+	}
+}
+
 // TestCompactionFallbackTargetCarriesRequestBlock proves a fallback-target
 // compaction stores the block and reports it as new.
 func TestCompactionFallbackTargetCarriesRequestBlock(t *testing.T) {

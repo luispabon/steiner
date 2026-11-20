@@ -212,6 +212,7 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	} else {
 		msg.Content = msg.Content + "\n" + description
 	}
+	msg.VisionRouted = true
 
 	img.Data = ""
 
@@ -251,5 +252,6 @@ func (p *turnProgressor) stripImageFallback(msg *Message, img *ImageBlock) {
 	} else {
 		msg.Content = msg.Content + "\n" + fallback
 	}
+	msg.VisionRouted = true
 	img.Data = ""
 }
