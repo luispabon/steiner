@@ -2230,53 +2230,113 @@ func TestRunStageAndFitNotAppliedThatFitsIsNoOpSuccess(t *testing.T) {
 	}
 }
 
-func TestAnchorRealUserRetention(t *testing.T) {
+func TestSummarizeCompactionStagesRunRetainsStrictTailUnits(t *testing.T) {
+	t.Parallel()
+
 	call := func(id string) []ToolCall { return []ToolCall{{ID: id, Name: "read"}} }
-	prior := []Message{
-		{Role: MessageRoleUser, Content: "old user"},
-		{Role: MessageRoleAssistant, Content: "old assistant"},
+	subAgentResult := func(content string) Message {
+		return Message{Role: MessageRoleUser, Source: MessageSourceSubAgentResult, Content: content}
 	}
-	wake := []Message{
-		{Role: MessageRoleUser, Content: "prompt"},
+	// Async wake sequence: an old exchange, the real user request that woke the
+	// run, then assistant tool cycles whose user-role messages only deliver
+	// sub-agent results. Units: [old exchange], [wake, call, result],
+	// [result, call, result], [result, call, result], [final reply].
+	conversation := []Message{
+		{Role: MessageRoleUser, Content: "old request"},
+		{Role: MessageRoleAssistant, Content: "old reply"},
+		{Role: MessageRoleUser, Content: "wake request"},
 		{Role: MessageRoleAssistant, ToolCalls: call("c1")},
 		{Role: MessageRoleTool, ToolCallID: "c1", Content: "r1"},
+		subAgentResult("report one"),
 		{Role: MessageRoleAssistant, ToolCalls: call("c2")},
 		{Role: MessageRoleTool, ToolCallID: "c2", Content: "r2"},
+		subAgentResult("report two"),
 		{Role: MessageRoleAssistant, ToolCalls: call("c3")},
 		{Role: MessageRoleTool, ToolCallID: "c3", Content: "r3"},
-		{Role: MessageRoleAssistant, Content: "a4"},
+		{Role: MessageRoleAssistant, Content: "final reply"},
 	}
+
 	tests := []struct {
-		name       string
-		full       []Message
-		fits       bool
-		wantSource int
-		wantFirst  string
+		name          string
+		normalApplies bool
+		wantMode      prompt.CompactionMode
+		wantRetained  []Message
 	}{
-		{"real user evicted by chunk rule is retained", append(append([]Message{}, prior...), wake...), true, 2, "prompt"},
-		{"fallback when extension does not fit", append(append([]Message{}, prior...), wake...), false, 2 + 1 + 2, ""},
-		{"anchor at conversation start keeps chunk result", wake, true, 3, ""},
+		{
+			name:          "normal retains the last three compaction units",
+			normalApplies: true,
+			wantMode:      prompt.CompactionModeNormal,
+			wantRetained:  conversation[5:],
+		},
+		{
+			name:         "emergency retains the last compaction unit",
+			wantMode:     prompt.CompactionModeEmergency,
+			wantRetained: conversation[11:],
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var captured []summarizeCompactionStageParams
 			stages := summarizeCompactionStages{
+				stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+					captured = append(captured, params)
+					if params.mode == prompt.CompactionModeNormal && !tt.normalApplies {
+						return CompactionOutcome{Fit: prompt.RequestTokenBudget{Fits: true}}, nil
+					}
+					return CompactionOutcome{
+						Applied: true,
+						State:   RunState{Conversation: cloneMessages(params.retainedMessages)},
+						Fit:     prompt.RequestTokenBudget{Fits: true},
+					}, nil
+				},
 				fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
-					return prompt.RequestTokenBudget{Fits: tt.fits}, nil
+					return prompt.RequestTokenBudget{Fits: true}, nil
 				},
 			}
-			source, retained := compactionSourceAndRetention(tt.full, tt.full, normalCompactionRetainTurns)
-			source, retained, err := stages.anchorRealUserRetention(context.Background(), RunRequest{}, RunState{}, tt.full, source, retained)
+
+			_, err := stages.run(context.Background(), RunRequest{}, RunState{}, 1, ConversationCandidate{Messages: conversation})
 			if err != nil {
-				t.Fatalf("anchorRealUserRetention() error = %v", err)
+				t.Fatalf("summarizeCompactionStages.run() error = %v", err)
 			}
-			if len(source)+len(retained) != len(tt.full) {
-				t.Fatalf("source+retained = %d, want %d", len(source)+len(retained), len(tt.full))
+
+			var stage *summarizeCompactionStageParams
+			for i := range captured {
+				if captured[i].mode == tt.wantMode {
+					stage = &captured[i]
+					break
+				}
 			}
-			if len(source) != tt.wantSource {
-				t.Fatalf("source len = %d, want %d", len(source), tt.wantSource)
+			if stage == nil {
+				t.Fatalf("stage %q did not run, captured %d stages", tt.wantMode, len(captured))
 			}
-			if tt.wantFirst != "" && retained[0].Content != tt.wantFirst {
-				t.Fatalf("retained[0] = %q, want %q", retained[0].Content, tt.wantFirst)
+			if got, want := len(stage.sourceMessages)+len(stage.retainedMessages), len(conversation); got != want {
+				t.Fatalf("source+retained = %d, want %d", got, want)
+			}
+			wantRetained := cloneMessages(tt.wantRetained) // the stage clones its output
+			if !reflect.DeepEqual(stage.retainedMessages, wantRetained) {
+				t.Fatalf("retained = %+v, want %+v", stage.retainedMessages, wantRetained)
+			}
+			if messageContentsContain(ToProviderMessages(stage.retainedMessages), "wake request") {
+				t.Error("retained tail holds the real user request, want it summarized")
+			}
+			if !messageContentsContain(ToProviderMessages(stage.sourceMessages), "wake request") {
+				t.Error("summary source missing the real user request")
+			}
+
+			toolResults := make(map[string]bool, len(stage.retainedMessages))
+			for _, message := range stage.retainedMessages {
+				if message.Role == MessageRoleTool {
+					toolResults[message.ToolCallID] = true
+				}
+			}
+			for _, message := range stage.retainedMessages {
+				for _, toolCall := range message.ToolCalls {
+					if !toolResults[toolCall.ID] {
+						t.Errorf("retained tail holds tool call %q without its result", toolCall.ID)
+					}
+				}
 			}
 		})
 	}

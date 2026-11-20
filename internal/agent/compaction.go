@@ -200,10 +200,6 @@ func (s summarizeCompactionStages) run(
 	retentionBase := compactionRetentionBaseMessages(state.Lineage, candidate)
 	normalSource, normalRetained := compactionSourceAndRetention(fullMessages, retentionBase, normalCompactionRetainTurns)
 	emergencySource, emergencyRetained := compactionSourceAndRetention(fullMessages, retentionBase, emergencyCompactionRetainTurns)
-	normalSource, normalRetained, err := s.anchorRealUserRetention(ctx, req, state, fullMessages, normalSource, normalRetained)
-	if err != nil {
-		return CompactionOutcome{}, err
-	}
 
 	summaryBudget := compactionSummaryRequest(req, s.summaryReq).ModelBudget
 	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{

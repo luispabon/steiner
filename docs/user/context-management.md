@@ -18,7 +18,6 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - the system prompt and tool definitions
 - summaries from earlier compactions
 - the most recent conversation turns, verbatim
-- your latest message, verbatim, when it fits
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 

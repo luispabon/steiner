@@ -93,11 +93,12 @@ Compaction runs when the context is too large. Two limits apply:
 
 ### Stages
 
-| Stage | Turns retained | Used when |
-|-------|----------------|-----------|
-| Normal | 3 most recent | First attempt |
-| Emergency | 1 most recent | Normal did not apply, or the result still needs compaction |
+| Stage | Retained | Used when |
+|-------|----------|-----------|
+| Normal | 3 most recent compaction units | First attempt |
+| Emergency | 1 most recent compaction unit | Normal did not apply, or the result still needs compaction |
 
+- A compaction unit starts at each user-role message, and at an assistant message when the current unit already holds one, so tool results stay with the assistant call that produced them (`splitCompactionTurns`, `internal/agent/compaction_candidate.go`). Retention is a strict tail: it never reaches further back for the latest user message.
 - Older turns are assembled through normal prompt assembly, followed by a final user message that asks for a summary. The request carries the same tool definitions as a normal turn (`provider.CloneTools`).
 - Normal mode uses `internal/prompt/templates/compaction_default_body.md.tmpl`, which asks for eight numbered sections: task and goal, repository state, work completed, key findings and decisions, problems, remaining work, verification, and user preferences. Emergency mode uses `compaction_emergency.md.tmpl` and asks for a shorter, lossier summary.
 - `deriveSummaryMaxTokens` (`internal/provider/resolved_model.go`) caps summary output as a share of the context window, bounded by a minimum and maximum, and never above the model's max output.
@@ -122,7 +123,7 @@ Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
 
 Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionStage`):
 
-- Retention split, the anchor move, and fit checks on the retained tail and resulting state use the main request.
+- Retention split and fit checks on the retained tail and resulting state use the main request.
 - The summary output cap (`compactionSummaryMaxTokensForMode`) and the plan fit (`newCompactionExecutionPlanWithMode`, `FitCompactionRequest`) use the summary request's `ModelBudget`. On fallback that is the target's budget.
 - A plan that does not fit the target returns `errCompactionFallbackNotFit`. On main, the same failure is a not-applied outcome, and the emergency stage runs.
 
@@ -178,9 +179,8 @@ The session store creates `history.md` in the per-session directory under `~/.co
 
 `wireInteractiveRunner` (`cmd/steiner/interactive_session.go`) supplies an archive keyed by the current interactive session. `phaseHistoryArchive` and `phaseRunner.RunPhase` (`cmd/steiner/cmd_oneshot.go`) key oneshot archives by the phase session. The exec runner leaves `historyArchive` nil, and delegated child runners do not receive one, so archiving is limited to interactive and oneshot phase runs.
 
-### Retention anchor, sub-agents, and skills
+### Sub-agents and skills
 
-- After the normal stage picks its tail, `anchorRealUserRetention` (`internal/agent/compaction_candidate.go`) moves the tail back to the latest real user message (`IsRealUserMessage`: user role, not a sub-agent result) if the cut left it in the summarized part. The extension is kept only if the extended tail still fits and something remains to summarize. The emergency stage does not anchor.
 - `appendPendingSubAgentsLine` (`internal/agent/compaction.go`) appends one `sub_agent_result` user message listing pending sub-agents at the tail.
 - Compaction strips skill envelopes from retained messages (`stripRetainedSkillBlocks`), then re-injects the active envelopes as one user message ahead of the retained turns (`replayedSkillMessage`, `internal/agent/compaction_skills.go`). `activeSkillBlocks` scans the whole generation, so an activation in the summarized part still counts. A disabled skill drops out at the next compaction.
 
