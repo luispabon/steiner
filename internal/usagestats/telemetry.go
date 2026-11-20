@@ -35,6 +35,9 @@ type telemetryLine struct {
 	CacheReadTokens   int    `json:"cache_read_tokens"`
 	CacheCreateTokens int    `json:"cache_create_tokens"`
 	CompletionTokens  int    `json:"completion_tokens"`
+	ReasoningTokens   int    `json:"reasoning_tokens,omitempty"`
+	CacheReported     bool   `json:"cache_reported,omitempty"`
+	CostMicroUSD      int64  `json:"cost_micro_usd,omitempty"`
 }
 
 // telemetry appends JSON lines to a file. A nil *telemetry writes nothing, so
@@ -71,6 +74,9 @@ func (t *telemetry) record(obs Observation, at time.Time) {
 	if t == nil {
 		return
 	}
+	// Only a provider-reported cost is available in this phase, so an unpriced
+	// call writes no cost field at all.
+	micro, _, _ := costFor(obs)
 	line := telemetryLine{
 		Kind:              "usage",
 		Timestamp:         at.UTC().Format(time.RFC3339Nano),
@@ -83,6 +89,9 @@ func (t *telemetry) record(obs Observation, at time.Time) {
 		CacheReadTokens:   obs.CacheReadTokens,
 		CacheCreateTokens: obs.CacheCreateTokens,
 		CompletionTokens:  obs.CompletionTokens,
+		ReasoningTokens:   obs.ReasoningTokens,
+		CacheReported:     obs.CacheReported,
+		CostMicroUSD:      micro,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()

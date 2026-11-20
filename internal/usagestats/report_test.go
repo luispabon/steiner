@@ -39,7 +39,7 @@ func TestHitRate_Direct(t *testing.T) {
 }
 
 func TestTotals_PerRequest(t *testing.T) {
-	totals := Totals{Requests: 4, InputTokens: 40, CacheReadTokens: 60, CacheCreateTokens: 20}
+	totals := Totals{Requests: 4, InputTokens: 40, CacheReadTokens: 60, CacheCreateTokens: 20, CacheReportedInputTokens: 120}
 
 	uncached, ok := totals.UncachedPerRequest()
 	if !ok || uncached != 15 {
@@ -82,7 +82,7 @@ func TestTotals_TotalAndInputTotal(t *testing.T) {
 		},
 		{
 			name:       "every field counted once",
-			totals:     Totals{Requests: 2, InputTokens: 10, CacheReadTokens: 60, CacheCreateTokens: 20, CompletionTokens: 5},
+			totals:     Totals{Requests: 2, InputTokens: 10, CacheReadTokens: 60, CacheCreateTokens: 20, CompletionTokens: 5, CacheReportedInputTokens: 90},
 			wantTotal:  95,
 			wantInput:  90,
 			wantRate:   60.0 / 90.0,
@@ -90,7 +90,7 @@ func TestTotals_TotalAndInputTotal(t *testing.T) {
 		},
 		{
 			name:       "completion tokens stay out of the hit-rate denominator",
-			totals:     Totals{InputTokens: 30, CacheReadTokens: 30, CompletionTokens: 40},
+			totals:     Totals{InputTokens: 30, CacheReadTokens: 30, CompletionTokens: 40, CacheReportedInputTokens: 60},
 			wantTotal:  100,
 			wantInput:  60,
 			wantRate:   0.5,

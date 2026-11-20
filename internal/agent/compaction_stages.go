@@ -237,8 +237,27 @@ func sumUsageStats(a, b *provider.UsageStats) *provider.UsageStats {
 		out.TotalTokens += b.TotalTokens
 		out.CacheCreationInputTokens += b.CacheCreationInputTokens
 		out.CacheReadInputTokens += b.CacheReadInputTokens
+		out.ReasoningTokens += b.ReasoningTokens
+		out.CacheReported = out.CacheReported || b.CacheReported
+		out.CostUSD = sumCostUSD(out.CostUSD, b.CostUSD)
 	}
 	return &out
+}
+
+// sumCostUSD adds two provider-reported costs, treating a nil cost as zero and
+// keeping nil only when neither side reported a cost.
+func sumCostUSD(a, b *float64) *float64 {
+	if a == nil && b == nil {
+		return nil
+	}
+	var sum float64
+	if a != nil {
+		sum += *a
+	}
+	if b != nil {
+		sum += *b
+	}
+	return &sum
 }
 
 // adoptWithoutRequestBlock retries an applied stage without its stored

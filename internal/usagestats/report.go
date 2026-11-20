@@ -2,8 +2,8 @@ package usagestats
 
 import "time"
 
-// Totals holds additive token counts and a request count for one aggregation
-// group. Every field is a sum over the group's requests.
+// Totals holds additive token counts, cost, and a request count for one
+// aggregation group. Every field is a sum over the group's requests.
 type Totals struct {
 	// Requests is the total number of API calls in the group.
 	Requests int
@@ -15,6 +15,24 @@ type Totals struct {
 	CacheCreateTokens int
 	// CompletionTokens is the number of output tokens generated.
 	CompletionTokens int
+	// ReasoningTokens is the part of CompletionTokens spent on reasoning. It is
+	// a subset of CompletionTokens, never an addition to it.
+	ReasoningTokens int
+	// CacheReportedRequests counts the group's requests whose provider reported
+	// cache data, even as zero tokens.
+	CacheReportedRequests int
+	// CacheReportedInputTokens sums the prompt-side input total (uncached plus
+	// cache read plus cache create) over those requests. It is HitRate's
+	// denominator, so requests whose provider said nothing about caching stay
+	// out of it.
+	CacheReportedInputTokens int
+	// CostMicroUSD is the group's summed cost, rounded per call to the nearest
+	// micro-USD.
+	CostMicroUSD int64
+	// ReportedCostRequests counts requests whose cost the provider reported.
+	ReportedCostRequests int
+	// UnpricedRequests counts requests with neither reported nor estimated cost.
+	UnpricedRequests int
 }
 
 // Total returns the sum of all token fields: uncached input, cache reads,
@@ -24,25 +42,32 @@ func (t Totals) Total() int {
 }
 
 // InputTotal returns the prompt-side token count: uncached input plus cache
-// reads plus cache creates. It is HitRate's denominator.
+// reads plus cache creates. HitRate's denominator is CacheReportedInputTokens,
+// which sums this over the requests whose provider reported cache data.
 func (t Totals) InputTotal() int {
 	return t.InputTokens + t.CacheReadTokens + t.CacheCreateTokens
 }
 
-// HitRate returns the token-weighted cache hit rate, defined as
-// CacheReadTokens / InputTotal. When InputTotal is zero, ok is false and rate
-// is 0; callers should render "—".
+// HitRate returns the token-weighted cache hit rate over the requests whose
+// provider reported cache data, defined as CacheReadTokens /
+// CacheReportedInputTokens. When nothing reported cache data, ok is false and
+// rate is 0; callers should render the no-data placeholder.
 func (t Totals) HitRate() (rate float64, ok bool) {
-	return HitRate(t.CacheReadTokens, t.InputTokens, t.CacheCreateTokens)
+	if t.CacheReportedInputTokens == 0 {
+		return 0, false
+	}
+	return float64(t.CacheReadTokens) / float64(t.CacheReportedInputTokens), true
 }
 
 // UncachedPerRequest returns the average per-request tokens that did not
 // come from a cache read (non-cached input plus cache-create tokens, the
 // same grouping HitRate treats as "not a hit"). A single ratio can rise
 // either because uncached tokens grew or because cached tokens shrank; this
-// and CachedPerRequest decompose that ambiguity, which HitRate alone cannot,
-// while staying consistent with it: CachedPerRequest / (CachedPerRequest +
-// UncachedPerRequest) reproduces HitRate. Zero requests returns (0, false).
+// and CachedPerRequest decompose that ambiguity, which HitRate alone cannot.
+// Both span every request in the group while HitRate covers only the requests
+// whose provider reported cache data, so CachedPerRequest / (CachedPerRequest +
+// UncachedPerRequest) reproduces HitRate only when every request reported.
+// Zero requests returns (0, false).
 func (t Totals) UncachedPerRequest() (float64, bool) {
 	return perRequest(t.InputTokens+t.CacheCreateTokens, t.Requests)
 }
@@ -120,31 +145,66 @@ type SessionReport struct {
 	TotalInputTokens int64
 	// Requests is the total number of API calls seen this session.
 	Requests int64
+	// ReasoningTokens is the part of this session's completion tokens spent on
+	// reasoning. It is a subset of them, never an addition.
+	ReasoningTokens int64
+	// CacheReportedRequests counts the session's requests whose provider
+	// reported cache data.
+	CacheReportedRequests int64
+	// CacheReportedInputTokens sums the prompt-side input total over those
+	// requests. It is HitRate's denominator.
+	CacheReportedInputTokens int64
+	// CostMicroUSD is the session's summed cost in micro-USD.
+	CostMicroUSD int64
+	// ReportedCostRequests counts requests whose cost the provider reported.
+	ReportedCostRequests int64
+	// UnpricedRequests counts requests with neither reported nor estimated cost.
+	UnpricedRequests int64
 	// LastCacheReadTokens and LastTotalInputTokens describe the latest request
 	// for a source-scoped report; blended reports leave them zero.
 	LastCacheReadTokens  int64
 	LastTotalInputTokens int64
+	// LastCacheReportedInputTokens is the latest request's reported-cache input
+	// total. It is zero when that request's provider reported no cache data.
+	LastCacheReportedInputTokens int64
 	// LastCallKind is the kind of the latest request for a source-scoped
 	// report. Blended reports leave it at the zero value, CallKindNormal.
 	LastCallKind CallKind
 }
 
-// LastHitRate returns the latest request's hit rate. When its input total is
-// zero, ok is false and rate is 0.
-func (s SessionReport) LastHitRate() (rate float64, ok bool) {
-	if s.LastTotalInputTokens == 0 {
-		return 0, false
-	}
-	return float64(s.LastCacheReadTokens) / float64(s.LastTotalInputTokens), true
+// addCumulative sums c's process-lifetime counters into s, leaving the
+// last-request fields alone.
+func (s *SessionReport) addCumulative(c sessionCounters) {
+	s.CacheReadTokens += c.cacheReadTokens
+	s.TotalInputTokens += c.inputTokens
+	s.Requests += c.requests
+	s.ReasoningTokens += c.reasoningTokens
+	s.CacheReportedRequests += c.cacheReportedRequests
+	s.CacheReportedInputTokens += c.cacheReportedInputTokens
+	s.CostMicroUSD += c.costMicroUSD
+	s.ReportedCostRequests += c.reportedCostRequests
+	s.UnpricedRequests += c.unpricedRequests
 }
 
-// HitRate returns the token-weighted cache hit rate for the session.
-// When TotalInputTokens is zero, ok is false and rate is 0; callers should render "—".
-func (s SessionReport) HitRate() (rate float64, ok bool) {
-	if s.TotalInputTokens == 0 {
+// LastHitRate returns the latest request's hit rate, over its reported-cache
+// input total. When that request's provider reported no cache data, ok is
+// false and rate is 0.
+func (s SessionReport) LastHitRate() (rate float64, ok bool) {
+	if s.LastCacheReportedInputTokens == 0 {
 		return 0, false
 	}
-	return float64(s.CacheReadTokens) / float64(s.TotalInputTokens), true
+	return float64(s.LastCacheReadTokens) / float64(s.LastCacheReportedInputTokens), true
+}
+
+// HitRate returns the token-weighted cache hit rate for the session, over the
+// requests whose provider reported cache data. When none did,
+// CacheReportedInputTokens is zero, ok is false and rate is 0; callers should
+// render the no-data placeholder.
+func (s SessionReport) HitRate() (rate float64, ok bool) {
+	if s.CacheReportedInputTokens == 0 {
+		return 0, false
+	}
+	return float64(s.CacheReadTokens) / float64(s.CacheReportedInputTokens), true
 }
 
 // CachedPerRequest returns the average cache-read tokens per request this
@@ -155,9 +215,10 @@ func (s SessionReport) CachedPerRequest() (float64, bool) {
 
 // UncachedPerRequest returns the average per-request tokens that did not
 // come from a cache read (i.e. TotalInputTokens minus CacheReadTokens, which
-// folds cache-create tokens in with genuinely uncached ones — the same
-// grouping HitRate and Row.UncachedPerRequest use, so CachedPerRequest /
-// (CachedPerRequest + UncachedPerRequest) reproduces HitRate here too).
+// folds cache-create tokens in with genuinely uncached ones, the same
+// grouping HitRate and Row.UncachedPerRequest use). It spans every request
+// while HitRate covers only those whose provider reported cache data, so the
+// per-request ratio reproduces HitRate only when every request reported.
 // Zero requests returns (0, false).
 func (s SessionReport) UncachedPerRequest() (float64, bool) {
 	return perRequest(int(s.TotalInputTokens-s.CacheReadTokens), int(s.Requests))

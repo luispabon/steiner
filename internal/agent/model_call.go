@@ -46,7 +46,9 @@ func recordModelUsage(req RunRequest, usage *provider.UsageStats, kind usagestat
 		BackendModelID: req.ResolvedModel.BackendModelID,
 		PromptTokens:   usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
 		CacheReadTokens: usage.CacheReadInputTokens, CacheCreateTokens: usage.CacheCreationInputTokens,
-		Source: req.UsageSource, CallKind: kind,
+		ReasoningTokens: usage.ReasoningTokens, CacheReported: usage.CacheReported,
+		ReportedCostUSD: usage.CostUSD,
+		Source:          req.UsageSource, CallKind: kind,
 	})
 }
 

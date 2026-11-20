@@ -111,11 +111,21 @@ type UsageStats struct {
 	// PromptTokens is the TOTAL input token count for the turn, including any
 	// cached portion (CacheReadInputTokens/CacheCreationInputTokens are not
 	// additional to this total, they are subsets of it).
-	PromptTokens             int `json:"prompt_tokens,omitempty"`
-	CompletionTokens         int `json:"completion_tokens,omitempty"`
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	// ReasoningTokens is the part of CompletionTokens spent on reasoning. It is
+	// a subset of CompletionTokens and is never added to any total.
+	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
 	TotalTokens              int `json:"total_tokens,omitempty"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+	// CacheReported is true when the provider's usage object carried any cache
+	// field, even one reporting zero tokens. False means the provider said
+	// nothing about caching, which must not be read as a cache miss.
+	CacheReported bool `json:"cache_reported,omitempty"`
+	// CostUSD is the provider-reported cost of this call in US dollars. Nil
+	// means the provider reported no cost.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // ChatRequest is the normalized provider request payload.

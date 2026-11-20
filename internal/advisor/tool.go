@@ -261,6 +261,9 @@ func recordAdvisorUsage(recorder *usagestats.Recorder, model provider.ResolvedMo
 		CompletionTokens:  usage.CompletionTokens,
 		CacheReadTokens:   usage.CacheReadInputTokens,
 		CacheCreateTokens: usage.CacheCreationInputTokens,
+		ReasoningTokens:   usage.ReasoningTokens,
+		CacheReported:     usage.CacheReported,
+		ReportedCostUSD:   usage.CostUSD,
 		Source:            usagestats.SourceAdvisor,
 	})
 }

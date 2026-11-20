@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "entries": [
+    {
+      "provider": "anthropic",
+      "provider_type": "anthropic",
+      "model": "m-cache",
+      "hour_unix": 1718928000,
+      "source": "parent",
+      "requests": 5,
+      "input_tokens": 1200,
+      "cache_read_tokens": 450,
+      "cache_create_tokens": 100,
+      "completion_tokens": 500
+    },
+    {
+      "provider": "openai",
+      "provider_type": "openai",
+      "model": "m-plain",
+      "hour_unix": 1718928000,
+      "source": "advisor",
+      "requests": 3,
+      "input_tokens": 800,
+      "cache_read_tokens": 0,
+      "cache_create_tokens": 0,
+      "completion_tokens": 300
+    }
+  ]
+}

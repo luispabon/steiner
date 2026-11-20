@@ -135,7 +135,7 @@ func tokenStatsWeekStart(t time.Time) time.Time {
 }
 
 // uncachedInput returns the prompt tokens that were not served from cache,
-// matching HitRate's denominator.
+// matching the prompt-side input total.
 func uncachedInput(t usagestats.Totals) int {
 	return t.InputTokens + t.CacheCreateTokens
 }

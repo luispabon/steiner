@@ -64,5 +64,9 @@ func cloneUsageStats(usage *provider.UsageStats) *provider.UsageStats {
 		return nil
 	}
 	out := *usage
+	if usage.CostUSD != nil {
+		cost := *usage.CostUSD
+		out.CostUSD = &cost
+	}
 	return &out
 }
