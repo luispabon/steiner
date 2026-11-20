@@ -14,7 +14,12 @@ func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
 	if m.Role == MessageRoleTool && entry.ToolCallID != m.ToolCallID {
 		return false
 	}
-	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(claudeSubImageFingerprints(m), entry.Images)
+	cur, ok := claudeSubImageFingerprints(m)
+	if !ok {
+		// The message contradicts its own delivery record, so it cannot match.
+		return false
+	}
+	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(cur, entry.Images)
 }
 
 // claudeSubEntriesFromMessages returns the sync entry of each message in msgs.
@@ -27,13 +32,31 @@ func claudeSubEntriesFromMessages(msgs []Message) []claudeSubEntry {
 }
 
 func claudeSubEntryFromMessage(m Message) claudeSubEntry {
+	images, ok := claudeSubImageFingerprints(m)
+	if !ok {
+		// Fail closed: record no image claim rather than an unverifiable one.
+		images = nil
+	}
 	return claudeSubEntry{
 		Role:        m.Role,
 		Digest:      claudeSubDigest(m),
-		Images:      claudeSubImageFingerprints(m),
+		Images:      images,
 		ToolCallIDs: claudeSubToolCallIDs(m),
 		ToolCallID:  m.ToolCallID,
 	}
+}
+
+// claudeSubDeliveredEntriesFromMessages returns entries whose image claims are
+// exactly the bytes the delivery carries. A reseed transcript only carries
+// those, so its record must not describe images kept as metadata.
+func claudeSubDeliveredEntriesFromMessages(msgs []Message) []claudeSubEntry {
+	entries := make([]claudeSubEntry, 0, len(msgs))
+	for _, m := range msgs {
+		entry := claudeSubEntryFromMessage(m)
+		entry.Images = claudeSubDeliveryImageFingerprints(m)
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func claudeSubToolCallIDs(m Message) []string {

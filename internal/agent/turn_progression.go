@@ -85,6 +85,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 		state.ParentUsage.StatefulFloor = p.statefulFloor
 	}
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
+	state = p.recordDeliveredImageFingerprints(state)
 	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
 	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
@@ -505,16 +506,44 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 }
 
 // freezeImagesBeforeDelivery appends each still-attached image's placeholder to
-// the message text and records the fingerprints of the images the provider will
-// actually receive. It runs on the latest generation so the assembled prompt
-// and the state that survives delivery describe the same text.
+// the message text before the turn is assembled, so the prompt the provider
+// receives already carries the text that will survive image cleanup. It runs on
+// the latest generation so the assembled prompt and the state that survives
+// delivery describe the same text.
 func (p *turnProgressor) freezeImagesBeforeDelivery(state RunState) RunState {
-	delivered := p.providerReceivesImages()
 	if state.Lineage.Empty() {
-		state.Conversation = freezeImagePlaceholders(state.Conversation, delivered)
+		state.Conversation = freezeImagePlaceholders(state.Conversation)
 		return state
 	}
-	state.Lineage = state.Lineage.WithCurrentMessages(freezeImagePlaceholders(state.Lineage.SummaryPrefixStrippedMessages(), delivered))
+	state.Lineage = state.Lineage.WithCurrentMessages(freezeImagePlaceholders(state.Lineage.SummaryPrefixStrippedMessages()))
+	state.Conversation = state.Lineage.FullMessages()
+	return state
+}
+
+// recordDeliveredImageFingerprints records the fingerprints of the images the
+// provider just received. It runs only after a model call succeeds, so a
+// cancelled, failed or rerouted attempt leaves no record claiming a delivery
+// that never happened.
+func (p *turnProgressor) recordDeliveredImageFingerprints(state RunState) RunState {
+	if !p.providerReceivesImages() {
+		return state
+	}
+	record := func(msgs []Message) []Message {
+		out := make([]Message, len(msgs))
+		copy(out, msgs)
+		for i := range out {
+			if len(out[i].Images) == 0 {
+				continue
+			}
+			out[i].SentImageFingerprints = deliveredImageFingerprints(out[i].SentImageFingerprints, out[i].Images)
+		}
+		return out
+	}
+	if state.Lineage.Empty() {
+		state.Conversation = record(state.Conversation)
+		return state
+	}
+	state.Lineage = state.Lineage.WithCurrentMessages(record(state.Lineage.SummaryPrefixStrippedMessages()))
 	state.Conversation = state.Lineage.FullMessages()
 	return state
 }

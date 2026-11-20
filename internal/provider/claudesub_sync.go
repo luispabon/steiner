@@ -33,20 +33,35 @@ func claudeSubDigest(m Message) string {
 }
 
 // claudeSubImageFingerprints returns the fingerprints of the images delivered
-// for a message. The separate SentImageFingerprints record wins: steiner strips
-// image bytes once they are consumed, so a checkpoint rebuilt from request
-// history would otherwise lose the images the CLI process still holds.
-func claudeSubImageFingerprints(m Message) []string {
-	if len(m.SentImageFingerprints) > 0 {
-		return append([]string(nil), m.SentImageFingerprints...)
+// for a message and whether its two records agree. Image bytes, when present,
+// are authoritative: a message that still carries bytes whose fingerprints the
+// separate record does not describe is a contradiction image cleanup never
+// produces, and callers fail closed instead of trusting either side. When the
+// bytes are gone the separate record is what survives cleanup.
+func claudeSubImageFingerprints(m Message) ([]string, bool) {
+	computed := claudeSubDeliveryImageFingerprints(m)
+	if len(m.SentImageFingerprints) == 0 {
+		return computed, true
 	}
+	recorded := append([]string(nil), m.SentImageFingerprints...)
+	if len(computed) == 0 {
+		return recorded, true
+	}
+	if !claudeSubImagesSubset(computed, recorded) || !claudeSubImagesSubset(recorded, computed) {
+		return nil, false
+	}
+	return recorded, true
+}
+
+// claudeSubDeliveryImageFingerprints returns the fingerprints of the image bytes
+// the message carries right now: the only images a delivery can include.
+func claudeSubDeliveryImageFingerprints(m Message) []string {
 	var out []string
 	for _, img := range m.Images {
 		if img.Data == "" {
 			continue
 		}
-		sum := sha256.Sum256([]byte(img.MediaType + "\x00" + img.Data))
-		out = append(out, hex.EncodeToString(sum[:]))
+		out = append(out, ImageFingerprint(img.MediaType, img.Data))
 	}
 	return out
 }

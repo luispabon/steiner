@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -229,7 +230,7 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    1080,
 				SizeBytes: 456789,
 			},
-			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use read tool to re-examine]`,
+			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`,
 		},
 		{
 			name: "image with ID but no size",
@@ -241,7 +242,7 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    480,
 				SizeBytes: 0,
 			},
-			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use read tool to re-examine]`,
+			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use the read tool, or sub_agent type "vision" with image_id "img-2", to re-examine]`,
 		},
 	}
 
@@ -281,7 +282,7 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 		t.Fatalf("Images = %v, want nil", got[0].Images)
 	}
 	// Should contain the new format placeholder with the read tool hint.
-	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use read tool to re-examine]`
+	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`
 	wantContent := "look at this image\n" + wantPlaceholder
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -293,28 +294,31 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 }
 
 // TestFreezeImagePlaceholdersStableAcrossStrip proves the delivery-time freeze
-// and the later byte strip agree: the text is appended once before delivery,
-// recorded separately as fingerprints, and stripping leaves it untouched.
+// and the later byte strip agree: the token is appended once before delivery,
+// recorded in message metadata, and stripping leaves the text untouched.
 func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20, SizeBytes: 2048}
 	msgs := []Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{img}}}
 
-	delivered := freezeImagePlaceholders(msgs, true)
+	frozen := freezeImagePlaceholders(msgs)
 	wantContent := "look\n" + imageBlockPlaceholder(img)
-	if delivered[0].Content != wantContent {
-		t.Fatalf("frozen Content = %q, want %q", delivered[0].Content, wantContent)
+	if frozen[0].Content != wantContent {
+		t.Fatalf("frozen Content = %q, want %q", frozen[0].Content, wantContent)
 	}
-	if len(delivered[0].SentImageFingerprints) != 1 || delivered[0].SentImageFingerprints[0] != imageFingerprint(img) {
-		t.Fatalf("SentImageFingerprints = %v, want one fingerprint", delivered[0].SentImageFingerprints)
+	if len(frozen[0].ImagePlaceholders) != 1 || frozen[0].ImagePlaceholders[0] != imageBlockPlaceholder(img) {
+		t.Fatalf("ImagePlaceholders = %v, want the frozen token", frozen[0].ImagePlaceholders)
 	}
-	if len(delivered[0].Images) != 1 || delivered[0].Images[0].Data != "AAAA" {
-		t.Fatalf("freeze removed image data: %#v", delivered[0].Images)
+	if len(frozen[0].SentImageFingerprints) != 0 {
+		t.Fatalf("SentImageFingerprints = %v, want none before delivery is confirmed", frozen[0].SentImageFingerprints)
+	}
+	if len(frozen[0].Images) != 1 || frozen[0].Images[0].Data != "AAAA" {
+		t.Fatalf("freeze removed image data: %#v", frozen[0].Images)
 	}
 
-	// A second freeze pass must not duplicate text or fingerprints.
-	again := freezeImagePlaceholders(delivered, true)
-	if again[0].Content != wantContent || len(again[0].SentImageFingerprints) != 1 {
-		t.Fatalf("second freeze = (%q, %v), want (%q, one fingerprint)", again[0].Content, again[0].SentImageFingerprints, wantContent)
+	// A second freeze pass must not duplicate text or metadata.
+	again := freezeImagePlaceholders(frozen)
+	if again[0].Content != wantContent || len(again[0].ImagePlaceholders) != 1 {
+		t.Fatalf("second freeze = (%q, %v), want (%q, one token)", again[0].Content, again[0].ImagePlaceholders, wantContent)
 	}
 
 	stripped := stripImagesFromMessages(again)
@@ -324,47 +328,76 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 	if stripped[0].Images != nil {
 		t.Fatalf("stripped Images = %#v, want nil", stripped[0].Images)
 	}
-	if len(stripped[0].SentImageFingerprints) != 1 {
-		t.Fatalf("strip dropped the fingerprint record: %v", stripped[0].SentImageFingerprints)
-	}
 	// The original delivery message must not be mutated by the strip.
-	if len(delivered[0].Images) != 1 || delivered[0].Images[0].Data != "AAAA" {
-		t.Fatalf("strip mutated its input: %#v", delivered[0].Images)
+	if len(frozen[0].Images) != 1 || frozen[0].Images[0].Data != "AAAA" {
+		t.Fatalf("strip mutated its input: %#v", frozen[0].Images)
 	}
 }
 
-// TestFreezeImagePlaceholdersRecordsNoFingerprintWhenUndelivered proves a
-// request that never carries the image records no fingerprint, while still
-// freezing the text that image cleanup will keep.
-func TestFreezeImagePlaceholdersRecordsNoFingerprintWhenUndelivered(t *testing.T) {
-	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20, SizeBytes: 2048}
-	msgs := []Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{img}}}
-
-	frozen := freezeImagePlaceholders(msgs, false)
-	wantContent := "look\n" + imageBlockPlaceholder(img)
-	if frozen[0].Content != wantContent {
-		t.Fatalf("Content = %q, want %q", frozen[0].Content, wantContent)
+// TestFreezeImagePlaceholdersRecordsRequestBeforeTokens proves the freeze
+// records the user's own words before it appends model-facing tokens, and that
+// an image-only turn records no request text at all.
+func TestFreezeImagePlaceholdersRecordsRequestBeforeTokens(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
+	tests := []struct {
+		name        string
+		content     string
+		wantRequest string
+	}{
+		{name: "text is recorded once", content: "look at this", wantRequest: "look at this"},
+		{name: "image-only turn records nothing"},
 	}
-	if len(frozen[0].SentImageFingerprints) != 0 {
-		t.Fatalf("SentImageFingerprints = %v, want none", frozen[0].SentImageFingerprints)
-	}
-	if stripped := stripImagesFromMessages(frozen); stripped[0].Content != wantContent {
-		t.Fatalf("strip changed the frozen text: %q, want %q", stripped[0].Content, wantContent)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := Message{Role: MessageRoleUser, Content: tt.content, Images: []ImageBlock{img}}
+			frozen := freezeImagePlaceholders([]Message{msg})[0]
+			if frozen.RequestText != tt.wantRequest {
+				t.Fatalf("RequestText after freeze = %q, want %q", frozen.RequestText, tt.wantRequest)
+			}
+			if !frozen.VisionRouted {
+				t.Fatal("VisionRouted = false after freeze, want true")
+			}
+			stripped := stripImagesFromMessages([]Message{frozen})[0]
+			if stripped.RequestText != tt.wantRequest {
+				t.Fatalf("RequestText after strip = %q, want %q", stripped.RequestText, tt.wantRequest)
+			}
+			if strings.Contains(stripped.RequestText, "image") {
+				t.Fatalf("RequestText adopted the placeholder: %q", stripped.RequestText)
+			}
+		})
 	}
 }
 
-// TestFreezeImagePlaceholdersKeepsDuplicateImages proves two copies of one
-// image record two fingerprints, so the provider record keeps its multiplicity.
+// TestFreezeImagePlaceholdersIgnoresUserTextCollision proves a user message that
+// already contains the placeholder token still gets exactly one frozen token per
+// image: idempotence comes from recorded metadata, not text matching.
+func TestFreezeImagePlaceholdersIgnoresUserTextCollision(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
+	token := imageBlockPlaceholder(img)
+	msgs := []Message{{Role: MessageRoleUser, Content: "compare with " + token, Images: []ImageBlock{img}}}
+
+	frozen := freezeImagePlaceholders(msgs)
+	if want := "compare with " + token + "\n" + token; frozen[0].Content != want {
+		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
+	}
+	if len(frozen[0].ImagePlaceholders) != 1 {
+		t.Fatalf("ImagePlaceholders = %v, want one recorded token", frozen[0].ImagePlaceholders)
+	}
+}
+
+// TestFreezeImagePlaceholdersKeepsDuplicateImages proves two copies of one image
+// get two placeholder tokens and two recorded entries.
 func TestFreezeImagePlaceholdersKeepsDuplicateImages(t *testing.T) {
 	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
 	msgs := []Message{{Role: MessageRoleUser, Images: []ImageBlock{img, img}}}
 
-	frozen := freezeImagePlaceholders(msgs, true)
-	if len(frozen[0].SentImageFingerprints) != 2 {
-		t.Fatalf("SentImageFingerprints = %v, want two entries", frozen[0].SentImageFingerprints)
+	frozen := freezeImagePlaceholders(msgs)
+	token := imageBlockPlaceholder(img)
+	if want := token + "\n" + token; frozen[0].Content != want {
+		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
-	if frozen[0].SentImageFingerprints[0] != frozen[0].SentImageFingerprints[1] {
-		t.Fatalf("fingerprints = %v, want identical entries", frozen[0].SentImageFingerprints)
+	if len(frozen[0].ImagePlaceholders) != 2 {
+		t.Fatalf("ImagePlaceholders = %v, want two entries", frozen[0].ImagePlaceholders)
 	}
 }
 

@@ -121,8 +121,13 @@ type Message struct {
 	// cleanup clears the image bytes but keeps this local record so a stateful
 	// provider can rebuild the entries it holds after a checkpoint resume. It is
 	// message metadata only and never reaches a provider wire.
-	SentImageFingerprints []string                  `json:"sent_image_fingerprints,omitempty"`
-	Retention             *MessageRetention         `json:"retention,omitempty"`
-	DelegationAdmission   *tool.DelegationAdmission `json:"delegation_admission,omitempty"`
-	ProviderMetadata      *MessageProviderMetadata  `json:"provider_metadata,omitempty"`
+	SentImageFingerprints []string `json:"sent_image_fingerprints,omitempty"`
+	// ImagePlaceholders lists the placeholder tokens already appended to
+	// Content, in order. Image handling uses it to append each token exactly
+	// once, so a user message that happens to contain the same text is never
+	// mistaken for a frozen token.
+	ImagePlaceholders   []string                  `json:"image_placeholders,omitempty"`
+	Retention           *MessageRetention         `json:"retention,omitempty"`
+	DelegationAdmission *tool.DelegationAdmission `json:"delegation_admission,omitempty"`
+	ProviderMetadata    *MessageProviderMetadata  `json:"provider_metadata,omitempty"`
 }

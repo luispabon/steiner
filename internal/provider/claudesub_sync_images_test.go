@@ -15,7 +15,7 @@ func deliveredImageMessage(t *testing.T, data string, fingerprintRecorded bool) 
 	image := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: data}
 	msg := Message{Role: MessageRoleUser, Content: "look\n[image img-1: /tmp/a.png 1x1 png 1KB]", Images: []ImageBlock{image}}
 	if fingerprintRecorded {
-		msg.SentImageFingerprints = claudeSubImageFingerprints(msg)
+		msg.SentImageFingerprints = claudeSubDeliveryImageFingerprints(msg)
 	}
 	return msg
 }
@@ -83,11 +83,18 @@ func TestClaudeSubResumeRebuildsImageFingerprints(t *testing.T) {
 		t.Fatalf("restore = (%t, %q, %v), want a silent restore", restorable, reason, err)
 	}
 
-	// Without the separate record the same history cannot reproduce the stored
-	// prefix, which is exactly the case that reseeded before this change.
+	// The provider's own record carries the delivered fingerprints, so a history
+	// whose agent metadata is missing still restores: the CLI transcript is the
+	// authority, and a failed or cancelled turn never leaves metadata behind.
 	lossy := []Message{strippedImageMessage(t, deliveredImageMessage(t, "AAAA", false)), assistant}
-	if _, restorable, reason, err := claudeSubRestoreFor(lossy, stored, true, "key", "fp"); err != nil || restorable || reason != claudeSubReseedPrefix {
-		t.Fatalf("lossy restore = (%t, %q, %v), want reseed reason %q", restorable, reason, err, claudeSubReseedPrefix)
+	if _, restorable, reason, err := claudeSubRestoreFor(lossy, stored, true, "key", "fp"); err != nil || !restorable || reason != "" {
+		t.Fatalf("lossy restore = (%t, %q, %v), want a silent restore", restorable, reason, err)
+	}
+
+	// Adding an image to an already-sent message is a rewrite, not cleanup.
+	added := []Message{{Role: MessageRoleUser, Content: stripped[0].Content, Images: []ImageBlock{{MediaType: "image/png", Data: "BBBB"}}}, assistant}
+	if _, restorable, reason, err := claudeSubRestoreFor(added, stored, true, "key", "fp"); err != nil || restorable || reason != claudeSubReseedFinalUUID {
+		t.Fatalf("added-image restore = (%t, %q, %v), want reseed reason %q", restorable, reason, err, claudeSubReseedFinalUUID)
 	}
 }
 
@@ -98,15 +105,43 @@ func TestClaudeSubImageFingerprintRecordWins(t *testing.T) {
 	sum := sha256.Sum256([]byte("image/png\x00AAAA"))
 	want := hex.EncodeToString(sum[:])
 
-	withRecord := Message{Role: MessageRoleUser, Images: []ImageBlock{image}, SentImageFingerprints: []string{"recorded"}}
-	if got := claudeSubImageFingerprints(withRecord); len(got) != 1 || got[0] != "recorded" {
-		t.Fatalf("recorded fingerprints = %v, want the separate record", got)
+	strippedOnly := Message{Role: MessageRoleUser, SentImageFingerprints: []string{"recorded"}}
+	if got, ok := claudeSubImageFingerprints(strippedOnly); !ok || len(got) != 1 || got[0] != "recorded" {
+		t.Fatalf("recorded fingerprints = (%v, %t), want the separate record", got, ok)
 	}
 	withoutRecord := Message{Role: MessageRoleUser, Images: []ImageBlock{image}}
-	if got := claudeSubImageFingerprints(withoutRecord); len(got) != 1 || got[0] != want {
-		t.Fatalf("computed fingerprints = %v, want %q", got, want)
+	if got, ok := claudeSubImageFingerprints(withoutRecord); !ok || len(got) != 1 || got[0] != want {
+		t.Fatalf("computed fingerprints = (%v, %t), want %q", got, ok, want)
 	}
-	if got := claudeSubImageFingerprints(Message{Role: MessageRoleUser, Images: []ImageBlock{{MediaType: "image/png", FilePath: "/tmp/a.png"}}}); len(got) != 0 {
-		t.Fatalf("path-only image fingerprints = %v, want none", got)
+	if got, ok := claudeSubImageFingerprints(Message{Role: MessageRoleUser, Images: []ImageBlock{{MediaType: "image/png", FilePath: "/tmp/a.png"}}}); !ok || len(got) != 0 {
+		t.Fatalf("path-only image fingerprints = (%v, %t), want none", got, ok)
+	}
+	contradiction := Message{Role: MessageRoleUser, Images: []ImageBlock{image}, SentImageFingerprints: []string{"something-else"}}
+	if _, ok := claudeSubImageFingerprints(contradiction); ok {
+		t.Fatal("contradictory bytes and record were trusted, want fail closed")
+	}
+}
+
+// TestClaudeSubReseedRecordsOnlyDeliveredImages proves a flattened reseed claims
+// only the images it actually carries: metadata for a stripped image is not
+// replayed, so the record matches the transcript the CLI received.
+func TestClaudeSubReseedRecordsOnlyDeliveredImages(t *testing.T) {
+	stripped := deliveredImageMessage(t, "AAAA", true)
+	stripped.Images = nil
+	carried := deliveredImageMessage(t, "BBBB", false)
+	msgs := []Message{stripped, carried}
+
+	delta := claudeSubReseedDelta(msgs)
+	if len(delta.keep) != 2 {
+		t.Fatalf("keep entries = %d, want 2", len(delta.keep))
+	}
+	if len(delta.keep[0].Images) != 0 {
+		t.Fatalf("stripped entry images = %v, want none", delta.keep[0].Images)
+	}
+	if want := claudeSubDeliveryImageFingerprints(carried); len(delta.keep[1].Images) != 1 || delta.keep[1].Images[0] != want[0] {
+		t.Fatalf("carried entry images = %v, want %v", delta.keep[1].Images, want)
+	}
+	if len(delta.User) != 1 || len(delta.User[0].Images) != 1 {
+		t.Fatalf("transcript images = %+v, want only the carried image", delta.User)
 	}
 }
