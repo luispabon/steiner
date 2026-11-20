@@ -29,10 +29,10 @@ func TestCompactionResultMarkdownShowsLatestRequest(t *testing.T) {
 			absent:      []string{"Latest request (verbatim):"},
 		},
 		{
-			name:        "history notes are stripped from the body only",
+			name:        "history notes stay in the body",
 			summaryText: "summary body\n[steiner:history] archived at /tmp/history.md\n\n[steiner:latest-request bytes=49]\n[steiner:history] keep this request line verbatim",
-			want:        []string{"Latest request (verbatim):", "[steiner:history] keep this request line"},
-			absent:      []string{"archived at /tmp/history.md"},
+			want:        []string{"archived at /tmp/history.md", "Latest request (verbatim):", "[steiner:history] keep this request line"},
+			absent:      []string{"[steiner:latest-request"},
 		},
 	}
 	for _, tt := range tests {
@@ -61,19 +61,23 @@ func TestCompactionSummaryDetailReportsRequestBlock(t *testing.T) {
 	}{
 		{status: output.RequestBlockNew, want: "latest request kept verbatim (new)"},
 		{status: output.RequestBlockCarried, want: "latest request kept verbatim (carried)"},
+		{status: output.RequestBlockDropped, want: "latest request dropped to fit"},
 		{status: output.RequestBlockNone, want: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status, func(t *testing.T) {
 			got := compactionSummaryDetail(&compactionBannerData{requestBlock: tt.status})
 			if tt.want == "" {
-				if strings.Contains(got, "latest request kept verbatim") {
+				if strings.Contains(got, "latest request") {
 					t.Fatalf("summary detail = %q, want no request block note", got)
 				}
 				return
 			}
 			if !strings.Contains(got, tt.want) {
 				t.Fatalf("summary detail = %q, want %q", got, tt.want)
+			}
+			if tt.status == output.RequestBlockDropped && strings.Contains(got, "kept verbatim") {
+				t.Fatalf("summary detail = %q, want no kept-verbatim note for a dropped block", got)
 			}
 		})
 	}

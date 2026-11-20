@@ -261,8 +261,11 @@ func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
 	if payload.SummaryBytes > 0 {
 		parts = append(parts, fmt.Sprintf("summary %d bytes", payload.SummaryBytes))
 	}
-	if status := strings.TrimSpace(payload.RequestBlock); status != "" && status != RequestBlockNone {
+	switch status := strings.TrimSpace(payload.RequestBlock); status {
+	case RequestBlockNew, RequestBlockCarried:
 		parts = append(parts, fmt.Sprintf("latest request kept verbatim (%s)", status))
+	case RequestBlockDropped:
+		parts = append(parts, "latest request dropped to fit")
 	}
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")

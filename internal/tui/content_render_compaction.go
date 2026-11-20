@@ -383,8 +383,11 @@ func compactionSummaryDetail(cd *compactionBannerData) string {
 	if cd.summaryTokenBudget > 0 {
 		parts = append(parts, fmt.Sprintf("budget %d tokens", cd.summaryTokenBudget))
 	}
-	if cd.requestBlock != "" && cd.requestBlock != output.RequestBlockNone {
+	switch cd.requestBlock {
+	case output.RequestBlockNew, output.RequestBlockCarried:
 		parts = append(parts, fmt.Sprintf("latest request kept verbatim (%s)", cd.requestBlock))
+	case output.RequestBlockDropped:
+		parts = append(parts, "latest request dropped to fit")
 	}
 	if cd.truncated {
 		parts = append(parts, "truncated")
@@ -393,11 +396,10 @@ func compactionSummaryDetail(cd *compactionBannerData) string {
 }
 
 // compactionResultMarkdown renders a stored compaction summary for display: its
-// body without history notes, then the verbatim latest request under its own
-// heading instead of the storage header.
+// stored body, then the verbatim latest request under its own heading instead of
+// the storage header.
 func compactionResultMarkdown(summaryText string) string {
 	body, request, ok := agent.SplitRequestBlock(summaryText)
-	body = agent.StripHistoryNotes(body)
 	if !ok {
 		return body
 	}
