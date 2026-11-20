@@ -536,17 +536,6 @@ func visionSubAgentAvailableForRequest(req RunRequest) bool {
 	return false
 }
 
-// providerReceivesImages mirrors stripImagesIfVisionDisabled, the request-level
-// strip that runs just before the provider call. A fingerprint is recorded only
-// when the provider is really given the image.
-func (p *turnProgressor) providerReceivesImages() bool {
-	if vc := p.request.VisionCapabilities; vc != nil {
-		return vc.Get(p.request.ResolvedModel.Alias) != VisionIncapable
-	}
-	vision := p.request.ResolvedModel.Vision
-	return vision == nil || *vision
-}
-
 // isStrictlyEmptyAssistant reports whether m carries nothing at all: no
 // content, tool calls, reasoning or provider metadata.
 func isStrictlyEmptyAssistant(m Message) bool {
