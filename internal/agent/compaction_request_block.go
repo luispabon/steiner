@@ -123,9 +123,14 @@ func capRequestBlock(request string, limit int) string {
 // latestRequestBlock selects the request block for a compaction stage whose
 // source is sourceMessages: the newest real user message that still has text to
 // keep, else the block carried by the newest summary message in the source.
-// Skill-only, image-only, and sub-agent messages are not requests.
+// Skill-only, image-only, and sub-agent messages are not requests. A window
+// whose effective cap rounds down to zero keeps no block at all, so a tiny
+// window cannot reduce the stored request to a bare truncation marker.
 func latestRequestBlock(sourceMessages []Message, contextWindow int) (request, status string) {
 	limit := requestBlockCapBytes(contextWindow)
+	if limit <= 0 {
+		return "", output.RequestBlockDropped
+	}
 	for i := len(sourceMessages) - 1; i >= 0; i-- {
 		message := sourceMessages[i]
 		if !IsRealUserMessage(message) {

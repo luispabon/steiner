@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -446,6 +447,23 @@ func TestLatestRequestBlockCapsToContextWindow(t *testing.T) {
 	}
 }
 
+// TestLatestRequestBlockTinyWindowDropsBlock proves a window whose effective
+// cap rounds down to zero keeps no block, rather than storing a bare truncation
+// marker as the request.
+func TestLatestRequestBlockTinyWindowDropsBlock(t *testing.T) {
+	t.Parallel()
+
+	const window = 10
+	if gotCap := requestBlockCapBytes(window); gotCap > 0 {
+		t.Fatalf("requestBlockCapBytes(%d) = %d, want a non-positive cap", window, gotCap)
+	}
+	messages := []Message{{Role: MessageRoleUser, Content: "a compressed request"}}
+	request, status := latestRequestBlock(messages, window)
+	if request != "" || status != output.RequestBlockDropped {
+		t.Fatalf("latestRequestBlock() = (%q, %q), want (\"\", %q)", request, status, output.RequestBlockDropped)
+	}
+}
+
 // TestCompactionFallbackTargetCarriesRequestBlock proves a fallback-target
 // compaction stores the block and reports it as new.
 func TestCompactionFallbackTargetCarriesRequestBlock(t *testing.T) {
@@ -507,7 +525,7 @@ func TestSummarizeCompactionStagesDropsBlockFromEmergencyStage(t *testing.T) {
 			}
 			return CompactionOutcome{
 				Applied:           true,
-				State:             requestBlockSummaryState(summary, "latest request"),
+				State:             requestBlockSummaryState(summary),
 				SummaryText:       withRequestBlock(summary, "latest request"),
 				RequestBlock:      output.RequestBlockNew,
 				RequestBlockBytes: len("latest request"),
@@ -560,7 +578,7 @@ func TestSummarizeCompactionStagesDropsBlockFromNormalStage(t *testing.T) {
 			}
 			return CompactionOutcome{
 				Applied:           true,
-				State:             requestBlockSummaryState(summary, "latest request"),
+				State:             requestBlockSummaryState(summary),
 				SummaryText:       withRequestBlock(summary, "latest request"),
 				RequestBlock:      output.RequestBlockNew,
 				RequestBlockBytes: len("latest request"),
@@ -589,10 +607,180 @@ func TestSummarizeCompactionStagesDropsBlockFromNormalStage(t *testing.T) {
 	}
 }
 
+// TestSummarizeCompactionStagesPropagatesNonBudgetErrors proves the
+// block-dropping rungs retry only budget failures: a provider error from the
+// emergency stage propagates instead of adopting a summary without the verbatim
+// request, even when dropping the block would make the result fit.
+func TestSummarizeCompactionStagesPropagatesNonBudgetErrors(t *testing.T) {
+	t.Parallel()
+
+	fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.1}
+	dense := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.9}
+	providerErr := errors.New("provider 500")
+	tests := []struct {
+		name          string
+		normalApplied bool
+	}{
+		{name: "normal applied", normalApplied: true},
+		{name: "normal not applied", normalApplied: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conv := requestBlockTurns()
+			preStage := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+			fitsWithoutBlock := 0
+			stages := summarizeCompactionStages{
+				stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+					if params.mode == prompt.CompactionModeEmergency {
+						return CompactionOutcome{}, providerErr
+					}
+					if !tt.normalApplied {
+						return CompactionOutcome{Fit: fits}, nil
+					}
+					return CompactionOutcome{
+						Applied:           true,
+						State:             requestBlockSummaryState("normal summary"),
+						SummaryText:       withRequestBlock("normal summary", "latest request"),
+						RequestBlock:      output.RequestBlockNew,
+						RequestBlockBytes: len("latest request"),
+					}, nil
+				},
+				fitRunner: func(_ context.Context, _ RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
+					if strings.Contains(state.Conversation[0].Content, requestBlockMarker) {
+						return dense, nil
+					}
+					fitsWithoutBlock++
+					return fits, nil
+				},
+			}
+
+			outcome, err := stages.run(context.Background(), RunRequest{}, preStage, 1, ConversationCandidate{Messages: conv})
+			if !errors.Is(err, providerErr) {
+				t.Fatalf("run() error = %v, want the provider error", err)
+			}
+			if outcome.Applied || outcome.RequestBlock == output.RequestBlockDropped {
+				t.Fatalf("outcome = %+v, want no adopted summary", outcome)
+			}
+			if fitsWithoutBlock != 0 {
+				t.Fatalf("fit ran %d times without the block, want the block kept", fitsWithoutBlock)
+			}
+		})
+	}
+}
+
+// TestSummarizeCompactionStagesNormalOnlyAdoptCarriesEmergencyClear proves the
+// normal-only adopt reports a backend state clear retired by either attempt.
+func TestSummarizeCompactionStagesNormalOnlyAdoptCarriesEmergencyClear(t *testing.T) {
+	t.Parallel()
+
+	fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.1}
+	dense := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.9}
+	conv := requestBlockTurns()
+	preStage := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+	stages := summarizeCompactionStages{
+		stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+			outcome := CompactionOutcome{
+				Applied:           true,
+				State:             requestBlockSummaryState("normal summary"),
+				SummaryText:       withRequestBlock("normal summary", "latest request"),
+				RequestBlock:      output.RequestBlockNew,
+				RequestBlockBytes: len("latest request"),
+			}
+			if params.mode == prompt.CompactionModeEmergency {
+				outcome.State = requestBlockSummaryState("emergency summary")
+				outcome.SummaryText = withRequestBlock("emergency summary", "latest request")
+				outcome.BackendStateCleared = true
+			}
+			return outcome, nil
+		},
+		fitRunner: func(_ context.Context, _ RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
+			// The emergency summary is over budget with or without the block, so
+			// only the normal result can be adopted without it.
+			if strings.Contains(state.Conversation[0].Content, requestBlockMarker) || strings.Contains(state.Conversation[0].Content, "emergency summary") {
+				return dense, nil
+			}
+			return fits, nil
+		},
+	}
+
+	outcome, err := stages.run(context.Background(), RunRequest{}, preStage, 1, ConversationCandidate{Messages: conv})
+	if err != nil {
+		t.Fatalf("run() error = %v, want the normal stage adopted without the block", err)
+	}
+	if outcome.RequestBlock != output.RequestBlockDropped || outcome.RequestBlockBytes != 0 {
+		t.Fatalf("block = (%q, %d), want (%q, 0)", outcome.RequestBlock, outcome.RequestBlockBytes, output.RequestBlockDropped)
+	}
+	if outcome.SummaryText != "normal summary" {
+		t.Fatalf("SummaryText = %q, want the normal summary", outcome.SummaryText)
+	}
+	if !outcome.BackendStateCleared {
+		t.Error("BackendStateCleared = false, want the emergency attempt's clear carried")
+	}
+	if got, want := outcome.StageCount, 1; got != want {
+		t.Fatalf("StageCount = %d, want %d", got, want)
+	}
+}
+
+// TestSummarizeCompactionStagesFallbackProviderErrorRerunsOnMain proves an
+// emergency-stage provider error on a fallback target escapes the ladder, so the
+// operation still reruns on main instead of adopting a summary without the
+// verbatim request.
+func TestSummarizeCompactionStagesFallbackProviderErrorRerunsOnMain(t *testing.T) {
+	t.Parallel()
+
+	run := newFallbackOperationRun(fallbackOperationNow)
+	fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.1}
+	dense := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.9}
+	providerErr := errors.New("target emergency failed")
+	mainReruns := 0
+	compaction := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		if summaryReq == nil {
+			mainReruns++
+			return CompactionOutcome{Applied: true, State: run.state, Fit: fits}, nil
+		}
+		return summarizeCompactionStages{
+			stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+				if params.mode == prompt.CompactionModeEmergency {
+					return CompactionOutcome{}, providerErr
+				}
+				return CompactionOutcome{
+					Applied:           true,
+					State:             requestBlockSummaryState("normal summary"),
+					SummaryText:       withRequestBlock("normal summary", "latest request"),
+					RequestBlock:      output.RequestBlockNew,
+					RequestBlockBytes: len("latest request"),
+				}, nil
+			},
+			fitRunner: func(_ context.Context, _ RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
+				if strings.Contains(state.Conversation[0].Content, requestBlockMarker) {
+					return dense, nil
+				}
+				return fits, nil
+			},
+		}.run(context.Background(), run.req, run.state, 5, ConversationCandidate{Messages: run.state.Conversation})
+	}
+
+	outcome, err := compactWithFallback(context.Background(), run.req, run.state, 5, compaction)
+	if err != nil {
+		t.Fatalf("compactWithFallback() error = %v, want the main rerun to succeed", err)
+	}
+	if mainReruns != 1 {
+		t.Errorf("main reruns = %d, want 1", mainReruns)
+	}
+	if outcome.FallbackStatus != output.CompactionFallbackSkipped {
+		t.Errorf("FallbackStatus = %q, want %q", outcome.FallbackStatus, output.CompactionFallbackSkipped)
+	}
+	if !outcome.Applied {
+		t.Error("Applied = false, want the main rerun adopted")
+	}
+}
+
 // requestBlockSummaryState returns a compacted state whose stored summary
-// carries the block.
-func requestBlockSummaryState(summary, request string) RunState {
-	summaryPrefix := []Message{{Role: MessageRoleSummary, Content: withRequestBlock(summary, request)}}
+// carries the block for "latest request".
+func requestBlockSummaryState(summary string) RunState {
+	summaryPrefix := []Message{{Role: MessageRoleSummary, Content: withRequestBlock(summary, "latest request")}}
 	tail := []Message{{Role: MessageRoleUser, Content: "kept tail"}}
 	lineage := ConversationLineage{
 		Generations:      []ConversationGeneration{newConversationGeneration(2, summaryPrefix, tail)},

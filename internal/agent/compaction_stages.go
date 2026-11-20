@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -98,7 +99,7 @@ func (s summarizeCompactionStages) run(
 			outcome.StageCount = 1
 			return outcome, nil
 		}
-		if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome); ok {
+		if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome, err); ok {
 			dropped.StageCount = 1
 			return dropped, nil
 		}
@@ -139,14 +140,17 @@ func (s summarizeCompactionStages) run(
 	}
 	// A kept block can push a small window back over the compaction threshold.
 	// Dropping it loses the verbatim request, not the summary, so retry that
-	// before failing the whole compaction.
-	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome); ok {
+	// before failing the whole compaction, but only after a budget failure:
+	// any other error stays an error.
+	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome, err); ok {
 		dropped.StageCount = 2
 		dropped.SummarizedMessages += normalOutcome.SummarizedMessages
 		dropped.pendingArchive = append(normalOutcome.pendingArchive, dropped.pendingArchive...)
 		return dropped, nil
 	}
-	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, normalOutcome); ok {
+	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, normalOutcome, err); ok {
+		// Either attempt may have retired the main generation's backend state.
+		dropped.BackendStateCleared = dropped.BackendStateCleared || outcome.BackendStateCleared
 		return dropped, nil
 	}
 	outcome, err = compactionFailedOutcome(outcome, err)
@@ -176,7 +180,7 @@ func (s summarizeCompactionStages) runStageAndFit(
 			outcome.State = state
 			return outcome, nil
 		}
-		return compactionFailedOutcome(outcome, emergencyCompactionError(outcome.Fit))
+		return compactionFailedOutcome(outcome, &compactionBudgetMissError{err: emergencyCompactionError(outcome.Fit)})
 	}
 
 	fit, err := s.fitRunner(ctx, req, outcome.State)
@@ -185,17 +189,38 @@ func (s summarizeCompactionStages) runStageAndFit(
 	}
 	outcome.Fit = fit
 	if needsEmergencyCompaction(fit) {
-		return outcome, emergencyCompactionError(fit)
+		return outcome, &compactionBudgetMissError{err: emergencyCompactionError(fit)}
 	}
 
 	return outcome, nil
 }
 
+// compactionBudgetMissError marks a stage failure caused by budget alone: an
+// applied stage that still needs emergency compaction, or a not-applied stage
+// whose retained conversation does not hard-fit. The latest-request ladder
+// retries only these failures without the block; every other failure, such as a
+// provider, fallback, or fit error, propagates.
+type compactionBudgetMissError struct{ err error }
+
+func (e *compactionBudgetMissError) Error() string { return e.err.Error() }
+
+func (e *compactionBudgetMissError) Unwrap() error { return e.err }
+
+// isCompactionBudgetMiss reports whether err is a budget-only stage failure.
+func isCompactionBudgetMiss(err error) bool {
+	var miss *compactionBudgetMissError
+	return errors.As(err, &miss)
+}
+
 // adoptWithoutRequestBlock retries an applied stage without its stored
 // latest-request block: it rewrites the stored summary text, issues no model
-// call, and refits with the stage's fit runner. It reports false when the stage
-// carries no block or still needs emergency compaction once it is gone.
-func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context, req RunRequest, outcome CompactionOutcome) (CompactionOutcome, bool) {
+// call, and refits with the stage's fit runner. It reports false when cause is
+// not a budget failure, when the stage carries no block, or when the stage
+// still needs emergency compaction once the block is gone.
+func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context, req RunRequest, outcome CompactionOutcome, cause error) (CompactionOutcome, bool) {
+	if !isCompactionBudgetMiss(cause) {
+		return CompactionOutcome{}, false
+	}
 	if !outcome.Applied || outcome.RequestBlock == "" || outcome.RequestBlock == output.RequestBlockNone || outcome.RequestBlock == output.RequestBlockDropped {
 		return CompactionOutcome{}, false
 	}
