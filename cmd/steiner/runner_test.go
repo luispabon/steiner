@@ -1387,6 +1387,35 @@ func TestLastUserPromptSkipsSubAgentResults(t *testing.T) {
 		Source:  agent.MessageSourceSubAgentResult,
 		Content: "<steiner-sub-agent-result agent_id=\"a\">x</steiner-sub-agent-result>\n\n<steiner-sub-agent-result agent_id=\"b\">y</steiner-sub-agent-result>",
 	}
+	completion := func(callID string) agent.SubAgentCompletion {
+		return agent.SubAgentCompletion{ParentCallID: callID, AgentID: "agent-" + callID, AgentType: "code", Status: "completed", ObjectivePreview: "do it", Body: `{"status":"completed"}`}
+	}
+	// A delivery with results and an image has no user text, so it stays
+	// unsourced and its content is the only cue that results arrived.
+	resultsAndImage, ok := agent.BuildDeliveryMessage(agent.DeliveryParts{
+		Completions: []agent.SubAgentCompletion{completion("call-1"), completion("call-2")},
+		Images:      []agent.ImageBlock{{ID: "img-1", MediaType: "image/png", Data: "base64data"}},
+	})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage(results and image) = false, want true")
+	}
+	if resultsAndImage.Source != "" {
+		t.Fatalf("delivery Source = %q, want empty with an image present", resultsAndImage.Source)
+	}
+	textAndImage, ok := agent.BuildDeliveryMessage(agent.DeliveryParts{
+		Completions: []agent.SubAgentCompletion{completion("call-3")},
+		UserText:    "the request",
+		Images:      []agent.ImageBlock{{ID: "img-2", MediaType: "image/png", Data: "base64data"}},
+	})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage(text, results and image) = false, want true")
+	}
+	imageOnly, ok := agent.BuildDeliveryMessage(agent.DeliveryParts{
+		Images: []agent.ImageBlock{{ID: "img-3", MediaType: "image/png", Data: "base64data"}},
+	})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage(image only) = false, want true")
+	}
 	tests := []struct {
 		name string
 		msgs []agent.Message
@@ -1399,6 +1428,9 @@ func TestLastUserPromptSkipsSubAgentResults(t *testing.T) {
 		{name: "vision-routed image-only turn has no preview", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "[Image img-1 - you cannot view images directly. A vision assistant examined it and reports:\nA red button]", VisionRouted: true}}, want: ""},
 		{name: "vision-routed image and text turn previews the recorded text", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "Review the attached mockup\n[Image img-1 - a vision assistant reports:\nA red button]", RequestText: "Review the attached mockup", VisionRouted: true}}, want: "Review the attached mockup"},
 		{name: "image placeholder without recorded text has no preview", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "[image img-1: /tmp/img.png 10x10 png 1KB]", VisionRouted: true}}, want: ""},
+		{name: "results plus image delivery previews the results", msgs: []agent.Message{resultsAndImage}, want: "sub-agent results (2)"},
+		{name: "results plus image and text delivery previews the text", msgs: []agent.Message{textAndImage}, want: "the request"},
+		{name: "image-only delivery has no preview", msgs: []agent.Message{imageOnly}, want: ""},
 		{name: "empty", want: ""},
 	}
 	for _, tt := range tests {

@@ -166,21 +166,33 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 // lastUserPrompt returns the run preview: the user's own words from the last
 // real user message, or "sub-agent results (N)" when the trailing user message
 // only delivers results. Runtime notices, skill replays, and the wrapper text a
-// delivery carries are not previews, so the scan skips them.
+// delivery carries are not previews, so the scan skips them. A delivery that
+// carries sub-agent results and an image has no user text, so it previews as
+// the results it delivered; an image-only turn has no preview at all.
 func lastUserPrompt(messages []agent.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if agent.IsRealUserMessage(messages[i]) {
-			return agent.UserRequestText(messages[i])
+		message := messages[i]
+		if agent.IsRealUserMessage(message) {
+			if text := agent.UserRequestText(message); text != "" {
+				return text
+			}
+			if n := strings.Count(message.Content, subAgentResultMarker); n > 0 {
+				return fmt.Sprintf("sub-agent results (%d)", n)
+			}
+			return ""
 		}
-		if messages[i].Role == agent.MessageRoleUser && messages[i].Source == agent.MessageSourceSubAgentResult {
-			return fmt.Sprintf("sub-agent results (%d)", countSubAgentResults(messages[i].Content))
+		if message.Role == agent.MessageRoleUser && message.Source == agent.MessageSourceSubAgentResult {
+			return fmt.Sprintf("sub-agent results (%d)", countSubAgentResults(message.Content))
 		}
 	}
 	return ""
 }
 
+// subAgentResultMarker opens every sub-agent result envelope.
+const subAgentResultMarker = "<steiner-sub-agent-result"
+
 func countSubAgentResults(content string) int {
-	return max(strings.Count(content, "<steiner-sub-agent-result"), 1)
+	return max(strings.Count(content, subAgentResultMarker), 1)
 }
 
 func toProviderConversation(messages []agent.Message) []provider.Message {

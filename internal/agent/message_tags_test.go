@@ -83,7 +83,8 @@ func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 
 // TestCompactionTagPatternsMatchWrapperTagShapes covers every tag shape that
 // could close a wrapper: both names, either slash position, a self-closing
-// slash, attributes, any case, and the space characters compactionTagFlats
+// slash, attributes, a tail of space alone or of a trailing run that cannot
+// continue the name, any case, and the space characters compactionTagFlats
 // lists inside the angle brackets.
 func TestCompactionTagPatternsMatchWrapperTagShapes(t *testing.T) {
 	t.Parallel()
@@ -93,6 +94,10 @@ func TestCompactionTagPatternsMatchWrapperTagShapes(t *testing.T) {
 		"<summary >", "< / Summary >", `</summary foo="x">`, "<summary foo>", "<summary foo=bar>",
 		"<\u00a0/summary\u00a0>", "<\u3000/summary>", "<\u2028summary>", "<\vsummary>",
 		"<\u2060summary>", "<\u00adsummary>", "<\u200bsummary>", "<\ufeff/summary>",
+		"</summary/ >", "</summary/x>", "</summary//>", "<summary/ >", "<summary=x>",
+		`<summary"x">`, `</summary"x>`, `<summary foo="unterminated>`,
+		"<summary\x00>", "<summary\x07>", "<summary\x1c>", "<summary\x1f>",
+		"</summary\n>", "<summary \n >", "</summary\t\n>",
 	}
 	requestShapes := []string{
 		"<latest_user_request>", "</latest_user_request>", "<latest_user_request/>", "</latest_user_request/>",
@@ -101,6 +106,8 @@ func TestCompactionTagPatternsMatchWrapperTagShapes(t *testing.T) {
 		"<\u00a0/latest_user_request\u00a0>", "<\u3000/latest_user_request>", "<\u2028latest_user_request>",
 		"<\vlatest_user_request>", "<\u2060latest_user_request>", "<\u00adlatest_user_request>",
 		"<\u200blatest_user_request>", "<\ufeff/latest_user_request>",
+		"<latest_user_request/x>", "</latest_user_request/ >", "<latest_user_request=x>",
+		"</latest_user_request\n>",
 	}
 	for _, tag := range summaryShapes {
 		if !summaryTagPattern.MatchString(tag) {
@@ -160,7 +167,8 @@ func TestToProviderMessagesKeepsCleanSummaryByteIdentical(t *testing.T) {
 	t.Parallel()
 
 	const body = "plain summary with a < b and c > d, plus 2 < 3, <summaryish>, <summaryish foo>, " +
-		"<summary-table>, <summary.x>, <summary:x>, <summary_x>, <latest_user_request-id>, and <summary\nfoo>"
+		"<summary-table>, <summary.x>, <summary:x>, <summary_x>, <latest_user_request-id>, " +
+		"<latest_user_requestish>, <summary-table foo>, <summaryish bar>, and <summary\nfoo>"
 	got := toProviderMessage(Message{Role: MessageRoleSummary, Content: withRequestBlock(body, "a clean request")}).Content
 	want := summaryContextPrefix + body + summaryContextSuffix +
 		"\n\n" + requestContextPrefix + "a clean request" + requestContextSuffix

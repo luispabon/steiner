@@ -46,6 +46,13 @@ func TestStripImagesFromMessages_multiple(t *testing.T) {
 	if got[0].Images != nil {
 		t.Fatal("expected Images to be nil after stripping")
 	}
+	// The user's words are recorded once, before any placeholder is appended.
+	if got[0].RequestText != "two images" {
+		t.Fatalf("RequestText = %q, want the user's words once", got[0].RequestText)
+	}
+	if !got[0].VisionRouted {
+		t.Fatal("VisionRouted = false, want true")
+	}
 	wantContent := "two images\n[image: 640x480 png 48KB]\n[image: 1920x1080 jpeg 2.0MB]"
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -96,6 +103,57 @@ func TestStripImagesFromMessages_alreadyStripped(t *testing.T) {
 	// No Data to strip, Content must not grow.
 	if got[0].Content != msgs[0].Content {
 		t.Fatalf("Content changed for already-stripped image: got %q, want %q", got[0].Content, msgs[0].Content)
+	}
+}
+
+// TestStripImagesFromMessagesDoesNotRecordTwice proves image handling records
+// the user's words only on the first strip: a text turn keeps them, an image-only
+// turn keeps recording nothing rather than adopting its placeholder, a later
+// image on the same message appends only its own placeholder, and re-stripping a
+// stripped message changes nothing.
+func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "text turn keeps its words", content: "look at this image"},
+		{name: "image-only turn keeps recording nothing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			first := stripImagesFromMessages([]Message{{
+				Role:    MessageRoleUser,
+				Content: tt.content,
+				Images:  []ImageBlock{{MediaType: "image/png", Data: "aaa", Width: 10, Height: 10, SizeBytes: 1024}},
+			}}, VisionUnknown, false)[0]
+			if first.RequestText != tt.content {
+				t.Fatalf("first strip RequestText = %q, want %q", first.RequestText, tt.content)
+			}
+
+			// An image arriving later joins the already-routed message.
+			first.Images = []ImageBlock{{MediaType: "image/png", Data: "bbb", Width: 20, Height: 20, SizeBytes: 2048}}
+			second := stripImagesFromMessages([]Message{first}, VisionUnknown, false)[0]
+			if second.RequestText != tt.content {
+				t.Fatalf("second strip RequestText = %q, want %q, not the placeholder text", second.RequestText, tt.content)
+			}
+			want := "[image: 10x10 png 1KB]\n[image: 20x20 png 2KB]"
+			if tt.content != "" {
+				want = tt.content + "\n" + want
+			}
+			if second.Content != want {
+				t.Fatalf("Content = %q, want %q", second.Content, want)
+			}
+
+			// Once the image data is gone, another pass changes nothing.
+			third := stripImagesFromMessages([]Message{second}, VisionUnknown, false)[0]
+			if third.Content != second.Content || third.RequestText != second.RequestText || len(third.Images) != 0 {
+				t.Fatalf("third strip = (%q, RequestText %q, %d images), want (%q, %q, 0)", third.Content, third.RequestText, len(third.Images), second.Content, second.RequestText)
+			}
+		})
 	}
 }
 

@@ -17,26 +17,17 @@ const compactionTagFlats = `\t\f\r \v\p{Z}\p{Cf}\x{0085}`
 // wrap inside its angle brackets.
 const compactionTagSpace = `[` + compactionTagFlats + `\n]`
 
-// compactionTagGap matches the space between a tag's name and its attributes.
-// It excludes the newline, so a line such as "<summary\nfoo>" is not a tag.
-const compactionTagGap = `[` + compactionTagFlats + `]`
-
-// compactionTagValue is one attribute value: double-quoted, single-quoted, or
-// unquoted. None may contain the closing bracket, so a value cannot swallow it.
-const compactionTagValue = `(?:"[^"\n]*"|'[^'\n]*'|[^\s"'=<>\x60]+)`
-
-// compactionTagAttr is one attribute: a name, optionally followed by "=" and a
-// value. The tail requires at least one gap before the first attribute, so
-// "<summary-table>", "<summary.x>", "<summary:x>", "<summary_x>", and
-// "<summaryish>" are not tags.
-const compactionTagAttr = `[A-Za-z_:][-A-Za-z0-9_:.]*(?:` + compactionTagGap + `*=` + compactionTagGap + `*` + compactionTagValue + `)?`
-
-// compactionTagTail matches what may follow a tag name: no attribute at all
-// (just optional space and an optional self-closing slash), or at least one gap
-// then attribute tokens, then the closing bracket. Bare attribute names are
-// allowed, so prose such as "<summary is short and the request > fine" also
-// matches; escaping it is harmless because the words stay between entities.
-const compactionTagTail = `(?:` + compactionTagSpace + `*/?>` + `|` + compactionTagGap + `+` + compactionTagAttr + `(?:` + compactionTagGap + `+` + compactionTagAttr + `)*` + compactionTagSpace + `*/?>)`
+// compactionTagTail matches what may follow a tag name: either only the space
+// characters compactionTagSpace lists, which already include the newline, or a
+// run that starts with a character that cannot continue a tag name and is
+// neither a newline nor the closing bracket, then any characters up to the
+// closing bracket on the same line. Attributes, a stray slash, a bare "=", a
+// quote, or prose such as "<summary is short and the request > fine" take the
+// second form; escaping them is harmless because the words stay between the
+// entities. A name continued by a name character, or a newline followed by more
+// text, is not a tag, so "<summary-table>", "<summary.x>", "<summary:x>",
+// "<summary_x>", "<summaryish>", and "<summary\nfoo>" stay untouched.
+const compactionTagTail = `(?:` + compactionTagSpace + `*|[^A-Za-z0-9_.:\-\n>][^>\n]*)?>`
 
 // summaryTagName and latestUserRequestTagName are the wrapper tag names, and
 // compactionTagNames is the alternation a summary body may forge.

@@ -590,3 +590,37 @@ func TestConversationLineageViewsAreFreshClonesAndLatestMessagesAliases(t *testi
 		t.Fatalf("empty latestMessages() = %v, want nil", got)
 	}
 }
+
+// TestLineageWithoutImageDataKeepsRequestRecord proves the persistence path keeps
+// the recorded request text and the vision mark while dropping image bytes, and
+// leaves the input lineage untouched.
+func TestLineageWithoutImageDataKeepsRequestRecord(t *testing.T) {
+	t.Parallel()
+
+	const words = "Review the attached mockup"
+	lineage := newConversationLineage([]Message{
+		{Role: MessageRoleUser, Content: words, Images: []ImageBlock{{ID: "img-1", MediaType: "image/png", Data: "base64data", Width: 10, Height: 10, SizeBytes: 1024}}},
+		{Role: MessageRoleAssistant, Content: "ok"},
+		{Role: MessageRoleUser, Images: []ImageBlock{{ID: "img-2", MediaType: "image/png", Data: "base64data", Width: 10, Height: 10, SizeBytes: 1024}}},
+	})
+	persisted := LineageWithoutImageData(lineage)
+
+	messages := persisted.Generations[0].Messages
+	if !messages[0].VisionRouted || messages[0].RequestText != words {
+		t.Fatalf("text turn persisted as (VisionRouted %t, RequestText %q), want (true, %q)", messages[0].VisionRouted, messages[0].RequestText, words)
+	}
+	if len(messages[0].Images) != 0 {
+		t.Fatalf("text turn kept %d images, want none", len(messages[0].Images))
+	}
+	if want := words + "\n[image: 10x10 png 1KB]"; messages[0].Content != want {
+		t.Fatalf("Content = %q, want %q", messages[0].Content, want)
+	}
+	if !messages[2].VisionRouted || messages[2].RequestText != "" {
+		t.Fatalf("image-only turn persisted as (VisionRouted %t, RequestText %q), want (true, empty)", messages[2].VisionRouted, messages[2].RequestText)
+	}
+
+	original := lineage.Generations[0].Messages[0]
+	if original.Images[0].Data != "base64data" || original.VisionRouted {
+		t.Fatalf("input lineage mutated: (VisionRouted %t, image data %q)", original.VisionRouted, original.Images[0].Data)
+	}
+}
