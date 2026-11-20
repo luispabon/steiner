@@ -302,8 +302,13 @@ func claudeSubLiveAccepts(ctx context.Context, s *claudeSubSession, req ChatRequ
 			drained = true
 		}
 	}
-	delta, err := s.sync.plan(req)
+	var mismatch claudeSubSyncMismatch
+	delta, err := s.sync.planMismatch(req, &mismatch)
 	if err != nil {
+		// Only the live comparison knows where the request diverged; restore
+		// checks describe no request position of their own. A resume that clears
+		// the reseed branch drops the mismatch with it.
+		claudeSubMetricsFrom(ctx).noteSyncMismatch(mismatch)
 		return false, claudeSubReseedPlan, nil
 	}
 	if len(delta.User) == 0 && len(delta.ToolResults) == 0 {

@@ -5,16 +5,31 @@ package provider
 // normalise it); user and tool messages are compared by digest and their images
 // must be a subset of the images recorded as sent.
 func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
+	return claudeSubEntryMismatch(entry, m) == ""
+}
+
+// claudeSubEntryMismatch returns the fixed check label that fails when entry
+// does not match m, or "" when it matches.
+func claudeSubEntryMismatch(entry claudeSubEntry, m Message) string {
 	if entry.Role != m.Role {
-		return false
+		return claudeSubCheckRole
 	}
 	if m.Role == MessageRoleAssistant {
-		return claudeSubSameIDs(entry.ToolCallIDs, claudeSubToolCallIDs(m))
+		if !claudeSubSameIDs(entry.ToolCallIDs, claudeSubToolCallIDs(m)) {
+			return claudeSubCheckToolCalls
+		}
+		return ""
 	}
 	if m.Role == MessageRoleTool && entry.ToolCallID != m.ToolCallID {
-		return false
+		return claudeSubCheckToolCalls
 	}
-	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(claudeSubImageClaim(m), entry.Images)
+	if entry.Digest != claudeSubDigest(m) {
+		return claudeSubCheckDigest
+	}
+	if !claudeSubImagesSubset(claudeSubImageClaim(m), entry.Images) {
+		return claudeSubCheckImages
+	}
+	return ""
 }
 
 // claudeSubEntriesFromMessages returns the sync entry of each message in msgs.

@@ -156,20 +156,35 @@ func claudeSubMessages(msgs []Message) []Message {
 // plan does not change the record: a request that fails before delivery leaves
 // it exactly as it was, so a retry plans the same delta.
 func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
+	return s.planMismatch(req, nil)
+}
+
+// planMismatch is plan that records the first failed request comparison in
+// mismatch, when mismatch is not nil. It records the request position, that
+// position's role and the fixed check label, never message content, a digest,
+// a tool-call id or image data. A tainted record fails without a position, so
+// it records nothing.
+func (s *claudeSubSync) planMismatch(req ChatRequest, mismatch *claudeSubSyncMismatch) (claudeSubDelta, error) {
+	fail := func(index int, role MessageRole, check string) (claudeSubDelta, error) {
+		if mismatch != nil {
+			*mismatch = claudeSubSyncMismatch{Index: index, Role: role, Check: check}
+		}
+		return claudeSubDelta{}, errClaudeSubHistoryChanged
+	}
 	if s.tainted {
 		return claudeSubDelta{}, errClaudeSubHistoryChanged
 	}
 	msgs := claudeSubMessages(req.Messages)
 	if !s.started {
-		for _, m := range msgs {
+		for i, m := range msgs {
 			if m.Role == MessageRoleAssistant || m.Role == MessageRoleTool {
-				return claudeSubDelta{}, errClaudeSubHistoryChanged
+				return fail(i, m.Role, claudeSubCheckShape)
 			}
 		}
 		return claudeSubDelta{User: msgs, keep: s.entries, keepInterruptible: s.interruptible}, nil
 	}
 	if !s.interrupted && len(msgs) < len(s.entries) {
-		return claudeSubDelta{}, errClaudeSubHistoryChanged
+		return fail(len(msgs), s.entries[len(msgs)].Role, claudeSubCheckLength)
 	}
 
 	out := make([]claudeSubEntry, 0, len(s.entries))
@@ -182,7 +197,7 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 				// The interrupted assistant may drop tool calls: its request form
 				// must be a multiset subset of the recorded ids.
 				if !claudeSubSubsetIDs(claudeSubToolCallIDs(msgs[mi]), entry.ToolCallIDs) {
-					return claudeSubDelta{}, errClaudeSubHistoryChanged
+					return fail(mi, MessageRoleAssistant, claudeSubCheckToolCalls)
 				}
 				entry.ToolCallIDs = claudeSubToolCallIDs(msgs[mi])
 				out = append(out, entry)
@@ -203,8 +218,8 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 					ei++
 					continue
 				}
-				if !claudeSubEntryMatches(e, msgs[mi]) {
-					return claudeSubDelta{}, errClaudeSubHistoryChanged
+				if check := claudeSubEntryMismatch(e, msgs[mi]); check != "" {
+					return fail(mi, msgs[mi].Role, check)
 				}
 				out = append(out, e)
 				ei++
@@ -212,8 +227,11 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 			}
 			continue
 		}
-		if mi >= len(msgs) || !claudeSubEntryMatches(entry, msgs[mi]) {
-			return claudeSubDelta{}, errClaudeSubHistoryChanged
+		if mi >= len(msgs) {
+			return fail(mi, entry.Role, claudeSubCheckLength)
+		}
+		if check := claudeSubEntryMismatch(entry, msgs[mi]); check != "" {
+			return fail(mi, msgs[mi].Role, check)
 		}
 		out = append(out, entry)
 		ei++
@@ -246,10 +264,10 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 		switch m.Role {
 		case MessageRoleTool:
 			if _, ok := recordedToolIDs[m.ToolCallID]; ok {
-				return claudeSubDelta{}, errClaudeSubHistoryChanged
+				return fail(mi+si, m.Role, claudeSubCheckToolCalls)
 			}
 			if _, ok := suffixToolIDs[m.ToolCallID]; ok {
-				return claudeSubDelta{}, errClaudeSubHistoryChanged
+				return fail(mi+si, m.Role, claudeSubCheckToolCalls)
 			}
 			suffixToolIDs[m.ToolCallID] = struct{}{}
 			delta.ToolResults = append(delta.ToolResults, m)
@@ -272,13 +290,13 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 				drainedPartial = true
 				continue
 			}
-			return claudeSubDelta{}, errClaudeSubHistoryChanged
+			return fail(mi+si, m.Role, claudeSubCheckShape)
 		default:
-			return claudeSubDelta{}, errClaudeSubHistoryChanged
+			return fail(mi+si, m.Role, claudeSubCheckShape)
 		}
 	}
 	if drainedPartial && !suffixUser {
-		return claudeSubDelta{}, errClaudeSubHistoryChanged
+		return fail(mi, msgs[mi].Role, claudeSubCheckLength)
 	}
 	delta.keep = append(out, recorded...)
 	delta.keepInterruptible = keepInterruptible
