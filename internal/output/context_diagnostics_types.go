@@ -16,6 +16,15 @@ const CompactionFallbackUsed = "used"
 // CompactionFallbackSkipped is the FallbackStatus of a compaction that did not use the fallback model.
 const CompactionFallbackSkipped = "skipped"
 
+// Compaction request-block statuses. RequestBlockNew reports the verbatim latest
+// user request taken from the summarized source, RequestBlockCarried reports one
+// carried forward from the prior summary, and RequestBlockNone reports neither.
+const (
+	RequestBlockNew     = "new"
+	RequestBlockCarried = "carried"
+	RequestBlockNone    = "none"
+)
+
 // ContextDiagnosticsEvent is the legacy kitchen-sink diagnostic payload kept
 // as a compatibility constructor/input shape while typed sub-events replace it
 // as the emitted payloads.
@@ -35,6 +44,8 @@ type ContextDiagnosticsEvent struct {
 	RetainedUnits             int      `json:"retained_units,omitempty"`
 	RetainedUserMessages      int      `json:"retained_user_messages,omitempty"`
 	RetainedSubAgentResults   int      `json:"retained_sub_agent_results,omitempty"`
+	RequestBlock              string   `json:"request_block,omitempty"`
+	RequestBlockBytes         int      `json:"request_block_bytes,omitempty"`
 	SummaryTitle              string   `json:"summary_title,omitempty"`
 	SummaryPreview            string   `json:"summary_preview,omitempty"`
 	SummaryText               string   `json:"summary_text,omitempty"`
@@ -84,6 +95,8 @@ type ContextCompactionEvent struct {
 	RetainedUnits             int      `json:"retained_units,omitempty"`
 	RetainedUserMessages      int      `json:"retained_user_messages,omitempty"`
 	RetainedSubAgentResults   int      `json:"retained_sub_agent_results,omitempty"`
+	RequestBlock              string   `json:"request_block,omitempty"`
+	RequestBlockBytes         int      `json:"request_block_bytes,omitempty"`
 	SummaryTitle              string   `json:"summary_title,omitempty"`
 	SummaryPreview            string   `json:"summary_preview,omitempty"`
 	SummaryText               string   `json:"summary_text,omitempty"`
@@ -216,6 +229,8 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		RetainedUnits:             payload.RetainedUnits,
 		RetainedUserMessages:      payload.RetainedUserMessages,
 		RetainedSubAgentResults:   payload.RetainedSubAgentResults,
+		RequestBlock:              payload.RequestBlock,
+		RequestBlockBytes:         payload.RequestBlockBytes,
 		SummaryTitle:              payload.SummaryTitle,
 		SummaryPreview:            payload.SummaryPreview,
 		SummaryText:               payload.SummaryText,
@@ -335,6 +350,8 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			RetainedUnits:             payload.RetainedUnits,
 			RetainedUserMessages:      payload.RetainedUserMessages,
 			RetainedSubAgentResults:   payload.RetainedSubAgentResults,
+			RequestBlock:              payload.RequestBlock,
+			RequestBlockBytes:         payload.RequestBlockBytes,
 			SummaryTitle:              payload.SummaryTitle,
 			SummaryPreview:            payload.SummaryPreview,
 			SummaryText:               payload.SummaryText,

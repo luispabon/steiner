@@ -156,6 +156,8 @@ type compactionBannerData struct {
 	retainedUnits           int
 	retainedUserMessages    int
 	retainedSubAgentResults int
+	requestBlock            string  // output.RequestBlock* status of the verbatim latest request
+	requestBlockBytes       int     // size of the verbatim latest request
 	mode                    string  // compaction mode reported by the engine
 	beforeTokens            int     // prompt tokens before compaction
 	beforePct               float64 // context usage % before compaction

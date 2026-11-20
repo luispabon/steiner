@@ -266,6 +266,8 @@ func (b *contentBuffer) handleCompactionDiagnostics(payload output.ContextCompac
 		retainedUnits:           payload.RetainedUnits,
 		retainedUserMessages:    payload.RetainedUserMessages,
 		retainedSubAgentResults: payload.RetainedSubAgentResults,
+		requestBlock:            payload.RequestBlock,
+		requestBlockBytes:       payload.RequestBlockBytes,
 		mode:                    payload.Mode,
 		beforeTokens:            payload.BeforePromptTokens,
 		beforePct:               payload.BeforeUsagePercent,

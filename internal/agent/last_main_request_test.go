@@ -147,7 +147,7 @@ func TestRunMainCallAfterCompactionReplacesSeed(t *testing.T) {
 	req := mainRequestRun(prov, clock)
 	req.SeedLastMainRequest = seed
 	req.ModelBudget = prompt.ModelTokenBudget{
-		ContextSize:               3600,
+		ContextSize:               3900, // Leaves room for the verbatim latest-request block while staying above the compaction threshold
 		MaxCompletionTokens:       32,
 		SummaryMaxTokens:          32,
 		NormalSummaryMaxTokens:    32,
@@ -201,7 +201,7 @@ func TestRunCompactionKeepsSeedWhenMainCallFails(t *testing.T) {
 	req := mainRequestRun(prov, &steppingClock{base: time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC)})
 	req.SeedLastMainRequest = seed
 	req.ModelBudget = prompt.ModelTokenBudget{
-		ContextSize:               3600,
+		ContextSize:               3900, // Leaves room for the verbatim latest-request block while staying above the compaction threshold
 		MaxCompletionTokens:       32,
 		SummaryMaxTokens:          32,
 		NormalSummaryMaxTokens:    32,

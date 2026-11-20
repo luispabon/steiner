@@ -254,12 +254,15 @@ func formatCompactionBudget(payload ContextDiagnosticsEvent) []string {
 }
 
 func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if summary := compactionSummaryPreview(payload); summary != "" {
 		parts = append(parts, fmt.Sprintf("kept summary %q", TruncateWithEllipsis(summary, 160)))
 	}
 	if payload.SummaryBytes > 0 {
 		parts = append(parts, fmt.Sprintf("summary %d bytes", payload.SummaryBytes))
+	}
+	if status := strings.TrimSpace(payload.RequestBlock); status != "" && status != RequestBlockNone {
+		parts = append(parts, fmt.Sprintf("latest request kept verbatim (%s)", status))
 	}
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")

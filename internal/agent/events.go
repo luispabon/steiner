@@ -143,6 +143,8 @@ type compactionDiagnosticsParams struct {
 	summaryTokenBudget   int
 	summarizedMessages   int
 	retainedMessages     []Message
+	requestBlock         string
+	requestBlockBytes    int
 	candidate            ConversationCandidate
 	summaryText          string
 	promptText           string
@@ -173,6 +175,7 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		fmt.Sprintf("before prompt_tokens=%d context_usage_percent=%.0f%%", params.beforeFit.EstimatedPromptTokens, params.beforeFit.PromptUsage*100),
 		fmt.Sprintf("after prompt_tokens=%d context_usage_percent=%.0f%%", params.afterFit.EstimatedPromptTokens, params.afterFit.PromptUsage*100),
 		fmt.Sprintf("retained_units=%d", retainedUnits),
+		fmt.Sprintf("request_block=%s", params.requestBlock),
 		fmt.Sprintf("summary_token_budget=%d", params.summaryTokenBudget),
 		fmt.Sprintf("threshold_achieved=%t", compactionThresholdAchieved(params.afterFit)),
 	}
@@ -192,6 +195,8 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		RetainedUnits:             retainedUnits,
 		RetainedUserMessages:      retainedUserMessages,
 		RetainedSubAgentResults:   retainedSubAgentResults,
+		RequestBlock:              params.requestBlock,
+		RequestBlockBytes:         params.requestBlockBytes,
 		SummaryTitle:              "compacted conversation history",
 		SummaryPreview:            summarizeTextPreview(params.summaryText, 120),
 		SummaryText:               params.summaryText,

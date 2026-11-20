@@ -60,7 +60,7 @@ func (m *Model) applyCompactionEvent(payload output.ContextCompactionEvent) {
 	}
 	// Append separator + summary text when compaction finishes with a summary.
 	if !cs.Active() && payload.SummaryText != "" {
-		m.content.AppendCompactionResult("Compaction", payload.SummaryText)
+		m.content.AppendCompactionResult("Compaction", compactionResultMarkdown(payload.SummaryText))
 	}
 }
 

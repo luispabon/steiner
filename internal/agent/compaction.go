@@ -61,6 +61,10 @@ type CompactionOutcome struct {
 	RetainedMessages   []Message
 	SummaryText        string
 	PromptText         string
+	// RequestBlock is the output.RequestBlock* status of the verbatim latest
+	// user request the summary carries, and RequestBlockBytes its size.
+	RequestBlock      string
+	RequestBlockBytes int
 	// Usage is the summarizer response token accounting.
 	Usage *provider.UsageStats
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
@@ -346,6 +350,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s no_source=true", summarizeCompactionPrompt(candidate), params.mode), params.mode, params.maxTokens), nil
 	}
 
+	requestBlock, requestBlockStatus := latestRequestBlock(params.sourceMessages)
+	// The summarizer sees only summary bodies, never a carried block, so it
+	// cannot paraphrase or re-quote the verbatim request.
+	params.sourceMessages = stripRequestBlocks(params.sourceMessages)
+
 	plan, ok, err := buildCompactionExecutionPlanWithMode(ctx, req, state, candidate, params)
 	if err != nil {
 		return CompactionOutcome{}, err
@@ -392,6 +401,9 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	if req.HistoryArchive != nil {
 		summaryText, pendingArchive = withHistoryNote(req, summaryText, params.sourceMessages)
 	}
+	if requestBlock != "" {
+		summaryText = withRequestBlock(summaryText, requestBlock)
+	}
 
 	retained := cloneMessages(plan.retainedMessages)
 	// buildSummarizedCompactionState strips skill blocks and drops skill-only
@@ -417,6 +429,8 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		RetainedMessages:    retained,
 		SummaryText:         summaryText,
 		PromptText:          plan.promptText,
+		RequestBlock:        requestBlockStatus,
+		RequestBlockBytes:   len(requestBlock),
 		Usage:               response.Usage,
 		BackendStateCleared: cleared,
 		pendingArchive:      pendingArchive,
@@ -547,6 +561,8 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 			summaryTokenBudget:   outcome.SummaryTokenBudget,
 			summarizedMessages:   outcome.SummarizedMessages,
 			retainedMessages:     outcome.RetainedMessages,
+			requestBlock:         outcome.RequestBlock,
+			requestBlockBytes:    outcome.RequestBlockBytes,
 			candidate:            outcome.Candidate,
 			summaryText:          outcome.SummaryText,
 			promptText:           outcome.PromptText,

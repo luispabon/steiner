@@ -82,6 +82,15 @@ func TestCompactConversationForBudgetReportsCompactionCounts(t *testing.T) {
 	if got, want := payload.RetainedSubAgentResults, 1; got != want {
 		t.Errorf("RetainedSubAgentResults = %d, want %d", got, want)
 	}
+	if got, want := payload.RequestBlock, output.RequestBlockNew; got != want {
+		t.Errorf("RequestBlock = %q, want %q", got, want)
+	}
+	if got, want := payload.RequestBlockBytes, len("middle question"); got != want {
+		t.Errorf("RequestBlockBytes = %d, want %d", got, want)
+	}
+	if !slices.Contains(payload.Notes, "request_block=new") {
+		t.Errorf("Notes = %v, want request_block=new", payload.Notes)
+	}
 	if !slices.Contains(payload.Notes, "retained_units=3") {
 		t.Errorf("Notes = %v, want retained_units=3", payload.Notes)
 	}

@@ -129,6 +129,18 @@ Summary target and main (`summarizeCompactionStages.run`, `summarizeCompactionSt
 
 After the adopted state is in place, `emitCompactionDiagnostics` (`internal/agent/events.go`) reports the counts in `ContextCompactionEvent`. `SummarizedMessages` is the adopted stage's source-message count excluding `MessageRoleSummary`, carried on `CompactionOutcome` so a two-stage result reports the last stage. `RetainedMessages` and `RetainedUnits` come from the retained slice, with units from `splitCompactionTurns`. `RetainedUserMessages` counts `IsRealUserMessage` matches and `RetainedSubAgentResults` counts the remaining user-role messages (`MessageSourceSubAgentResult`). The plain-text renderer (`internal/output/debug.go`) and the TUI banner report the same figures.
 
+### Latest request block
+
+Because normal compaction keeps only the last 3 units and emergency the last 1, the latest real user message is often summarized. Each stored summary therefore carries that request verbatim, appended last: `summary + "\n\n" + "[steiner:latest-request bytes=N]\n" + request`, where N is the request length in bytes. The header is length-delimited, so arbitrary user text cannot break parsing. `SplitRequestBlock` finds the last header prefix that parses and whose byte count ends the summary exactly; `withRequestBlock` is its inverse. Both live in `internal/agent/compaction_request_block.go`.
+
+Selection runs in `summarizeCompactionStage` after the history note, so it covers main, the fallback target, the deterministic empty-summary fallback, and both stages. `latestRequestBlock` scans the stage's source from the end for the newest `IsRealUserMessage` message, takes `prompt.StripSkillBlocks` of its content trimmed, and reports status `new`. Without one it takes the block from the newest `MessageRoleSummary` in the source and reports `carried`; otherwise it reports `none`. Images are not carried.
+
+A new request is capped at `requestBlockMaxBytes` (16 KB): the prefix is cut at a UTF-8 boundary and marked `[truncated: N bytes omitted]`. Carried requests are already capped.
+
+The summarizer never sees a block. `stripRequestBlocks` removes it from the summary messages of the stage's source before the summary request and the history-archive note are built, so the model cannot paraphrase or re-quote it; persisted lineage state is untouched.
+
+`toProviderMessage` projects a stored summary as `summaryContextPrefix + body + summaryContextSuffix`, then, when a block exists, `requestContextPrefix + request + requestContextSuffix` in the same user-role message. Diagnostics report `RequestBlock` (`new`, `carried`, `none`) and `RequestBlockBytes` on `ContextCompactionEvent`, with a `request_block=<status>` note; the TUI summary row reports `latest request kept verbatim (new|carried)`. Session history and the TUI render the body under the stored summary, then `Latest request (verbatim):` and the request, and strip history notes from the body only.
+
 Rerun (`compactionOnMainAfterFallback`):
 
 - A failed attempt (fit failure, provider error, resolve or build error, or empty fallback summary) is discarded. The whole operation reruns on main from the original `RunState`. The outcome then records `FallbackStatus` `skipped`, with `CompactionModel` and `CompactionModelAlias` naming main. `FallbackReason` is `context too large for <ref>` only when the error is `errCompactionFallbackNotFit`. Any other error gives `fallback failed: <error>`.

@@ -84,11 +84,16 @@ func historyHeading(msg agent.Message) string {
 }
 
 // summaryParts renders a compaction summary as a divider followed by its text
-// with archive note lines removed.
+// with archive note lines removed, then the verbatim latest request under its own
+// heading.
 func summaryParts(content string) []string {
 	parts := []string{historyDivider}
-	if text := agent.StripHistoryNotes(content); text != "" {
+	body, request, ok := agent.SplitRequestBlock(content)
+	if text := agent.StripHistoryNotes(body); text != "" {
 		parts = append(parts, text)
+	}
+	if ok {
+		parts = append(parts, "Latest request (verbatim):", request)
 	}
 	return parts
 }

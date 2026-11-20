@@ -314,8 +314,10 @@ func TestSummarizeCompactorPreservesCurrentBehavior(t *testing.T) {
 			t.Fatalf("conversation missing retained content %q: %#v", needle, outcome.State.Conversation)
 		}
 	}
-	if messageContentsContain(ToProviderMessages(outcome.State.Conversation), "turn 1 user") {
-		t.Fatalf("conversation retained older turn in raw transcript: %#v", outcome.State.Conversation)
+	for _, message := range outcome.State.Conversation[1:] {
+		if message.Content == "turn 1 user" {
+			t.Fatalf("conversation retained older turn in raw transcript: %#v", outcome.State.Conversation)
+		}
 	}
 }
 

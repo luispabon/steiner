@@ -88,8 +88,8 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	}
 
 	stored := outcome.State.Conversation[0]
-	if stored.Role != MessageRoleSummary || stored.Content != summaryText {
-		t.Fatalf("stored summary = %+v, want role %q and exact text %q", stored, MessageRoleSummary, summaryText)
+	if body, request, ok := SplitRequestBlock(stored.Content); stored.Role != MessageRoleSummary || !ok || body != summaryText || request != "question three" {
+		t.Fatalf("stored summary = %+v, want role %q, text %q and verbatim request %q", stored, MessageRoleSummary, summaryText, "question three")
 	}
 	if !conversationHasRole(outcome.State.Conversation, MessageRoleTool) {
 		t.Fatal("compacted state lost the retained tool tail")
@@ -118,7 +118,8 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	assertToolCallBeforeResult(t, normalReq.Messages, "call-1")
 	assertToolCallBeforeResult(t, prefix, "call-1")
 
-	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix
+	wantSummary := summaryContextPrefix + summaryText + summaryContextSuffix +
+		"\n\n" + requestContextPrefix + "question three" + requestContextSuffix
 	if got := countProviderMessagesWithContent(normalReq.Messages, wantSummary); got != 1 {
 		t.Fatalf("wrapped summary appears %d times in the normal turn, want 1", got)
 	}
@@ -186,7 +187,7 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if got, want := projected[0].Content, wantSummary; got != want {
 		t.Fatalf("projected summary = %q, want %q", got, want)
 	}
-	if stored.Role != MessageRoleSummary || stored.Content != summaryText {
+	if stored.Role != MessageRoleSummary || !strings.HasPrefix(stored.Content, summaryText) {
 		t.Fatal("projection changed the stored summary")
 	}
 }

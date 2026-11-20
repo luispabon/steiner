@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
@@ -382,10 +383,25 @@ func compactionSummaryDetail(cd *compactionBannerData) string {
 	if cd.summaryTokenBudget > 0 {
 		parts = append(parts, fmt.Sprintf("budget %d tokens", cd.summaryTokenBudget))
 	}
+	if cd.requestBlock != "" && cd.requestBlock != output.RequestBlockNone {
+		parts = append(parts, fmt.Sprintf("latest request kept verbatim (%s)", cd.requestBlock))
+	}
 	if cd.truncated {
 		parts = append(parts, "truncated")
 	}
 	return strings.Join(parts, " · ")
+}
+
+// compactionResultMarkdown renders a stored compaction summary for display: its
+// body without history notes, then the verbatim latest request under its own
+// heading instead of the storage header.
+func compactionResultMarkdown(summaryText string) string {
+	body, request, ok := agent.SplitRequestBlock(summaryText)
+	body = agent.StripHistoryNotes(body)
+	if !ok {
+		return body
+	}
+	return body + "\n\nLatest request (verbatim):\n\n" + request
 }
 
 func compactionCacheDetail(cd *compactionBannerData) string {

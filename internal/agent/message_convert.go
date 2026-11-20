@@ -71,12 +71,24 @@ const (
 	summaryContextSuffix = "\n</summary>"
 )
 
+// requestContextPrefix and requestContextSuffix wrap the verbatim latest user
+// request a summary carries. It stays inside the summary's user-role message so
+// message count and ordering do not depend on whether the block exists.
+const (
+	requestContextPrefix = "The user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n<latest_user_request>\n"
+	requestContextSuffix = "\n</latest_user_request>"
+)
+
 func toProviderMessage(message Message) provider.Message {
 	role := provider.MessageRole(message.Role)
 	content := message.Content
 	if message.Role == MessageRoleSummary {
 		role = provider.MessageRoleUser
-		content = summaryContextPrefix + content + summaryContextSuffix
+		body, request, ok := SplitRequestBlock(content)
+		content = summaryContextPrefix + body + summaryContextSuffix
+		if ok {
+			content += "\n\n" + requestContextPrefix + request + requestContextSuffix
+		}
 	}
 	out := provider.Message{
 		Role:             role,
