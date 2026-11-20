@@ -254,7 +254,7 @@ func (b *contentBuffer) renderDelegationHeaderOperation(dd *delegationDisplaySta
 		operation = normalizedDisplayText(dd.currentOperation)
 		switch {
 		case operation == "" && dd.queuedForSlot && dd.status == "active":
-			operation = "Waiting for slot"
+			operation = "Waiting for earlier calls or a slot"
 		case operation == "" && dd.cacheWaiting:
 			operation = "waiting for cache warm-up…"
 		case operation == "" && dd.status == "active":

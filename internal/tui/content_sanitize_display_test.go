@@ -191,7 +191,7 @@ func TestDelegationHeaderOperationSanitizedEmptyFallsThrough(t *testing.T) {
 		{name: "advisor question with files falls back to steering", dd: &delegationDisplayState{isAdvisor: true, advisorQuestion: "\x1b[0m\x07", advisorFiles: []string{"a.go"}}, want: "stronger-model steering · 1 file"},
 		{name: "advisor question falls back to current operation", dd: &delegationDisplayState{isAdvisor: true, advisorQuestion: "\x1b[0m\x07", currentOperation: "reading files"}, want: "reading files"},
 		{name: "current operation falls back to task preview", dd: &delegationDisplayState{status: "active", currentOperation: "\x1b[0m", taskPreview: "find files"}, want: "find files"},
-		{name: "queued control-only operation shows waiting for slot", dd: &delegationDisplayState{status: "active", queuedForSlot: true, currentOperation: "\x1b[0m"}, want: "Waiting for slot"},
+		{name: "queued control-only operation shows waiting for earlier calls or a slot", dd: &delegationDisplayState{status: "active", queuedForSlot: true, currentOperation: "\x1b[0m"}, want: "Waiting for earlier calls or a slot"},
 		{name: "cache-waiting control-only operation shows warm-up", dd: &delegationDisplayState{cacheWaiting: true, currentOperation: "\x1b[0m"}, want: "waiting for cache warm-up…"},
 	}
 

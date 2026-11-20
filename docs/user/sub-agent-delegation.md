@@ -114,6 +114,7 @@ In interactive sessions and oneshot phases, `sub_agent` and `follow_up` return i
 While an `explore`, `research`, `evaluate`, or `review` child is pending, the orchestrator's advisor calls are refused with a note naming the pending children. See [Advisor](advisor.md#while-investigation-sub-agents-are-pending).
 
 - At most `sub_agent.max_parallel` children run at once (default `3`); further ones queue in order. More than twice that many running plus queued is an error.
+- Tool calls in one turn run in order, so a sub-agent called after a long-running serial tool such as `bash` shows `Waiting for earlier calls or a slot` until that tool returns. Put sub-agent calls before long-running tools in the same turn, or use a later turn.
 - Calls in one response that share a `group` name are delivered together once all have finished. A group name cannot be reused later in the same conversation.
 - A failing child does not stop its siblings.
 - `workflow_handoff` fails while any child is outstanding.
