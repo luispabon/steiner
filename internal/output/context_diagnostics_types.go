@@ -19,10 +19,13 @@ const CompactionFallbackSkipped = "skipped"
 // Compaction request-block statuses. RequestBlockNew reports the verbatim latest
 // user request taken from the summarized source, RequestBlockCarried reports one
 // carried forward from the prior summary, and RequestBlockNone reports neither.
+// RequestBlockDropped reports a block removed so the compaction could fit: the
+// summary applies, the verbatim request does not.
 const (
 	RequestBlockNew     = "new"
 	RequestBlockCarried = "carried"
 	RequestBlockNone    = "none"
+	RequestBlockDropped = "dropped"
 )
 
 // ContextDiagnosticsEvent is the legacy kitchen-sink diagnostic payload kept

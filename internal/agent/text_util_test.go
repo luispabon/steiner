@@ -155,7 +155,7 @@ func TestTextUtil_CountSummarizedMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := countSummarizedMessages(tt.messages)
+			got := countSummarizedMessages(tt.messages, nil)
 			if got != tt.want {
 				t.Errorf("got %d, want %d", got, tt.want)
 			}
