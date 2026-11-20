@@ -95,6 +95,8 @@ Sub-agent boxes show their own cache rate as each model request finishes, for ex
 
 Each table has Provider, Model, Reqs, Uncached (uncached input), Read (cache read), Write (cache write), Output, Reason (reasoning tokens, part of Output), Total, Hit (hit rate), and Cost columns, plus a Total row. Source rows (`parent`, `sub_agent`, `advisor`) appear nested under a model only when it has more than one source. Advisor calls are included as an `advisor` source, not as separate model rows.
 
+On narrow terminals the tables drop the Reason column first, then Write, then Hit, so the Cost column stays visible. Below about 103 terminal columns the Model column is shortened with an ellipsis, and below about 77 the remaining columns alone need more room than the overlay has.
+
 ```text
 Uncached in = prompt tokens - cache read - cache write
 Total = uncached in + cache read + cache write + output

@@ -38,6 +38,10 @@ type contextOverlayState struct {
 	agentsRev int
 	// reports caches agent reports by agent ID; "" is the orchestrator.
 	reports map[string]string
+	// contentForWidth, when set, regenerates content for a report width before
+	// every reflow, so a report whose layout depends on its width keeps fitting
+	// after a terminal resize.
+	contentForWidth func(width int) string
 }
 
 // openContextOverlay returns a copy of the state with the overlay open and
@@ -76,6 +80,9 @@ func (s contextOverlayState) atEnd() bool {
 }
 
 func (s contextOverlayState) reflow() contextOverlayState {
+	if s.contentForWidth != nil {
+		s.content = s.contentForWidth(s.reportWidth())
+	}
 	rendered, _ := renderMarkdownBlock(markdownBlockParams{
 		block:       s.content,
 		width:       s.reportWidth(),
