@@ -86,6 +86,7 @@ type claudeSubCallMetrics struct {
 	process           string
 	reseedReason      string
 	recovery          string
+	syncMismatch      *claudeSubSyncMismatch
 	usageGate         time.Duration
 	usageGatePolls    int
 	usageProbeSpawned bool
@@ -119,10 +120,38 @@ func (m *claudeSubCallMetrics) diagnostics() *CallDiagnostics {
 		Process:           m.process,
 		ReseedReason:      m.reseedReason,
 		Recovery:          m.recovery,
+		SyncMismatchIndex: m.mismatchIndex(),
+		SyncMismatchRole:  m.mismatchRole(),
+		SyncMismatchCheck: m.mismatchCheck(),
 		UsageGateMillis:   m.usageGate.Milliseconds(),
 		UsageGatePolls:    m.usageGatePolls,
 		UsageProbeSpawned: m.usageProbeSpawned,
 	}}
+}
+
+// mismatchIndex returns the recorded sync mismatch position, or nil when the
+// call recorded none. A pointer keeps a divergence at position zero distinct
+// from no mismatch.
+func (m *claudeSubCallMetrics) mismatchIndex() *int {
+	if m.syncMismatch == nil {
+		return nil
+	}
+	index := m.syncMismatch.clampedIndex()
+	return &index
+}
+
+func (m *claudeSubCallMetrics) mismatchRole() string {
+	if m.syncMismatch == nil {
+		return ""
+	}
+	return string(m.syncMismatch.Role)
+}
+
+func (m *claudeSubCallMetrics) mismatchCheck() string {
+	if m.syncMismatch == nil {
+		return ""
+	}
+	return m.syncMismatch.Check
 }
 
 // noteProcess records how s was obtained for this call when the call recorded no
@@ -152,29 +181,46 @@ func (m *claudeSubCallMetrics) setProcess(process string) {
 	m.process = process
 }
 
-// noteReseed records the branch that makes the call reseed.
+// noteReseed records the branch that makes the call reseed. A reseed with any
+// other branch drops a recorded sync mismatch: the mismatch describes a live
+// plan comparison that no longer explains why this call reseeds.
 func (m *claudeSubCallMetrics) noteReseed(reason string) {
 	if m == nil || reason == "" {
 		return
 	}
 	m.reseedReason = reason
+	if reason != claudeSubReseedPlan {
+		m.syncMismatch = nil
+	}
 }
 
 // clearReseed drops a recorded reseed branch once the call settled without
-// reseeding.
+// reseeding, and the sync mismatch that would explain it.
 func (m *claudeSubCallMetrics) clearReseed() {
 	if m == nil {
 		return
 	}
 	m.reseedReason = ""
+	m.syncMismatch = nil
+}
+
+// noteSyncMismatch records the first request position a live process's record
+// could not take. Only bounded values are kept: a known role and one of the
+// fixed check labels, with the position clamped.
+func (m *claudeSubCallMetrics) noteSyncMismatch(mismatch claudeSubSyncMismatch) {
+	if m == nil || !claudeSubSyncMismatchValid(mismatch) {
+		return
+	}
+	m.syncMismatch = &claudeSubSyncMismatch{Index: mismatch.clampedIndex(), Role: mismatch.Role, Check: mismatch.Check}
 }
 
 // resetDelivery drops what an earlier delivery attempt of this call recorded
-// about how it was served (its process disposition and its reseed branch), so a
-// later attempt that actually serves the call is what gets reported. The usage
-// gate's time and poll count accumulate across every attempt and stay, and so
-// does usageProbeSpawned: a failed attempt really did wait on the gate and may
-// really have spawned a probe process for this call.
+// about how it was served (its process disposition, its reseed branch and the
+// sync mismatch behind it), so a later attempt that actually serves the call is
+// what gets reported. The usage gate's time and poll count accumulate across
+// every attempt and stay, and so does usageProbeSpawned: a failed attempt
+// really did wait on the gate and may really have spawned a probe process for
+// this call.
 func (m *claudeSubCallMetrics) resetDelivery() {
 	if m == nil {
 		return
@@ -182,6 +228,7 @@ func (m *claudeSubCallMetrics) resetDelivery() {
 	m.process = ""
 	m.reseedReason = ""
 	m.recovery = ""
+	m.syncMismatch = nil
 }
 
 // noteRecovery records how the call recovered a turn that stopped before it

@@ -64,10 +64,15 @@ type CodexMessageMetadata struct {
 }
 
 // MessageProviderMetadata stores provider-native message fields needed for
-// transport replay without changing prompt assembly semantics.
+// transport replay, plus local bookkeeping that is never projected to a
+// provider.
 type MessageProviderMetadata struct {
 	Anthropic *AnthropicMessageMetadata `json:"anthropic,omitempty"`
 	Codex     *CodexMessageMetadata     `json:"codex,omitempty"`
+	// ImagePlaceholders lists the image placeholder tokens already appended to
+	// Content, in order. It lives here rather than on Message so the hot
+	// Message value keeps its size; ToProviderMessages omits it.
+	ImagePlaceholders []string `json:"image_placeholders,omitempty"`
 }
 
 // SteerMessage carries a between-turn steering message with attached images.

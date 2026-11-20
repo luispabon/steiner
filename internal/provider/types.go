@@ -217,6 +217,18 @@ type ClaudeSubCallDiagnostics struct {
 	// retired that process and resumed the stored session at its final uuid.
 	// Empty for every other call.
 	Recovery string
+	// SyncMismatchIndex is the position, counting the request's non-system
+	// messages from zero, where the live record comparison first failed. It is
+	// set only when that mismatch is what made the call reseed. It is a pointer
+	// so a divergence at the first message is reported.
+	SyncMismatchIndex *int
+	// SyncMismatchRole is the role at SyncMismatchIndex: the request message's
+	// role, or, when the request ends before the record, the recorded entry's
+	// role.
+	SyncMismatchRole string
+	// SyncMismatchCheck names the comparison that failed there: "role",
+	// "digest", "images", "tool_calls", "shape", or "length".
+	SyncMismatchCheck string
 	// UsageGateMillis is the wall time the extra-usage gate spent on the call,
 	// truncated to whole milliseconds.
 	UsageGateMillis int64

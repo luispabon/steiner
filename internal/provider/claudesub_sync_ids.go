@@ -5,16 +5,31 @@ package provider
 // normalise it); user and tool messages are compared by digest and their images
 // must be a subset of the images recorded as sent.
 func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
+	return claudeSubEntryMismatch(entry, m) == ""
+}
+
+// claudeSubEntryMismatch returns the fixed check label that fails when entry
+// does not match m, or "" when it matches.
+func claudeSubEntryMismatch(entry claudeSubEntry, m Message) string {
 	if entry.Role != m.Role {
-		return false
+		return claudeSubCheckRole
 	}
 	if m.Role == MessageRoleAssistant {
-		return claudeSubSameIDs(entry.ToolCallIDs, claudeSubToolCallIDs(m))
+		if !claudeSubSameIDs(entry.ToolCallIDs, claudeSubToolCallIDs(m)) {
+			return claudeSubCheckToolCalls
+		}
+		return ""
 	}
 	if m.Role == MessageRoleTool && entry.ToolCallID != m.ToolCallID {
-		return false
+		return claudeSubCheckToolCalls
 	}
-	return entry.Digest == claudeSubDigest(m) && claudeSubImagesSubset(claudeSubImageFingerprints(m), entry.Images)
+	if entry.Digest != claudeSubDigest(m) {
+		return claudeSubCheckDigest
+	}
+	if !claudeSubImagesSubset(claudeSubImageClaim(m), entry.Images) {
+		return claudeSubCheckImages
+	}
+	return ""
 }
 
 // claudeSubEntriesFromMessages returns the sync entry of each message in msgs.
@@ -30,10 +45,23 @@ func claudeSubEntryFromMessage(m Message) claudeSubEntry {
 	return claudeSubEntry{
 		Role:        m.Role,
 		Digest:      claudeSubDigest(m),
-		Images:      claudeSubImageFingerprints(m),
+		Images:      claudeSubImageClaim(m),
 		ToolCallIDs: claudeSubToolCallIDs(m),
 		ToolCallID:  m.ToolCallID,
 	}
+}
+
+// claudeSubDeliveredEntriesFromMessages returns entries whose image claims are
+// exactly the bytes the delivery carries. A reseed transcript only carries
+// those, so its record must not describe images kept as metadata.
+func claudeSubDeliveredEntriesFromMessages(msgs []Message) []claudeSubEntry {
+	entries := make([]claudeSubEntry, 0, len(msgs))
+	for _, m := range msgs {
+		entry := claudeSubEntryFromMessage(m)
+		entry.Images = claudeSubDeliveryImageFingerprints(m)
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func claudeSubToolCallIDs(m Message) []string {

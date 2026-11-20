@@ -86,8 +86,7 @@ func (p *turnProgressor) executeModelCall(ctx context.Context, state RunState, a
 	}
 	state, turnTokens := p.finalizeModelCallState(state, turn, response)
 	state.Lineage = state.Lineage.withBackendState(issuedGenerationID, response.BackendState, response.ClearBackendState)
-	visionState, subAgentConfigured := p.getVisionCapabilityContext()
-	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	state.Lineage = state.Lineage.WithCurrentMessages(stripDeferredReadImages(state.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
 	state.Conversation = state.Lineage.FullMessages()
 
 	ttftMs := durationMs
@@ -218,9 +217,8 @@ func (p *turnProgressor) finalizeModelCallState(state RunState, turn int, respon
 
 func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {
 	state.StopReason = StopReasonComplete
-	visionState, subAgentConfigured := p.getVisionCapabilityContext()
-	state.Conversation = stripImagesFromMessages(state.Conversation, visionState, subAgentConfigured)
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	state.Conversation = stripImagesFromMessages(state.Conversation, p.visionSubAgentAvailable())
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
 	return turnOutcome{State: state, Stop: true}
 }
 
@@ -231,12 +229,12 @@ func (p *turnProgressor) finishAssistantOnlyTurn(_ context.Context, state RunSta
 // latest generation's messages are stripped and the conversation is rebuilt
 // from the lineage.
 func finalizeImagesAtRunExitForRequest(req RunRequest, state RunState) RunState {
-	visionState, subAgentConfigured := visionCapabilityContextForRequest(req)
+	visionAvailable := visionSubAgentAvailableForRequest(req)
 	if state.Lineage.Empty() {
-		state.Conversation = stripImagesFromMessages(state.Conversation, visionState, subAgentConfigured)
+		state.Conversation = stripImagesFromMessages(state.Conversation, visionAvailable)
 		return state
 	}
-	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionState, subAgentConfigured))
+	state.Lineage = state.Lineage.WithCurrentMessages(stripImagesFromMessages(state.Lineage.SummaryPrefixStrippedMessages(), visionAvailable))
 	state.Conversation = state.Lineage.FullMessages()
 	return state
 }
@@ -326,6 +324,9 @@ func (p *turnProgressor) advance(ctx context.Context, state RunState) turnOutcom
 	// The bool is unused: handleImagesForVision rewrites state in place through the
 	// pointer, and the rest of the turn reads that state.
 	_ = p.handleImagesForVision(ctx, &state)
+	// Freeze each image's placeholder into the text the provider is about to
+	// receive, so cleanup after delivery removes only bytes.
+	state = p.freezeImagesBeforeDelivery(state)
 	// Stamp the run's applied compaction count so this turn's cache diagnostics
 	// records report which context generation they were issued against.
 	p.request.contextGeneration = p.compactionCount
@@ -504,21 +505,35 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 	return assembly, chatRequest, fit, nil
 }
 
-// getVisionCapabilityContext returns the vision state and sub-agent config for the current alias.
-func (p *turnProgressor) getVisionCapabilityContext() (VisionState, bool) {
-	return visionCapabilityContextForRequest(p.request)
+// freezeImagesBeforeDelivery appends each still-attached image's placeholder to
+// the message text before the turn is assembled, so the prompt the provider
+// receives already carries the text that will survive image cleanup. It runs on
+// the latest generation so the assembled prompt and the state that survives
+// delivery describe the same text.
+func (p *turnProgressor) freezeImagesBeforeDelivery(state RunState) RunState {
+	if state.Lineage.Empty() {
+		state.Conversation = freezeImagePlaceholders(state.Conversation, p.visionSubAgentAvailable())
+		return state
+	}
+	state.Lineage = state.Lineage.WithCurrentMessages(freezeImagePlaceholders(state.Lineage.SummaryPrefixStrippedMessages(), p.visionSubAgentAvailable()))
+	state.Conversation = state.Lineage.FullMessages()
+	return state
 }
 
-// visionCapabilityContextForRequest returns the vision state for the request's
-// resolved model alias and whether a vision sub-agent is configured. When
-// VisionCapabilities is nil, returns VisionUnknown and false (preserving old
-// behavior).
-func visionCapabilityContextForRequest(req RunRequest) (VisionState, bool) {
-	vc := req.VisionCapabilities
-	if vc == nil {
-		return VisionUnknown, false
+// visionSubAgentAvailable reports whether a vision sub-agent is configured, the
+// only condition under which the placeholder may advertise that route.
+func (p *turnProgressor) visionSubAgentAvailable() bool {
+	return visionSubAgentAvailableForRequest(p.request)
+}
+
+// visionSubAgentAvailableForRequest reports whether the request's own vision
+// configuration offers a vision sub-agent, so a child with delegation disabled
+// never advertises that route.
+func visionSubAgentAvailableForRequest(req RunRequest) bool {
+	if vc := req.VisionCapabilities; vc != nil {
+		return vc.SubAgentConfigured()
 	}
-	return vc.Get(req.ResolvedModel.Alias), vc.SubAgentConfigured()
+	return false
 }
 
 // isStrictlyEmptyAssistant reports whether m carries nothing at all: no

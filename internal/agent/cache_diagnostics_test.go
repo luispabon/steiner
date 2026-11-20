@@ -780,8 +780,11 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 					Attempts:             3,
 					CacheAffinityDropped: true,
 					ClaudeSub: &provider.ClaudeSubCallDiagnostics{
-						Process:           "reuse",
-						ReseedReason:      "checkpoint",
+						Process:           "spawn",
+						ReseedReason:      "plan",
+						SyncMismatchIndex: intPtr(0),
+						SyncMismatchRole:  "user",
+						SyncMismatchCheck: "digest",
 						UsageGateMillis:   42,
 						UsageGatePolls:    2,
 						UsageProbeSpawned: true,
@@ -803,11 +806,39 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 				`"context_generation":2`,
 				`"prefix_predecessor_messages":2`,
 				`"prefix_divergence_role":"user"`,
-				`"claudesub_process":"reuse"`,
-				`"claudesub_reseed_reason":"checkpoint"`,
+				`"claudesub_process":"spawn"`,
+				`"claudesub_reseed_reason":"plan"`,
+				// A mismatch at the first request message is serialised as zero.
+				`"claudesub_sync_mismatch_index":0`,
+				`"claudesub_sync_mismatch_role":"user"`,
+				`"claudesub_sync_failed_check":"digest"`,
 				`"claudesub_usage_gate_ms":42`,
 				`"claudesub_usage_gate_polls":2`,
 				`"claudesub_usage_probe_spawned":true`,
+			},
+		},
+		{
+			// A checkpoint reseed has no plan comparison behind it, so the
+			// mismatch fields stay absent while the reason is reported.
+			name: "checkpoint reseed without a mismatch",
+			response: provider.ChatResponse{
+				Usage: &provider.UsageStats{PromptTokens: 10},
+				Diagnostics: &provider.CallDiagnostics{
+					ClaudeSub: &provider.ClaudeSubCallDiagnostics{
+						Process:      "spawn",
+						ReseedReason: "checkpoint",
+					},
+				},
+			},
+			stats: requestCacheStats{prefixHash: "abcd", messageHashes: []string{"a"}},
+			wantPresent: []string{
+				`"claudesub_process":"spawn"`,
+				`"claudesub_reseed_reason":"checkpoint"`,
+			},
+			wantAbsent: []string{
+				"claudesub_sync_mismatch_index",
+				"claudesub_sync_mismatch_role",
+				"claudesub_sync_failed_check",
 			},
 		},
 		{
@@ -833,6 +864,9 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 				"prefix_divergence_role",
 				"claudesub_process",
 				"claudesub_reseed_reason",
+				"claudesub_sync_mismatch_index",
+				"claudesub_sync_mismatch_role",
+				"claudesub_sync_failed_check",
 				"claudesub_usage_gate_ms",
 				"claudesub_usage_gate_polls",
 				"claudesub_usage_probe_spawned",
@@ -852,6 +886,9 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 				"prefix_divergence_role",
 				"claudesub_process",
 				"claudesub_reseed_reason",
+				"claudesub_sync_mismatch_index",
+				"claudesub_sync_mismatch_role",
+				"claudesub_sync_failed_check",
 				"claudesub_usage_gate_ms",
 				"claudesub_usage_gate_polls",
 				"claudesub_usage_probe_spawned",

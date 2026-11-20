@@ -17,10 +17,12 @@ func formatSize(sizeBytes int) string {
 }
 
 // imageBlockPlaceholder returns a compact text token describing an image whose
-// binary data has been stripped. Wording adapts based on whether the model can see images.
-// visionState: the capability state for the current alias (Capable/Incapable/Unknown).
-// subAgentConfigured: whether a vision sub-agent is configured (for routing).
-func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConfigured bool) string {
+// binary data has been stripped. The wording never depends on the model's vision
+// capability or discovery state: the message text a stateful provider has
+// already been sent must stay byte-identical when its image bytes are removed,
+// so the token is frozen before the image's first delivery. visionAvailable
+// names the vision sub-agent route only when one is actually configured.
+func imageBlockPlaceholder(img ImageBlock, visionAvailable bool) string {
 	var dims string
 	if img.Width > 0 && img.Height > 0 {
 		dims = fmt.Sprintf("%dx%d", img.Width, img.Height)
@@ -45,21 +47,10 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 			descriptive = fmt.Sprintf("[image %s: %s %s %s",
 				img.ID, img.FilePath, dims, fmtStr)
 		}
-
-		var suffix string
-		switch {
-		case visionState == VisionIncapable && subAgentConfigured:
-			// Non-vision with sub-agent: advertise follow_up, not read.
-			suffix = " — use follow_up with the agent_id from the image analysis]"
-		case visionState == VisionIncapable:
-			// Non-vision without sub-agent: no re-examine hint.
-			suffix = "]"
-		case subAgentConfigured:
-			suffix = fmt.Sprintf(" — use sub_agent type \"vision\" with image_id \"%s\" or read tool to re-examine]", img.ID)
-		default:
-			suffix = " — use read tool to re-examine]"
+		if visionAvailable {
+			return descriptive + fmt.Sprintf("; use the read tool, or sub_agent type \"vision\" with image_id \"%s\", to re-examine]", img.ID)
 		}
-		return descriptive + suffix
+		return descriptive + "; use the read tool to re-examine]"
 	}
 
 	// Legacy format for backward compat (when ID/FilePath are not set).
@@ -69,37 +60,94 @@ func imageBlockPlaceholder(img ImageBlock, visionState VisionState, subAgentConf
 	return fmt.Sprintf("[image: %s %s]", dims, fmtStr)
 }
 
-// stripImagesFromMessages clears the Data field of every ImageBlock in msgs
-// whose Data is non-empty and appends a placeholder token to the containing
-// message's Content so the model retains awareness of the image without the
-// full base64 payload being re-sent on subsequent turns.
-// visionState: the capability state for the current alias (Capable/Incapable/Unknown).
-// subAgentConfigured: whether a vision sub-agent is configured (for routing).
-func stripImagesFromMessages(msgs []Message, visionState VisionState, subAgentConfigured bool) []Message {
+// imagePlaceholders returns the tokens frozen into this message. They live in
+// provider metadata so Message keeps its size on the hot clone path.
+func (m Message) imagePlaceholders() []string {
+	if m.ProviderMetadata == nil {
+		return nil
+	}
+	return m.ProviderMetadata.ImagePlaceholders
+}
+
+// setImagePlaceholders records tokens, copying any existing metadata first so
+// the shallow message copies freezeImagePlaceholders starts from stay
+// independent.
+func (m *Message) setImagePlaceholders(tokens []string) {
+	metadata := cloneMessageProviderMetadata(m.ProviderMetadata)
+	if metadata == nil {
+		metadata = &MessageProviderMetadata{}
+	}
+	metadata.ImagePlaceholders = append([]string(nil), tokens...)
+	m.ProviderMetadata = metadata
+}
+
+// imageBlockPlaceholders returns the tokens the message's data-carrying images
+// still need, given the tokens already frozen into it. Tokens are claimed in
+// image order, one per data image, so the recorded list alone decides coverage
+// and user text can never be mistaken for a frozen token.
+func imageBlockPlaceholders(msg Message, visionAvailable bool) []string {
+	var out []string
+	frozen := len(msg.imagePlaceholders())
+	seen := 0
+	for _, img := range msg.Images {
+		if img.Data == "" {
+			continue
+		}
+		seen++
+		if seen <= frozen {
+			continue
+		}
+		out = append(out, imageBlockPlaceholder(img, visionAvailable))
+	}
+	return out
+}
+
+// freezeImagePlaceholders appends each image's placeholder token to the
+// containing message's Content before the message first reaches a provider,
+// recording the tokens in its message metadata. Cleanup later removes only
+// the bytes, so the text a stateful provider was sent never changes. The
+// recorded list makes a second pass a no-op and keeps user text that matches a
+// token from being mistaken for one.
+func freezeImagePlaceholders(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
-		if len(out[i].Images) == 0 {
+		needed := imageBlockPlaceholders(out[i], visionAvailable)
+		if len(needed) == 0 {
 			continue
 		}
-		imgs := make([]ImageBlock, len(out[i].Images))
-		copy(imgs, out[i].Images)
-		recorded := false
-		for j := range imgs {
-			if imgs[j].Data == "" {
-				continue
-			}
-			if !recorded {
-				recordImageRewrite(&out[i])
-				recorded = true
-			}
-			placeholder := imageBlockPlaceholder(imgs[j], visionState, subAgentConfigured)
-			imgs[j].Data = ""
-			if out[i].Content == "" {
-				out[i].Content = placeholder
-			} else {
-				out[i].Content = out[i].Content + "\n" + placeholder
-			}
+		// Record the user's own words before the content starts carrying
+		// model-facing tokens. Tool and sourced messages stay unmarked.
+		recordImageRewrite(&out[i])
+		frozen := append([]string(nil), out[i].imagePlaceholders()...)
+		for _, token := range needed {
+			out[i].Content = appendContentToken(out[i].Content, token)
+			frozen = append(frozen, token)
+		}
+		out[i].setImagePlaceholders(frozen)
+	}
+	return out
+}
+
+// stripImagesFromMessages clears the Data field of every ImageBlock in msgs so
+// the payload is not re-sent on later turns. Placeholder tokens frozen before
+// delivery are left untouched; a message that never went through the freeze
+// (a legacy in-memory state or an image no request delivered) gets its
+// placeholders and request record here, before the data is dropped.
+// visionAvailable names the vision sub-agent route only for a caller that knows
+// one is configured; a child with delegation disabled passes false.
+func stripImagesFromMessages(msgs []Message, visionAvailable bool) []Message {
+	out := make([]Message, len(msgs))
+	copy(out, msgs)
+	for i := range out {
+		// A message that never went through the freeze gets its tokens here, and
+		// records the user's words first. Frozen messages append nothing.
+		needed := imageBlockPlaceholders(out[i], visionAvailable)
+		if len(needed) > 0 && len(out[i].imagePlaceholders()) == 0 {
+			recordImageRewrite(&out[i])
+		}
+		for _, token := range needed {
+			out[i].Content = appendContentToken(out[i].Content, token)
 		}
 		out[i].Images = nil
 	}
@@ -108,32 +156,40 @@ func stripImagesFromMessages(msgs []Message, visionState VisionState, subAgentCo
 
 // stripImagesFromMessagesExceptDeferredRead strips all image data except read
 // tool results, which remain available for the immediately following model request.
-func stripImagesFromMessagesExceptDeferredRead(msgs []Message, visionState VisionState, subAgentConfigured bool) []Message {
+func stripImagesFromMessagesExceptDeferredRead(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
 		if isDeferredReadImageMessage(out[i]) {
 			continue
 		}
-		out[i] = stripImagesFromMessages([]Message{out[i]}, visionState, subAgentConfigured)[0]
+		out[i] = stripImagesFromMessages([]Message{out[i]}, visionAvailable)[0]
 	}
 	return out
 }
 
 // stripDeferredReadImages removes read image data after the next model request
 // has consumed it. It does not affect pasted images or other tool messages.
-func stripDeferredReadImages(msgs []Message, visionState VisionState, subAgentConfigured bool) []Message {
+func stripDeferredReadImages(msgs []Message, visionAvailable bool) []Message {
 	out := make([]Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
 		if !isDeferredReadImageMessage(out[i]) {
 			continue
 		}
-		out[i] = stripImagesFromMessages([]Message{out[i]}, visionState, subAgentConfigured)[0]
+		out[i] = stripImagesFromMessages([]Message{out[i]}, visionAvailable)[0]
 	}
 	return out
 }
 
 func isDeferredReadImageMessage(msg Message) bool {
 	return msg.Role == MessageRoleTool && msg.Name == "read" && len(msg.Images) > 0 && msg.Images[0].Data != ""
+}
+
+// appendContentToken appends token to content on its own line.
+func appendContentToken(content, token string) string {
+	if content == "" {
+		return token
+	}
+	return content + "\n" + token
 }

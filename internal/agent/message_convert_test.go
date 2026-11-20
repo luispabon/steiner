@@ -662,6 +662,22 @@ func TestMessageConvert_ToProviderMessage(t *testing.T) {
 		}
 	})
 
+	t.Run("local image placeholders do not reach provider metadata", func(t *testing.T) {
+		msg := Message{
+			Role:             MessageRoleUser,
+			Content:          "look\n[image img-1: /tmp/a.png]",
+			ProviderMetadata: &MessageProviderMetadata{ImagePlaceholders: []string{"[image img-1: /tmp/a.png]"}},
+		}
+		result := toProviderMessage(msg)
+		data, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("marshal provider message: %v", err)
+		}
+		if strings.Contains(string(data), "image_placeholders") {
+			t.Fatalf("provider message JSON = %s, want no local image metadata", data)
+		}
+	})
+
 	t.Run("codex metadata reaches provider message", func(t *testing.T) {
 		msg := Message{
 			Role:             MessageRoleAssistant,

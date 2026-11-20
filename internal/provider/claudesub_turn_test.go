@@ -1671,7 +1671,7 @@ func TestClaudeSubTurnFinalChunkBackendState(t *testing.T) {
 			FinalUUID:              "u7",
 			PromptToolsFingerprint: fingerprint,
 		}
-		if state != want {
+		if !reflect.DeepEqual(state, want) {
 			t.Errorf("backend state = %+v, want %+v", state, want)
 		}
 	})

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -14,7 +15,7 @@ func TestStripImagesFromMessages_basic(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs, VisionUnknown, false)
+	got := stripImagesFromMessages(msgs, false)
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
@@ -42,7 +43,7 @@ func TestStripImagesFromMessages_multiple(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs, VisionUnknown, false)
+	got := stripImagesFromMessages(msgs, false)
 	if got[0].Images != nil {
 		t.Fatal("expected Images to be nil after stripping")
 	}
@@ -64,7 +65,7 @@ func TestStripImagesFromMessages_noImages(t *testing.T) {
 		{Role: MessageRoleUser, Content: "plain text"},
 		{Role: MessageRoleAssistant, Content: "response"},
 	}
-	got := stripImagesFromMessages(msgs, VisionUnknown, false)
+	got := stripImagesFromMessages(msgs, false)
 	for i, m := range got {
 		if m.Content != msgs[i].Content {
 			t.Fatalf("msg[%d].Content changed: got %q, want %q", i, m.Content, msgs[i].Content)
@@ -82,7 +83,7 @@ func TestStripImagesFromMessages_preservesContent(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs, VisionUnknown, false)
+	got := stripImagesFromMessages(msgs, false)
 	wantContent := "existing tool output\n[image: ? png]"
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -99,7 +100,7 @@ func TestStripImagesFromMessages_alreadyStripped(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs, VisionUnknown, false)
+	got := stripImagesFromMessages(msgs, false)
 	// No Data to strip, Content must not grow.
 	if got[0].Content != msgs[0].Content {
 		t.Fatalf("Content changed for already-stripped image: got %q, want %q", got[0].Content, msgs[0].Content)
@@ -129,14 +130,14 @@ func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
 				Role:    MessageRoleUser,
 				Content: tt.content,
 				Images:  []ImageBlock{{MediaType: "image/png", Data: "aaa", Width: 10, Height: 10, SizeBytes: 1024}},
-			}}, VisionUnknown, false)[0]
+			}}, false)[0]
 			if first.RequestText != tt.content {
 				t.Fatalf("first strip RequestText = %q, want %q", first.RequestText, tt.content)
 			}
 
 			// An image arriving later joins the already-routed message.
 			first.Images = []ImageBlock{{MediaType: "image/png", Data: "bbb", Width: 20, Height: 20, SizeBytes: 2048}}
-			second := stripImagesFromMessages([]Message{first}, VisionUnknown, false)[0]
+			second := stripImagesFromMessages([]Message{first}, false)[0]
 			if second.RequestText != tt.content {
 				t.Fatalf("second strip RequestText = %q, want %q, not the placeholder text", second.RequestText, tt.content)
 			}
@@ -149,7 +150,7 @@ func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
 			}
 
 			// Once the image data is gone, another pass changes nothing.
-			third := stripImagesFromMessages([]Message{second}, VisionUnknown, false)[0]
+			third := stripImagesFromMessages([]Message{second}, false)[0]
 			if third.Content != second.Content || third.RequestText != second.RequestText || len(third.Images) != 0 {
 				t.Fatalf("third strip = (%q, RequestText %q, %d images), want (%q, %q, 0)", third.Content, third.RequestText, len(third.Images), second.Content, second.RequestText)
 			}
@@ -159,9 +160,10 @@ func TestStripImagesFromMessagesDoesNotRecordTwice(t *testing.T) {
 
 func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 	tests := []struct {
-		name string
-		img  ImageBlock
-		want string
+		name   string
+		img    ImageBlock
+		vision bool
+		want   string
 	}{
 		{
 			name: "basic image without size",
@@ -205,7 +207,7 @@ func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := imageBlockPlaceholder(tt.img, VisionUnknown, false)
+			got := imageBlockPlaceholder(tt.img, tt.vision)
 			if got != tt.want {
 				t.Fatalf("imageBlockPlaceholder() = %q, want %q", got, tt.want)
 			}
@@ -215,12 +217,13 @@ func TestImageBlockPlaceholder_LegacyFormat(t *testing.T) {
 
 func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 	tests := []struct {
-		name string
-		img  ImageBlock
-		want string
+		name   string
+		img    ImageBlock
+		vision bool
+		want   string
 	}{
 		{
-			name: "image with ID and file path",
+			name: "image with ID and file path, vision sub-agent available",
 			img: ImageBlock{
 				ID:        "img-1",
 				FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
@@ -229,7 +232,8 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    1080,
 				SizeBytes: 456789,
 			},
-			want: `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use read tool to re-examine]`,
+			vision: true,
+			want:   `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB; use the read tool, or sub_agent type "vision" with image_id "img-1", to re-examine]`,
 		},
 		{
 			name: "image with ID but no size",
@@ -241,13 +245,14 @@ func TestImageBlockPlaceholder_NewFormatWithIDAndFilePath(t *testing.T) {
 				Height:    480,
 				SizeBytes: 0,
 			},
-			want: `[image img-2: /tmp/test.jpg 640x480 jpeg — use read tool to re-examine]`,
+			vision: true,
+			want:   `[image img-2: /tmp/test.jpg 640x480 jpeg; use the read tool, or sub_agent type "vision" with image_id "img-2", to re-examine]`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := imageBlockPlaceholder(tt.img, VisionUnknown, false)
+			got := imageBlockPlaceholder(tt.img, tt.vision)
 			if got != tt.want {
 				t.Fatalf("imageBlockPlaceholder() = %q, want %q", got, tt.want)
 			}
@@ -273,7 +278,7 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 			},
 		},
 	}
-	got := stripImagesFromMessages(msgs, VisionUnknown, false)
+	got := stripImagesFromMessages(msgs, false)
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
@@ -281,7 +286,7 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 		t.Fatalf("Images = %v, want nil", got[0].Images)
 	}
 	// Should contain the new format placeholder with the read tool hint.
-	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use read tool to re-examine]`
+	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB; use the read tool to re-examine]`
 	wantContent := "look at this image\n" + wantPlaceholder
 	if got[0].Content != wantContent {
 		t.Fatalf("Content = %q, want %q", got[0].Content, wantContent)
@@ -292,125 +297,108 @@ func TestStripImagesFromMessages_withIDAndFilePath(t *testing.T) {
 	}
 }
 
-func TestImageBlockPlaceholder_VisionCapable(t *testing.T) {
-	img := ImageBlock{
-		ID:        "img-1",
-		FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
-		MediaType: "image/png",
-		Width:     1920,
-		Height:    1080,
-		SizeBytes: 456789,
+// TestFreezeImagePlaceholdersStableAcrossStrip proves the delivery-time freeze
+// and the later byte strip agree: the token is appended once before delivery,
+// recorded in message metadata, and stripping leaves the text untouched.
+func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20, SizeBytes: 2048}
+	msgs := []Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{img}}}
+
+	frozen := freezeImagePlaceholders(msgs, false)
+	wantContent := "look\n" + imageBlockPlaceholder(img, false)
+	if frozen[0].Content != wantContent {
+		t.Fatalf("frozen Content = %q, want %q", frozen[0].Content, wantContent)
 	}
-	got := imageBlockPlaceholder(img, VisionCapable, false)
-	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use read tool to re-examine]`
-	if got != want {
-		t.Fatalf("VisionCapable: got %q, want %q", got, want)
+	if len(frozen[0].imagePlaceholders()) != 1 || frozen[0].imagePlaceholders()[0] != imageBlockPlaceholder(img, false) {
+		t.Fatalf("ImagePlaceholders = %v, want the frozen token", frozen[0].imagePlaceholders())
+	}
+	if len(frozen[0].Images) != 1 || frozen[0].Images[0].Data != "AAAA" {
+		t.Fatalf("freeze removed image data: %#v", frozen[0].Images)
+	}
+
+	// A second freeze pass must not duplicate text or metadata.
+	again := freezeImagePlaceholders(frozen, false)
+	if again[0].Content != wantContent || len(again[0].imagePlaceholders()) != 1 {
+		t.Fatalf("second freeze = (%q, %v), want (%q, one token)", again[0].Content, again[0].imagePlaceholders(), wantContent)
+	}
+
+	stripped := stripImagesFromMessages(again, false)
+	if stripped[0].Content != wantContent {
+		t.Fatalf("stripped Content = %q, want the frozen text %q", stripped[0].Content, wantContent)
+	}
+	if stripped[0].Images != nil {
+		t.Fatalf("stripped Images = %#v, want nil", stripped[0].Images)
+	}
+	// The original delivery message must not be mutated by the strip.
+	if len(frozen[0].Images) != 1 || frozen[0].Images[0].Data != "AAAA" {
+		t.Fatalf("strip mutated its input: %#v", frozen[0].Images)
 	}
 }
 
-func TestImageBlockPlaceholder_VisionCapableWithSubAgent(t *testing.T) {
-	img := ImageBlock{
-		ID:        "img-1",
-		FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
-		MediaType: "image/png",
-		Width:     1920,
-		Height:    1080,
-		SizeBytes: 456789,
+// TestFreezeImagePlaceholdersRecordsRequestBeforeTokens proves the freeze
+// records the user's own words before it appends model-facing tokens, and that
+// an image-only turn records no request text at all.
+func TestFreezeImagePlaceholdersRecordsRequestBeforeTokens(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
+	tests := []struct {
+		name        string
+		content     string
+		wantRequest string
+	}{
+		{name: "text is recorded once", content: "look at this", wantRequest: "look at this"},
+		{name: "image-only turn records nothing"},
 	}
-	got := imageBlockPlaceholder(img, VisionCapable, true)
-	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use sub_agent type "vision" with image_id "img-1" or read tool to re-examine]`
-	if got != want {
-		t.Fatalf("VisionCapable with sub-agent: got %q, want %q", got, want)
-	}
-}
-
-func TestImageBlockPlaceholder_VisionIncapableWithSubAgent(t *testing.T) {
-	img := ImageBlock{
-		ID:        "img-1",
-		FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
-		MediaType: "image/png",
-		Width:     1920,
-		Height:    1080,
-		SizeBytes: 456789,
-	}
-	got := imageBlockPlaceholder(img, VisionIncapable, true)
-	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB — use follow_up with the agent_id from the image analysis]`
-	if got != want {
-		t.Fatalf("VisionIncapable with sub-agent: got %q, want %q", got, want)
-	}
-}
-
-func TestImageBlockPlaceholder_VisionIncapableWithoutSubAgent(t *testing.T) {
-	img := ImageBlock{
-		ID:        "img-1",
-		FilePath:  "/home/user/.steiner/tmp/images/screenshot.png",
-		MediaType: "image/png",
-		Width:     1920,
-		Height:    1080,
-		SizeBytes: 456789,
-	}
-	got := imageBlockPlaceholder(img, VisionIncapable, false)
-	want := `[image img-1: /home/user/.steiner/tmp/images/screenshot.png 1920x1080 png 446KB]`
-	if got != want {
-		t.Fatalf("VisionIncapable without sub-agent: got %q, want %q", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := Message{Role: MessageRoleUser, Content: tt.content, Images: []ImageBlock{img}}
+			frozen := freezeImagePlaceholders([]Message{msg}, false)[0]
+			if frozen.RequestText != tt.wantRequest {
+				t.Fatalf("RequestText after freeze = %q, want %q", frozen.RequestText, tt.wantRequest)
+			}
+			if !frozen.VisionRouted {
+				t.Fatal("VisionRouted = false after freeze, want true")
+			}
+			stripped := stripImagesFromMessages([]Message{frozen}, false)[0]
+			if stripped.RequestText != tt.wantRequest {
+				t.Fatalf("RequestText after strip = %q, want %q", stripped.RequestText, tt.wantRequest)
+			}
+			if strings.Contains(stripped.RequestText, "image") {
+				t.Fatalf("RequestText adopted the placeholder: %q", stripped.RequestText)
+			}
+		})
 	}
 }
 
-func TestStripImagesFromMessages_VisionIncapableWithSubAgent(t *testing.T) {
-	msgs := []Message{
-		{
-			Role:    MessageRoleUser,
-			Content: "look at this image",
-			Images: []ImageBlock{
-				{
-					ID:        "img-1",
-					FilePath:  "/home/user/.steiner/tmp/images/test.png",
-					MediaType: "image/png",
-					Data:      "base64data123",
-					Width:     1920,
-					Height:    1080,
-					SizeBytes: 500000,
-				},
-			},
-		},
+// TestFreezeImagePlaceholdersIgnoresUserTextCollision proves a user message that
+// already contains the placeholder token still gets exactly one frozen token per
+// image: idempotence comes from recorded metadata, not text matching.
+func TestFreezeImagePlaceholdersIgnoresUserTextCollision(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
+	token := imageBlockPlaceholder(img, false)
+	msgs := []Message{{Role: MessageRoleUser, Content: "compare with " + token, Images: []ImageBlock{img}}}
+
+	frozen := freezeImagePlaceholders(msgs, false)
+	if want := "compare with " + token + "\n" + token; frozen[0].Content != want {
+		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
-	got := stripImagesFromMessages(msgs, VisionIncapable, true)
-	if got[0].Images != nil {
-		t.Fatalf("Images should be nil")
-	}
-	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB — use follow_up with the agent_id from the image analysis]`
-	wantContent := "look at this image\n" + wantPlaceholder
-	if got[0].Content != wantContent {
-		t.Fatalf("got %q, want %q", got[0].Content, wantContent)
+	if len(frozen[0].imagePlaceholders()) != 1 {
+		t.Fatalf("ImagePlaceholders = %v, want one recorded token", frozen[0].imagePlaceholders())
 	}
 }
 
-func TestStripImagesFromMessages_VisionIncapableWithoutSubAgent(t *testing.T) {
-	msgs := []Message{
-		{
-			Role:    MessageRoleUser,
-			Content: "look at this image",
-			Images: []ImageBlock{
-				{
-					ID:        "img-1",
-					FilePath:  "/home/user/.steiner/tmp/images/test.png",
-					MediaType: "image/png",
-					Data:      "base64data123",
-					Width:     1920,
-					Height:    1080,
-					SizeBytes: 500000,
-				},
-			},
-		},
+// TestFreezeImagePlaceholdersKeepsDuplicateImages proves two copies of one image
+// get two placeholder tokens and two recorded entries.
+func TestFreezeImagePlaceholdersKeepsDuplicateImages(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 10, Height: 20}
+	msgs := []Message{{Role: MessageRoleUser, Images: []ImageBlock{img, img}}}
+
+	frozen := freezeImagePlaceholders(msgs, false)
+	token := imageBlockPlaceholder(img, false)
+	if want := token + "\n" + token; frozen[0].Content != want {
+		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
-	got := stripImagesFromMessages(msgs, VisionIncapable, false)
-	if got[0].Images != nil {
-		t.Fatalf("Images should be nil")
-	}
-	wantPlaceholder := `[image img-1: /home/user/.steiner/tmp/images/test.png 1920x1080 png 488KB]`
-	wantContent := "look at this image\n" + wantPlaceholder
-	if got[0].Content != wantContent {
-		t.Fatalf("got %q, want %q", got[0].Content, wantContent)
+	if len(frozen[0].imagePlaceholders()) != 2 {
+		t.Fatalf("ImagePlaceholders = %v, want two entries", frozen[0].imagePlaceholders())
 	}
 }
 
@@ -462,7 +450,7 @@ func TestStripImagesFromMessagesRecordsUserRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := stripImagesFromMessages([]Message{tt.message}, VisionUnknown, false)[0]
+			got := stripImagesFromMessages([]Message{tt.message}, false)[0]
 			if got.RequestText != tt.wantRequest {
 				t.Fatalf("RequestText = %q, want %q", got.RequestText, tt.wantRequest)
 			}
@@ -471,6 +459,32 @@ func TestStripImagesFromMessagesRecordsUserRequest(t *testing.T) {
 			}
 			if got.Images != nil {
 				t.Fatalf("Images = %v, want nil", got.Images)
+			}
+		})
+	}
+}
+
+// TestFreezeImagePlaceholdersHintsOnlyAvailableRoutes proves the frozen token
+// advertises the vision sub-agent route only when one is configured, and keeps
+// the read route either way.
+func TestFreezeImagePlaceholdersHintsOnlyAvailableRoutes(t *testing.T) {
+	img := ImageBlock{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "AAAA", Width: 1, Height: 1}
+	tests := []struct {
+		name            string
+		visionAvailable bool
+		wantSubAgent    bool
+	}{
+		{name: "delegation disabled", visionAvailable: false, wantSubAgent: false},
+		{name: "vision sub-agent available", visionAvailable: true, wantSubAgent: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frozen := freezeImagePlaceholders([]Message{{Role: MessageRoleUser, Content: "look", Images: []ImageBlock{img}}}, tt.visionAvailable)[0]
+			if !strings.Contains(frozen.Content, "use the read tool") {
+				t.Fatalf("Content = %q, want the read route kept", frozen.Content)
+			}
+			if got := strings.Contains(frozen.Content, "sub_agent type"); got != tt.wantSubAgent {
+				t.Fatalf("sub-agent hint present = %t, want %t in %q", got, tt.wantSubAgent, frozen.Content)
 			}
 		})
 	}

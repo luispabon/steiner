@@ -15,16 +15,20 @@ const claudeSubBackendStateVersion = 1
 // for resumption (D2). It holds identifiers and digests only, never message
 // text, tool payloads or credentials.
 type claudeSubBackendState struct {
-	Provider               string `json:"provider"`
-	Version                int    `json:"version"`
-	CLISessionID           string `json:"cli_session_id"`
-	TransportSession       string `json:"transport_session"`
-	SyncEntries            int    `json:"sync_entries"`
-	SyncChainDigest        string `json:"sync_chain_digest"`
-	SyncPrefixDigest       string `json:"sync_prefix_digest"`
-	FinalMessageDigest     string `json:"final_message_digest"`
-	FinalUUID              string `json:"final_uuid"`
-	PromptToolsFingerprint string `json:"prompt_tools_fingerprint"`
+	Provider         string `json:"provider"`
+	Version          int    `json:"version"`
+	CLISessionID     string `json:"cli_session_id"`
+	TransportSession string `json:"transport_session"`
+	SyncEntries      int    `json:"sync_entries"`
+	SyncChainDigest  string `json:"sync_chain_digest"`
+	SyncPrefixDigest string `json:"sync_prefix_digest"`
+	// SyncEntryImages holds, per entry, the fingerprints of the images the CLI
+	// received for that message. It is digests only, never payloads, and it lets
+	// a resume rebuild the record after steiner stripped the image bytes.
+	SyncEntryImages        [][]string `json:"sync_entry_images,omitempty"`
+	FinalMessageDigest     string     `json:"final_message_digest"`
+	FinalUUID              string     `json:"final_uuid"`
+	PromptToolsFingerprint string     `json:"prompt_tools_fingerprint"`
 }
 
 // checkpoint describes the record as of its last committed entry, owned by
@@ -66,6 +70,15 @@ func (s *claudeSubSync) checkpointAt(transportSession string, n int) (state clau
 		last := entries[n-1]
 		state.FinalMessageDigest = last.Digest
 		state.FinalUUID = last.UUID
+		for i, entry := range entries {
+			if len(entry.Images) == 0 {
+				continue
+			}
+			if state.SyncEntryImages == nil {
+				state.SyncEntryImages = make([][]string, n)
+			}
+			state.SyncEntryImages[i] = append([]string(nil), entry.Images...)
+		}
 	}
 	return state, true, nil
 }
@@ -144,12 +157,38 @@ func claudeSubResumeEntries(msgs []Message, stored claudeSubBackendState) ([]cla
 		return nil, false
 	}
 	entries := claudeSubEntriesFromMessages(msgs[:n])
+	for i := range entries {
+		recorded := stored.SyncEntryImagesAt(i)
+		current := claudeSubImageClaim(msgs[i])
+		switch {
+		case len(recorded) == 0 && len(current) == 0:
+		case len(recorded) == 0:
+			// The request carries images for a message the process was never sent.
+			return nil, false
+		case len(current) == 0:
+			entries[i].Images = recorded
+		default:
+			if !claudeSubImagesSubset(current, recorded) || !claudeSubImagesSubset(recorded, current) {
+				return nil, false
+			}
+			entries[i].Images = recorded
+		}
+	}
 	last := &entries[n-1]
 	if last.Role != MessageRoleAssistant || last.Digest != stored.FinalMessageDigest {
 		return nil, false
 	}
 	last.UUID = stored.FinalUUID
 	return entries, true
+}
+
+// SyncEntryImagesAt returns the stored image fingerprints of one entry, or nil
+// when the entry had none or the state predates the field.
+func (st claudeSubBackendState) SyncEntryImagesAt(i int) []string {
+	if i < 0 || i >= len(st.SyncEntryImages) {
+		return nil
+	}
+	return st.SyncEntryImages[i]
 }
 
 // claudeSubPrefixDigest is the chain digest of entries with their CLI uuids
@@ -266,7 +305,7 @@ func claudeSubHasHistory(msgs []Message) bool {
 // messages.
 func claudeSubReseedDelta(msgs []Message) claudeSubDelta {
 	transcript := Message{Role: MessageRoleUser, Content: claudeSubTranscript(msgs)}
-	entries := claudeSubEntriesFromMessages(msgs)
+	entries := claudeSubDeliveredEntriesFromMessages(msgs)
 	for _, m := range msgs {
 		for _, img := range m.Images {
 			if img.Data != "" {

@@ -1070,7 +1070,7 @@ func TestClaudeSubBackendState(t *testing.T) {
 			if err := json.Unmarshal(raw, &got); err != nil {
 				t.Fatalf("decode backend state: %v", err)
 			}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("backend state = %+v, want %+v", got, want)
 			}
 		})
@@ -1097,7 +1097,7 @@ func TestClaudeSubBackendStateTracksEntryUUID(t *testing.T) {
 		return state
 	}
 	base := stateFor(t, "u7")
-	if again := stateFor(t, "u7"); again != base {
+	if again := stateFor(t, "u7"); !reflect.DeepEqual(again, base) {
 		t.Errorf("identical record gave %+v, want %+v", again, base)
 	}
 	changed := stateFor(t, "u8")

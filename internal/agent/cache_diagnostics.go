@@ -82,6 +82,13 @@ type cachePayload struct {
 	ClaudeSubUsageGateMillis   int64  `json:"claudesub_usage_gate_ms,omitempty"`
 	ClaudeSubUsageGatePolls    int    `json:"claudesub_usage_gate_polls,omitempty"`
 	ClaudeSubUsageProbeSpawned bool   `json:"claudesub_usage_probe_spawned,omitempty"`
+	// ClaudeSubSyncMismatchIndex is the request position where the live sync
+	// record first failed to match, present only when that mismatch made the
+	// call reseed. A pointer keeps a divergence at position zero distinct from
+	// no mismatch.
+	ClaudeSubSyncMismatchIndex *int   `json:"claudesub_sync_mismatch_index,omitempty"`
+	ClaudeSubSyncMismatchRole  string `json:"claudesub_sync_mismatch_role,omitempty"`
+	ClaudeSubSyncFailedCheck   string `json:"claudesub_sync_failed_check,omitempty"`
 }
 
 // wireCachePayload is the optional wire block of a cache record. Every value
@@ -193,6 +200,9 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 			payload.ClaudeSubUsageGateMillis = claudeSub.UsageGateMillis
 			payload.ClaudeSubUsageGatePolls = claudeSub.UsageGatePolls
 			payload.ClaudeSubUsageProbeSpawned = claudeSub.UsageProbeSpawned
+			payload.ClaudeSubSyncMismatchIndex = claudeSub.SyncMismatchIndex
+			payload.ClaudeSubSyncMismatchRole = claudeSub.SyncMismatchRole
+			payload.ClaudeSubSyncFailedCheck = claudeSub.SyncMismatchCheck
 		}
 	}
 	req.Diagnostics.Write(diagnostics.Record{

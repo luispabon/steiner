@@ -54,8 +54,9 @@ func TestCloneMessagesFidelity(t *testing.T) {
 					TokenCount: 10,
 				},
 				ProviderMetadata: &MessageProviderMetadata{
-					Anthropic: &AnthropicMessageMetadata{ThinkingSignature: "sig"},
-					Codex:     &CodexMessageMetadata{ReasoningID: "rid"},
+					Anthropic:         &AnthropicMessageMetadata{ThinkingSignature: "sig"},
+					Codex:             &CodexMessageMetadata{ReasoningID: "rid"},
+					ImagePlaceholders: []string{"[image img_1: /tmp/img.png]"},
 				},
 			},
 		},
@@ -151,6 +152,10 @@ func TestCloneMessagesFidelity(t *testing.T) {
 				if tt.message.ProviderMetadata.Codex != nil && len(tt.message.ProviderMetadata.Codex.Blocks) > 0 &&
 					&cloned.ProviderMetadata.Codex.Blocks[0] == &tt.message.ProviderMetadata.Codex.Blocks[0] {
 					t.Error("Codex blocks backing array shared with original")
+				}
+				if len(tt.message.ProviderMetadata.ImagePlaceholders) > 0 &&
+					&cloned.ProviderMetadata.ImagePlaceholders[0] == &tt.message.ProviderMetadata.ImagePlaceholders[0] {
+					t.Error("ImagePlaceholders backing array shared with original")
 				}
 			}
 		})

@@ -102,8 +102,8 @@ func TestFinalizeImagesAtRunExitForRequest(t *testing.T) {
 				if !reflect.DeepEqual(got.Conversation, got.Lineage.FullMessages()) {
 					t.Fatalf("conversation not rebuilt from lineage: %#v", got.Conversation)
 				}
-				if !strings.Contains(got.Conversation[1].Content, "use follow_up") {
-					t.Fatalf("capability-specific placeholder missing: %q", got.Conversation[1].Content)
+				if !strings.Contains(got.Conversation[1].Content, `sub_agent type "vision" with image_id "img-2"`) {
+					t.Fatalf("frozen placeholder missing: %q", got.Conversation[1].Content)
 				}
 			},
 		},
