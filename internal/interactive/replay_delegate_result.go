@@ -9,6 +9,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/usagestats"
 )
 
 const replayNoResultMessage = "no result"
@@ -170,20 +171,24 @@ type replayedDelegateResult struct {
 	InputTokens       int    `json:"input_tokens"`
 	CacheReadTokens   int    `json:"cache_read_tokens"`
 	CacheCreateTokens int    `json:"cache_create_tokens"`
-	compact           bool
+	// CacheReportedInputTokens is absent from results recorded before it
+	// existed, so replay falls back to inferring presence from cache tokens.
+	CacheReportedInputTokens int `json:"cache_reported_input_tokens"`
+	compact                  bool
 }
 
 type replayedDelegationState struct {
-	agentID           string
-	status            string
-	output            string
-	error             string
-	turnCount         int
-	tokenCount        int
-	toolCallCount     int
-	inputTokens       int
-	cacheReadTokens   int
-	cacheCreateTokens int
+	agentID                  string
+	status                   string
+	output                   string
+	error                    string
+	turnCount                int
+	tokenCount               int
+	toolCallCount            int
+	inputTokens              int
+	cacheReadTokens          int
+	cacheCreateTokens        int
+	cacheReportedInputTokens int
 }
 
 func decodeReplayedDelegateResult(content string) (replayedDelegateResult, bool) {
@@ -308,6 +313,14 @@ func applyDecodedDelegationState(state *replayedDelegationState, decoded replaye
 	state.inputTokens = decoded.InputTokens
 	state.cacheReadTokens = decoded.CacheReadTokens
 	state.cacheCreateTokens = decoded.CacheCreateTokens
+	state.cacheReportedInputTokens = decoded.CacheReportedInputTokens
+	if state.cacheReportedInputTokens == 0 {
+		// Results recorded before the field existed only prove cache reporting
+		// through positive cache tokens.
+		state.cacheReportedInputTokens, _ = usagestats.CacheReportedInput(
+			decoded.InputTokens+decoded.CacheReadTokens+decoded.CacheCreateTokens,
+			decoded.CacheReadTokens, decoded.CacheCreateTokens, false)
+	}
 }
 
 func applyRetainedDelegationState(state *replayedDelegationState, retention *agent.MessageRetention) {

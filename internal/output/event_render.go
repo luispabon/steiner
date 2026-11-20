@@ -278,7 +278,7 @@ func renderDelegationCompleteEvent(payload DelegationCompleteEvent) Segment {
 	parts = appendIntField(parts, "tokens_out", payload.TokenCount)
 	parts = appendIntField(parts, "tokens_total", inTokens+payload.TokenCount)
 	parts = appendIntField(parts, "tool_calls", payload.ToolCallCount)
-	if rate, ok := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens); ok {
+	if rate, ok := usagestats.ReportedHitRate(payload.CacheReadTokens, payload.CacheReportedInputTokens); ok {
 		parts = appendField(parts, "cache", fmt.Sprintf("%.1f%%", rate*100))
 	}
 	return Segment{Channel: ChannelStatus, Label: "delegation complete", Text: strings.Join(parts, " ")}
@@ -295,7 +295,7 @@ func renderAdvisorCompleteEvent(payload AdvisorCompleteEvent) Segment {
 	if payload.Truncated {
 		parts = append(parts, "truncated=true")
 	}
-	if rate, ok := usagestats.HitRate(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens); ok {
+	if rate, ok := usagestats.ReportedHitRate(payload.CacheReadTokens, payload.CacheReportedInputTokens); ok {
 		parts = appendField(parts, "cache", fmt.Sprintf("%.1f%%", rate*100))
 	}
 	channel := ChannelStatus

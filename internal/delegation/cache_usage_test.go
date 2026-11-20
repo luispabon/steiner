@@ -86,22 +86,24 @@ func TestTokenUsageOf(t *testing.T) {
 
 // TestTokenUsageOf_HitRateRegression pins Fix 0 (issue #490): RunState.InputTokens
 // must already be the non-cached portion, so tokenUsageOf must not double-count
-// cache-read tokens when feeding usagestats.HitRate. For a turn with 100 total
+// cache-read tokens when feeding usagestats.ReportedHitRate. For a turn with
+// 100 total
 // prompt tokens where 50 were served from cache, the hit rate must be 50/100 =
 // 50%, not 50/150.
 func TestTokenUsageOf_HitRateRegression(t *testing.T) {
 	t.Parallel()
 	state := agent.RunState{
-		InputTokens:     50, // non-cached portion: PromptTokens(100) - CacheReadInputTokens(50)
-		CacheReadTokens: 50,
+		InputTokens:              50, // non-cached portion: PromptTokens(100) - CacheReadInputTokens(50)
+		CacheReadTokens:          50,
+		CacheReportedInputTokens: 100,
 	}
 	usage := tokenUsageOf(state)
 
-	rate, ok := usagestats.HitRate(usage.CacheReadTokens, usage.InputTokens, usage.CacheCreateTokens)
+	rate, ok := usagestats.ReportedHitRate(usage.CacheReadTokens, usage.CacheReportedInputTokens)
 	if !ok {
-		t.Fatal("HitRate() ok = false, want true")
+		t.Fatal("ReportedHitRate() ok = false, want true")
 	}
 	if rate != 0.5 {
-		t.Fatalf("HitRate() = %v, want 0.5", rate)
+		t.Fatalf("ReportedHitRate() = %v, want 0.5", rate)
 	}
 }

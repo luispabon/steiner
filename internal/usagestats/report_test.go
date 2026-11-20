@@ -2,37 +2,93 @@ package usagestats
 
 import "testing"
 
-func TestHitRate_Direct(t *testing.T) {
+func TestReportedHitRate(t *testing.T) {
 	tests := []struct {
-		name       string
-		cacheRead  int
-		input      int
-		cacheWrite int
-		wantRate   float64
-		wantOK     bool
+		name          string
+		cacheRead     int
+		reportedInput int
+		wantRate      float64
+		wantOK        bool
 	}{
 		{
-			name:   "zero total",
+			name:   "no reported cache data",
 			wantOK: false,
 		},
 		{
-			name:       "normal mix",
-			cacheRead:  80,
-			input:      10,
-			cacheWrite: 10,
-			wantRate:   0.8,
-			wantOK:     true,
+			name:          "reported with zero reads is a zero percent rate",
+			reportedInput: 100,
+			wantRate:      0,
+			wantOK:        true,
+		},
+		{
+			name:          "normal mix",
+			cacheRead:     80,
+			reportedInput: 100,
+			wantRate:      0.8,
+			wantOK:        true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			rate, ok := HitRate(tc.cacheRead, tc.input, tc.cacheWrite)
+			rate, ok := ReportedHitRate(tc.cacheRead, tc.reportedInput)
 			if ok != tc.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
 			}
 			if ok && rate != tc.wantRate {
 				t.Fatalf("rate = %v, want %v", rate, tc.wantRate)
+			}
+		})
+	}
+}
+
+func TestCacheReportedInput(t *testing.T) {
+	tests := []struct {
+		name          string
+		promptTokens  int
+		cacheRead     int
+		cacheCreate   int
+		cacheReported bool
+		wantTokens    int
+		wantReported  bool
+	}{
+		{
+			name:         "provider said nothing about caching",
+			promptTokens: 100,
+		},
+		{
+			name:          "flag set with zero cache tokens counts as reported",
+			promptTokens:  100,
+			cacheReported: true,
+			wantTokens:    100,
+			wantReported:  true,
+		},
+		{
+			name:         "positive cache tokens infer reporting",
+			promptTokens: 100,
+			cacheRead:    60,
+			cacheCreate:  10,
+			wantTokens:   100,
+			wantReported: true,
+		},
+		{
+			name:          "cache tokens beyond the prompt total floor uncached at zero",
+			promptTokens:  20,
+			cacheRead:     30,
+			cacheReported: true,
+			wantTokens:    30,
+			wantReported:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tokens, reported := CacheReportedInput(tc.promptTokens, tc.cacheRead, tc.cacheCreate, tc.cacheReported)
+			if reported != tc.wantReported {
+				t.Fatalf("reported = %v, want %v", reported, tc.wantReported)
+			}
+			if tokens != tc.wantTokens {
+				t.Fatalf("tokens = %d, want %d", tokens, tc.wantTokens)
 			}
 		})
 	}

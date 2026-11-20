@@ -135,12 +135,12 @@ func (b *contentBuffer) markDelegationDirty(idx int) {
 	b.invalidatePrefixIfCached(idx)
 }
 
-func (dd *delegationDisplayState) applyUsage(cacheRead, input, cacheCreate, tokenCount int) {
+func (dd *delegationDisplayState) applyUsage(cacheRead, input, cacheCreate, cacheReportedInput, tokenCount int) {
 	dd.cacheReadTokens = cacheRead
 	dd.inputTokens = input
 	dd.cacheCreateTokens = cacheCreate
 	dd.tokenCount = tokenCount
-	dd.cacheHitRate, dd.cacheHitOK = usagestats.HitRate(cacheRead, input, cacheCreate)
+	dd.cacheHitRate, dd.cacheHitOK = usagestats.ReportedHitRate(cacheRead, cacheReportedInput)
 }
 
 func (b *contentBuffer) settleDelegation(loc delegationLocator, agentID string) {
@@ -170,11 +170,11 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 				dd.toolCallCount = max(0, payload.ToolCallCount-dd.baselineToolCallCount)
 				// All token counters are whole-life totals for follow-ups, so
 				// they are rendered verbatim with no baseline subtraction.
-				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
+				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.CacheReportedInputTokens, payload.TokenCount)
 			} else {
 				dd.turnCount = payload.TurnCount
 				dd.toolCallCount = payload.ToolCallCount
-				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
+				dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.CacheReportedInputTokens, payload.TokenCount)
 			}
 			if dd.startTime > 0 {
 				dd.elapsed = formatElapsed(dd.startTime, b.nowNanos())
@@ -205,7 +205,7 @@ func (b *contentBuffer) handleDelegationComplete(event output.Event) {
 		advisorDenied: payload.AdvisorDenied,
 	}
 	dd.fillFromTerminalEvent(payload.AgentType, payload.DurationMs)
-	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.TokenCount)
+	dd.applyUsage(payload.CacheReadTokens, payload.InputTokens, payload.CacheCreateTokens, payload.CacheReportedInputTokens, payload.TokenCount)
 	b.registerOccurrence(keyOf(payload.DelegationOccurrence), delegationLocator{seg: b.appendDelegationSegment(dd), dd: dd})
 }
 

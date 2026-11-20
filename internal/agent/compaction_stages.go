@@ -134,7 +134,7 @@ func (s summarizeCompactionStages) run(
 	outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
 	if err == nil {
 		outcome.StageCount = 2
-		outcome.Usage = sumUsageStats(normalOutcome.Usage, outcome.Usage)
+		outcome.Usage, outcome.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, outcome)
 		outcome.SummarizedMessages += normalOutcome.SummarizedMessages
 		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
 		return outcome, nil
@@ -145,7 +145,7 @@ func (s summarizeCompactionStages) run(
 	// any other error stays an error.
 	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome, err); ok {
 		dropped.StageCount = 2
-		dropped.Usage = sumUsageStats(normalOutcome.Usage, dropped.Usage)
+		dropped.Usage, dropped.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, dropped)
 		dropped.SummarizedMessages += normalOutcome.SummarizedMessages
 		dropped.pendingArchive = append(normalOutcome.pendingArchive, dropped.pendingArchive...)
 		return dropped, nil
@@ -157,7 +157,7 @@ func (s summarizeCompactionStages) run(
 			// The emergency call ran and its summary was discarded, but its tokens
 			// were spent and its stage escalated the compaction count.
 			dropped.StageCount = 2
-			dropped.Usage = sumUsageStats(dropped.Usage, outcome.Usage)
+			dropped.Usage, dropped.CacheReportedInputTokens = sumCompactionUsage(dropped, outcome)
 		}
 		return dropped, nil
 	}
@@ -242,6 +242,13 @@ func sumUsageStats(a, b *provider.UsageStats) *provider.UsageStats {
 		out.CostUSD = sumCostUSD(out.CostUSD, b.CostUSD)
 	}
 	return &out
+}
+
+// sumCompactionUsage returns the token accounting and reported-cache input
+// total of two stage outcomes. A nil usage record adds nothing, matching
+// sumUsageStats.
+func sumCompactionUsage(a, b CompactionOutcome) (*provider.UsageStats, int) {
+	return sumUsageStats(a.Usage, b.Usage), a.CacheReportedInputTokens + b.CacheReportedInputTokens
 }
 
 // sumCostUSD adds two provider-reported costs, treating a nil cost as zero and
@@ -368,21 +375,22 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 
 	return CompactionOutcome{
-		State:               nextState,
-		Applied:             true,
-		Candidate:           candidate,
-		Fit:                 latestFit,
-		Mode:                params.mode,
-		SummaryTokenBudget:  params.maxTokens,
-		SummarizedMessages:  countSummarizedMessages(params.sourceMessages, activeSkillBlocks(state)),
-		RetainedMessages:    retained,
-		SummaryText:         summaryText,
-		PromptText:          plan.promptText,
-		RequestBlock:        requestBlockStatus,
-		RequestBlockBytes:   len(requestBlock),
-		Usage:               response.Usage,
-		BackendStateCleared: cleared,
-		pendingArchive:      pendingArchive,
+		State:                    nextState,
+		Applied:                  true,
+		Candidate:                candidate,
+		Fit:                      latestFit,
+		Mode:                     params.mode,
+		SummaryTokenBudget:       params.maxTokens,
+		SummarizedMessages:       countSummarizedMessages(params.sourceMessages, activeSkillBlocks(state)),
+		RetainedMessages:         retained,
+		SummaryText:              summaryText,
+		PromptText:               plan.promptText,
+		RequestBlock:             requestBlockStatus,
+		RequestBlockBytes:        len(requestBlock),
+		Usage:                    response.Usage,
+		CacheReportedInputTokens: cacheReportedInputTokens(response.Usage),
+		BackendStateCleared:      cleared,
+		pendingArchive:           pendingArchive,
 	}, nil
 }
 

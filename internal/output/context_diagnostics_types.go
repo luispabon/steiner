@@ -58,6 +58,7 @@ type ContextDiagnosticsEvent struct {
 	CacheReadTokens           int      `json:"cache_read_tokens,omitempty"`
 	InputTokens               int      `json:"input_tokens,omitempty"`
 	CacheCreateTokens         int      `json:"cache_create_tokens,omitempty"`
+	CacheReportedInputTokens  int      `json:"cache_reported_input_tokens,omitempty"`
 	PromptTokens              int      `json:"prompt_tokens,omitempty"`
 	RawPromptTokens           int      `json:"raw_prompt_tokens,omitempty"`
 	ContextTokens             int      `json:"context_tokens,omitempty"`
@@ -107,6 +108,7 @@ type ContextCompactionEvent struct {
 	CacheReadTokens           int      `json:"cache_read_tokens,omitempty"`
 	InputTokens               int      `json:"input_tokens,omitempty"`
 	CacheCreateTokens         int      `json:"cache_create_tokens,omitempty"`
+	CacheReportedInputTokens  int      `json:"cache_reported_input_tokens,omitempty"`
 	PromptTokens              int      `json:"prompt_tokens,omitempty"`
 	RawPromptTokens           int      `json:"raw_prompt_tokens,omitempty"`
 	ContextTokens             int      `json:"context_tokens,omitempty"`
@@ -241,6 +243,7 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		CacheReadTokens:           payload.CacheReadTokens,
 		InputTokens:               payload.InputTokens,
 		CacheCreateTokens:         payload.CacheCreateTokens,
+		CacheReportedInputTokens:  payload.CacheReportedInputTokens,
 		PromptTokens:              payload.PromptTokens,
 		RawPromptTokens:           payload.RawPromptTokens,
 		ContextTokens:             payload.ContextTokens,
@@ -362,6 +365,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			CacheReadTokens:           payload.CacheReadTokens,
 			InputTokens:               payload.InputTokens,
 			CacheCreateTokens:         payload.CacheCreateTokens,
+			CacheReportedInputTokens:  payload.CacheReportedInputTokens,
 			PromptTokens:              payload.PromptTokens,
 			RawPromptTokens:           payload.RawPromptTokens,
 			ContextTokens:             payload.ContextTokens,

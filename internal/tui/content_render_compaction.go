@@ -225,7 +225,7 @@ func (b *contentBuffer) compactionHeaderMetaParts(cd *compactionBannerData) []co
 	}
 
 	if cd.finished {
-		if rate, ok := usagestats.HitRate(cd.cacheReadTokens, cd.inputTokens, cd.cacheCreateTokens); ok {
+		if rate, ok := usagestats.ReportedHitRate(cd.cacheReadTokens, cd.cacheReportedInputTokens); ok {
 			plain := "cache " + formatCacheHitRate(rate, ok)
 			parts = append(parts, compactionHeaderPart{plain: plain, styled: b.styles.FgDim.Render(plain), priority: compactionMetaCachePriority})
 		}

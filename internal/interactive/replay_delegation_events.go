@@ -124,5 +124,5 @@ func (s *Session) emitDelegationFailure(occ output.DelegationOccurrence, task, e
 }
 
 func (s *Session) emitDelegationComplete(occ output.DelegationOccurrence, state replayedDelegationState, timestamp time.Time) {
-	s.events.Emit(eventWithTimestamp(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens}), timestamp))
+	s.events.Emit(eventWithTimestamp(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{DelegationOccurrence: occ, Status: state.status, TurnCount: state.turnCount, TokenCount: state.tokenCount, ToolCallCount: state.toolCallCount, Output: state.output, InputTokens: state.inputTokens, CacheReadTokens: state.cacheReadTokens, CacheCreateTokens: state.cacheCreateTokens, CacheReportedInputTokens: state.cacheReportedInputTokens}), timestamp))
 }

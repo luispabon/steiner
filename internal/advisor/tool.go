@@ -222,26 +222,28 @@ func (s *handlerState) handle(ctx context.Context, deps HandlerDeps, input map[s
 		note = "advisor returned no content"
 	}
 
-	var cacheReadTokens, cacheCreateTokens, inputTokens int
+	var cacheReadTokens, cacheCreateTokens, inputTokens, cacheReportedInputTokens int
 	if response.Usage != nil {
 		cacheReadTokens = response.Usage.CacheReadInputTokens
 		cacheCreateTokens = response.Usage.CacheCreationInputTokens
 		// HitRate's second argument is the NON-cached portion of the prompt
 		// (see usagestats.Report.InputTokens); Usage.PromptTokens is the total.
 		inputTokens = response.Usage.NonCachedPromptTokens()
+		cacheReportedInputTokens, _ = usagestats.CacheReportedInput(response.Usage.PromptTokens, cacheReadTokens, cacheCreateTokens, response.Usage.CacheReported)
 	}
 
 	emitEvent(deps.Events, output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
-		Model:             deps.Model.BackendModelID,
-		UseNumber:         nextUse,
-		MaxUses:           maxUses,
-		Note:              note,
-		Truncated:         truncated,
-		CacheReadTokens:   cacheReadTokens,
-		CacheCreateTokens: cacheCreateTokens,
-		InputTokens:       inputTokens,
-		TokenCount:        provider.UsageCompletionTokenCount(response.Usage),
-		Reduction:         reductionParams(reduction.diagnostics),
+		Model:                    deps.Model.BackendModelID,
+		UseNumber:                nextUse,
+		MaxUses:                  maxUses,
+		Note:                     note,
+		Truncated:                truncated,
+		CacheReadTokens:          cacheReadTokens,
+		CacheCreateTokens:        cacheCreateTokens,
+		InputTokens:              inputTokens,
+		CacheReportedInputTokens: cacheReportedInputTokens,
+		TokenCount:               provider.UsageCompletionTokenCount(response.Usage),
+		Reduction:                reductionParams(reduction.diagnostics),
 	}))
 	return note, nil
 }

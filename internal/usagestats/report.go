@@ -53,10 +53,7 @@ func (t Totals) InputTotal() int {
 // CacheReportedInputTokens. When nothing reported cache data, ok is false and
 // rate is 0; callers should render the no-data placeholder.
 func (t Totals) HitRate() (rate float64, ok bool) {
-	if t.CacheReportedInputTokens == 0 {
-		return 0, false
-	}
-	return float64(t.CacheReadTokens) / float64(t.CacheReportedInputTokens), true
+	return ReportedHitRate(t.CacheReadTokens, t.CacheReportedInputTokens)
 }
 
 // UncachedPerRequest returns the average per-request tokens that did not
@@ -190,10 +187,7 @@ func (s *SessionReport) addCumulative(c sessionCounters) {
 // input total. When that request's provider reported no cache data, ok is
 // false and rate is 0.
 func (s SessionReport) LastHitRate() (rate float64, ok bool) {
-	if s.LastCacheReportedInputTokens == 0 {
-		return 0, false
-	}
-	return float64(s.LastCacheReadTokens) / float64(s.LastCacheReportedInputTokens), true
+	return ReportedHitRate(int(s.LastCacheReadTokens), int(s.LastCacheReportedInputTokens))
 }
 
 // HitRate returns the token-weighted cache hit rate for the session, over the
@@ -201,10 +195,7 @@ func (s SessionReport) LastHitRate() (rate float64, ok bool) {
 // CacheReportedInputTokens is zero, ok is false and rate is 0; callers should
 // render the no-data placeholder.
 func (s SessionReport) HitRate() (rate float64, ok bool) {
-	if s.CacheReportedInputTokens == 0 {
-		return 0, false
-	}
-	return float64(s.CacheReadTokens) / float64(s.CacheReportedInputTokens), true
+	return ReportedHitRate(int(s.CacheReadTokens), int(s.CacheReportedInputTokens))
 }
 
 // CachedPerRequest returns the average cache-read tokens per request this
@@ -224,12 +215,36 @@ func (s SessionReport) UncachedPerRequest() (float64, bool) {
 	return perRequest(int(s.TotalInputTokens-s.CacheReadTokens), int(s.Requests))
 }
 
-// HitRate computes cacheRead / (input + cacheRead + cacheCreate).
-// Returns (0, false) when total is zero to avoid division by zero.
-func HitRate(cacheRead, input, cacheCreate int) (float64, bool) {
-	total := input + cacheRead + cacheCreate
-	if total == 0 {
+// ReportedHitRate returns the token-weighted cache hit rate over the calls
+// that reported cache data, cacheRead / cacheReportedInput. ok is false when
+// cacheReportedInput is zero, which means no call reported cache data, so a
+// provider that says nothing about caching never reads as a 0% miss.
+func ReportedHitRate(cacheRead, cacheReportedInput int) (float64, bool) {
+	if cacheReportedInput == 0 {
 		return 0, false
 	}
-	return float64(cacheRead) / float64(total), true
+	return float64(cacheRead) / float64(cacheReportedInput), true
+}
+
+// CacheReportedInput returns one call's prompt-side input total (uncached plus
+// cache read plus cache create) and whether its provider reported cache data.
+// A positive cache token count counts as reported even when cacheReported is
+// false, the same inference Record applies, so callers that predate the flag
+// keep counting their cache traffic. The total is zero when nothing was
+// reported.
+func CacheReportedInput(promptTokens, cacheRead, cacheCreate int, cacheReported bool) (tokens int, reported bool) {
+	if !cacheReported && cacheRead+cacheCreate <= 0 {
+		return 0, false
+	}
+	return nonCachedPromptTokens(promptTokens, cacheRead, cacheCreate) + cacheRead + cacheCreate, true
+}
+
+// nonCachedPromptTokens returns the uncached part of a prompt total, floored at
+// zero because a provider may report cache tokens outside the prompt total.
+func nonCachedPromptTokens(promptTokens, cacheRead, cacheCreate int) int {
+	uncached := promptTokens - cacheRead - cacheCreate
+	if uncached < 0 {
+		return 0
+	}
+	return uncached
 }

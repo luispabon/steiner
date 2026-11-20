@@ -142,15 +142,16 @@ func TestHandleDelegationCompleteSetsCacheHitRateFromPayload(t *testing.T) {
 	buffer.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: agentOcc("child-cache"),
-			Status:               "complete",
-			TurnCount:            2,
-			TokenCount:           1000,
-			ToolCallCount:        3,
-			InputTokens:          50,
-			CacheReadTokens:      950,
-			CacheCreateTokens:    0,
-			Output:               "done",
+			DelegationOccurrence:     agentOcc("child-cache"),
+			Status:                   "complete",
+			TurnCount:                2,
+			TokenCount:               1000,
+			ToolCallCount:            3,
+			InputTokens:              50,
+			CacheReadTokens:          950,
+			CacheCreateTokens:        0,
+			CacheReportedInputTokens: 1000,
+			Output:                   "done",
 		},
 	})
 
@@ -177,17 +178,61 @@ func TestDelegationCompleteOverridesLiveCacheTotals(t *testing.T) {
 	t.Parallel()
 	b := newTestBuffer(t)
 	b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-final-cache"), "inspect", "", ""))
-	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 200, CacheReadTokens: 150, CompletionTokens: 4}), "child-final-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 200, CacheReadTokens: 150, CacheReportedInputTokens: 200, CompletionTokens: 4}), "child-final-cache"))
 	b.AppendEvent(output.NewDelegationCompleteEvent(output.DelegationCompleteParams{
-		DelegationOccurrence: agentOcc("child-final-cache"),
-		Status:               "complete",
-		InputTokens:          30,
-		CacheReadTokens:      70,
-		TokenCount:           10,
+		DelegationOccurrence:     agentOcc("child-final-cache"),
+		Status:                   "complete",
+		InputTokens:              30,
+		CacheReadTokens:          70,
+		CacheReportedInputTokens: 100,
+		TokenCount:               10,
 	}))
 	dd := delegationStates(b)[0]
 	if dd.status != "complete" || dd.inputTokens != 30 || dd.cacheReadTokens != 70 || dd.cacheHitRate != 0.7 {
 		t.Fatalf("final delegation cache state = %#v, want authoritative 70/100 totals", dd)
+	}
+}
+
+func TestDelegationLiveCacheRateSkipsCallsWithNoReportedCache(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-mixed-cache"), "inspect", "", ""))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 100, CacheReadTokens: 50, CacheReportedInputTokens: 100}), "child-mixed-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 900}), "child-mixed-cache"))
+
+	loc := b.activeDelegations["child-mixed-cache"]
+	if !loc.dd.cacheHitOK || loc.dd.cacheHitRate != 0.5 {
+		t.Fatalf("session cache = %v/%v, want a 50%% rate over the reporting call's input only", loc.dd.cacheHitRate, loc.dd.cacheHitOK)
+	}
+	if loc.dd.latestCacheHitOK {
+		t.Fatal("latest cache ok = true, want false for a call that reported no cache data")
+	}
+
+	// A provider that never reports cache fields shows no cache segment at all.
+	quiet := newTestBuffer(t)
+	quiet.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-no-cache"), "inspect", "", ""))
+	quiet.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 900}), "child-no-cache"))
+	quietLoc := quiet.activeDelegations["child-no-cache"]
+	if quietLoc.dd.cacheHitOK {
+		t.Fatal("cacheHitOK = true, want false when the provider reported no cache data")
+	}
+	if got := stripANSI(quiet.renderDelegationHeaderMeta(quietLoc.dd)); strings.Contains(got, "cache") {
+		t.Fatalf("running header meta = %q, want no cache segment", got)
+	}
+}
+
+func TestAdvisorCompleteOmitsCacheRateWhenProviderReportedNone(t *testing.T) {
+	t.Parallel()
+	b := newTestBuffer(t)
+	b.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 1, "question", nil))
+	b.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 1, Note: "n", InputTokens: 500}))
+
+	dd := b.segments[0].delegData
+	if dd.cacheHitOK {
+		t.Fatal("cacheHitOK = true, want false when the provider reported no cache data")
+	}
+	if got := stripANSI(b.renderDelegationStatsRow(dd)); strings.Contains(got, "Cache:") {
+		t.Fatalf("advisor stats row = %q, want no cache segment", got)
 	}
 }
 
@@ -484,8 +529,8 @@ func TestDelegationModelCallUsageKeepsLatestPromptContextFill(t *testing.T) {
 	b := newTestBuffer(t)
 	b.AppendEvent(output.NewDelegationStartedEvent(agentOcc("child-live-cache"), "inspect", "", ""))
 	b.AppendEvent(output.WithAgentScope(output.NewContextTokenBudgetEvent("conversation", 1, 100, 250, 1000, 10, 80, 0, 100, "ok", false), "child-live-cache"))
-	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 120, CacheReadTokens: 70, CompletionTokens: 8}), "child-live-cache"))
-	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 100, CacheReadTokens: 25, CompletionTokens: 3}), "child-live-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 120, CacheReadTokens: 70, CacheReportedInputTokens: 120, CompletionTokens: 8}), "child-live-cache"))
+	b.AppendEvent(output.WithAgentScope(output.NewModelCallFinishedEvent(output.ModelCallFinishedParams{PromptTokens: 100, CacheReadTokens: 25, CacheReportedInputTokens: 100, CompletionTokens: 3}), "child-live-cache"))
 	loc := b.activeDelegations["child-live-cache"]
 	if loc.dd.cacheReadTokens != 95 || loc.dd.inputTokens != 125 {
 		t.Fatalf("live cache totals = read %d input %d, want read 95 input 125", loc.dd.cacheReadTokens, loc.dd.inputTokens)

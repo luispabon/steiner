@@ -81,7 +81,7 @@ Total input tokens are uncached input plus cache-read and cache-write tokens. A 
 
 The `PERFORMANCE` card in the sidebar shows two values under `cache hit`: the latest request (`latest req`) and the whole session (`session`). When the newest main-conversation call was a context compaction, the latest value is labelled `compaction req` instead, so a compaction's low hit rate is not mistaken for a normal turn. These cover the main conversation only, not sub-agent or advisor calls. `/clear` resets both; stored statistics are kept.
 
-Sub-agent boxes show their own cache rate as each model request finishes, for example `Cache: NN.N% latest req · NN.N% session`. Finished compaction banners show the cache rate of the summary request.
+Sub-agent boxes show their own cache rate as each model request finishes, for example `Cache: NN.N% latest req · NN.N% session`. Finished compaction banners show the cache rate of the summary request. These per-event rates follow the same presence rule as the tables below: a box or banner omits the cache segment entirely when no request behind it reported cache data, and shows 0% when the provider reported cache data with no reads.
 
 ### `/token-stats`
 

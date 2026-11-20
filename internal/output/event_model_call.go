@@ -22,18 +22,22 @@ type ModelCallStartedEvent struct {
 
 // ModelCallFinishedEvent records the outcome of a provider request.
 type ModelCallFinishedEvent struct {
-	Turn              int     `json:"turn"`
-	Model             string  `json:"model,omitempty"`
-	FinishReason      string  `json:"finish_reason,omitempty"`
-	ToolCalls         int     `json:"tool_calls,omitempty"`
-	CompletionTokens  int     `json:"completion_tokens,omitempty"`
-	PromptTokens      int     `json:"prompt_tokens,omitempty"`
-	CacheReadTokens   int     `json:"cache_read_tokens,omitempty"`
-	CacheCreateTokens int     `json:"cache_create_tokens,omitempty"`
-	DurationMs        int64   `json:"duration_ms,omitempty"`
-	TTFTMs            int64   `json:"ttft_ms,omitempty"`
-	OutputTPS         float64 `json:"output_tps,omitempty"`
-	Error             string  `json:"error,omitempty"`
+	Turn              int    `json:"turn"`
+	Model             string `json:"model,omitempty"`
+	FinishReason      string `json:"finish_reason,omitempty"`
+	ToolCalls         int    `json:"tool_calls,omitempty"`
+	CompletionTokens  int    `json:"completion_tokens,omitempty"`
+	PromptTokens      int    `json:"prompt_tokens,omitempty"`
+	CacheReadTokens   int    `json:"cache_read_tokens,omitempty"`
+	CacheCreateTokens int    `json:"cache_create_tokens,omitempty"`
+	// CacheReportedInputTokens is the prompt-side input total of this call when
+	// its provider reported cache data. Zero means the provider said nothing
+	// about caching, so no hit rate is shown rather than a 0% miss.
+	CacheReportedInputTokens int     `json:"cache_reported_input_tokens,omitempty"`
+	DurationMs               int64   `json:"duration_ms,omitempty"`
+	TTFTMs                   int64   `json:"ttft_ms,omitempty"`
+	OutputTPS                float64 `json:"output_tps,omitempty"`
+	Error                    string  `json:"error,omitempty"`
 	// Success marks a completed call whose response was accepted. Cancelled
 	// and failed calls leave it false, so consumers can distinguish a cleared
 	// estimate from an absent one.
@@ -152,30 +156,34 @@ type ModelCallFinishedParams struct {
 	PromptTokens      int
 	CacheReadTokens   int
 	CacheCreateTokens int
-	Err               error
-	DurationMs        int64
-	TTFTMs            int64
-	OutputTPS         float64
-	Success           bool
-	CacheColdAt       time.Time
+	// CacheReportedInputTokens is the call's prompt-side input total when its
+	// provider reported cache data; zero means none reported.
+	CacheReportedInputTokens int
+	Err                      error
+	DurationMs               int64
+	TTFTMs                   int64
+	OutputTPS                float64
+	Success                  bool
+	CacheColdAt              time.Time
 }
 
 // NewModelCallFinishedEvent creates a new model call finished event.
 func NewModelCallFinishedEvent(p ModelCallFinishedParams) Event {
 	payload := ModelCallFinishedEvent{
-		Turn:              p.Turn,
-		Model:             p.Model,
-		FinishReason:      p.FinishReason,
-		ToolCalls:         p.ToolCalls,
-		CompletionTokens:  p.CompletionTokens,
-		PromptTokens:      p.PromptTokens,
-		CacheReadTokens:   p.CacheReadTokens,
-		CacheCreateTokens: p.CacheCreateTokens,
-		DurationMs:        p.DurationMs,
-		TTFTMs:            p.TTFTMs,
-		OutputTPS:         p.OutputTPS,
-		Success:           p.Success,
-		CacheColdAt:       p.CacheColdAt,
+		Turn:                     p.Turn,
+		Model:                    p.Model,
+		FinishReason:             p.FinishReason,
+		ToolCalls:                p.ToolCalls,
+		CompletionTokens:         p.CompletionTokens,
+		PromptTokens:             p.PromptTokens,
+		CacheReadTokens:          p.CacheReadTokens,
+		CacheCreateTokens:        p.CacheCreateTokens,
+		CacheReportedInputTokens: p.CacheReportedInputTokens,
+		DurationMs:               p.DurationMs,
+		TTFTMs:                   p.TTFTMs,
+		OutputTPS:                p.OutputTPS,
+		Success:                  p.Success,
+		CacheColdAt:              p.CacheColdAt,
 	}
 	if p.Err != nil {
 		payload.Error = p.Err.Error()

@@ -8,24 +8,29 @@ type TokenUsage struct {
 	OutputTokens      int // completion/output tokens
 	CacheReadTokens   int
 	CacheCreateTokens int
+	// CacheReportedInputTokens is the prompt-side input total of the calls whose
+	// provider reported cache data; zero means none did.
+	CacheReportedInputTokens int
 }
 
 // Add returns u plus v's counters.
 func (u TokenUsage) Add(v TokenUsage) TokenUsage {
 	return TokenUsage{
-		InputTokens:       u.InputTokens + v.InputTokens,
-		CacheReadTokens:   u.CacheReadTokens + v.CacheReadTokens,
-		OutputTokens:      u.OutputTokens + v.OutputTokens,
-		CacheCreateTokens: u.CacheCreateTokens + v.CacheCreateTokens,
+		InputTokens:              u.InputTokens + v.InputTokens,
+		CacheReadTokens:          u.CacheReadTokens + v.CacheReadTokens,
+		OutputTokens:             u.OutputTokens + v.OutputTokens,
+		CacheCreateTokens:        u.CacheCreateTokens + v.CacheCreateTokens,
+		CacheReportedInputTokens: u.CacheReportedInputTokens + v.CacheReportedInputTokens,
 	}
 }
 
 // tokenUsageOf extracts a run's token counters from its final state.
 func tokenUsageOf(state agent.RunState) TokenUsage {
 	return TokenUsage{
-		InputTokens:       state.InputTokens,
-		OutputTokens:      state.TokenCount,
-		CacheReadTokens:   state.CacheReadTokens,
-		CacheCreateTokens: state.CacheCreateTokens,
+		InputTokens:              state.InputTokens,
+		OutputTokens:             state.TokenCount,
+		CacheReadTokens:          state.CacheReadTokens,
+		CacheCreateTokens:        state.CacheCreateTokens,
+		CacheReportedInputTokens: state.CacheReportedInputTokens,
 	}
 }

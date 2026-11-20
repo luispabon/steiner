@@ -144,6 +144,67 @@ func TestSumUsageStats(t *testing.T) {
 	}
 }
 
+func TestSumCompactionUsage(t *testing.T) {
+	tests := []struct {
+		name         string
+		a            CompactionOutcome
+		b            CompactionOutcome
+		wantRead     int
+		wantReported int
+		wantRate     float64
+		wantRateOK   bool
+	}{
+		{
+			name: "no usage stays unreported",
+		},
+		{
+			name:         "both report",
+			a:            CompactionOutcome{Usage: &provider.UsageStats{PromptTokens: 100, CacheReadInputTokens: 40}, CacheReportedInputTokens: 100},
+			b:            CompactionOutcome{Usage: &provider.UsageStats{PromptTokens: 100, CacheReadInputTokens: 60}, CacheReportedInputTokens: 100},
+			wantRead:     100,
+			wantReported: 200,
+			wantRate:     0.5,
+			wantRateOK:   true,
+		},
+		{
+			// The unreported call's prompt tokens stay out of the denominator, so
+			// the mixed rate is the reporting call's alone.
+			name:         "one reports, one says nothing about caching",
+			a:            CompactionOutcome{Usage: &provider.UsageStats{PromptTokens: 100, CacheReadInputTokens: 40, CacheReported: true}, CacheReportedInputTokens: 100},
+			b:            CompactionOutcome{Usage: &provider.UsageStats{PromptTokens: 900}},
+			wantRead:     40,
+			wantReported: 100,
+			wantRate:     0.4,
+			wantRateOK:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			usage, reportedInput := sumCompactionUsage(tc.a, tc.b)
+			if reportedInput != tc.wantReported {
+				t.Fatalf("reportedInput = %d, want %d", reportedInput, tc.wantReported)
+			}
+			if tc.a.Usage == nil && tc.b.Usage == nil {
+				if usage != nil {
+					t.Fatalf("usage = %+v, want nil", usage)
+				}
+				return
+			}
+			if usage == nil || usage.CacheReadInputTokens != tc.wantRead {
+				t.Fatalf("usage = %+v, want CacheReadInputTokens %d", usage, tc.wantRead)
+			}
+			rate, ok := usagestats.ReportedHitRate(usage.CacheReadInputTokens, reportedInput)
+			if ok != tc.wantRateOK {
+				t.Fatalf("ReportedHitRate() ok = %v, want %v", ok, tc.wantRateOK)
+			}
+			if ok && rate != tc.wantRate {
+				t.Fatalf("ReportedHitRate() = %v, want %v", rate, tc.wantRate)
+			}
+		})
+	}
+}
+
 func TestCloneUsageStats(t *testing.T) {
 	t.Run("nil stays nil", func(t *testing.T) {
 		if got := cloneUsageStats(nil); got != nil {

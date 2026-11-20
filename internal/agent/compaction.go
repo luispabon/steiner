@@ -66,6 +66,9 @@ type CompactionOutcome struct {
 	RequestBlockBytes int
 	// Usage is the summarizer response token accounting.
 	Usage *provider.UsageStats
+	// CacheReportedInputTokens is the prompt-side input total of the summary
+	// calls whose provider reported cache data; zero means none did.
+	CacheReportedInputTokens int
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
 	StageCount int
 	// CompactionModel is the canonical ProviderAlias/BackendModelID of the model
@@ -271,24 +274,25 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	if compactionCount != nil {
 		*compactionCount += outcome.StageCount
 		emitCompactionDiagnostics(req.Events, compactionDiagnosticsParams{
-			turn:                 turn,
-			compactionCount:      *compactionCount,
-			beforeFit:            currentFit,
-			afterFit:             outcome.Fit,
-			mode:                 outcome.Mode,
-			summaryTokenBudget:   outcome.SummaryTokenBudget,
-			summarizedMessages:   outcome.SummarizedMessages,
-			retainedMessages:     outcome.RetainedMessages,
-			requestBlock:         outcome.RequestBlock,
-			requestBlockBytes:    outcome.RequestBlockBytes,
-			candidate:            outcome.Candidate,
-			summaryText:          outcome.SummaryText,
-			promptText:           outcome.PromptText,
-			usage:                outcome.Usage,
-			compactionModel:      outcome.CompactionModel,
-			compactionModelAlias: outcome.CompactionModelAlias,
-			fallbackStatus:       outcome.FallbackStatus,
-			fallbackReason:       outcome.FallbackReason,
+			turn:                     turn,
+			compactionCount:          *compactionCount,
+			beforeFit:                currentFit,
+			afterFit:                 outcome.Fit,
+			mode:                     outcome.Mode,
+			summaryTokenBudget:       outcome.SummaryTokenBudget,
+			summarizedMessages:       outcome.SummarizedMessages,
+			retainedMessages:         outcome.RetainedMessages,
+			requestBlock:             outcome.RequestBlock,
+			requestBlockBytes:        outcome.RequestBlockBytes,
+			candidate:                outcome.Candidate,
+			summaryText:              outcome.SummaryText,
+			promptText:               outcome.PromptText,
+			usage:                    outcome.Usage,
+			cacheReportedInputTokens: outcome.CacheReportedInputTokens,
+			compactionModel:          outcome.CompactionModel,
+			compactionModelAlias:     outcome.CompactionModelAlias,
+			fallbackStatus:           outcome.FallbackStatus,
+			fallbackReason:           outcome.FallbackReason,
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true

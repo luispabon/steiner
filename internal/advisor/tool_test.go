@@ -325,7 +325,7 @@ func TestNewHandlerPopulatesInputTokensFromUsage(t *testing.T) {
 			promptTokens: 1000,
 			wantInput:    1000,
 			wantRate:     0,
-			wantRateOK:   true,
+			wantRateOK:   false,
 		},
 		{
 			name:         "partial cache hit",
@@ -397,12 +397,12 @@ func TestNewHandlerPopulatesInputTokensFromUsage(t *testing.T) {
 				t.Fatalf("completed.CacheCreateTokens = %d, want %d", completed.CacheCreateTokens, tt.cacheCreate)
 			}
 
-			gotRate, gotOK := usagestats.HitRate(completed.CacheReadTokens, completed.InputTokens, completed.CacheCreateTokens)
+			gotRate, gotOK := usagestats.ReportedHitRate(completed.CacheReadTokens, completed.CacheReportedInputTokens)
 			if gotOK != tt.wantRateOK {
-				t.Fatalf("HitRate() ok = %v, want %v", gotOK, tt.wantRateOK)
+				t.Fatalf("ReportedHitRate() ok = %v, want %v", gotOK, tt.wantRateOK)
 			}
 			if gotOK && gotRate != tt.wantRate {
-				t.Fatalf("HitRate() = %v, want %v", gotRate, tt.wantRate)
+				t.Fatalf("ReportedHitRate() = %v, want %v", gotRate, tt.wantRate)
 			}
 		})
 	}

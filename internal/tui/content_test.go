@@ -4104,15 +4104,16 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: agentOcc("child-9"),
-			Status:               "complete",
-			TurnCount:            5,
-			TokenCount:           1000,
-			ToolCallCount:        6,
-			InputTokens:          100,
-			CacheReadTokens:      900,
-			CacheCreateTokens:    0,
-			Output:               "original child output",
+			DelegationOccurrence:     agentOcc("child-9"),
+			Status:                   "complete",
+			TurnCount:                5,
+			TokenCount:               1000,
+			ToolCallCount:            6,
+			InputTokens:              100,
+			CacheReadTokens:          900,
+			CacheCreateTokens:        0,
+			CacheReportedInputTokens: 1000,
+			Output:                   "original child output",
 		},
 	})
 
@@ -4146,15 +4147,16 @@ func TestFollowUpCompletionDisplaysCumulativeCacheHitRate(t *testing.T) {
 	b.AppendEvent(output.Event{
 		Type: output.EventTypeDelegationComplete,
 		Payload: output.DelegationCompleteEvent{
-			DelegationOccurrence: callOcc("parent-followup", "child-9"),
-			Status:               "complete",
-			TurnCount:            1,
-			TokenCount:           25,
-			ToolCallCount:        1,
-			InputTokens:          120,
-			CacheReadTokens:      905,
-			CacheCreateTokens:    0,
-			Output:               "follow-up output",
+			DelegationOccurrence:     callOcc("parent-followup", "child-9"),
+			Status:                   "complete",
+			TurnCount:                1,
+			TokenCount:               25,
+			ToolCallCount:            1,
+			InputTokens:              120,
+			CacheReadTokens:          905,
+			CacheCreateTokens:        0,
+			CacheReportedInputTokens: 1025,
+			Output:                   "follow-up output",
 		},
 	})
 
@@ -4310,12 +4312,12 @@ func TestAdvisorCompleteSetsCacheHitRateFromUsage(t *testing.T) {
 	}
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
-	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first", CacheReadTokens: 900, InputTokens: 100}))
+	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{Model: "advisor-model", UseNumber: 1, MaxUses: 2, Note: "check tests first", CacheReadTokens: 900, InputTokens: 100, CacheReportedInputTokens: 1000}))
 
 	seg := buffer.segments[0]
-	wantRate, wantOK := usagestats.HitRate(900, 100, 0)
+	wantRate, wantOK := usagestats.ReportedHitRate(900, 1000)
 	if !wantOK {
-		t.Fatal("test setup: usagestats.HitRate() ok = false, want true")
+		t.Fatal("test setup: usagestats.ReportedHitRate() ok = false, want true")
 	}
 	if !seg.delegData.cacheHitOK {
 		t.Fatal("cacheHitOK = false, want true for a payload with cache token fields")
@@ -4340,14 +4342,15 @@ func TestAdvisorCompleteRendersTokensAndCacheRowsWhenExpanded(t *testing.T) {
 
 	buffer.AppendEvent(output.NewAdvisorStartedEvent("advisor-model", 1, 2, "", nil))
 	buffer.AppendEvent(output.NewAdvisorCompleteEvent(output.AdvisorCompleteParams{
-		Model:             "advisor-model",
-		UseNumber:         1,
-		MaxUses:           2,
-		Note:              "check tests first",
-		CacheReadTokens:   900,
-		CacheCreateTokens: 50,
-		InputTokens:       50,
-		TokenCount:        200,
+		Model:                    "advisor-model",
+		UseNumber:                1,
+		MaxUses:                  2,
+		Note:                     "check tests first",
+		CacheReadTokens:          900,
+		CacheCreateTokens:        50,
+		InputTokens:              50,
+		CacheReportedInputTokens: 1000,
+		TokenCount:               200,
 	}))
 
 	seg := buffer.segments[0]

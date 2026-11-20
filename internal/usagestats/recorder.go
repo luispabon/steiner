@@ -236,10 +236,7 @@ func (r *Recorder) Record(obs Observation) {
 	}
 	hour := at.UTC().Truncate(time.Hour)
 
-	nonCached := obs.PromptTokens - obs.CacheReadTokens - obs.CacheCreateTokens
-	if nonCached < 0 {
-		nonCached = 0
-	}
+	nonCached := nonCachedPromptTokens(obs.PromptTokens, obs.CacheReadTokens, obs.CacheCreateTokens)
 	reasoning := min(max(obs.ReasoningTokens, 0), obs.CompletionTokens)
 
 	key := bucketKey{
@@ -260,10 +257,10 @@ func (r *Recorder) Record(obs Observation) {
 	}
 	// Positive cache token counts prove the provider reported cache data, so
 	// they stand in for CacheReported on callers that predate the flag.
-	cacheReported := obs.CacheReported || obs.CacheReadTokens+obs.CacheCreateTokens > 0
+	reportedInput, cacheReported := CacheReportedInput(obs.PromptTokens, obs.CacheReadTokens, obs.CacheCreateTokens, obs.CacheReported)
 	if cacheReported {
 		delta.CacheReportedRequests = 1
-		delta.CacheReportedInputTokens = nonCached + obs.CacheReadTokens + obs.CacheCreateTokens
+		delta.CacheReportedInputTokens = reportedInput
 	}
 	micro, reported, priced := r.costFor(obs)
 	delta.CostMicroUSD = micro
