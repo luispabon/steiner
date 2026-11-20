@@ -223,7 +223,7 @@ func TestClaudeSubDecodeToolTurn(t *testing.T) {
 	}
 	// The message carries its final stream usage (message_delta), not the
 	// echo's, so the tool-call chunk reports this call's own cost.
-	wantUsage := UsageStats{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 245, TotalTokens: 257}
+	wantUsage := UsageStats{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 245, TotalTokens: 257, CacheReported: true}
 	if got := messages[0].Usage; got == nil || *got != wantUsage {
 		t.Errorf("message usage = %+v, want %+v", got, wantUsage)
 	}

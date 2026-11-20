@@ -35,8 +35,9 @@ import (
 //
 // The result envelope's usage covers the whole CLI query, including the
 // tool-call messages that already carried their own usage. The decoder never
-// sums or reconciles usage; claudeSubConsume reports the remainder on the final
-// text chunk.
+// sums or reconciles usage; claudeSubConsume reports the terminal assistant
+// message's own usage on the final chunk, never the result envelope's
+// query-cumulative total.
 
 var (
 	// errClaudeSubDecodeStream marks a malformed streamed envelope or
@@ -306,15 +307,17 @@ func (d *claudeSubDecoder) decode(ev claudeSubEvent) ([]claudeSubDecoded, error)
 // given snapshot does not report, so an absent cache field must not be read as
 // an explicit zero that clears an earlier value.
 type claudeSubUsage struct {
-	InputTokens              *int `json:"input_tokens"`
-	OutputTokens             *int `json:"output_tokens"`
-	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
+	InputTokens              *int                          `json:"input_tokens"`
+	OutputTokens             *int                          `json:"output_tokens"`
+	CacheCreationInputTokens *int                          `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int                          `json:"cache_read_input_tokens"`
+	OutputTokensDetails      *anthropicOutputTokensDetails `json:"output_tokens_details"`
 }
 
 // toUsageStats converts a presence-aware usage object to UsageStats. Prompt
 // tokens sum the Anthropic input components that are present, matching the
-// anthropic provider's toUsageStats.
+// anthropic provider's toUsageStats. CacheReported is true when either cache
+// field is present, even at zero.
 func (u *claudeSubUsage) toUsageStats() *UsageStats {
 	if u == nil {
 		return nil
@@ -326,13 +329,18 @@ func (u *claudeSubUsage) toUsageStats() *UsageStats {
 	if u.CacheCreationInputTokens != nil {
 		stats.PromptTokens += *u.CacheCreationInputTokens
 		stats.CacheCreationInputTokens = *u.CacheCreationInputTokens
+		stats.CacheReported = true
 	}
 	if u.CacheReadInputTokens != nil {
 		stats.PromptTokens += *u.CacheReadInputTokens
 		stats.CacheReadInputTokens = *u.CacheReadInputTokens
+		stats.CacheReported = true
 	}
 	if u.OutputTokens != nil {
 		stats.CompletionTokens = *u.OutputTokens
+	}
+	if u.OutputTokensDetails != nil && u.OutputTokensDetails.ThinkingTokens != nil {
+		stats.ReasoningTokens = clampReasoningTokens(*u.OutputTokensDetails.ThinkingTokens)
 	}
 	stats.TotalTokens = stats.PromptTokens + stats.CompletionTokens
 	return stats

@@ -97,26 +97,40 @@ type responsesResponse struct {
 }
 
 type responsesUsage struct {
-	InputTokens        int `json:"input_tokens"`
-	OutputTokens       int `json:"output_tokens"`
-	TotalTokens        int `json:"total_tokens"`
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+	// Cache fields are pointers so a present zero is distinguishable from an
+	// absent field. Cost is raw so a non-number shape cannot fail the decode.
 	InputTokensDetails struct {
-		CachedTokens     int `json:"cached_tokens"`
-		CacheWriteTokens int `json:"cache_write_tokens"`
+		CachedTokens     *int `json:"cached_tokens"`
+		CacheWriteTokens *int `json:"cache_write_tokens"`
 	} `json:"input_tokens_details"`
+	OutputTokensDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
+	Cost json.RawMessage `json:"cost"`
 }
 
 func (u *responsesUsage) toUsageStats() *UsageStats {
 	if u == nil {
 		return nil
 	}
-	return &UsageStats{
-		PromptTokens:             u.InputTokens,
-		CompletionTokens:         u.OutputTokens,
-		TotalTokens:              u.TotalTokens,
-		CacheCreationInputTokens: u.InputTokensDetails.CacheWriteTokens,
-		CacheReadInputTokens:     u.InputTokensDetails.CachedTokens,
+	stats := &UsageStats{
+		PromptTokens:     u.InputTokens,
+		CompletionTokens: u.OutputTokens,
+		ReasoningTokens:  clampReasoningTokens(u.OutputTokensDetails.ReasoningTokens),
+		TotalTokens:      u.TotalTokens,
+		CacheReported:    u.InputTokensDetails.CachedTokens != nil || u.InputTokensDetails.CacheWriteTokens != nil,
+		CostUSD:          usageCostUSD(u.Cost),
 	}
+	if u.InputTokensDetails.CachedTokens != nil {
+		stats.CacheReadInputTokens = *u.InputTokensDetails.CachedTokens
+	}
+	if u.InputTokensDetails.CacheWriteTokens != nil {
+		stats.CacheCreationInputTokens = *u.InputTokensDetails.CacheWriteTokens
+	}
+	return stats
 }
 
 func responsesRequestWire(request ChatRequest, defaultModel string, stream bool) (responsesRequest, error) {

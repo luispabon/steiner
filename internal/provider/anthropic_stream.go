@@ -304,14 +304,26 @@ func mergeAnthropicUsage(state *anthropicStreamState, usage *anthropicUsage) {
 	if state.usage == nil {
 		state.usage = &UsageStats{}
 	}
-	promptTokens := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	cacheCreation := usage.cacheCreationTokens()
+	cacheRead := usage.cacheReadTokens()
+	promptTokens := usage.InputTokens + cacheCreation + cacheRead
 	if promptTokens > 0 {
 		state.usage.PromptTokens = promptTokens
-		state.usage.CacheCreationInputTokens = usage.CacheCreationInputTokens
-		state.usage.CacheReadInputTokens = usage.CacheReadInputTokens
+		state.usage.CacheCreationInputTokens = cacheCreation
+		state.usage.CacheReadInputTokens = cacheRead
+	}
+	// Cache presence is sticky: message_delta omits the cache keys message_start
+	// reported, and that omission must not read as an unreported cache.
+	if usage.CacheCreationInputTokens != nil || usage.CacheReadInputTokens != nil {
+		state.usage.CacheReported = true
 	}
 	if usage.OutputTokens > 0 {
 		state.usage.CompletionTokens = usage.OutputTokens
+	}
+	// Thinking tokens arrive as a per-message total on the final message_delta,
+	// so the latest non-zero value replaces the previous one rather than summing.
+	if thinking := usage.thinkingTokens(); thinking > 0 {
+		state.usage.ReasoningTokens = thinking
 	}
 	state.usage.TotalTokens = state.usage.PromptTokens + state.usage.CompletionTokens
 }

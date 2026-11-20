@@ -131,17 +131,25 @@ type openAIStreamError struct {
 
 type openAIPromptTokensDetails struct {
 	CachedTokens     *int `json:"cached_tokens"`
-	CacheWriteTokens int  `json:"cache_write_tokens"`
+	CacheWriteTokens *int `json:"cache_write_tokens"`
+}
+
+type openAICompletionTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 // openAIUsage is the intermediate wire decode for OpenAI-compatible usage data.
+// Cache fields are pointers so a present zero is distinguishable from an absent
+// field, and Cost is raw so a provider-specific shape cannot fail the decode.
 type openAIUsage struct {
-	PromptTokens         int                       `json:"prompt_tokens"`
-	CompletionTokens     int                       `json:"completion_tokens"`
-	TotalTokens          int                       `json:"total_tokens"`
-	PromptTokensDetails  openAIPromptTokensDetails `json:"prompt_tokens_details"`
-	PromptCacheHitTokens *int                      `json:"prompt_cache_hit_tokens"`
-	CachedTokens         *int                      `json:"cached_tokens"`
+	PromptTokens            int                           `json:"prompt_tokens"`
+	CompletionTokens        int                           `json:"completion_tokens"`
+	TotalTokens             int                           `json:"total_tokens"`
+	PromptTokensDetails     openAIPromptTokensDetails     `json:"prompt_tokens_details"`
+	CompletionTokensDetails openAICompletionTokensDetails `json:"completion_tokens_details"`
+	PromptCacheHitTokens    *int                          `json:"prompt_cache_hit_tokens"`
+	CachedTokens            *int                          `json:"cached_tokens"`
+	Cost                    json.RawMessage               `json:"cost"`
 }
 
 func (u *openAIUsage) toUsageStats() *UsageStats {
@@ -153,20 +161,28 @@ func (u *openAIUsage) toUsageStats() *UsageStats {
 		cached = u.PromptTokensDetails.CachedTokens
 	}
 	stats := &UsageStats{
-		PromptTokens:             u.PromptTokens,
-		CompletionTokens:         u.CompletionTokens,
-		TotalTokens:              u.TotalTokens,
-		CacheCreationInputTokens: u.PromptTokensDetails.CacheWriteTokens,
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		ReasoningTokens:  clampReasoningTokens(u.CompletionTokensDetails.ReasoningTokens),
+		TotalTokens:      u.TotalTokens,
+		CacheReported: u.CachedTokens != nil ||
+			u.PromptCacheHitTokens != nil ||
+			u.PromptTokensDetails.CachedTokens != nil ||
+			u.PromptTokensDetails.CacheWriteTokens != nil,
+		CostUSD: usageCostUSD(u.Cost),
 	}
 	if cached != nil {
 		stats.CacheReadInputTokens = *cached
+	}
+	if u.PromptTokensDetails.CacheWriteTokens != nil {
+		stats.CacheCreationInputTokens = *u.PromptTokensDetails.CacheWriteTokens
 	}
 	return stats
 }
 
 // UnmarshalJSON decodes the OpenAI API response, using openAIUsage as the
-// intermediate for the usage field so that prompt_tokens_details.cached_tokens
-// is captured into UsageStats.CacheReadInputTokens.
+// intermediate for the usage field so that the cache fields, reasoning tokens
+// and a numeric cost are captured into UsageStats.
 func (r *openAIResponse) UnmarshalJSON(data []byte) error {
 	type raw struct {
 		Choices []openAIChoice     `json:"choices"`

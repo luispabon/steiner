@@ -61,13 +61,14 @@ func TestAnthropicUsageToUsageStats(t *testing.T) {
 			usage: &anthropicUsage{
 				InputTokens:              11,
 				OutputTokens:             7,
-				CacheCreationInputTokens: 3,
+				CacheCreationInputTokens: intPtr(3),
 			},
 			want: &UsageStats{
 				PromptTokens:             14,
 				CompletionTokens:         7,
 				TotalTokens:              21,
 				CacheCreationInputTokens: 3,
+				CacheReported:            true,
 			},
 		},
 		{
@@ -75,13 +76,29 @@ func TestAnthropicUsageToUsageStats(t *testing.T) {
 			usage: &anthropicUsage{
 				InputTokens:          11,
 				OutputTokens:         7,
-				CacheReadInputTokens: 4,
+				CacheReadInputTokens: intPtr(4),
 			},
 			want: &UsageStats{
 				PromptTokens:         15,
 				CompletionTokens:     7,
 				TotalTokens:          22,
 				CacheReadInputTokens: 4,
+				CacheReported:        true,
+			},
+		},
+		{
+			name: "cache fields present at zero",
+			usage: &anthropicUsage{
+				InputTokens:              11,
+				OutputTokens:             7,
+				CacheCreationInputTokens: intPtr(0),
+				CacheReadInputTokens:     intPtr(0),
+			},
+			want: &UsageStats{
+				PromptTokens:     11,
+				CompletionTokens: 7,
+				TotalTokens:      18,
+				CacheReported:    true,
 			},
 		},
 		{
@@ -89,8 +106,8 @@ func TestAnthropicUsageToUsageStats(t *testing.T) {
 			usage: &anthropicUsage{
 				InputTokens:              11,
 				OutputTokens:             7,
-				CacheCreationInputTokens: 3,
-				CacheReadInputTokens:     4,
+				CacheCreationInputTokens: intPtr(3),
+				CacheReadInputTokens:     intPtr(4),
 			},
 			want: &UsageStats{
 				PromptTokens:             18,
@@ -98,6 +115,34 @@ func TestAnthropicUsageToUsageStats(t *testing.T) {
 				TotalTokens:              25,
 				CacheCreationInputTokens: 3,
 				CacheReadInputTokens:     4,
+				CacheReported:            true,
+			},
+		},
+		{
+			name: "thinking tokens",
+			usage: &anthropicUsage{
+				InputTokens:         11,
+				OutputTokens:        7,
+				OutputTokensDetails: &anthropicOutputTokensDetails{ThinkingTokens: intPtr(5)},
+			},
+			want: &UsageStats{
+				PromptTokens:     11,
+				CompletionTokens: 7,
+				ReasoningTokens:  5,
+				TotalTokens:      18,
+			},
+		},
+		{
+			name: "negative thinking tokens clamp to zero",
+			usage: &anthropicUsage{
+				InputTokens:         11,
+				OutputTokens:        7,
+				OutputTokensDetails: &anthropicOutputTokensDetails{ThinkingTokens: intPtr(-1)},
+			},
+			want: &UsageStats{
+				PromptTokens:     11,
+				CompletionTokens: 7,
+				TotalTokens:      18,
 			},
 		},
 	}
@@ -131,6 +176,12 @@ func TestAnthropicUsageToUsageStats(t *testing.T) {
 			}
 			if got.CacheReadInputTokens != tt.want.CacheReadInputTokens {
 				t.Fatalf("CacheReadInputTokens = %d, want %d", got.CacheReadInputTokens, tt.want.CacheReadInputTokens)
+			}
+			if got.CacheReported != tt.want.CacheReported {
+				t.Fatalf("CacheReported = %v, want %v", got.CacheReported, tt.want.CacheReported)
+			}
+			if got.ReasoningTokens != tt.want.ReasoningTokens {
+				t.Fatalf("ReasoningTokens = %d, want %d", got.ReasoningTokens, tt.want.ReasoningTokens)
 			}
 		})
 	}

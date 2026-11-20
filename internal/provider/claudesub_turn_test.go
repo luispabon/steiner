@@ -157,7 +157,7 @@ func TestClaudeSubConsumeNormalTextTurn(t *testing.T) {
 		t.Fatalf("chunks = %+v, want final Hello world chunk", chunks)
 	}
 	// The final chunk reports the terminal message's usage, not the query result.
-	wantUsage := UsageStats{PromptTokens: 1194, CacheCreationInputTokens: 1192, CompletionTokens: 245, TotalTokens: 1439}
+	wantUsage := UsageStats{PromptTokens: 1194, CacheCreationInputTokens: 1192, CompletionTokens: 245, TotalTokens: 1439, CacheReported: true}
 	if got := chunks[len(chunks)-1].Usage; got == nil || *got != wantUsage {
 		t.Errorf("final usage = %+v, want the message usage %+v", got, wantUsage)
 	}
@@ -182,9 +182,9 @@ func TestClaudeSubConsumeUsageCountsEachMessageOnce(t *testing.T) {
 	}
 	wantFinish := []string{"tool_calls", "tool_calls", "stop"}
 	wantUsage := []UsageStats{
-		{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 40, TotalTokens: 52},
-		{PromptTokens: 13, CacheReadInputTokens: 10, CompletionTokens: 60, TotalTokens: 73},
-		{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59},
+		{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 40, TotalTokens: 52, CacheReported: true},
+		{PromptTokens: 13, CacheReadInputTokens: 10, CompletionTokens: 60, TotalTokens: 73, CacheReported: true},
+		{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59, CacheReported: true},
 	}
 	var sum UsageStats
 	for i := range wantFinish {
@@ -341,7 +341,7 @@ func TestClaudeSubTurnPreConsumeFailureRetryKeepsMessageUsage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("tool turn: %v", err)
 	}
-	wantTool := UsageStats{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 40, TotalTokens: 52}
+	wantTool := UsageStats{PromptTokens: 12, CacheCreationInputTokens: 10, CompletionTokens: 40, TotalTokens: 52, CacheReported: true}
 	if toolChunk.FinishReason != "tool_calls" || toolChunk.Usage == nil || *toolChunk.Usage != wantTool {
 		t.Fatalf("tool chunk = %+v, want tool_calls usage %+v", toolChunk, wantTool)
 	}
@@ -364,7 +364,7 @@ func TestClaudeSubTurnPreConsumeFailureRetryKeepsMessageUsage(t *testing.T) {
 	if !final.Done || final.Usage == nil {
 		t.Fatalf("retry final = %+v, want a Done chunk with usage", final)
 	}
-	wantFinal := UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59}
+	wantFinal := UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59, CacheReported: true}
 	if *final.Usage != wantFinal {
 		t.Errorf("retry usage = %+v, want message usage %+v", *final.Usage, wantFinal)
 	}
@@ -403,7 +403,7 @@ func TestClaudeSubTurnInterruptFollowUpUsage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("follow-up turn: %v", err)
 	}
-	want := UsageStats{PromptTokens: 1194, CacheCreationInputTokens: 1192, CompletionTokens: 245, TotalTokens: 1439}
+	want := UsageStats{PromptTokens: 1194, CacheCreationInputTokens: 1192, CompletionTokens: 245, TotalTokens: 1439, CacheReported: true}
 	if final.Usage == nil || *final.Usage != want {
 		t.Errorf("follow-up usage = %+v, want message usage %+v", final.Usage, want)
 	}
@@ -428,7 +428,7 @@ func TestClaudeSubConsumeTextUsageIsTerminalMessageUsage(t *testing.T) {
 		t.Fatalf("tool chunk = %+v, want tool_calls", final)
 	}
 	final := claudeSubConsumeFinal(t, s)
-	want := UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59}
+	want := UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59, CacheReported: true}
 	if !final.Done || final.Usage == nil || *final.Usage != want {
 		t.Errorf("text usage = %+v, want message usage %+v", final.Usage, want)
 	}
@@ -456,13 +456,13 @@ func TestClaudeSubConsumeTextUsageIsMessageUsage(t *testing.T) {
 		{
 			name:    "query aggregate matches message sum, terminal message usage used",
 			fixture: "turn_tool_tool_text_usage.jsonl",
-			want:    &UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59},
+			want:    &UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59, CacheReported: true},
 		},
 		{
 			// The query result (PromptTokens 62) exceeds the terminal message.
 			name:    "query aggregate exceeds terminal message usage, terminal message usage used",
 			fixture: "turn_tool_text_extra_usage.jsonl",
-			want:    &UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59},
+			want:    &UsageStats{PromptTokens: 29, CacheReadInputTokens: 25, CompletionTokens: 30, TotalTokens: 59, CacheReported: true},
 		},
 		{
 			// The text message has no usage, so the result's total is not used.
