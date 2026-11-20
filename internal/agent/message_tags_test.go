@@ -81,12 +81,86 @@ func TestToProviderMessagesEscapesTagVariants(t *testing.T) {
 	}
 }
 
+// TestCompactionTagPatternsMatchWrapperTagShapes covers every tag shape that
+// could close a wrapper: both names, either slash position, a self-closing
+// slash, attributes, any case, and the space characters compactionTagFlats
+// lists inside the angle brackets.
+func TestCompactionTagPatternsMatchWrapperTagShapes(t *testing.T) {
+	t.Parallel()
+
+	summaryShapes := []string{
+		"<summary>", "</summary>", "<summary/>", "</summary/>",
+		"<summary >", "< / Summary >", `</summary foo="x">`, "<summary foo>", "<summary foo=bar>",
+		"<\u00a0/summary\u00a0>", "<\u3000/summary>", "<\u2028summary>", "<\vsummary>",
+		"<\u2060summary>", "<\u00adsummary>", "<\u200bsummary>", "<\ufeff/summary>",
+	}
+	requestShapes := []string{
+		"<latest_user_request>", "</latest_user_request>", "<latest_user_request/>", "</latest_user_request/>",
+		"<latest_user_request >", "< / LATEST_USER_REQUEST >", `</latest_user_request foo="x">`,
+		"<latest_user_request foo>", "<latest_user_request foo=bar>",
+		"<\u00a0/latest_user_request\u00a0>", "<\u3000/latest_user_request>", "<\u2028latest_user_request>",
+		"<\vlatest_user_request>", "<\u2060latest_user_request>", "<\u00adlatest_user_request>",
+		"<\u200blatest_user_request>", "<\ufeff/latest_user_request>",
+	}
+	for _, tag := range summaryShapes {
+		if !summaryTagPattern.MatchString(tag) {
+			t.Errorf("summaryTagPattern does not match %q, want a match", tag)
+		}
+		if requestTagPattern.MatchString(tag) {
+			t.Errorf("requestTagPattern matches %q, want no match", tag)
+		}
+	}
+	for _, tag := range requestShapes {
+		if !summaryTagPattern.MatchString(tag) {
+			t.Errorf("summaryTagPattern does not match %q, want a match", tag)
+		}
+		if !requestTagPattern.MatchString(tag) {
+			t.Errorf("requestTagPattern does not match %q, want a match", tag)
+		}
+	}
+}
+
+// TestCompactionTagPatternsRejectOrdinaryText proves tag-like text stays
+// untouched: a name continued by another name character, or followed by a
+// newline instead of a space, is not a wrapper tag.
+func TestCompactionTagPatternsRejectOrdinaryText(t *testing.T) {
+	t.Parallel()
+
+	texts := []string{
+		"<summary-table>", "<summary.x>", "<summary:x>", "<summary_x>", "<summaryish>",
+		"<latest_user_request-id>", "<latest_user_request.x>", "<latest_user_requestish>",
+		"<summary\nfoo>", "<latest_user_request\nfoo>",
+	}
+	for _, text := range texts {
+		if summaryTagPattern.MatchString(text) {
+			t.Errorf("summaryTagPattern matches %q, want no match", text)
+		}
+		if requestTagPattern.MatchString(text) {
+			t.Errorf("requestTagPattern matches %q, want no match", text)
+		}
+	}
+}
+
+// TestCompactionTagPatternsAcceptAttributeLikeProse pins the documented limit:
+// bare attribute names are valid tag attributes, so prose whose words look like
+// attributes is escaped although no wrapper tag is meant. The words survive
+// between the entities, so the model still reads them.
+func TestCompactionTagPatternsAcceptAttributeLikeProse(t *testing.T) {
+	t.Parallel()
+
+	const prose = "a <summary is short and the request > fine"
+	if !summaryTagPattern.MatchString(prose) {
+		t.Fatalf("summaryTagPattern no longer matches %q; update the documented limit", prose)
+	}
+}
+
 // TestToProviderMessagesKeepsCleanSummaryByteIdentical proves escaping changes
 // nothing for text without these tags, so the prompt cache stays stable.
 func TestToProviderMessagesKeepsCleanSummaryByteIdentical(t *testing.T) {
 	t.Parallel()
 
-	const body = "plain summary with a < b and c > d, plus 2 < 3, <summaryish>, and <summaryish foo>"
+	const body = "plain summary with a < b and c > d, plus 2 < 3, <summaryish>, <summaryish foo>, " +
+		"<summary-table>, <summary.x>, <summary:x>, <summary_x>, <latest_user_request-id>, and <summary\nfoo>"
 	got := toProviderMessage(Message{Role: MessageRoleSummary, Content: withRequestBlock(body, "a clean request")}).Content
 	want := summaryContextPrefix + body + summaryContextSuffix +
 		"\n\n" + requestContextPrefix + "a clean request" + requestContextSuffix

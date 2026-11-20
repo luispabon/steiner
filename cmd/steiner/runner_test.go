@@ -1397,6 +1397,8 @@ func TestLastUserPromptSkipsSubAgentResults(t *testing.T) {
 		{name: "recorded request text wins over the delivery wrapper", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "Plan mode is active.\n\n<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>\n\nthe request", RequestText: "the request"}}, want: "the request"},
 		{name: "legacy delivery content keeps only the user text", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>\n\nthe request"}}, want: "the request"},
 		{name: "vision-routed image-only turn has no preview", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "[Image img-1 - you cannot view images directly. A vision assistant examined it and reports:\nA red button]", VisionRouted: true}}, want: ""},
+		{name: "vision-routed image and text turn previews the recorded text", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "Review the attached mockup\n[Image img-1 - a vision assistant reports:\nA red button]", RequestText: "Review the attached mockup", VisionRouted: true}}, want: "Review the attached mockup"},
+		{name: "image placeholder without recorded text has no preview", msgs: []agent.Message{{Role: agent.MessageRoleUser, Content: "[image img-1: /tmp/img.png 10x10 png 1KB]", VisionRouted: true}}, want: ""},
 		{name: "empty", want: ""},
 	}
 	for _, tt := range tests {

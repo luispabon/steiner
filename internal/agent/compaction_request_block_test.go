@@ -616,32 +616,39 @@ func TestLatestRequestBlockRecapsCarriedRequest(t *testing.T) {
 	}
 }
 
-// TestLatestRequestBlockSkipsVisionRoutedTurns proves vision routing's image
-// descriptions never become the request: an image-only turn is skipped so an
-// older text request wins, and an image-plus-text turn keeps only its text.
-func TestLatestRequestBlockSkipsVisionRoutedTurns(t *testing.T) {
+// TestLatestRequestBlockKeepsImageTurnText proves image handling records the
+// user's words before it rewrites a message: an image-and-text turn built
+// without RequestText, as a child conversation converted from provider messages
+// is, keeps its text as the request, while an image-only turn is skipped so the
+// older text request wins. Both rewrite paths run: routing to a vision
+// sub-agent and stripping the image outright.
+func TestLatestRequestBlockKeepsImageTurnText(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name        string
 		userText    string
+		subAgent    bool
 		wantRequest string
 	}{
-		{name: "image-only turn after a text request", wantRequest: "the real text request"},
-		{name: "image and text turn", userText: "what is this?", wantRequest: "what is this?"},
+		{name: "routed image and text keeps the text", userText: "Review the attached mockup", subAgent: true, wantRequest: "Review the attached mockup"},
+		{name: "stripped image and text keeps the text", userText: "Review the attached mockup", wantRequest: "Review the attached mockup"},
+		{name: "routed image-only turn is skipped", subAgent: true, wantRequest: "the real text request"},
+		{name: "stripped image-only turn is skipped", wantRequest: "the real text request"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			vc := NewVisionCapabilities(false)
+			vc := NewVisionCapabilities(tt.subAgent)
 			vc.LatchIncapable("test-model")
 			msgs := []Message{
 				{Role: MessageRoleUser, Content: "the real text request", RequestText: "the real text request"},
 				{Role: MessageRoleAssistant, Content: "ok"},
-				{Role: MessageRoleUser, Content: tt.userText, RequestText: tt.userText, Images: []ImageBlock{{ID: "img-1", Data: "base64data"}}},
+				{Role: MessageRoleUser, Content: tt.userText, Images: []ImageBlock{{ID: "img-1", Data: "base64data"}}},
 			}
 			state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
 			req := RunRequest{
 				ResolvedModel:      provider.ResolvedModel{BackendModelID: "test-model", Alias: "test-model"},
+				Executor:           &fakeExecutor{execute: func(context.Context, string, map[string]any) (any, error) { return visionProjectionTestResult{}, nil }},
 				VisionCapabilities: vc,
 			}
 			p := newTurnProgressor(req, prompt.AssemblyOptions{}, nil)
@@ -652,7 +659,51 @@ func TestLatestRequestBlockSkipsVisionRoutedTurns(t *testing.T) {
 			if !last.VisionRouted {
 				t.Fatalf("VisionRouted = false on %q, want true", last.Content)
 			}
+			if last.RequestText != tt.userText {
+				t.Fatalf("RequestText = %q, want %q recorded before the rewrite", last.RequestText, tt.userText)
+			}
 			if request, status := latestRequestBlock(state.Conversation, 0); request != tt.wantRequest || status != output.RequestBlockNew {
+				t.Fatalf("latestRequestBlock() = (%q, %q), want (%q, %q)", request, status, tt.wantRequest, output.RequestBlockNew)
+			}
+		})
+	}
+}
+
+// TestLatestRequestBlockSkipsPlaceholderOnlyTurns proves the placeholder tokens
+// image stripping appends never become the request: a text turn keeps its text
+// and an image-only turn records nothing, so scanning continues to the earlier
+// text request.
+func TestLatestRequestBlockSkipsPlaceholderOnlyTurns(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		userText     string
+		wantRecorded string
+		wantRequest  string
+	}{
+		{name: "image and text keeps the text", userText: "what is this?", wantRecorded: "what is this?", wantRequest: "what is this?"},
+		{name: "image-only turn is skipped", wantRecorded: "", wantRequest: "the real text request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs := []Message{
+				{Role: MessageRoleUser, Content: "the real text request"},
+				{Role: MessageRoleAssistant, Content: "ok"},
+				{Role: MessageRoleUser, Content: tt.userText, Images: []ImageBlock{{ID: "img-1", Data: "base64data"}}},
+			}
+			stripped := stripImagesFromMessages(msgs, VisionUnknown, false)
+			last := stripped[len(stripped)-1]
+			if !last.VisionRouted {
+				t.Fatalf("VisionRouted = false on %q, want true", last.Content)
+			}
+			if !strings.Contains(last.Content, "[image") {
+				t.Fatalf("Content = %q, want the image placeholder", last.Content)
+			}
+			if last.RequestText != tt.wantRecorded {
+				t.Fatalf("RequestText = %q, want %q", last.RequestText, tt.wantRecorded)
+			}
+			if request, status := latestRequestBlock(stripped, 0); request != tt.wantRequest || status != output.RequestBlockNew {
 				t.Fatalf("latestRequestBlock() = (%q, %q), want (%q, %q)", request, status, tt.wantRequest, output.RequestBlockNew)
 			}
 		})

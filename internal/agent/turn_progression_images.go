@@ -84,9 +84,14 @@ func stripImagesFromMessages(msgs []Message, visionState VisionState, subAgentCo
 		}
 		imgs := make([]ImageBlock, len(out[i].Images))
 		copy(imgs, out[i].Images)
+		recorded := false
 		for j := range imgs {
 			if imgs[j].Data == "" {
 				continue
+			}
+			if !recorded {
+				recordImageRewrite(&out[i])
+				recorded = true
 			}
 			placeholder := imageBlockPlaceholder(imgs[j], visionState, subAgentConfigured)
 			imgs[j].Data = ""

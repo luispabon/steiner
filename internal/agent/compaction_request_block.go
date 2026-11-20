@@ -154,9 +154,10 @@ func latestRequestBlock(sourceMessages []Message, contextWindow int) (request, s
 }
 
 // requestMessageText returns the user's own words from a real user message:
-// RequestText when the delivery recorded it, else the text recovered from the
-// stored content. Vision routing rewrote content it touched, so that content
-// never supplies the request.
+// RequestText when the message records it, else the text recovered from the
+// stored content. Image handling records the user's words before it rewrites a
+// message, so marked content supplies the request only when the rewrite is all
+// there is, which is the empty string request selection skips.
 func requestMessageText(message Message) string {
 	if text := strings.TrimSpace(prompt.StripSkillBlocks(message.RequestText)); text != "" {
 		return text
@@ -168,9 +169,9 @@ func requestMessageText(message Message) string {
 }
 
 // UserRequestText returns the user's own words from a real user message: the
-// recorded request text when the delivery has it, else the text recovered from
-// the stored content. It returns empty for a message whose content vision
-// routing rewrote.
+// recorded request text when the message has it, else the text recovered from
+// the stored content. It returns empty for a message whose content image
+// handling rewrote without recording any user text.
 func UserRequestText(message Message) string {
 	return requestMessageText(message)
 }

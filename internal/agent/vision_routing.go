@@ -207,12 +207,12 @@ func (p *turnProgressor) routeImageToVision(ctx context.Context, msg *Message, i
 	}
 	description += "]"
 
+	recordImageRewrite(msg)
 	if msg.Content == "" {
 		msg.Content = description
 	} else {
 		msg.Content = msg.Content + "\n" + description
 	}
-	msg.VisionRouted = true
 
 	img.Data = ""
 
@@ -247,11 +247,27 @@ func truncateForLog(s string, max int) string {
 // stripImageFallback clears the image data and appends a minimal fallback note.
 func (p *turnProgressor) stripImageFallback(msg *Message, img *ImageBlock) {
 	fallback := "[Image could not be processed for a non-vision model]"
+	recordImageRewrite(msg)
 	if msg.Content == "" {
 		msg.Content = fallback
 	} else {
 		msg.Content = msg.Content + "\n" + fallback
 	}
-	msg.VisionRouted = true
 	img.Data = ""
+}
+
+// recordImageRewrite records that image handling is about to rewrite a real user
+// message's content, storing the user's own words first. The rewritten content
+// carries routed descriptions or placeholder tokens instead of the request, and
+// request selection never falls back to marked content, so the record is what
+// keeps an image-and-text turn's text. Tool messages are tool output and are
+// left unmarked.
+func recordImageRewrite(msg *Message) {
+	if !IsRealUserMessage(*msg) {
+		return
+	}
+	if !msg.VisionRouted && msg.RequestText == "" {
+		msg.RequestText = legacyRequestText(msg.Content)
+	}
+	msg.VisionRouted = true
 }

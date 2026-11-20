@@ -355,3 +355,65 @@ func TestStripImagesFromMessages_VisionIncapableWithoutSubAgent(t *testing.T) {
 		t.Fatalf("got %q, want %q", got[0].Content, wantContent)
 	}
 }
+
+// TestStripImagesFromMessagesRecordsUserRequest proves an image strip records
+// the user's own words before it appends a placeholder, and marks only real user
+// messages: tool output and sourced delivery wrappers keep their current
+// behaviour.
+func TestStripImagesFromMessagesRecordsUserRequest(t *testing.T) {
+	t.Parallel()
+
+	image := ImageBlock{ID: "img-1", FilePath: "/tmp/img.png", MediaType: "image/png", Data: "base64data", Width: 10, Height: 10, SizeBytes: 1024}
+	tests := []struct {
+		name        string
+		message     Message
+		wantRequest string
+		wantRouted  bool
+	}{
+		{
+			name:        "user text is recorded",
+			message:     Message{Role: MessageRoleUser, Content: "look at this image", Images: []ImageBlock{image}},
+			wantRequest: "look at this image",
+			wantRouted:  true,
+		},
+		{
+			name:        "delivery wrapper is stripped from the record",
+			message:     Message{Role: MessageRoleUser, Content: "<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>\n\nlook at this image", Images: []ImageBlock{image}},
+			wantRequest: "look at this image",
+			wantRouted:  true,
+		},
+		{
+			name:       "image-only turn records nothing",
+			message:    Message{Role: MessageRoleUser, Images: []ImageBlock{image}},
+			wantRouted: true,
+		},
+		{
+			name:        "recorded request is kept",
+			message:     Message{Role: MessageRoleUser, Content: "look at this image", RequestText: "recorded request", Images: []ImageBlock{image}},
+			wantRequest: "recorded request",
+			wantRouted:  true,
+		},
+		{
+			name:    "tool message stays unmarked",
+			message: Message{Role: MessageRoleTool, Name: "read", Content: "tool output", Images: []ImageBlock{image}},
+		},
+		{
+			name:    "sourced message stays unmarked",
+			message: Message{Role: MessageRoleUser, Source: MessageSourceSubAgentResult, Content: "results", Images: []ImageBlock{image}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripImagesFromMessages([]Message{tt.message}, VisionUnknown, false)[0]
+			if got.RequestText != tt.wantRequest {
+				t.Fatalf("RequestText = %q, want %q", got.RequestText, tt.wantRequest)
+			}
+			if got.VisionRouted != tt.wantRouted {
+				t.Fatalf("VisionRouted = %t, want %t", got.VisionRouted, tt.wantRouted)
+			}
+			if got.Images != nil {
+				t.Fatalf("Images = %v, want nil", got.Images)
+			}
+		})
+	}
+}
