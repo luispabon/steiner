@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	// tokenStatsRetentionDays mirrors the usagestats store's unexported
-	// retentionDays: the store keeps 33 days of hourly buckets, so the weekly
-	// strip can reach no further back.
-	tokenStatsRetentionDays = 33
+	// tokenStatsRetentionDays is the store's retention: the weekly strip can
+	// reach no further back.
+	tokenStatsRetentionDays = usagestats.RetentionDays
 	// tokenStatsBannerMargin is the free horizontal room the banner needs
 	// beyond its own width before the plain-line fallback takes over.
 	tokenStatsBannerMargin = 8

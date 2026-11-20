@@ -13,6 +13,9 @@ import (
 	"github.com/luispabon/steiner/internal/fsatomic"
 )
 
+// RetentionDays is how many days of hourly buckets the store keeps.
+const RetentionDays = retentionDays
+
 const (
 	// retentionDays is 33 so the token dashboard can cover the same day of the
 	// previous month through now (at most 31 days) plus the hourly bucket at
