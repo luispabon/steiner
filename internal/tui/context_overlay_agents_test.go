@@ -457,21 +457,21 @@ func TestCycleContextAgentWrapsAndRequests(t *testing.T) {
 	}
 }
 
-func TestCacheStatsOverlayStaysSinglePane(t *testing.T) {
+func TestTokenStatsOverlayStaysSinglePane(t *testing.T) {
 	t.Parallel()
 	m := newModel(Config{}, nil)
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 130, Height: 24})
-	m.executeOpenCacheStatsAction()
+	m.executeOpenTokenStatsAction()
 
 	if m.contextOverlay.reportMode() || m.contextOverlay.twoPane() || m.contextOverlay.narrowMode() {
-		t.Fatalf("cache stats overlay entered report mode: %+v", m.contextOverlay.agents)
+		t.Fatalf("token stats overlay entered report mode: %+v", m.contextOverlay.agents)
 	}
 	if got, want := m.contextOverlay.reportWidth(), m.contextOverlay.InnerWidth(); got != want {
 		t.Fatalf("reportWidth() = %d, want the single-pane inner width %d", got, want)
 	}
 	view := stripANSI(m.renderContextOverlay())
-	if !strings.Contains(view, "Cache hit rate") {
-		t.Fatalf("overlay = %q, want the cache stats title", view)
+	if !strings.Contains(view, "Token usage") {
+		t.Fatalf("overlay = %q, want the token stats title", view)
 	}
 	for _, unwanted := range []string{contextOverlayPlaceholder, "Sub-agents", "tab"} {
 		if strings.Contains(view, unwanted) {

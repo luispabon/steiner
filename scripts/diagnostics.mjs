@@ -80,7 +80,7 @@
 //   cached/req, uncached/req -- decompose the hit-rate ratio the same way
 //                    internal/usagestats/report.go's Row.CachedPerRequest /
 //                    Row.UncachedPerRequest do, so this script and the Go
-//                    /cache-stats surface agree operationally:
+//                    /token-stats surface agree operationally:
 //                      nonCached = max(prompt_tokens - cache_read_tokens - cache_create_tokens, 0)
 //                      uncached/req = mean(nonCached + cache_create_tokens)
 //                      cached/req   = mean(cache_read_tokens)
@@ -273,7 +273,7 @@ function printCompareTable(title, rowsA, rowsB, columns) {
 
 // nonCached/cachedPerReq/uncachedPerReq/hitRate mirror
 // internal/usagestats/recorder.go / report.go exactly, so this script and
-// the Go /cache-stats surface agree on what "cached" means.
+// the Go /token-stats surface agree on what "cached" means.
 function endpointSwitchCount(records) {
 	const conversations = groupBy(records.filter((r) => r.run_id && r.payload?.upstream_endpoint), (r) => `${r.run_id}/${r.source ?? ""}/${r.agent_id ?? ""}`);
 	let switches = 0;

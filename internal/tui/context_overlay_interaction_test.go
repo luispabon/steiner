@@ -307,14 +307,14 @@ func TestContextOverlayDropsAgentReportWithoutSidebar(t *testing.T) {
 		t.Parallel()
 		m := newModel(Config{Model: "gpt-test"}, nil)
 		m = updateModel(t, m, tea.WindowSizeMsg{Width: 130, Height: 24})
-		m.executeOpenCacheStatsAction()
+		m.executeOpenTokenStatsAction()
 		before := m.contextOverlay.content
 		m = updateModel(t, m, runtimeEventMsg{Event: report})
 		if m.contextOverlay.reportMode() {
 			t.Fatal("single-pane overlay entered report mode")
 		}
-		if got := m.contextOverlay.title; got != "Cache hit rate" {
-			t.Fatalf("overlay title = %q, want the cache stats overlay kept", got)
+		if got := m.contextOverlay.title; got != "Token usage" {
+			t.Fatalf("overlay title = %q, want the token stats overlay kept", got)
 		}
 		if m.contextOverlay.content != before {
 			t.Fatal("single-pane overlay was replaced by the agent report")

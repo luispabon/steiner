@@ -493,12 +493,12 @@ func TestContextOverlayBoundsDoNotRerender(t *testing.T) {
 	}
 }
 
-func TestCacheStatsOverlayBoundsReuseRender(t *testing.T) {
+func TestTokenStatsOverlayBoundsReuseRender(t *testing.T) {
 	t.Parallel()
 	m := newMemoTestModel(t)
-	m.executeOpenCacheStatsAction()
+	m.executeOpenTokenStatsAction()
 	if !m.contextOverlay.IsOpen() {
-		t.Fatal("cache stats overlay not open")
+		t.Fatal("token stats overlay not open")
 	}
 	_, _, w, h := m.contextOverlayBounds()
 	if w == 0 || h == 0 {
@@ -506,7 +506,7 @@ func TestCacheStatsOverlayBoundsReuseRender(t *testing.T) {
 	}
 	poisonContextMemo(m, 0, 0)
 	if m.renderContextOverlay() != memoSentinel {
-		t.Error("cache stats overlay re-rendered with unchanged state")
+		t.Error("token stats overlay re-rendered with unchanged state")
 	}
 }
 

@@ -590,26 +590,26 @@ func TestSkillExecutionMode(t *testing.T) {
 	}
 }
 
-func TestBuildSlashOverlayItemsIncludesCacheStats(t *testing.T) {
+func TestBuildSlashOverlayItemsIncludesTokenStats(t *testing.T) {
 	t.Parallel()
 	m := &Model{}
 	items := m.buildSlashOverlayItems()
 
 	found := false
 	for _, item := range items {
-		if item.command == "/cache-stats" {
+		if item.command == "/token-stats" {
 			found = true
-			if item.name != "Cache stats" {
-				t.Errorf("name = %q, want %q", item.name, "Cache stats")
+			if item.name != "Token stats" {
+				t.Errorf("name = %q, want %q", item.name, "Token stats")
 			}
-			if item.desc != "show cache hit rate stats" {
-				t.Errorf("desc = %q, want %q", item.desc, "show cache hit rate stats")
+			if item.desc != "show token usage stats" {
+				t.Errorf("desc = %q, want %q", item.desc, "show token usage stats")
 			}
 			break
 		}
 	}
 	if !found {
-		t.Fatal("/cache-stats not found in overlay items")
+		t.Fatal("/token-stats not found in overlay items")
 	}
 }
 

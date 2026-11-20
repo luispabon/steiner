@@ -206,7 +206,7 @@ func benchScenarios() []overlayScenario {
 					}
 				}
 				m.recorder = rec
-				m.executeOpenCacheStatsAction()
+				m.executeOpenTokenStatsAction()
 			},
 			view: func(m *Model) string { return m.renderContextOverlay() },
 			keys: updown, wheelX: 110, wheelY: 30,

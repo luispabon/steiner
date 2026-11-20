@@ -70,7 +70,7 @@ func contextAgentsFromRoster(entries []rosterEntry) []contextOverlayAgent {
 }
 
 // reportMode reports whether the overlay shows the agent sidebar. Single-pane
-// reports such as cache stats carry no agents.
+// reports such as token stats carry no agents.
 func (s contextOverlayState) reportMode() bool {
 	return len(s.agents) > 0
 }

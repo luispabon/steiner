@@ -16,7 +16,7 @@ type inputAction struct {
 	compaction                 bool
 	compactionSteering         string
 	inspectConfig              bool
-	openCacheStats             bool
+	openTokenStats             bool
 	listSkills                 bool
 	listFiles                  bool
 	listFilesPath              string
