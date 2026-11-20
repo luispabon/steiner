@@ -242,11 +242,12 @@ func TestBuildDeliveryMessage(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		label   string
-		parts   DeliveryParts
-		wantOK  bool
-		wantSrc string
-		check   func(t *testing.T, m Message)
+		label       string
+		parts       DeliveryParts
+		wantOK      bool
+		wantSrc     string
+		wantRequest string
+		check       func(t *testing.T, m Message)
 	}{
 		{
 			label:   "empty parts",
@@ -331,8 +332,9 @@ func TestBuildDeliveryMessage(t *testing.T) {
 				},
 				UserText: "Here is some user feedback",
 			},
-			wantOK:  true,
-			wantSrc: "", // real user message
+			wantOK:      true,
+			wantSrc:     "", // real user message
+			wantRequest: "Here is some user feedback",
 			check: func(t *testing.T, m Message) {
 				if m.Source != "" {
 					t.Errorf("Source should be empty, got %q", m.Source)
@@ -347,8 +349,9 @@ func TestBuildDeliveryMessage(t *testing.T) {
 			parts: DeliveryParts{
 				UserText: "Just a user message",
 			},
-			wantOK:  true,
-			wantSrc: "",
+			wantOK:      true,
+			wantSrc:     "",
+			wantRequest: "Just a user message",
 			check: func(t *testing.T, m Message) {
 				if m.Source != "" {
 					t.Error("Source should be empty for text-only message")
@@ -442,6 +445,9 @@ func TestBuildDeliveryMessage(t *testing.T) {
 			if m.Source != tc.wantSrc {
 				t.Errorf("Source = %q, want %q", m.Source, tc.wantSrc)
 			}
+			if m.RequestText != tc.wantRequest {
+				t.Errorf("RequestText = %q, want %q", m.RequestText, tc.wantRequest)
+			}
 			tc.check(t, m)
 		})
 	}
@@ -461,9 +467,19 @@ func TestIsRealUserMessage(t *testing.T) {
 			want:  true,
 		},
 		{
-			label: "user message with other source",
+			label: "user message with runtime notice source",
+			m:     Message{Role: MessageRoleUser, Source: MessageSourceRuntimeNotice},
+			want:  false,
+		},
+		{
+			label: "user message with skill replay source",
+			m:     Message{Role: MessageRoleUser, Source: MessageSourceSkillReplay},
+			want:  false,
+		},
+		{
+			label: "user message with any other source",
 			m:     Message{Role: MessageRoleUser, Source: "some_other_source"},
-			want:  true,
+			want:  false,
 		},
 		{
 			label: "user message as sub_agent_result",
@@ -492,6 +508,23 @@ func TestIsRealUserMessage(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCountRetainedUserMessagesExcludesSyntheticSources(t *testing.T) {
+	t.Parallel()
+
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "first request"},
+		{Role: MessageRoleUser, Source: MessageSourceSubAgentResult, Content: "result"},
+		{Role: MessageRoleUser, Source: MessageSourceRuntimeNotice, Content: "You have used 5 of 10 turns"},
+		{Role: MessageRoleUser, Source: MessageSourceSkillReplay, Content: "skill envelope"},
+		{Role: MessageRoleAssistant, Content: "reply"},
+		{Role: MessageRoleUser, Content: "second request"},
+	}
+	user, subAgentResults := countRetainedUserMessages(messages)
+	if user != 2 || subAgentResults != 1 {
+		t.Fatalf("countRetainedUserMessages() = (%d, %d), want (2, 1)", user, subAgentResults)
 	}
 }
 

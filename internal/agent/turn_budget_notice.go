@@ -4,6 +4,10 @@ import "math"
 
 var turnBudgetNoticeFractions = []float64{0.5, 0.75, 0.9}
 
+// MessageSourceRuntimeNotice identifies a user-role message the runtime wrote,
+// such as a turn-budget notice. It is not user input.
+const MessageSourceRuntimeNotice = "runtime_notice"
+
 // injectTurnBudgetNoticeIfDue appends one notice when state crosses one or
 // more turn-budget thresholds. Thresholds are measured from the run's start
 // turn (BudgetStartTurn), so a follow-up run that resumes with turns already
@@ -30,6 +34,7 @@ func injectTurnBudgetNoticeIfDue(state RunState, req RunRequest) RunState {
 	message := Message{
 		Role:    MessageRoleUser,
 		Content: req.TurnBudgetNotice(state.TurnCount-start, budget),
+		Source:  MessageSourceRuntimeNotice,
 		Turn:    state.TurnCount,
 	}
 	state.Lineage = state.Lineage.WithAppendedMessages([]Message{message})

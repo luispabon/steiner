@@ -165,12 +165,13 @@ func (r cliRunner) run(ctx context.Context, conversation []agent.Message, skillN
 
 // lastUserPrompt returns the run preview: the last real user message, or
 // "sub-agent results (N)" when the trailing user message only delivers results.
+// Runtime notices and skill replays are not previews, so the scan skips them.
 func lastUserPrompt(messages []agent.Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if agent.IsRealUserMessage(messages[i]) {
 			return strings.TrimSpace(messages[i].Content)
 		}
-		if messages[i].Role == agent.MessageRoleUser {
+		if messages[i].Role == agent.MessageRoleUser && messages[i].Source == agent.MessageSourceSubAgentResult {
 			return fmt.Sprintf("sub-agent results (%d)", countSubAgentResults(messages[i].Content))
 		}
 	}

@@ -99,6 +99,11 @@ type Message struct {
 	Source           string       `json:"source,omitempty"`
 	ByteSize         int          `json:"byte_size,omitempty"`
 	Turn             int          `json:"turn,omitempty"`
+	// RequestText holds the user's own words from a delivery message, without
+	// the mode notice, skill blocks, pending line, or sub-agent results its
+	// Content also carries. Compaction reads it for the latest-request block; it
+	// is never projected to a provider.
+	RequestText string `json:"request_text,omitempty"`
 	// Timestamp records when the message entered the conversation. It is display
 	// metadata for resumed transcripts and never reaches the model.
 	Timestamp time.Time `json:"timestamp,omitzero"`

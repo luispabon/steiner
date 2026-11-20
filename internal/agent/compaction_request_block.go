@@ -123,9 +123,10 @@ func capRequestBlock(request string, limit int) string {
 // latestRequestBlock selects the request block for a compaction stage whose
 // source is sourceMessages: the newest real user message that still has text to
 // keep, else the block carried by the newest summary message in the source.
-// Skill-only, image-only, and sub-agent messages are not requests. A window
-// whose effective cap rounds down to zero keeps no block at all, so a tiny
-// window cannot reduce the stored request to a bare truncation marker.
+// Skill-only, image-only, and sourced messages are not requests. Both paths go
+// through the effective cap, so a carried block shrinks when the window does. A
+// window whose effective cap rounds down to zero keeps no block at all, so a
+// tiny window cannot reduce the stored request to a bare truncation marker.
 func latestRequestBlock(sourceMessages []Message, contextWindow int) (request, status string) {
 	limit := requestBlockCapBytes(contextWindow)
 	if limit <= 0 {
@@ -136,7 +137,7 @@ func latestRequestBlock(sourceMessages []Message, contextWindow int) (request, s
 		if !IsRealUserMessage(message) {
 			continue
 		}
-		if text := strings.TrimSpace(prompt.StripSkillBlocks(message.Content)); text != "" {
+		if text := requestMessageText(message); text != "" {
 			return capRequestBlock(text, limit), output.RequestBlockNew
 		}
 	}
@@ -146,10 +147,34 @@ func latestRequestBlock(sourceMessages []Message, contextWindow int) (request, s
 			continue
 		}
 		if _, request, ok := SplitRequestBlock(message.Content); ok {
-			return request, output.RequestBlockCarried
+			return capRequestBlock(request, limit), output.RequestBlockCarried
 		}
 	}
 	return "", output.RequestBlockNone
+}
+
+// requestMessageText returns the user's own words from a real user message:
+// RequestText when the delivery recorded it, else the text recovered from the
+// stored content.
+func requestMessageText(message Message) string {
+	if text := strings.TrimSpace(prompt.StripSkillBlocks(message.RequestText)); text != "" {
+		return text
+	}
+	return legacyRequestText(message.Content)
+}
+
+// legacyRequestText recovers the user's text from a delivery message stored
+// before Message.RequestText existed. BuildDeliveryMessage writes the mode
+// notice, skill blocks, pending line, then sub-agent envelopes, then the user
+// text, so the structural parser leaves exactly the user text. Anything after
+// the last envelope close tag also wins, so a malformed or truncated envelope
+// cannot leak into the request.
+func legacyRequestText(content string) string {
+	rest := prompt.SplitMessageBlocks(content).Rest
+	if idx := strings.LastIndex(rest, subAgentResultCloseTag); idx >= 0 {
+		rest = rest[idx+len(subAgentResultCloseTag):]
+	}
+	return strings.TrimSpace(rest)
 }
 
 // stripRequestBlocks returns a copy of messages without the latest-request
