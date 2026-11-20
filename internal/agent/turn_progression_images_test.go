@@ -309,8 +309,8 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 	if frozen[0].Content != wantContent {
 		t.Fatalf("frozen Content = %q, want %q", frozen[0].Content, wantContent)
 	}
-	if len(frozen[0].ImagePlaceholders) != 1 || frozen[0].ImagePlaceholders[0] != imageBlockPlaceholder(img, false) {
-		t.Fatalf("ImagePlaceholders = %v, want the frozen token", frozen[0].ImagePlaceholders)
+	if len(frozen[0].imagePlaceholders()) != 1 || frozen[0].imagePlaceholders()[0] != imageBlockPlaceholder(img, false) {
+		t.Fatalf("ImagePlaceholders = %v, want the frozen token", frozen[0].imagePlaceholders())
 	}
 	if len(frozen[0].Images) != 1 || frozen[0].Images[0].Data != "AAAA" {
 		t.Fatalf("freeze removed image data: %#v", frozen[0].Images)
@@ -318,8 +318,8 @@ func TestFreezeImagePlaceholdersStableAcrossStrip(t *testing.T) {
 
 	// A second freeze pass must not duplicate text or metadata.
 	again := freezeImagePlaceholders(frozen, false)
-	if again[0].Content != wantContent || len(again[0].ImagePlaceholders) != 1 {
-		t.Fatalf("second freeze = (%q, %v), want (%q, one token)", again[0].Content, again[0].ImagePlaceholders, wantContent)
+	if again[0].Content != wantContent || len(again[0].imagePlaceholders()) != 1 {
+		t.Fatalf("second freeze = (%q, %v), want (%q, one token)", again[0].Content, again[0].imagePlaceholders(), wantContent)
 	}
 
 	stripped := stripImagesFromMessages(again, false)
@@ -381,8 +381,8 @@ func TestFreezeImagePlaceholdersIgnoresUserTextCollision(t *testing.T) {
 	if want := "compare with " + token + "\n" + token; frozen[0].Content != want {
 		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
-	if len(frozen[0].ImagePlaceholders) != 1 {
-		t.Fatalf("ImagePlaceholders = %v, want one recorded token", frozen[0].ImagePlaceholders)
+	if len(frozen[0].imagePlaceholders()) != 1 {
+		t.Fatalf("ImagePlaceholders = %v, want one recorded token", frozen[0].imagePlaceholders())
 	}
 }
 
@@ -397,8 +397,8 @@ func TestFreezeImagePlaceholdersKeepsDuplicateImages(t *testing.T) {
 	if want := token + "\n" + token; frozen[0].Content != want {
 		t.Fatalf("Content = %q, want %q", frozen[0].Content, want)
 	}
-	if len(frozen[0].ImagePlaceholders) != 2 {
-		t.Fatalf("ImagePlaceholders = %v, want two entries", frozen[0].ImagePlaceholders)
+	if len(frozen[0].imagePlaceholders()) != 2 {
+		t.Fatalf("ImagePlaceholders = %v, want two entries", frozen[0].imagePlaceholders())
 	}
 }
 

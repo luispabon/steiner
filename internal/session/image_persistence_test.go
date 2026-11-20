@@ -26,8 +26,11 @@ func TestSaveStripsImagePayloadWithoutMutatingCaller(t *testing.T) {
 					Images: []agent.ImageBlock{{ID: "img-prefix", FilePath: "/tmp/prefix.png", MediaType: "image/png", Data: "prefix-bytes"}},
 				}},
 				Messages: []agent.Message{{
-					Role: agent.MessageRoleTool, Name: "read", Content: "read result",
+					Role: agent.MessageRoleTool, Name: "read", Content: "read result\n[image img-1: /tmp/a.png]",
 					Images: []agent.ImageBlock{{ID: "img-1", FilePath: "/tmp/a.png", MediaType: "image/png", Data: "image-bytes"}},
+					ProviderMetadata: &agent.MessageProviderMetadata{
+						ImagePlaceholders: []string{"[image img-1: /tmp/a.png]"},
+					},
 				}},
 			},
 		},
@@ -73,6 +76,9 @@ func TestSaveStripsImagePayloadWithoutMutatingCaller(t *testing.T) {
 	}
 	if !strings.Contains(messages[0].Content, "[image img-1:") {
 		t.Fatalf("persisted message missing placeholder: %q", messages[0].Content)
+	}
+	if messages[0].ProviderMetadata == nil || len(messages[0].ProviderMetadata.ImagePlaceholders) != 1 {
+		t.Fatalf("persisted message lost frozen placeholders: %#v", messages[0].ProviderMetadata)
 	}
 	if !strings.Contains(loaded.Lineage.Generations[0].SummaryPrefix[0].Content, "[image img-prefix:") {
 		t.Fatalf("persisted prefix missing placeholder: %q", loaded.Lineage.Generations[0].SummaryPrefix[0].Content)

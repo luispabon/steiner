@@ -60,13 +60,34 @@ func imageBlockPlaceholder(img ImageBlock, visionAvailable bool) string {
 	return fmt.Sprintf("[image: %s %s]", dims, fmtStr)
 }
 
+// imagePlaceholders returns the tokens frozen into this message. They live in
+// provider metadata so Message keeps its size on the hot clone path.
+func (m Message) imagePlaceholders() []string {
+	if m.ProviderMetadata == nil {
+		return nil
+	}
+	return m.ProviderMetadata.ImagePlaceholders
+}
+
+// setImagePlaceholders records tokens, copying any existing metadata first so
+// the shallow message copies freezeImagePlaceholders starts from stay
+// independent.
+func (m *Message) setImagePlaceholders(tokens []string) {
+	metadata := cloneMessageProviderMetadata(m.ProviderMetadata)
+	if metadata == nil {
+		metadata = &MessageProviderMetadata{}
+	}
+	metadata.ImagePlaceholders = append([]string(nil), tokens...)
+	m.ProviderMetadata = metadata
+}
+
 // imageBlockPlaceholders returns the tokens the message's data-carrying images
 // still need, given the tokens already frozen into it. Tokens are claimed in
 // image order, one per data image, so the recorded list alone decides coverage
 // and user text can never be mistaken for a frozen token.
 func imageBlockPlaceholders(msg Message, visionAvailable bool) []string {
 	var out []string
-	frozen := len(msg.ImagePlaceholders)
+	frozen := len(msg.imagePlaceholders())
 	seen := 0
 	for _, img := range msg.Images {
 		if img.Data == "" {
@@ -83,7 +104,7 @@ func imageBlockPlaceholders(msg Message, visionAvailable bool) []string {
 
 // freezeImagePlaceholders appends each image's placeholder token to the
 // containing message's Content before the message first reaches a provider,
-// recording the tokens in Message.ImagePlaceholders. Cleanup later removes only
+// recording the tokens in its message metadata. Cleanup later removes only
 // the bytes, so the text a stateful provider was sent never changes. The
 // recorded list makes a second pass a no-op and keeps user text that matches a
 // token from being mistaken for one.
@@ -98,12 +119,12 @@ func freezeImagePlaceholders(msgs []Message, visionAvailable bool) []Message {
 		// Record the user's own words before the content starts carrying
 		// model-facing tokens. Tool and sourced messages stay unmarked.
 		recordImageRewrite(&out[i])
-		frozen := append([]string(nil), out[i].ImagePlaceholders...)
+		frozen := append([]string(nil), out[i].imagePlaceholders()...)
 		for _, token := range needed {
 			out[i].Content = appendContentToken(out[i].Content, token)
 			frozen = append(frozen, token)
 		}
-		out[i].ImagePlaceholders = frozen
+		out[i].setImagePlaceholders(frozen)
 	}
 	return out
 }
@@ -122,7 +143,7 @@ func stripImagesFromMessages(msgs []Message, visionAvailable bool) []Message {
 		// A message that never went through the freeze gets its tokens here, and
 		// records the user's words first. Frozen messages append nothing.
 		needed := imageBlockPlaceholders(out[i], visionAvailable)
-		if len(needed) > 0 && len(out[i].ImagePlaceholders) == 0 {
+		if len(needed) > 0 && len(out[i].imagePlaceholders()) == 0 {
 			recordImageRewrite(&out[i])
 		}
 		for _, token := range needed {
