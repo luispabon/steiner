@@ -18,7 +18,7 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - the system prompt and tool definitions
 - summaries from earlier compactions
 - the most recent conversation turns, verbatim
-- your latest request from before the summarized part, verbatim, truncated past 16 KB or past 5% of the context window when that is smaller (images in it are not kept). If keeping it alone would make the compaction fail, it is dropped and the banner says so
+- your latest request from before the summarized part, verbatim, truncated past 16 KB or past 5% of the context window when that is smaller (images in it are not kept). It holds the text you typed only: mode notices and sub-agent results from the same turn are left out. If keeping it alone would make the compaction fail, it is dropped and the banner says so
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 
@@ -40,7 +40,7 @@ The summary request carries the tool definitions a normal turn would send. After
 
 ### Compaction history archive
 
-Interactive sessions and oneshot phases save the messages each compaction removes to `history.md` in `~/.config/steiner/sessions/<session-id>/`. It holds user and assistant text and short tool-call summaries, not tool output or model reasoning. The summary tells the model where the archive is so it can `grep` and `read` it for a missing detail.
+Interactive sessions and oneshot phases save the messages each compaction removes to `history.md` in `~/.config/steiner/sessions/<session-id>/`. It holds user and assistant text and short tool-call summaries, not tool output or model reasoning. The summary tells the model where the archive is so it can `grep` and `read` it for a missing detail. The summary's latest-request section is written inside a code block, fenced longer than any backtick run in the request, so markdown in it is not interpreted. The compaction result in the transcript renders it the same way.
 
 Use `/recall` to view the current session's archive. `--exec` runs and sub-agents do not keep an archive. Deleting a session deletes its archive; a forked session starts its own archive.
 

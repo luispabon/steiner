@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -49,6 +50,18 @@ func TestCompactionResultMarkdownShowsLatestRequest(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCompactionResultMarkdownFencesRequestWithBackticks(t *testing.T) {
+	t.Parallel()
+
+	request := "```go\nfmt.Println(\"hi\")\n```"
+	summaryText := "summary body\n\n[steiner:latest-request bytes=" + strconv.Itoa(len(request)) + "]\n" + request
+	got := compactionResultMarkdown(summaryText)
+	want := "summary body\n\nLatest request (verbatim):\n\n````\n" + request + "\n````"
+	if got != want {
+		t.Errorf("rendered summary = %q, want %q", got, want)
 	}
 }
 

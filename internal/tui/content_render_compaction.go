@@ -8,6 +8,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/agent"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/session"
 	"github.com/luispabon/steiner/internal/usagestats"
 )
 
@@ -396,14 +397,14 @@ func compactionSummaryDetail(cd *compactionBannerData) string {
 }
 
 // compactionResultMarkdown renders a stored compaction summary for display: its
-// stored body, then the verbatim latest request under its own heading instead of
-// the storage header.
+// stored body, then the verbatim latest request fenced under its own heading
+// instead of the storage header.
 func compactionResultMarkdown(summaryText string) string {
 	body, request, ok := agent.SplitRequestBlock(summaryText)
 	if !ok {
 		return body
 	}
-	return body + "\n\nLatest request (verbatim):\n\n" + request
+	return body + "\n\nLatest request (verbatim):\n\n" + session.FenceVerbatim(request)
 }
 
 func compactionCacheDetail(cd *compactionBannerData) string {
