@@ -43,11 +43,11 @@ func apiKeyQuotaBase(baseURL string) string {
 }
 
 // NewAPIKeyQuotaFetcher returns a quota.Fetcher for an opencode_go, openrouter,
-// or litellm API-key account. A nil client uses http.DefaultClient. Other
-// provider types return an error.
+// litellm, or mistral API-key account. A nil client uses http.DefaultClient.
+// Other provider types return an error.
 func NewAPIKeyQuotaFetcher(cfg APIKeyQuotaConfig, client *http.Client) (quota.Fetcher, error) {
 	switch cfg.ProviderType {
-	case string(config.ProviderTypeOpencodeGo), string(config.ProviderTypeOpenRouter), string(config.ProviderTypeLiteLLM):
+	case string(config.ProviderTypeOpencodeGo), string(config.ProviderTypeOpenRouter), string(config.ProviderTypeLiteLLM), string(config.ProviderTypeMistral):
 	default:
 		return nil, fmt.Errorf("api key quota: unsupported provider type %q", cfg.ProviderType)
 	}
@@ -77,6 +77,8 @@ func (f *apiKeyQuotaFetcher) Fetch(ctx context.Context, _ quota.FetchOptions) (q
 		snap.Budgets, err = f.apiKeyQuotaOpenRouter(ctx)
 	case string(config.ProviderTypeLiteLLM):
 		snap.Budgets, err = f.apiKeyQuotaLiteLLM(ctx)
+	case string(config.ProviderTypeMistral):
+		snap.Plan, snap.Budgets, err = f.apiKeyQuotaMistral(ctx)
 	}
 	if err != nil {
 		return quota.Snapshot{}, err

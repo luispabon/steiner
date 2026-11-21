@@ -24,6 +24,7 @@ Opening the dashboard shows the stored values at once and refreshes every accoun
 | `opencode_go` | OpenCode's usage endpoint. | Rolling, weekly, and monthly windows. |
 | `openrouter` | OpenRouter's key endpoint. | Budgets or the key limit, and daily, weekly, and monthly spend. |
 | `litellm` | LiteLLM's key info endpoint. | The max budget, or spend alone when no max budget is set. |
+| `mistral` | Mistral's billing endpoints. These endpoints are in beta and undocumented. | The plan, and the API and Vibe budgets, each with the used amount, limit, and reset date. |
 
 Other provider types never appear on the dashboard, because Steiner has no usage source for them. Check the provider's own console instead.
 
