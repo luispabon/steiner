@@ -22,6 +22,10 @@ var quitTeaProgram = func(p *tea.Program) {
 	p.Quit()
 }
 
+// newStartupLoggerFn is a seam so tests can capture startup output on a
+// buffer, which output.SupportsANSI rejects.
+var newStartupLoggerFn = newStartupLogger
+
 func clearTerminalScreen(w io.Writer) {
 	if w == nil {
 		return
@@ -50,7 +54,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	flags.modelRequirement = requireOrchestratorModel
 	// Only interactive startup logs to the console. The logger writes nothing
 	// when stderr is not a terminal, so piped stderr stays clean.
-	flags.startupLog = newStartupLogger(cmd.ErrOrStderr())
+	flags.startupLog = newStartupLoggerFn(cmd.ErrOrStderr())
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err

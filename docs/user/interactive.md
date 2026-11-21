@@ -4,7 +4,7 @@ Run `steiner` with no arguments to start the interactive terminal UI (TUI). For 
 
 ## Startup log
 
-Before the TUI draws, interactive startup prints one line per step to standard error: project directory, configuration and project trust, model check, logging destination, skill discovery, sandbox status, MCP and LSP server counts, session creation, and the TUI launch. Lines appear only when standard error is an interactive terminal, so piping or redirecting it prints nothing and scripts are unaffected. `--log-file` and `logging.file` still control the file logs; this console summary replaces none of them.
+Before the TUI draws, interactive startup prints one line per step to standard error: project directory, configuration and project trust, model check, logging destination, skill discovery, sandbox status, MCP server count, LSP server count, runtime readiness, session creation, and the TUI launch. The MCP line appears only when MCP is enabled (the default) and the LSP line only when LSP is enabled (off by default). Lines appear only when standard error is an interactive terminal, `NO_COLOR` is unset and `TERM` is not `dumb`, so piping or redirecting it prints nothing and scripts are unaffected. `--log-file` and `logging.file` still control the file logs; this console summary replaces none of them.
 
 ## Layout
 

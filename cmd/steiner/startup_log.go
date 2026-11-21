@@ -15,12 +15,18 @@ import (
 // runInteractiveMode creates one, and it writes to stderr, which may be piped;
 // a disabled logger prints nothing.
 type startupLogger struct {
-	w       io.Writer
-	enabled bool
+	w          io.Writer
+	enabled    bool
+	labelStyle lipgloss.Style
 }
 
 func newStartupLogger(w io.Writer) *startupLogger {
-	return &startupLogger{w: w, enabled: output.SupportsANSI(w)}
+	return &startupLogger{
+		w:       w,
+		enabled: output.SupportsANSI(w),
+		// accentColor reads the user preference file, so resolve it once.
+		labelStyle: lipgloss.NewStyle().Foreground(accentColor()).Bold(true),
+	}
 }
 
 // step prints "  <check> <label> [detail]". It is safe to call on a nil
@@ -29,12 +35,14 @@ func (l *startupLogger) step(label, detail string) {
 	if l == nil || !l.enabled || l.w == nil {
 		return
 	}
-	labelText := lipgloss.NewStyle().Foreground(accentColor()).Bold(true).Render(label)
+	labelText := l.labelStyle.Render(label)
 	if detail == "" {
+		// Console output is best-effort; a failed write must not abort startup.
 		_, _ = fmt.Fprintf(l.w, "  %s %s\n", checkMark(), labelText)
 		return
 	}
 	detailText := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgDim)).Render(detail)
+	// Same best-effort contract as above.
 	_, _ = fmt.Fprintf(l.w, "  %s %s %s\n", checkMark(), labelText, detailText)
 }
 

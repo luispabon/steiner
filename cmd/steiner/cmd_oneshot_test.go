@@ -902,4 +902,7 @@ func TestNewPhaseRunnerBlocksOnMCPReadiness(t *testing.T) {
 			t.Errorf("call %d: phase runtime startupLog is non-nil, want nil", i)
 		}
 	}
+	if shared.startupLog == nil {
+		t.Error("shared flags startupLog = nil, want the interactive logger kept")
+	}
 }
