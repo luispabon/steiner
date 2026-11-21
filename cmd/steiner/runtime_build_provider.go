@@ -36,7 +36,7 @@ func buildRuntimeProviderFactory(httpClient *http.Client, streamErrorLog *provid
 			}
 			return provider.NewClaudeSubscriptionProvider(claudePool, streamErrorLog), nil
 		case config.ProviderTypeOpenAICompat, config.ProviderTypeOllama, config.ProviderTypeLMStudio,
-			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM:
+			config.ProviderTypeOpenRouter, config.ProviderTypeOpenAI, config.ProviderTypeLiteLLM, config.ProviderTypeMistral:
 			return newOpenAICompat(runtimeProviderConfig(rm, rm.ProviderConfig.Type, httpClient, streamErrorLog))
 		case config.ProviderTypeAnthropic:
 			return newAnthropic(runtimeProviderConfig(rm, providerType, httpClient, streamErrorLog))

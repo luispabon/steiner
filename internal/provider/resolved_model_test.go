@@ -231,6 +231,32 @@ func TestResolveProviderConfigAppliesOpenRouterDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveProviderConfigAppliesMistralDefaults(t *testing.T) {
+	t.Setenv("MISTRAL_API_KEY", "mistral-secret")
+
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"mistral": {Type: config.ProviderTypeMistral, APIKeyEnv: "MISTRAL_API_KEY"},
+		},
+		Models: config.ModelsConfig{
+			Definitions: map[string]config.ModelConfig{
+				"large": {Provider: "mistral", ID: "mistral-large-latest"},
+			},
+		},
+	}
+
+	rm, err := resolveReference(&cfg, "large", false, nil)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got, want := rm.ProviderConfig.BaseURL, "https://api.mistral.ai/v1"; got != want {
+		t.Fatalf("ProviderConfig.BaseURL = %q, want %q", got, want)
+	}
+	if got, want := rm.ProviderConfig.APIKey, "mistral-secret"; got != want {
+		t.Fatalf("ProviderConfig.APIKey = %q, want %q", got, want)
+	}
+}
+
 func TestResolveProviderConfigAppliesCodexDefaults(t *testing.T) {
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{

@@ -20,8 +20,8 @@ type QuotaRegistryDeps struct {
 }
 
 // BuildQuotaAccounts returns one quota.Account per provider alias whose type
-// reports quota: codex, claude_subscription, opencode_go, openrouter, and
-// litellm. Other provider types are skipped. Aliases are visited in sorted
+// reports quota: codex, claude_subscription, opencode_go, openrouter, litellm,
+// and mistral. Other provider types are skipped. Aliases are visited in sorted
 // order, so the result is deterministic. An account that cannot be fetched
 // carries an Unavailable reason and no Fetcher. BuildQuotaAccounts reads the
 // stored Codex identity but makes no network calls and refreshes no tokens.
@@ -35,7 +35,7 @@ func BuildQuotaAccounts(providers map[string]config.ProviderConfig, deps QuotaRe
 			acct = codexQuotaAccount(deps.HTTPClient)
 		case config.ProviderTypeClaudeSubscription:
 			acct = claudeSubQuotaAccount(deps.ClaudePool)
-		case config.ProviderTypeOpencodeGo, config.ProviderTypeOpenRouter, config.ProviderTypeLiteLLM:
+		case config.ProviderTypeOpencodeGo, config.ProviderTypeOpenRouter, config.ProviderTypeLiteLLM, config.ProviderTypeMistral:
 			acct = apiKeyQuotaAccount(alias, cfg, deps.HTTPClient)
 		default:
 			continue
@@ -81,10 +81,10 @@ func claudeSubQuotaAccount(pool *ClaudeSubscriptionPool) quota.Account {
 	return acct
 }
 
-// apiKeyQuotaAccount describes an opencode_go, openrouter, or litellm account
-// for the provider alias. The config is resolved first so the profile default
-// base URL and the api_key_env credential apply. The account key is the alias
-// key, so it does not depend on the API key, base URL, or provider type.
+// apiKeyQuotaAccount describes an opencode_go, openrouter, litellm, or mistral
+// account for the provider alias. The config is resolved first so the profile
+// default base URL and the api_key_env credential apply. The account key is the
+// alias key, so it does not depend on the API key, base URL, or provider type.
 func apiKeyQuotaAccount(alias string, cfg config.ProviderConfig, httpClient *http.Client) quota.Account {
 	resolved := ResolveProviderConfig(cfg)
 	providerType := string(resolved.Type)

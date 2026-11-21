@@ -252,6 +252,20 @@ func TestBuildRuntimeProviderFactoryDispatchesByResolvedProviderType(t *testing.
 		t.Fatalf("openai compat stream error log = %p, want %p", got, streamErrorLog)
 	}
 
+	mistralRM := provider.ResolvedModel{
+		Alias:                 "mistral",
+		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeMistral, BaseURL: "https://api.mistral.ai/v1", APIKey: "mistral-key"},
+		BackendModelID:        "mistral-large-latest",
+		EffectiveProviderType: config.ProviderTypeMistral,
+	}
+	gotMistral := runFactory(t, mistralRM, "", "openai_compat")
+	if got := gotMistral.openAICompatCfg; got.BaseURL != mistralRM.ProviderConfig.BaseURL {
+		t.Fatalf("mistral base URL = %q, want %q", got.BaseURL, mistralRM.ProviderConfig.BaseURL)
+	}
+	if got := gotMistral.openAICompatCfg.ProviderType; got != string(config.ProviderTypeMistral) {
+		t.Fatalf("mistral provider type = %q, want %q", got, config.ProviderTypeMistral)
+	}
+
 	anthropicRM := provider.ResolvedModel{
 		Alias:                 "anthropic",
 		ProviderConfig:        config.ProviderConfig{Type: config.ProviderTypeOpenAICompat, BaseURL: "http://anthropic.example/v1", APIKey: "anthropic-key", Headers: map[string]string{"X-Test": "anthropic"}, Timeout: config.MustDuration("30s")},

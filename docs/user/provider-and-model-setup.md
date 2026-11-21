@@ -38,6 +38,7 @@ You can declare several providers of the same type, such as two `openai_compat` 
 | `openrouter`                                  | OpenRouter gateway                        | Default `https://openrouter.ai/api/v1`  | Required API key  |
 | `opencode_go`                                 | OpenCode Go gateway                       | Default `https://opencode.ai/zen/go/v1` | Required API key  |
 | `opencode_zen`                                | OpenCode Zen gateway                      | Default `https://opencode.ai/zen/v1`    | Required API key  |
+| `mistral`                                     | Mistral La Plateforme                     | Default `https://api.mistral.ai/v1`     | Required API key  |
 | **Subscriptions**                             |                                           |                                         |                   |
 | [`codex`](#codex-chatgpt-sign-in)             | ChatGPT backend                           | Optional, ignored for ChatGPT sign-in   | OAuth login       |
 | [`claude_subscription`](#claude-subscription) | Signed-in local `claude` CLI              | Rejected                                | Claude Code login |
@@ -49,7 +50,7 @@ You can declare several providers of the same type, such as two `openai_compat` 
 
 `gemini` passes validation but cannot run, so don't use it.
 
-- `openai`, `openrouter`, `ollama`, `lmstudio`, `litellm`, and `openai_compat` use the OpenAI chat-completions API by default. `anthropic` uses the Anthropic Messages API by default.
+- `openai`, `openrouter`, `mistral`, `ollama`, `lmstudio`, `litellm`, and `openai_compat` use the OpenAI chat-completions API by default. `anthropic` uses the Anthropic Messages API by default.
 - `opencode_go` and `opencode_zen` select the OpenAI chat-completions or Anthropic Messages API per model.
 - `codex` uses the OpenAI Responses API over HTTP or an experimental WebSocket.
 
@@ -57,7 +58,7 @@ Model transport settings can override the default for non-subscription types; se
 
 ### When you need base_url
 
-Hosted types `openai`, `anthropic`, `openrouter`, `opencode_go`, and `opencode_zen` know their addresses, so `base_url` is optional. A non-empty `base_url` overrides the default, for example to send traffic through a proxy. You can use `headers` for extra headers the proxy needs. For Anthropic, Steiner adds `/messages` for requests and `/models` for discovery.
+Hosted types `openai`, `anthropic`, `openrouter`, `mistral`, `opencode_go`, and `opencode_zen` know their addresses, so `base_url` is optional. A non-empty `base_url` overrides the default, for example to send traffic through a proxy. You can use `headers` for extra headers the proxy needs. For Anthropic, Steiner adds `/messages` for requests and `/models` for discovery.
 
 For `ollama`, `lmstudio`, `litellm`, and `openai_compat`, set `base_url` to where you run the service. Validation fails without it. Use the API root, usually ending in `/v1`; Steiner adds paths such as `/chat/completions`.
 
@@ -121,6 +122,23 @@ providers:
 ```
 
 Reference its models as `openrouter/<provider-model-id>`. OpenRouter model IDs usually contain a slash, for example `openrouter/openai/gpt-4o`.
+
+#### Mistral
+
+Create an API key at https://console.mistral.ai and export it:
+
+```bash
+export MISTRAL_API_KEY='your-key'
+```
+
+```yaml
+providers:
+  mistral:
+    type: mistral
+    api_key_env: MISTRAL_API_KEY
+```
+
+Reference its models as `mistral/<model-id>`, for example `mistral/mistral-large-latest`.
 
 #### OpenCode Go and Zen
 
@@ -326,7 +344,7 @@ Switching the model or its reasoning effort in a conversation that already has m
 
 ### Model discovery
 
-Steiner asks configured providers which models they offer and adds them to the model picker. Discovery is on by default. These provider types support it: `openai`, `openai_compat`, `litellm`, `opencode_go`, `opencode_zen`, `ollama`, `lmstudio`, `openrouter`, `anthropic`, `codex`, and `claude_subscription`. Support depends on the provider type, not on the key you gave the provider.
+Steiner asks configured providers which models they offer and adds them to the model picker. Discovery is on by default. These provider types support it: `openai`, `openai_compat`, `litellm`, `opencode_go`, `opencode_zen`, `mistral`, `ollama`, `lmstudio`, `openrouter`, `anthropic`, `codex`, and `claude_subscription`. Support depends on the provider type, not on the key you gave the provider.
 
 - At startup, cached results load first. Providers with a missing or stale cache refresh in the background, and new entries appear in the picker as each provider answers. Steiner does not refresh again during the session.
 - A cached list stays fresh for seven days. Changing a provider's type or base URL invalidates its cache.

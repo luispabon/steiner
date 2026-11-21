@@ -409,6 +409,47 @@ func TestUsageBudgetLine(t *testing.T) {
 	}
 }
 
+func TestUsageBudgetCurrencyRendering(t *testing.T) {
+	t.Parallel()
+	limit := 50.0
+	resets := time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		currency  string
+		want      string
+		wantSpend string
+	}{
+		{"no currency keeps dollar", "", "$40.00 / $50.00", "today $0.40"},
+		{"usd keeps dollar", "USD", "$40.00 / $50.00", "today $0.40"},
+		{"lowercase usd keeps dollar", "usd", "$40.00 / $50.00", "today $0.40"},
+		{"eur uses euro sign", "EUR", "€40.00 / €50.00", "today €0.40"},
+		{"padded lowercase eur uses euro sign", " eur ", "€40.00 / €50.00", "today €0.40"},
+		{"other code prefixes the amount", "GBP", "GBP 40.00 / GBP 50.00", "today GBP 0.40"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := usageTestFrame(t, quota.AccountView{
+				DisplayAlias: "work",
+				Latest: &quota.Snapshot{Budgets: []quota.Budget{
+					{Label: "month", Used: 40, Limit: &limit, Currency: tt.currency, Period: "monthly", ResetsAt: &resets},
+					{Label: "today", Used: 0.4, Currency: tt.currency},
+				}},
+			})
+			lines := usageStrippedLines(f)
+			if len(lines) != 3 {
+				t.Fatalf("got %d lines, want header, budget and spend: %q", len(lines), lines)
+			}
+			if !strings.Contains(lines[1], tt.want) {
+				t.Errorf("budget row %q missing %q", lines[1], tt.want)
+			}
+			if want := "  spend        " + tt.wantSpend; lines[2] != want {
+				t.Errorf("spend row = %q, want %q", lines[2], want)
+			}
+		})
+	}
+}
+
 func TestUsageSpendAndCreditsRows(t *testing.T) {
 	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{

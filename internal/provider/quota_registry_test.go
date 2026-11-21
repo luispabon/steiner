@@ -162,6 +162,21 @@ func TestBuildQuotaAccountsAPIKey(t *testing.T) {
 			wantType: "litellm",
 			wantKey:  "provider:api",
 		},
+		{
+			name:     "mistral key from api_key_env",
+			cfg:      config.ProviderConfig{Type: config.ProviderTypeMistral, APIKeyEnv: quotaRegistryTestKeyEnv},
+			env:      "sk-env",
+			wantType: "mistral",
+			wantKey:  "provider:api",
+		},
+		{
+			name:            "mistral empty api_key_env",
+			cfg:             config.ProviderConfig{Type: config.ProviderTypeMistral, APIKeyEnv: quotaRegistryTestKeyEnv},
+			env:             "",
+			wantType:        "mistral",
+			wantKey:         "provider:api",
+			wantUnavailable: "no API key",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
