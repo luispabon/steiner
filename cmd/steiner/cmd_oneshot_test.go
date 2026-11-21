@@ -864,14 +864,17 @@ func TestOneshotCommandResolveMissingManifest(t *testing.T) {
 func TestNewPhaseRunnerBlocksOnMCPReadiness(t *testing.T) {
 	sentinel := errors.New("stop after capture")
 	var seen []bool
+	var seenStartupLog []bool
 	orig := buildPhaseRuntime
 	buildPhaseRuntime = func(_ context.Context, _ *cobra.Command, flags *cliFlags, _, _, _ string) (cliRuntime, error) {
 		seen = append(seen, flags.asyncMCP)
+		seenStartupLog = append(seenStartupLog, flags.startupLog != nil)
 		return cliRuntime{}, sentinel
 	}
 	t.Cleanup(func() { buildPhaseRuntime = orig })
 
-	shared := &cliFlags{asyncMCP: true}
+	var buf bytes.Buffer
+	shared := &cliFlags{asyncMCP: true, startupLog: &startupLogger{w: &buf, enabled: true}}
 	factory := phaseRunnerFactory{flags: shared}
 
 	// Flags mutated after the factory exists must not change the outcome.
@@ -890,6 +893,13 @@ func TestNewPhaseRunnerBlocksOnMCPReadiness(t *testing.T) {
 	for i, got := range seen {
 		if got {
 			t.Errorf("call %d: phase runtime asyncMCP = true, want false", i)
+		}
+	}
+	// A live TUI may sit below the phase runtime, so the console startup
+	// logger must not reach it.
+	for i, got := range seenStartupLog {
+		if got {
+			t.Errorf("call %d: phase runtime startupLog is non-nil, want nil", i)
 		}
 	}
 }

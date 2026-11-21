@@ -68,6 +68,11 @@ type cliFlags struct {
 	// loaded. It is set by each command, not by a CLI flag; the zero value
 	// requires no model.
 	modelRequirement runtimeRequirement
+	// startupLog prints the interactive startup steps to stderr. Only
+	// runInteractiveMode sets it, before buildRuntime; nil means no console
+	// startup log (every other command, exec, headless oneshot, and
+	// TUI-launched oneshot phase runtimes).
+	startupLog *startupLogger
 }
 
 // runtimeRequirement names the model check a command needs before its runtime

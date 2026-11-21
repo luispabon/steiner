@@ -59,16 +59,22 @@ func loadRuntimeConfig(cmd *cobra.Command, flags *cliFlags, modelAlias string) (
 func preflightRuntimeModels(cfg config.Config, requirement runtimeRequirement) error {
 	switch requirement {
 	case requireOrchestratorModel:
-		ref := cfg.Models.Effective.ActiveOrchestratorModel
-		if strings.TrimSpace(ref) == "" {
-			ref = cfg.Models.Effective.DefaultModel
-		}
-		return config.RequireModelReference(cfg, ref)
+		return config.RequireModelReference(cfg, orchestratorModelRef(cfg))
 	case requireOneshotModels:
 		return oneshot.RequireModels(cfg)
 	default:
 		return nil
 	}
+}
+
+// orchestratorModelRef returns the model reference an orchestrator run uses:
+// the active orchestrator model, falling back to the profile default.
+func orchestratorModelRef(cfg config.Config) string {
+	ref := cfg.Models.Effective.ActiveOrchestratorModel
+	if strings.TrimSpace(ref) == "" {
+		ref = cfg.Models.Effective.DefaultModel
+	}
+	return ref
 }
 
 // pruneRuntimeArtifacts applies shared fetch/bash artifact retention to the
@@ -95,19 +101,23 @@ func selectionModelSource(cfg config.Config, flags *cliFlags) string {
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
+	sl := flags.startupLog
 	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
 	}
 	// Best-effort: a failed prune must not block startup, and there is no
 	// event sink yet at this point in composition to report it through.
 	_, _ = pruneRuntimeArtifacts(projectRoot, workDir)
+	sl.step("Preparing project directory", projectRoot)
 	cfg, err := loadRuntimeConfig(cmd, flags, modelAlias)
 	if err != nil {
 		return cliRuntime{}, err
 	}
+	sl.step("Loading configuration", trustSourceDetail(flags))
 	if err := preflightRuntimeModels(cfg, flags.modelRequirement); err != nil {
 		return cliRuntime{}, err
 	}
+	sl.step("Checking model configuration", orchestratorModelRef(cfg))
 	httpClient := runtimeHTTPClient()
 	modelCatalog, modelCatalogEndpoints, modelPopularity := buildModelCatalogService(&cfg, httpClient)
 	modelResolver := provider.NewResolver(provider.ResolverOptions{
@@ -121,6 +131,11 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 	}
 	rt.events = events
 	rt.closeFn = closeFn
+	logDetail := runtimeLogFile(cfg, flags)
+	if strings.TrimSpace(logDetail) == "" {
+		logDetail = "disabled"
+	}
+	sl.step("Logging", logDetail)
 	if flags.trustResolved {
 		slog.Info("project trust", "root", flags.projectRoot, "source", flags.trustSource)
 	}
@@ -160,12 +175,14 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
+	sl.step("Discovering skills", fmt.Sprintf("%d found", len(skillNames)))
 	sb, status, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir)
 	if err != nil {
 		closeRuntime(&rt)
 		return cliRuntime{}, err
 	}
 	rt.sandbox = sb
+	sl.step("Sandbox", status)
 	wireSandboxTmpWarning(sb, events)
 
 	emitSandboxWarning(cfg, status, events)
@@ -192,6 +209,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		mcpStderr := selectServerStderr(mcpServerLogPath, flags.asyncMCP, mcpServerLogWriter)
 		mcpMgr, mcpState = connectRuntimeMCP(ctx, cfg, sb, flags.asyncMCP, events, mcpStderr)
 		rt.mcpManager = mcpMgr
+		sl.step("Connecting MCP servers", mcpStartupDetail(cfg, flags.asyncMCP))
 	}
 
 	// Construct LSP manager when enabled. Unlike MCP, servers start lazily on
@@ -210,6 +228,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		lspStderr := selectServerStderr(lspServerLogPath, flags.asyncMCP, lspServerLogWriter)
 		lspMgr = connectRuntimeLSP(cfg, sb, workDir, events, lspStderr)
 		rt.lspManager = lspMgr
+		sl.step("LSP servers", lspStartupDetail(cfg))
 	}
 
 	// Rebuild registry with sandbox, MCP and LSP tools now that workDir and homeDir are known.

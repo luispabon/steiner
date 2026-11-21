@@ -77,11 +77,15 @@ func newPhaseRunner(ctx context.Context, cmd *cobra.Command, flags *cliFlags, pa
 	// A phase runtime is single-use and has no readiness wait of its own, so it
 	// must block on MCP connects even when the launching TUI runs asyncMCP.
 	// Copy the flags so the shared *cliFlags is never mutated.
-	// Shallow copy: only a bool is overridden, so this isolates it. If cliFlags
-	// gains a slice or map field, deep-copy it here or C1 silently regresses.
+	// Shallow copy: only scalars are overridden, so this isolates them. If
+	// cliFlags gains a slice or map field, deep-copy it here or C1 silently
+	// regresses.
 	phaseFlags := *flags
 	phaseFlags.asyncMCP = false
 	phaseFlags.modelRequirement = requireOrchestratorModel
+	// The launching TUI may be live while this phase runtime builds, so the
+	// startup logger must not write to the console below it.
+	phaseFlags.startupLog = nil
 	runtime, err := buildPhaseRuntime(ctx, cmd, &phaseFlags, params.ProjectRoot, params.WorkDir, params.ModelAlias)
 	if err != nil {
 		return nil, err
