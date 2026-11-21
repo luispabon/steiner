@@ -12,7 +12,10 @@ import (
 // objects are mapped: the top-level fields repeat api_budget, so counting both
 // would double the usage. The subscription call is best-effort, so its failure
 // leaves Plan empty but keeps the budgets. Both endpoints are undocumented and
-// in beta, so unknown fields are ignored and missing fields are tolerated.
+// in beta, so unknown fields are ignored and missing fields are tolerated. A
+// budget object with neither an initial budget nor a usage percentage carries
+// nothing to show and is skipped, and a response that reports neither budget
+// yields no budgets.
 func (f *apiKeyQuotaFetcher) apiKeyQuotaMistral(ctx context.Context) (string, []quota.Budget, error) {
 	const label = "billing/budget"
 	type budget struct {
@@ -21,12 +24,17 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaMistral(ctx context.Context) (string, []
 		Currency        string   `json:"currency"`
 		ResetsAt        *string  `json:"reset_at"`
 	}
-	var body struct {
+	// A null body decodes as a nil pointer; an object with both budgets null is
+	// valid and yields no budgets, matching the other API-key providers.
+	var body *struct {
 		APIBudget  *budget `json:"api_budget"`
 		VibeBudget *budget `json:"vibe_budget"`
 	}
 	if err := f.apiKeyQuotaGet(ctx, f.base+"/billing/budget", label, &body); err != nil {
 		return "", nil, err
+	}
+	if body == nil {
+		return "", nil, fmt.Errorf("%s: bad response", label)
 	}
 	specs := []struct {
 		label  string
@@ -37,25 +45,22 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaMistral(ctx context.Context) (string, []
 	}
 	budgets := make([]quota.Budget, 0, len(specs))
 	for _, s := range specs {
-		if s.budget == nil {
+		// A budget object with neither field carries nothing to show.
+		if s.budget == nil || (s.budget.InitialBudget == nil && s.budget.UsagePercentage == nil) {
 			continue
 		}
 		out := quota.Budget{
 			Label:    s.label,
+			Limit:    s.budget.InitialBudget,
 			Currency: s.budget.Currency,
 			ResetsAt: apiKeyQuotaParseTime(s.budget.ResetsAt),
 		}
-		if s.budget.InitialBudget != nil {
-			out.Limit = s.budget.InitialBudget
-			// The API reports a 0-100 percentage, not an absolute used amount.
-			if s.budget.UsagePercentage != nil {
-				out.Used = *s.budget.InitialBudget * *s.budget.UsagePercentage / 100
-			}
+		// The API reports a 0-100 percentage, not an absolute used amount, so the
+		// used amount needs both fields.
+		if s.budget.InitialBudget != nil && s.budget.UsagePercentage != nil {
+			out.Used = *s.budget.InitialBudget * *s.budget.UsagePercentage / 100
 		}
 		budgets = append(budgets, out)
-	}
-	if len(budgets) == 0 {
-		return "", nil, fmt.Errorf("%s: bad response", label)
 	}
 	var sub struct {
 		PlanName string `json:"plan_name"`

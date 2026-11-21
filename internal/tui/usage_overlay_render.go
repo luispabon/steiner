@@ -111,7 +111,7 @@ func usageAccountLines(f usageFrame, v quota.AccountView) []string {
 	var spend []string
 	for i, b := range snap.Budgets {
 		if b.Limit == nil {
-			text := fmt.Sprintf("$%.2f", b.Used)
+			text := fmt.Sprintf("%s%.2f", usageMoneyPrefix(b.Currency), b.Used)
 			if b.Label != quota.BudgetLabelSpend {
 				text = b.Label + " " + text
 			}
@@ -182,12 +182,29 @@ func usageWindowLine(f usageFrame, w quota.Window) string {
 	return line
 }
 
+// usageMoneyPrefix renders a budget currency as the prefix for an amount.
+// Known currencies use their symbol, any other non-empty code renders as the
+// code followed by a space, and an empty code keeps "$" for the providers
+// that report no currency.
+func usageMoneyPrefix(currency string) string {
+	switch currency {
+	case "EUR":
+		return "€"
+	case "", "USD":
+		return "$"
+	default:
+		return currency + " "
+	}
+}
+
 func usageBudgetLine(f usageFrame, b quota.Budget) string {
 	pct := 0.0
 	if *b.Limit > 0 {
 		pct = b.Used / *b.Limit * 100
 	}
-	line := usagePeriodRow(b.Label, usageMeter(f, pct, fmt.Sprintf("$%.2f / $%.2f", b.Used, *b.Limit)))
+	prefix := usageMoneyPrefix(b.Currency)
+	amounts := fmt.Sprintf("%s%.2f / %s%.2f", prefix, b.Used, prefix, *b.Limit)
+	line := usagePeriodRow(b.Label, usageMeter(f, pct, amounts))
 	if b.Period != "" {
 		line += "  " + b.Period
 	}

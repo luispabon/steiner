@@ -36,7 +36,7 @@ Each account has its own block:
 
 - **Header.** A `●` marks the provider the current session uses. The header shows the plan and how long ago the data was updated, or the error from the last failed fetch. An account that cannot be fetched shows why, for example `not signed in` or `no API key`.
 - **Windows.** A bar, the percentage used, and the reset time, such as `14:05 (2h05m)`. The bar changes to warning style from 75% and error style from 90%. Standard window lengths show as `5h`, `daily`, `weekly`, or `monthly`.
-- **Budgets.** `$used / $limit`, the period, and the reset time. Spend without a limit appears under `spend`.
+- **Budgets.** `used / limit` in the currency the provider reports, the period, and the reset time, such as `$40.00 / $50.00` or `€40.00 / €50.00`. A currency with no known symbol shows as a code prefix, such as `GBP 40.00`. Spend without a limit appears under `spend`.
 - **Credits.** A text row, when the provider reports credits.
 
 A failed fetch keeps the previous values and shows the error in the header.

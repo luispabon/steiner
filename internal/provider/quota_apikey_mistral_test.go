@@ -58,10 +58,9 @@ func TestAPIKeyQuotaFetchMistralFixture(t *testing.T) {
 func TestAPIKeyQuotaMistralBudgetShapes(t *testing.T) {
 	subscription := apiKeyQuotaFixture(t, "mistral_subscription.json")
 	tests := []struct {
-		name    string
-		body    string
-		want    []quota.Budget
-		wantErr string
+		name string
+		body string
+		want []quota.Budget
 	}{
 		{
 			name: "vibe budget null",
@@ -74,9 +73,9 @@ func TestAPIKeyQuotaMistralBudgetShapes(t *testing.T) {
 			want: []quota.Budget{{Label: "vibe", Used: 20, Limit: apiKeyQuotaPtr(80.0), Currency: "EUR"}},
 		},
 		{
-			name:    "both budgets null ignores top-level legacy fields",
-			body:    `{"api_budget":null,"vibe_budget":null,"usage_percentage":10,"initial_budget":50,"currency":"EUR","reset_at":"2026-12-01T00:00:00Z"}`,
-			wantErr: "billing/budget: bad response",
+			name: "both budgets null yields no budgets and no error",
+			body: `{"api_budget":null,"vibe_budget":null,"usage_percentage":10,"initial_budget":50,"currency":"EUR","reset_at":"2026-12-01T00:00:00Z"}`,
+			want: []quota.Budget{},
 		},
 		{
 			name: "missing usage percentage leaves used at zero",
@@ -84,9 +83,19 @@ func TestAPIKeyQuotaMistralBudgetShapes(t *testing.T) {
 			want: []quota.Budget{{Label: "api", Limit: apiKeyQuotaPtr(50.0), Currency: "EUR"}},
 		},
 		{
-			name: "null initial budget keeps the budget without a limit",
+			name: "initial budget null keeps used at zero",
 			body: `{"api_budget":{"usage_percentage":10,"initial_budget":null,"currency":"EUR","reset_at":"2026-12-01T00:00:00Z"}}`,
 			want: []quota.Budget{{Label: "api", Currency: "EUR", ResetsAt: apiKeyQuotaTime(t, "2026-12-01T00:00:00Z")}},
+		},
+		{
+			name: "empty budget object is skipped",
+			body: `{"api_budget":{},"vibe_budget":{"usage_percentage":25,"initial_budget":80,"currency":"EUR"}}`,
+			want: []quota.Budget{{Label: "vibe", Used: 20, Limit: apiKeyQuotaPtr(80.0), Currency: "EUR"}},
+		},
+		{
+			name: "no budget data yields no budgets",
+			body: `{}`,
+			want: []quota.Budget{},
 		},
 		{
 			name: "malformed reset_at keeps the budget with a nil reset",
@@ -98,16 +107,7 @@ func TestAPIKeyQuotaMistralBudgetShapes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := mistralQuotaServer(t, http.StatusOK, tt.body, http.StatusOK, subscription)
 			cfg := APIKeyQuotaConfig{ProviderType: "mistral", BaseURL: srv.URL + "/v1", APIKey: "sk-test"}
-			snap, err := apiKeyQuotaTryFetch(t, cfg, srv.Client())
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Errorf("Fetch error = %v, want %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Fetch: %v", err)
-			}
+			snap := apiKeyQuotaFetch(t, cfg, srv.Client())
 			apiKeyQuotaAssertJSON(t, "Budgets", snap.Budgets, tt.want)
 		})
 	}
@@ -152,6 +152,7 @@ func TestAPIKeyQuotaMistralBudgetErrors(t *testing.T) {
 		{name: "forbidden", status: http.StatusForbidden, body: `{"error":"denied"}`, want: "billing/budget: 403"},
 		{name: "not found", status: http.StatusNotFound, body: `{"error":"missing"}`, want: "billing/budget: 404"},
 		{name: "malformed", status: http.StatusOK, body: "{", want: "billing/budget: bad response"},
+		{name: "null body", status: http.StatusOK, body: "null", want: "billing/budget: bad response"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
