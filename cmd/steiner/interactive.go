@@ -22,6 +22,10 @@ var quitTeaProgram = func(p *tea.Program) {
 	p.Quit()
 }
 
+// newStartupLoggerFn is a seam so tests can capture startup output on a
+// buffer, which output.SupportsANSI rejects.
+var newStartupLoggerFn = newStartupLogger
+
 func clearTerminalScreen(w io.Writer) {
 	if w == nil {
 		return
@@ -48,16 +52,21 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 	// from a flags copy with asyncMCP=false so they block on MCP readiness.
 	flags.asyncMCP = true
 	flags.modelRequirement = requireOrchestratorModel
+	// Only interactive startup logs to the console. The logger writes nothing
+	// when stderr is not a terminal, so piped stderr stays clean.
+	flags.startupLog = newStartupLoggerFn(cmd.ErrOrStderr())
 	rt, err := buildRuntime(cmd.Context(), cmd, flags)
 	if err != nil {
 		return err
 	}
+	flags.startupLog.step("Runtime ready", displayVersion(version))
 	rt.configWarnings = append(rt.configWarnings, invalidExplicitModelWarnings(rt.cfg, flags)...)
 	sess, err := buildInteractiveSession(rt)
 	if err != nil {
 		closeRuntime(&rt)
 		return err
 	}
+	flags.startupLog.step("Session created", sess.SessionID())
 	rt = buildInteractiveRuntime(rt, sess)
 	rt.worktreeCleanup = tui.NewWorktreeCleanupPlan(
 		func(ctx context.Context) (int, error) {
@@ -74,6 +83,7 @@ func runInteractiveMode(cmd *cobra.Command, flags *cliFlags) error {
 		return err
 	}
 	defer tuiApp.Cleanup()
+	flags.startupLog.step("Starting TUI", "")
 	wireInteractiveRunner(rt, sess)
 	sess.DisplaySink().Set(tuiApp.EventSink())
 	if err := resumeInteractiveSession(cmd.Context(), sess, flags.resume, &rt); err != nil {

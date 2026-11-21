@@ -2,6 +2,10 @@
 
 Run `steiner` with no arguments to start the interactive terminal UI (TUI). For command-line flags and subcommands, see [CLI reference](cli.md).
 
+## Startup log
+
+Before the TUI draws, interactive startup prints one line per step to standard error: project directory, configuration and project trust, model check, logging destination, skill discovery, sandbox status, MCP server count, LSP server count, runtime readiness, session creation, and the TUI launch. The MCP line appears only when MCP is enabled (the default) and the LSP line only when LSP is enabled (off by default). Lines appear only when standard error is an interactive terminal, `NO_COLOR` is unset and `TERM` is not `dumb`, so piping or redirecting it prints nothing and scripts are unaffected. `--log-file` and `logging.file` still control the file logs; this console summary replaces none of them.
+
 ## Layout
 
 - **Transcript**: the main pane. It shows your messages, model replies, thinking blocks, tool calls, approval prompts, sub-agent cards and the compaction banner. Click a tool call, thinking block, sub-agent card or the compaction banner to expand or collapse its detail.
