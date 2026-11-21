@@ -78,14 +78,19 @@ func TestAPIKeyQuotaMistralBudgetShapes(t *testing.T) {
 			want: []quota.Budget{},
 		},
 		{
-			name: "missing usage percentage leaves used at zero",
+			name: "missing usage percentage is skipped",
 			body: `{"api_budget":{"initial_budget":50,"currency":"EUR"}}`,
-			want: []quota.Budget{{Label: "api", Limit: apiKeyQuotaPtr(50.0), Currency: "EUR"}},
+			want: []quota.Budget{},
 		},
 		{
-			name: "initial budget null keeps used at zero",
-			body: `{"api_budget":{"usage_percentage":10,"initial_budget":null,"currency":"EUR","reset_at":"2026-12-01T00:00:00Z"}}`,
-			want: []quota.Budget{{Label: "api", Currency: "EUR", ResetsAt: apiKeyQuotaTime(t, "2026-12-01T00:00:00Z")}},
+			name: "missing initial budget is skipped",
+			body: `{"api_budget":{"usage_percentage":10,"currency":"EUR","reset_at":"2026-12-01T00:00:00Z"}}`,
+			want: []quota.Budget{},
+		},
+		{
+			name: "partial budgets on both rows yield no budgets",
+			body: `{"api_budget":{"initial_budget":50,"currency":"EUR"},"vibe_budget":{"usage_percentage":25,"currency":"EUR"}}`,
+			want: []quota.Budget{},
 		},
 		{
 			name: "empty budget object is skipped",

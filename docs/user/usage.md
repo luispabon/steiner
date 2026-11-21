@@ -26,6 +26,8 @@ Opening the dashboard shows the stored values at once and refreshes every accoun
 | `litellm` | LiteLLM's key info endpoint. | The max budget, or spend alone when no max budget is set. |
 | `mistral` | Mistral's billing endpoints. These endpoints are in beta and undocumented. | The plan, and the API and Vibe budgets, each with the used amount, limit, and reset date. |
 
+Steiner does not display Mistral's pay-as-you-go flag, so a budget bar showing 100% does not mean the account is blocked when pay-as-you-go is enabled.
+
 Other provider types never appear on the dashboard, because Steiner has no usage source for them. Check the provider's own console instead.
 
 Only providers in the current config appear. Each API-key provider gets one row per provider key. Two Codex providers that use the same ChatGPT account share one row. A Codex sign-in that uses an OpenAI API key rather than a ChatGPT account shows `API mode: no quota to report`.

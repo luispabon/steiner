@@ -183,17 +183,18 @@ func usageWindowLine(f usageFrame, w quota.Window) string {
 }
 
 // usageMoneyPrefix renders a budget currency as the prefix for an amount.
-// Known currencies use their symbol, any other non-empty code renders as the
-// code followed by a space, and an empty code keeps "$" for the providers
-// that report no currency.
+// Known currencies use their symbol whatever their case, any other non-empty
+// code renders as the code followed by a space, and an empty code keeps "$"
+// for the providers that report no currency.
 func usageMoneyPrefix(currency string) string {
-	switch currency {
+	code := strings.ToUpper(strings.TrimSpace(currency))
+	switch code {
 	case "EUR":
 		return "€"
 	case "", "USD":
 		return "$"
 	default:
-		return currency + " "
+		return code + " "
 	}
 }
 

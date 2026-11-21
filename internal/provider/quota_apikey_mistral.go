@@ -12,10 +12,10 @@ import (
 // objects are mapped: the top-level fields repeat api_budget, so counting both
 // would double the usage. The subscription call is best-effort, so its failure
 // leaves Plan empty but keeps the budgets. Both endpoints are undocumented and
-// in beta, so unknown fields are ignored and missing fields are tolerated. A
-// budget object with neither an initial budget nor a usage percentage carries
-// nothing to show and is skipped, and a response that reports neither budget
-// yields no budgets.
+// in beta, so unknown fields are ignored. The used amount is derived from both
+// an initial budget and a usage percentage, so a budget object missing either
+// one carries no usable amount and is skipped; a response that reports neither
+// budget yields no budgets.
 func (f *apiKeyQuotaFetcher) apiKeyQuotaMistral(ctx context.Context) (string, []quota.Budget, error) {
 	const label = "billing/budget"
 	type budget struct {
@@ -45,22 +45,19 @@ func (f *apiKeyQuotaFetcher) apiKeyQuotaMistral(ctx context.Context) (string, []
 	}
 	budgets := make([]quota.Budget, 0, len(specs))
 	for _, s := range specs {
-		// A budget object with neither field carries nothing to show.
-		if s.budget == nil || (s.budget.InitialBudget == nil && s.budget.UsagePercentage == nil) {
+		// The API reports a 0-100 percentage, not an absolute used amount, so a
+		// budget row needs both fields; skipping partial rows keeps a false zero
+		// out of the dashboard and the stored history trends.
+		if s.budget == nil || s.budget.InitialBudget == nil || s.budget.UsagePercentage == nil {
 			continue
 		}
-		out := quota.Budget{
+		budgets = append(budgets, quota.Budget{
 			Label:    s.label,
+			Used:     *s.budget.InitialBudget * *s.budget.UsagePercentage / 100,
 			Limit:    s.budget.InitialBudget,
 			Currency: s.budget.Currency,
 			ResetsAt: apiKeyQuotaParseTime(s.budget.ResetsAt),
-		}
-		// The API reports a 0-100 percentage, not an absolute used amount, so the
-		// used amount needs both fields.
-		if s.budget.InitialBudget != nil && s.budget.UsagePercentage != nil {
-			out.Used = *s.budget.InitialBudget * *s.budget.UsagePercentage / 100
-		}
-		budgets = append(budgets, out)
+		})
 	}
 	var sub struct {
 		PlanName string `json:"plan_name"`

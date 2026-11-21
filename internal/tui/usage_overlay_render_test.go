@@ -421,7 +421,9 @@ func TestUsageBudgetCurrencyRendering(t *testing.T) {
 	}{
 		{"no currency keeps dollar", "", "$40.00 / $50.00", "today $0.40"},
 		{"usd keeps dollar", "USD", "$40.00 / $50.00", "today $0.40"},
+		{"lowercase usd keeps dollar", "usd", "$40.00 / $50.00", "today $0.40"},
 		{"eur uses euro sign", "EUR", "€40.00 / €50.00", "today €0.40"},
+		{"padded lowercase eur uses euro sign", " eur ", "€40.00 / €50.00", "today €0.40"},
 		{"other code prefixes the amount", "GBP", "GBP 40.00 / GBP 50.00", "today GBP 0.40"},
 	}
 	for _, tt := range tests {
