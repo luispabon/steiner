@@ -121,7 +121,7 @@ A map of named provider connections. The key is an arbitrary name that `models.d
 
 | Path | Type | Default | Description |
 | --- | --- | --- | --- |
-| `providers.<name>.type` | string | none | Required. One of `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `claude_subscription`. See [Provider types](#provider-types). |
+| `providers.<name>.type` | string | none | Required. One of `openai_compat`, `ollama`, `lmstudio`, `openrouter`, `openai`, `anthropic`, `gemini`, `litellm`, `codex`, `opencode_go`, `opencode_zen`, `mistral`, `claude_subscription`. See [Provider types](#provider-types). |
 | `providers.<name>.base_url` | string | per type | API endpoint. Required for `openai_compat`, `ollama`, `lmstudio` and `litellm`. |
 | `providers.<name>.api_key` | string | none | API key. Prefer `api_key_env` or `${VAR}` to keep secrets out of files. |
 | `providers.<name>.api_key_env` | string | none | Name of an environment variable holding the API key, read at startup. `api_key` wins when both are set. |
@@ -145,6 +145,7 @@ A map of named provider connections. The key is an arbitrary name that `models.d
 | `anthropic` | default `https://api.anthropic.com/v1` | required | Native Anthropic API. Steiner appends `/messages` to `base_url`, so a custom `base_url` must include the `/v1` suffix. |
 | `opencode_go` | default `https://opencode.ai/zen/go/v1` | required | OpenCode Go gateway. Create the key in your OpenCode account. |
 | `opencode_zen` | default `https://opencode.ai/zen/v1` | required | OpenCode Zen gateway. |
+| `mistral` | default `https://api.mistral.ai/v1` | required | Mistral La Plateforme, through its OpenAI-compatible API. |
 | `codex` | optional | ignored | OpenAI Codex subscription. Sign in with `steiner login codex`; authentication uses that OAuth login, not `api_key`. |
 | `claude_subscription` | rejected | rejected | Runs your signed-in `claude` CLI. `base_url`, `api_key`, `api_key_env`, `headers` and `timeout` are rejected. See [Claude subscription](claude-subscription.md). |
 | `gemini` | none | required | Accepted by validation but not supported at runtime; do not use. |

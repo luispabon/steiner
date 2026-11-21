@@ -72,6 +72,13 @@ var providerProfiles = map[config.ProviderType]providerProfile{
 		FixedTransport: nil,
 		LiveProbe:      false,
 	},
+	config.ProviderTypeMistral: {
+		ModelsDevID:    "mistral",
+		DefaultBaseURL: "https://api.mistral.ai/v1",
+		Generic:        false,
+		FixedTransport: nil,
+		LiveProbe:      false,
+	},
 	config.ProviderTypeClaudeSubscription: {
 		ModelsDevID:    "anthropic",
 		DefaultBaseURL: "",

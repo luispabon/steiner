@@ -22,6 +22,7 @@ func TestPromptCacheTTLDefaultsByProviderType(t *testing.T) {
 		{"ollama", ProviderTypeOllama, 0},
 		{"lmstudio", ProviderTypeLMStudio, 0},
 		{"openrouter", ProviderTypeOpenRouter, 0},
+		{"mistral", ProviderTypeMistral, 0},
 		{"gemini", ProviderTypeGemini, 0},
 		{"litellm", ProviderTypeLiteLLM, 0},
 		{"opencode_go", ProviderTypeOpencodeGo, 0},

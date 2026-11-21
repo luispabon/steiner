@@ -305,6 +305,29 @@ func TestValidate(t *testing.T) {
 			wantErr: "",
 		},
 		{
+			name: "mistral without base_url validates with api_key_env",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["local"] = ProviderConfig{
+					Type:      ProviderTypeMistral,
+					APIKeyEnv: "MISTRAL_API_KEY",
+				}
+				return c
+			}(),
+			wantErr: "",
+		},
+		{
+			name: "mistral missing api key",
+			cfg: func() Config {
+				c := validBase()
+				c.Providers["local"] = ProviderConfig{
+					Type: ProviderTypeMistral,
+				}
+				return c
+			}(),
+			wantErr: `providers["local"] must set api_key or api_key_env`,
+		},
+		{
 			name: "credentialed provider missing api key",
 			cfg: func() Config {
 				c := validBase()

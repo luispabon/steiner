@@ -45,7 +45,7 @@ type EnumerationResult struct {
 // client uses a new default http.Client.
 func ForTypeWithClient(t config.ProviderType, client *http.Client) (Enumerator, error) {
 	switch t {
-	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM, config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
+	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM, config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen, config.ProviderTypeMistral:
 		return NewOpenAIEnumerator(client), nil
 	case config.ProviderTypeOllama:
 		return NewOllamaEnumerator(client), nil
@@ -70,7 +70,7 @@ func SupportsType(providerType config.ProviderType) bool {
 	case config.ProviderTypeOpenAI, config.ProviderTypeOpenAICompat, config.ProviderTypeLiteLLM,
 		config.ProviderTypeOllama, config.ProviderTypeLMStudio, config.ProviderTypeOpenRouter,
 		config.ProviderTypeAnthropic, config.ProviderTypeCodex, config.ProviderTypeClaudeSubscription,
-		config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen:
+		config.ProviderTypeOpencodeGo, config.ProviderTypeOpencodeZen, config.ProviderTypeMistral:
 		return true
 	default:
 		return false
