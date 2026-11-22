@@ -199,12 +199,85 @@ func TestOpenAIStreamExtractThinkingDelta_MistralTypedPayloads(t *testing.T) {
 			value: []any{map[string]any{"type": "thinking", "thinking": "plain reasoning"}},
 			want:  "plain reasoning",
 		},
+		{
+			name: "nested thinking_delta payload",
+			value: []any{map[string]any{
+				"type":     "thinking_delta",
+				"thinking": []any{map[string]any{"type": "text", "text": "continued"}},
+			}},
+			want: "continued",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := extractThinkingDelta(tt.value); got != tt.want {
 				t.Errorf("extractThinkingDelta() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// extractThinkingPayload tests
+
+func TestExtractThinkingPayload(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{name: "plain string", value: "reasoning", want: "reasoning"},
+		{
+			name:  "single text block",
+			value: []any{map[string]any{"type": "text", "text": "reasoning"}},
+			want:  "reasoning",
+		},
+		{
+			name: "multiple text blocks",
+			value: []any{
+				map[string]any{"type": "text", "text": "first "},
+				map[string]any{"type": "text", "text": "second"},
+			},
+			want: "first second",
+		},
+		{
+			name: "references skipped",
+			value: []any{
+				map[string]any{"type": "text", "text": "reasoning"},
+				map[string]any{
+					"type":        "reference",
+					"title":       "a source",
+					"description": "a reference",
+					"tool_name":   "search",
+				},
+				map[string]any{
+					"type":        "tool_reference",
+					"title":       "lookup",
+					"description": "a tool",
+					"tool_name":   "lookup",
+				},
+			},
+			want: "reasoning",
+		},
+		{
+			name:  "untyped item included",
+			value: []any{map[string]any{"text": "untyped reasoning"}},
+			want:  "untyped reasoning",
+		},
+		{name: "empty array", value: []any{}, want: ""},
+		{name: "nil", value: nil, want: ""},
+		{name: "map value", value: map[string]any{"text": "ignored"}, want: ""},
+		{
+			name:  "non-string text ignored",
+			value: []any{map[string]any{"type": "text", "text": 42}},
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extractThinkingPayload(tt.value); got != tt.want {
+				t.Errorf("extractThinkingPayload() = %q, want %q", got, tt.want)
 			}
 		})
 	}

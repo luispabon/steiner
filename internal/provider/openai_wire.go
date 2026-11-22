@@ -332,7 +332,8 @@ func normalizeMessage(message openAIMessage) Message {
 	}
 	out.ReasoningContent += extractReasoningDetailsText(message.ReasoningDetails)
 	// A gateway sending both reasoning_content and thinking blocks would
-	// duplicate the reasoning, matching streaming behaviour.
+	// duplicate the reasoning, matching streaming behaviour; no known Mistral
+	// response sends both.
 	out.ReasoningContent += extractMessageReasoning(message.Content)
 	if message.Name != "" {
 		out.Name = message.Name
@@ -347,8 +348,8 @@ func normalizeMessage(message openAIMessage) Message {
 }
 
 // extractThinkingPayload returns the text carried by a thinking block payload.
-// Mistral sends the payload as a string or a list of typed blocks; only text
-// blocks carry reasoning, while references are skipped.
+// Mistral sends the payload as a string or a list of typed blocks; text blocks
+// and untyped items contribute their text, while other types are skipped.
 func extractThinkingPayload(value any) string {
 	switch v := value.(type) {
 	case string:

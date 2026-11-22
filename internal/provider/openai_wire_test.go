@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -287,6 +288,26 @@ func TestNormalizeMessage_ExtractsMistralThinkingContent(t *testing.T) {
 	}
 }
 
+func TestNormalizeMessage_ThinkingOnlyContentHasNoAnswer(t *testing.T) {
+	wire := openAIMessage{
+		Role: "assistant",
+		Content: []any{
+			map[string]any{
+				"type":     "thinking",
+				"thinking": []any{map[string]any{"type": "text", "text": "reasoning here"}},
+			},
+		},
+	}
+
+	out := normalizeMessage(wire)
+	if out.Content != "" {
+		t.Errorf("Content = %q, want empty", out.Content)
+	}
+	if got, want := out.ReasoningContent, "reasoning here"; got != want {
+		t.Errorf("ReasoningContent = %q, want %q", got, want)
+	}
+}
+
 func TestOpenAIWirePayload_ReasoningContentByProviderType(t *testing.T) {
 	baseURL, err := url.Parse("https://api.mistral.ai/v1")
 	if err != nil {
@@ -338,6 +359,42 @@ func TestOpenAIWirePayload_ReasoningContentByProviderType(t *testing.T) {
 				t.Error("tool_calls absent from payload")
 			}
 		})
+	}
+}
+
+func TestOpenAIWirePayload_MistralStripsEmptiedReasoningContent(t *testing.T) {
+	baseURL, err := url.Parse("https://api.mistral.ai/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := &openaiWire{baseURL: baseURL, model: "mistral-large-latest", providerType: "mistral"}
+	data, err := wire.Payload(ChatRequest{
+		IncludeEmptyReasoning: true,
+		Messages: []Message{
+			{Role: MessageRoleAssistant, Content: "first answer", ReasoningContent: "reasoning"},
+			{Role: MessageRoleAssistant, Content: "second answer"},
+		},
+	}, false)
+	if err != nil {
+		t.Fatalf("Payload() error = %v", err)
+	}
+
+	if strings.Contains(string(data), "reasoning_content") {
+		t.Fatalf("payload contains reasoning_content: %s", data)
+	}
+	var payload struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(payload.Messages) != 2 {
+		t.Fatalf("messages len = %d, want 2", len(payload.Messages))
+	}
+	for i, want := range []string{"first answer", "second answer"} {
+		if got := payload.Messages[i]["content"]; got != want {
+			t.Errorf("message %d content = %v, want %q", i, got, want)
+		}
 	}
 }
 

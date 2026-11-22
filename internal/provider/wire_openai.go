@@ -47,8 +47,9 @@ func (w *openaiWire) Payload(request ChatRequest, stream bool) ([]byte, error) {
 	return json.Marshal(wire)
 }
 
-// clearReasoningContent drops the OpenAI reasoning_content field: Mistral
-// replays reasoning as thinking content blocks, not the OpenAI field.
+// clearReasoningContent drops the OpenAI reasoning_content field: Mistral's
+// chat schema has no such message field, so it must not be sent when reasoning
+// echo-back is enabled.
 func clearReasoningContent(messages []openAIMessage) {
 	for i := range messages {
 		messages[i].ReasoningContent = nil
