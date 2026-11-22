@@ -38,10 +38,22 @@ func (w *openaiWire) Payload(request ChatRequest, stream bool) ([]byte, error) {
 			wire.PromptCacheRetention = "24h"
 		}
 	}
+	if w.providerType == "mistral" {
+		clearReasoningContent(wire.Messages)
+	}
 	if shouldDisableRemoteStorage(w.baseURL) {
 		wire.Store = boolValuePtr(false)
 	}
 	return json.Marshal(wire)
+}
+
+// clearReasoningContent drops the OpenAI reasoning_content field: Mistral's
+// chat schema has no such message field, so it must not be sent when reasoning
+// echo-back is enabled.
+func clearReasoningContent(messages []openAIMessage) {
+	for i := range messages {
+		messages[i].ReasoningContent = nil
+	}
 }
 
 func (w *openaiWire) HTTPRequest(ctx context.Context, chat ChatRequest, body []byte, stream bool) (*http.Request, error) {

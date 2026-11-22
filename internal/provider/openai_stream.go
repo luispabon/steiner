@@ -388,7 +388,8 @@ func finalizeToolCallAccumulators(accumulators []*openAIToolCallAccumulator) []T
 }
 
 // extractThinkingDelta returns thinking text if the content value is a structured
-// content array containing a thinking or thinking_delta block (Anthropic-style).
+// content array containing a thinking or thinking_delta block (Anthropic-style),
+// or a Mistral typed chunk whose thinking payload is a list of text blocks.
 // Returns "" for plain string content so the caller falls through to extractTextDelta.
 func extractThinkingDelta(value any) string {
 	items, ok := value.([]any)
@@ -405,7 +406,7 @@ func extractThinkingDelta(value any) string {
 		if t != "thinking" && t != "thinking_delta" {
 			continue
 		}
-		if text, ok := m["thinking"].(string); ok {
+		if text := extractThinkingPayload(m["thinking"]); text != "" {
 			sb.WriteString(text)
 		}
 	}
