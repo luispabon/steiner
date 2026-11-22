@@ -331,6 +331,9 @@ func normalizeMessage(message openAIMessage) Message {
 		out.ReasoningContent = *message.ReasoningContent
 	}
 	out.ReasoningContent += extractReasoningDetailsText(message.ReasoningDetails)
+	// A gateway sending both reasoning_content and thinking blocks would
+	// duplicate the reasoning, matching streaming behaviour.
+	out.ReasoningContent += extractMessageReasoning(message.Content)
 	if message.Name != "" {
 		out.Name = message.Name
 	}
@@ -341,6 +344,33 @@ func normalizeMessage(message openAIMessage) Message {
 		out.ToolCalls = normalizeToolCalls(message.ToolCalls)
 	}
 	return out
+}
+
+// extractThinkingPayload returns the text carried by a thinking block payload.
+// Mistral sends the payload as a string or a list of typed blocks; only text
+// blocks carry reasoning, while references are skipped.
+func extractThinkingPayload(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []any:
+		var sb strings.Builder
+		for _, item := range v {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if t, _ := m["type"].(string); t != "" && t != "text" {
+				continue
+			}
+			if text, ok := m["text"].(string); ok {
+				sb.WriteString(text)
+			}
+		}
+		return sb.String()
+	default:
+		return ""
+	}
 }
 
 func extractReasoningDetailsText(value any) string {
@@ -446,6 +476,28 @@ func extractMessageContent(value any) string {
 				sb.WriteString(text)
 			}
 		}
+	}
+	return sb.String()
+}
+
+// extractMessageReasoning returns reasoning from structured content thinking
+// blocks, which Mistral uses instead of a reasoning_content field.
+func extractMessageReasoning(value any) string {
+	items, ok := value.([]any)
+	if !ok {
+		return ""
+	}
+	var sb strings.Builder
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := m["type"].(string)
+		if t != "thinking" && t != "thinking_delta" {
+			continue
+		}
+		sb.WriteString(extractThinkingPayload(m["thinking"]))
 	}
 	return sb.String()
 }

@@ -145,6 +145,71 @@ func TestOpenAIStreamExtractThinkingDelta_SkipsNonMapItems(t *testing.T) {
 	}
 }
 
+func TestOpenAIStreamExtractThinkingDelta_MistralTypedPayloads(t *testing.T) {
+	tests := []struct {
+		name  string
+		value any
+		want  string
+	}{
+		{
+			name: "nested text block",
+			value: []any{map[string]any{
+				"type":     "thinking",
+				"thinking": []any{map[string]any{"type": "text", "text": "reasoning here"}},
+			}},
+			want: "reasoning here",
+		},
+		{
+			name: "multiple nested text blocks",
+			value: []any{map[string]any{
+				"type": "thinking",
+				"thinking": []any{
+					map[string]any{"type": "text", "text": "first "},
+					map[string]any{"type": "text", "text": "second"},
+				},
+			}},
+			want: "first second",
+		},
+		{
+			name: "tool reference is skipped",
+			value: []any{map[string]any{
+				"type": "thinking",
+				"thinking": []any{
+					map[string]any{"type": "text", "text": "reasoning"},
+					map[string]any{
+						"type":        "tool_reference",
+						"title":       "lookup",
+						"description": "a tool",
+						"tool_name":   "lookup",
+					},
+				},
+			}},
+			want: "reasoning",
+		},
+		{
+			name: "empty nested text",
+			value: []any{map[string]any{
+				"type":     "thinking",
+				"thinking": []any{map[string]any{"type": "text", "text": ""}},
+			}},
+			want: "",
+		},
+		{
+			name:  "plain string payload",
+			value: []any{map[string]any{"type": "thinking", "thinking": "plain reasoning"}},
+			want:  "plain reasoning",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extractThinkingDelta(tt.value); got != tt.want {
+				t.Errorf("extractThinkingDelta() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // extractTextDelta tests
 
 func TestOpenAIStreamExtractTextDelta_PlainString(t *testing.T) {
@@ -221,6 +286,78 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_MixedThinkingAndTextStructuredC
 	final := chunks[len(chunks)-1]
 	if !final.Done {
 		t.Fatal("final chunk Done = false, want true")
+	}
+}
+
+func TestOpenAIStreamDecodeChatStreamWithHandler_MistralThinkingContent(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":[{\"type\":\"text\",\"text\":\"reason \"}]}]},\"finish_reason\":\"\"}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"content\":[{\"type\":\"thinking\",\"thinking\":[{\"type\":\"text\",\"text\":\"more\"}]},{\"type\":\"text\",\"text\":\"answer \"}]},\"finish_reason\":\"\"}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"content\":\"final\"},\"finish_reason\":\"stop\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	if len(chunks) != 5 {
+		t.Fatalf("chunks len = %d, want 5", len(chunks))
+	}
+	if got, want := chunks[0].Thinking, "reason "; got != want {
+		t.Errorf("chunk 0 Thinking = %q, want %q", got, want)
+	}
+	if got, want := chunks[1].Thinking, "more"; got != want {
+		t.Errorf("chunk 1 Thinking = %q, want %q", got, want)
+	}
+	if got, want := chunks[2].Delta.Content, "answer "; got != want {
+		t.Errorf("chunk 2 Content = %q, want %q", got, want)
+	}
+	if got, want := chunks[3].Delta.Content, "final"; got != want {
+		t.Errorf("chunk 3 Content = %q, want %q", got, want)
+	}
+	final := chunks[4]
+	if !final.Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+	if got, want := final.Delta.ReasoningContent, "reason more"; got != want {
+		t.Errorf("final chunk ReasoningContent = %q, want %q", got, want)
+	}
+}
+
+func TestOpenAIStreamDecodeChatStreamWithHandler_MistralThinkingThenToolCalls(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":[{\"type\":\"text\",\"text\":\"plan the call\"}]}]},\"finish_reason\":\"\"}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_lookup\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"query\\\":\\\"x\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n\n",
+	)
+
+	chunks, err := collectOpenAIStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("chunks len = %d, want 2", len(chunks))
+	}
+	if got, want := chunks[0].Thinking, "plan the call"; got != want {
+		t.Errorf("chunk 0 Thinking = %q, want %q", got, want)
+	}
+	final := chunks[1]
+	if !final.Done {
+		t.Fatal("final chunk Done = false, want true")
+	}
+	if got, want := final.Delta.ReasoningContent, "plan the call"; got != want {
+		t.Errorf("final chunk ReasoningContent = %q, want %q", got, want)
+	}
+	if got, want := len(final.Delta.ToolCalls), 1; got != want {
+		t.Fatalf("tool calls len = %d, want %d", got, want)
+	}
+	call := final.Delta.ToolCalls[0]
+	if call.ID != "call_lookup" || call.Name != "lookup" {
+		t.Errorf("tool call = %#v, want ID %q and name %q", call, "call_lookup", "lookup")
+	}
+	if got, want := call.Arguments["query"], "x"; got != want {
+		t.Errorf("tool call query = %v, want %q", got, want)
 	}
 }
 
