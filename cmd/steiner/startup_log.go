@@ -53,7 +53,8 @@ func (l *startupLogger) pending(label string) {
 		return
 	}
 	// Console output is best-effort; a failed write must not abort startup.
-	_, _ = fmt.Fprintf(l.w, "  … %s\n", l.labelStyle.Render(label))
+	glyph := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgDim)).Render("…")
+	_, _ = fmt.Fprintf(l.w, "  %s %s\n", glyph, l.labelStyle.Render(label))
 }
 
 // trustSourceDetail names how project trust was resolved, or returns empty
