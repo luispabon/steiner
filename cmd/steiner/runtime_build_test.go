@@ -724,7 +724,7 @@ func TestBuildRuntimeSandbox_Bypassed(t *testing.T) {
 		Sandbox: config.SandboxConfig{Enabled: false},
 	}
 
-	sb, status, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
+	sb, status, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp", nil)
 	if err != nil {
 		t.Fatalf("expected nil error when sandbox is disabled, got: %v", err)
 	}
@@ -743,7 +743,7 @@ func TestBuildRuntimeSandbox_Unavailable(t *testing.T) {
 		Sandbox: config.SandboxConfig{Enabled: true},
 	}
 
-	sb, status, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp")
+	sb, status, err := buildRuntimeSandbox(&cfg, "/tmp", "/tmp", "/tmp", nil)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}

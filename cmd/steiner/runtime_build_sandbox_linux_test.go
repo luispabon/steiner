@@ -41,7 +41,9 @@ func TestCleanupSandboxTmpOrphansKeepsLockedDir(t *testing.T) {
 	}
 	lockDir(t, locked)
 
-	cleanupSandboxTmpOrphans(parent, 48*time.Hour)
+	if removed := cleanupSandboxTmpOrphans(parent, 48*time.Hour); removed != 1 {
+		t.Errorf("cleanupSandboxTmpOrphans() = %d, want 1", removed)
+	}
 
 	if _, err := os.Stat(locked); err != nil {
 		t.Errorf("expected the flocked dir of a live runtime to survive cleanup: %v", err)

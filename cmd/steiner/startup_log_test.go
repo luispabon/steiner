@@ -14,6 +14,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -24,6 +25,7 @@ func TestStartupLoggerDisabledWithoutTerminal(t *testing.T) {
 		t.Fatal("newStartupLogger() enabled = true for a bytes.Buffer, want false")
 	}
 	logger.step("Loading configuration", "project trusted (stored)")
+	logger.pending("Clearing caches")
 	if buf.Len() != 0 {
 		t.Fatalf("disabled logger wrote %q, want nothing", buf.String())
 	}
@@ -73,6 +75,31 @@ func TestStartupLoggerStepRendersLine(t *testing.T) {
 	}
 }
 
+func TestStartupLoggerPendingRendersLine(t *testing.T) {
+	var buf bytes.Buffer
+	logger := &startupLogger{w: &buf, enabled: true}
+	logger.pending("Clearing caches")
+	out := buf.String()
+	if !strings.HasPrefix(out, "  ") {
+		t.Errorf("output %q does not start with the two-space indent", out)
+	}
+	if !strings.Contains(out, "\u2026") {
+		t.Errorf("output %q missing the ellipsis marker", out)
+	}
+	if !strings.Contains(out, "Clearing caches") {
+		t.Errorf("output %q missing the label", out)
+	}
+	if strings.Contains(out, "\u2714") {
+		t.Errorf("output %q contains a check mark, want a pending marker", out)
+	}
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("output %q does not end with a newline", out)
+	}
+	if strings.Contains(out, " \n") {
+		t.Errorf("output %q has a trailing space before the newline", out)
+	}
+}
+
 func TestStartupLoggerNilStepIsNoop(t *testing.T) {
 	var logger *startupLogger
 	func() {
@@ -83,6 +110,7 @@ func TestStartupLoggerNilStepIsNoop(t *testing.T) {
 		}()
 		logger.step("Runtime ready", displayVersion(version))
 		logger.step("Starting TUI", "")
+		logger.pending("Clearing caches")
 	}()
 }
 
@@ -232,6 +260,26 @@ models:
 					t.Errorf("startup log line %q at offset %d, want after the previous line at offset %d:\n%s", label, idx, prev, out)
 				}
 				prev = idx
+			}
+
+			// An active sandbox must emit the cleanup step; the probe decides whether
+			// the sandbox is active in this environment.
+			if sandbox.PrereqCheck() == nil {
+				idx := strings.Index(out, "Clearing caches")
+				if idx < 0 {
+					t.Fatalf("startup log missing the Clearing caches step with an active sandbox:\n%s", out)
+				}
+				skillsIdx := strings.Index(out, "Discovering skills")
+				sandboxIdx := strings.Index(out, "Sandbox")
+				if skillsIdx < 0 || sandboxIdx < 0 {
+					t.Fatalf("startup log missing the skills or sandbox step:\n%s", out)
+				}
+				if idx <= skillsIdx {
+					t.Errorf("Clearing caches at offset %d, want after Discovering skills at %d:\n%s", idx, skillsIdx, out)
+				}
+				if idx >= sandboxIdx {
+					t.Errorf("Clearing caches at offset %d, want before Sandbox at %d:\n%s", idx, sandboxIdx, out)
+				}
 			}
 
 			// LSP is disabled by default, so it has no startup line.

@@ -46,6 +46,17 @@ func (l *startupLogger) step(label, detail string) {
 	_, _ = fmt.Fprintf(l.w, "  %s %s %s\n", checkMark(), labelText, detailText)
 }
 
+// pending prints "  … <label>" while a blocking startup step runs. It shares
+// step's nil-receiver, disabled, and best-effort write contract.
+func (l *startupLogger) pending(label string) {
+	if l == nil || !l.enabled || l.w == nil {
+		return
+	}
+	// Console output is best-effort; a failed write must not abort startup.
+	glyph := lipgloss.NewStyle().Foreground(lipgloss.Color(theme.FgDim)).Render("…")
+	_, _ = fmt.Fprintf(l.w, "  %s %s\n", glyph, l.labelStyle.Render(label))
+}
+
 // trustSourceDetail names how project trust was resolved, or returns empty
 // when this run has not resolved it.
 func trustSourceDetail(flags *cliFlags) string {
