@@ -126,7 +126,16 @@ func TestPruneSandboxHomeCacheRemovesStaleFiles(t *testing.T) {
 	root := t.TempDir()
 	stale, fresh := writeHomeCacheFixtures(t, root)
 
-	pruneSandboxHomeCache(root, false)
+	removed, freed, skipped := pruneSandboxHomeCache(root, false)
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	if freed != int64(len("cache entry")) {
+		t.Errorf("freed = %d, want %d", freed, len("cache entry"))
+	}
+	if skipped {
+		t.Error("skipped = true, want false")
+	}
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("stale cache file stat err = %v, want it removed", err)
@@ -140,10 +149,71 @@ func TestPruneSandboxHomeCacheSkipsHostCacheMode(t *testing.T) {
 	root := t.TempDir()
 	stale, _ := writeHomeCacheFixtures(t, root)
 
-	pruneSandboxHomeCache(root, true)
+	removed, freed, skipped := pruneSandboxHomeCache(root, true)
+	if removed != 0 || freed != 0 {
+		t.Errorf("removed, freed = %d, %d, want 0, 0", removed, freed)
+	}
+	if !skipped {
+		t.Error("skipped = false, want true")
+	}
 
 	if _, err := os.Stat(stale); err != nil {
 		t.Fatalf("stale cache file should be kept when the host cache is bound: %v", err)
+	}
+}
+
+func TestRunSandboxCacheCleanupsEmitsPendingThenStep(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatalf("mkdir parent: %v", err)
+	}
+	var buf bytes.Buffer
+	runSandboxCacheCleanups(&startupLogger{w: &buf, enabled: true}, root, parent, false)
+
+	out := buf.String()
+	if got := strings.Count(out, "Clearing caches"); got != 2 {
+		t.Fatalf("output %q has %d \"Clearing caches\" lines, want 2", out, got)
+	}
+	pendingIdx := strings.Index(out, "\u2026")
+	stepIdx := strings.Index(out, "\u2714")
+	if pendingIdx < 0 {
+		t.Fatalf("output %q missing the pending glyph", out)
+	}
+	if stepIdx < 0 {
+		t.Fatalf("output %q missing the completed glyph", out)
+	}
+	if pendingIdx > stepIdx {
+		t.Fatalf("pending glyph at %d, want before the completed glyph at %d: %q", pendingIdx, stepIdx, out)
+	}
+	if !strings.Contains(out, "up to date") {
+		t.Errorf("output %q missing the up-to-date detail", out)
+	}
+}
+
+func TestCacheCleanupDetail(t *testing.T) {
+	tests := []struct {
+		name           string
+		removedFiles   int
+		freed          int64
+		removedTmpDirs int
+		pruneSkipped   bool
+		want           string
+	}{
+		{name: "files", removedFiles: 2, freed: 3 << 20, want: "2 files, 3.0 MiB freed"},
+		{name: "singular file", removedFiles: 1, freed: 2048, want: "1 file, 2.0 KiB freed"},
+		{name: "files and tmp dirs", removedFiles: 2, freed: 3 << 20, removedTmpDirs: 2, want: "2 files, 3.0 MiB freed, 2 tmp dirs removed"},
+		{name: "singular tmp dir", removedTmpDirs: 1, want: "1 tmp dir removed"},
+		{name: "up to date", want: "up to date"},
+		{name: "host cache bound", pruneSkipped: true, want: "host cache bound"},
+		{name: "host cache bound with tmp dir removed", removedTmpDirs: 1, pruneSkipped: true, want: "1 tmp dir removed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cacheCleanupDetail(tc.removedFiles, tc.freed, tc.removedTmpDirs, tc.pruneSkipped); got != tc.want {
+				t.Errorf("cacheCleanupDetail(%d, %d, %d, %t) = %q, want %q", tc.removedFiles, tc.freed, tc.removedTmpDirs, tc.pruneSkipped, got, tc.want)
+			}
+		})
 	}
 }
 

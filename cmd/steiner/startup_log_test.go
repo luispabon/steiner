@@ -261,6 +261,22 @@ models:
 				prev = idx
 			}
 
+			// The cleanup step runs only when the sandbox probe succeeds in this
+			// environment, so pin its position only when it appears.
+			if idx := strings.Index(out, "Clearing caches"); idx >= 0 {
+				skillsIdx := strings.Index(out, "Discovering skills")
+				sandboxIdx := strings.Index(out, "Sandbox")
+				if skillsIdx < 0 || sandboxIdx < 0 {
+					t.Fatalf("startup log missing the skills or sandbox step:\n%s", out)
+				}
+				if idx <= skillsIdx {
+					t.Errorf("Clearing caches at offset %d, want after Discovering skills at %d:\n%s", idx, skillsIdx, out)
+				}
+				if idx >= sandboxIdx {
+					t.Errorf("Clearing caches at offset %d, want before Sandbox at %d:\n%s", idx, sandboxIdx, out)
+				}
+			}
+
 			// LSP is disabled by default, so it has no startup line.
 			if !tt.wantLSP {
 				if strings.Contains(out, "LSP servers") {
