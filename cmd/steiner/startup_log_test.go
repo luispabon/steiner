@@ -24,6 +24,7 @@ func TestStartupLoggerDisabledWithoutTerminal(t *testing.T) {
 		t.Fatal("newStartupLogger() enabled = true for a bytes.Buffer, want false")
 	}
 	logger.step("Loading configuration", "project trusted (stored)")
+	logger.pending("Clearing caches")
 	if buf.Len() != 0 {
 		t.Fatalf("disabled logger wrote %q, want nothing", buf.String())
 	}
@@ -73,6 +74,31 @@ func TestStartupLoggerStepRendersLine(t *testing.T) {
 	}
 }
 
+func TestStartupLoggerPendingRendersLine(t *testing.T) {
+	var buf bytes.Buffer
+	logger := &startupLogger{w: &buf, enabled: true}
+	logger.pending("Clearing caches")
+	out := buf.String()
+	if !strings.HasPrefix(out, "  ") {
+		t.Errorf("output %q does not start with the two-space indent", out)
+	}
+	if !strings.Contains(out, "\u2026") {
+		t.Errorf("output %q missing the ellipsis marker", out)
+	}
+	if !strings.Contains(out, "Clearing caches") {
+		t.Errorf("output %q missing the label", out)
+	}
+	if strings.Contains(out, "\u2714") {
+		t.Errorf("output %q contains a check mark, want a pending marker", out)
+	}
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("output %q does not end with a newline", out)
+	}
+	if strings.Contains(out, " \n") {
+		t.Errorf("output %q has a trailing space before the newline", out)
+	}
+}
+
 func TestStartupLoggerNilStepIsNoop(t *testing.T) {
 	var logger *startupLogger
 	func() {
@@ -83,6 +109,7 @@ func TestStartupLoggerNilStepIsNoop(t *testing.T) {
 		}()
 		logger.step("Runtime ready", displayVersion(version))
 		logger.step("Starting TUI", "")
+		logger.pending("Clearing caches")
 	}()
 }
 
