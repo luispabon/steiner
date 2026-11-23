@@ -170,35 +170,6 @@ func TestFormatCacheBytes(t *testing.T) {
 	}
 }
 
-func TestHomeCacheStatusLine(t *testing.T) {
-	tests := []struct {
-		name    string
-		removed int
-		freed   int64
-		want    string
-	}{
-		{
-			name:    "singular file",
-			removed: 1,
-			freed:   2048,
-			want:    "Cleaned 1 stale cache file (2.0 KiB) from .steiner/home.",
-		},
-		{
-			name:    "plural files",
-			removed: 2,
-			freed:   3 << 20,
-			want:    "Cleaned 2 stale cache files (3.0 MiB) from .steiner/home.",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := homeCacheStatusLine(tc.removed, tc.freed); got != tc.want {
-				t.Errorf("homeCacheStatusLine(%d, %d) = %q, want %q", tc.removed, tc.freed, got, tc.want)
-			}
-		})
-	}
-}
-
 // writeHomeCacheFixtures creates one stale and one fresh go-build shard file
 // under root and returns their paths.
 func writeHomeCacheFixtures(t *testing.T, root string) (stale, fresh string) {

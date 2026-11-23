@@ -176,7 +176,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		return cliRuntime{}, err
 	}
 	sl.step("Discovering skills", fmt.Sprintf("%d found", len(skillNames)))
-	sb, status, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir)
+	sb, status, err := buildRuntimeSandbox(&cfg, projectRoot, workDir, homeDir, sl)
 	if err != nil {
 		closeRuntime(&rt)
 		return cliRuntime{}, err

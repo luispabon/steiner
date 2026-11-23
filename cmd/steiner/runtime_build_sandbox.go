@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/luispabon/steiner/internal/config"
@@ -25,62 +27,71 @@ var errSandboxTmpCollision = errors.New("sandbox tmp dir id collision")
 var sandboxTmpRandRead = rand.Read
 
 // cleanupSandboxTmpOrphans removes stale per-session sandbox tmp directories
-// older than maxAge from parentDir. Best-effort: never fails the caller.
-// Directories still locked by a live steiner runtime are kept. Emits
-// start/done status to stderr when there is work to do, since checking and
-// removing large trees (e.g. Go module caches) can take a while and the count
-// includes live directories that are skipped.
-func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) {
-	cutoff := time.Now().Add(-maxAge)
-	var oldCount int
-	if entries, err := os.ReadDir(parentDir); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
-				oldCount++
-			}
-		}
-	}
-	if oldCount == 0 {
-		return
-	}
-	fmt.Fprintf(os.Stderr, "Checking %d old sandbox tmp director%s...\n", oldCount, pluralSuffix(oldCount))
-	sandbox.CleanupOrphans(parentDir, maxAge)
-	fmt.Fprintf(os.Stderr, "Done.\n")
-}
-
-func pluralSuffix(n int) string {
-	if n == 1 {
-		return "y"
-	}
-	return "ies"
+// older than maxAge from parentDir and returns how many it removed.
+// Best-effort: never fails the caller. Directories still locked by a live
+// steiner runtime are kept.
+func cleanupSandboxTmpOrphans(parentDir string, maxAge time.Duration) int {
+	return sandbox.CleanupOrphans(parentDir, maxAge)
 }
 
 // pruneSandboxHomeCache trims stale entries from the private cache bound over
-// the host cache for sandboxed commands. Best-effort: a failed prune must not
-// block startup. With sandbox.bind_host_cache the private cache is unused, so
-// there is nothing to prune. Emits a status line to stderr when files were
-// removed, since clearing a large build cache takes a moment.
-func pruneSandboxHomeCache(projectRoot string, bindHostCache bool) {
+// the host cache for sandboxed commands. It returns how many files it removed,
+// their total size in bytes, and whether the prune was skipped because the host
+// cache is bound instead. Best-effort: a prune error is logged and never fails
+// startup.
+func pruneSandboxHomeCache(projectRoot string, bindHostCache bool) (removed int, freed int64, skipped bool) {
 	if bindHostCache {
-		return
+		return 0, 0, true
 	}
-	removed, freed, _ := sandbox.PruneHomeCache(projectRoot)
-	if removed == 0 {
-		return
+	removed, freed, err := sandbox.PruneHomeCache(projectRoot)
+	if err != nil {
+		slog.Warn("prune sandbox home cache", "error", err)
 	}
-	fmt.Fprintln(os.Stderr, homeCacheStatusLine(removed, freed))
+	return removed, freed, false
 }
 
-// homeCacheStatusLine renders the startup report for a completed prune.
-func homeCacheStatusLine(removed int, freed int64) string {
-	noun := "files"
-	if removed == 1 {
-		noun = "file"
+// cacheCleanupDetail renders the completed cache cleanup line. Removed files
+// carry their freed bytes; removed sandbox tmp directories are reported
+// separately because their size is unknown. With nothing removed it names the
+// host-cache skip or reports "up to date".
+func cacheCleanupDetail(removedFiles int, freed int64, removedTmpDirs int, pruneSkipped bool) string {
+	var parts []string
+	if removedFiles > 0 {
+		noun := "files"
+		if removedFiles == 1 {
+			noun = "file"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s, %s freed", removedFiles, noun, formatCacheBytes(freed)))
 	}
-	return fmt.Sprintf("Cleaned %d stale cache %s (%s) from .steiner/home.", removed, noun, formatCacheBytes(freed))
+	if removedTmpDirs > 0 {
+		noun := "tmp dirs"
+		if removedTmpDirs == 1 {
+			noun = "tmp dir"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s removed", removedTmpDirs, noun))
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, ", ")
+	}
+	if pruneSkipped {
+		return "host cache bound"
+	}
+	return "up to date"
+}
+
+// runSandboxCacheCleanups brackets the two best-effort startup cleanups with
+// the checklist logger and records their results.
+func runSandboxCacheCleanups(sl *startupLogger, projectRoot, parentDir string, bindHostCache bool) {
+	sl.pending("Clearing caches")
+	removedTmpDirs := cleanupSandboxTmpOrphans(parentDir, 48*time.Hour)
+	removedFiles, freed, pruneSkipped := pruneSandboxHomeCache(projectRoot, bindHostCache)
+	slog.Info("sandbox cache cleanup",
+		"removed_files", removedFiles,
+		"freed_bytes", freed,
+		"removed_tmp_dirs", removedTmpDirs,
+		"prune_skipped", pruneSkipped,
+	)
+	sl.step("Clearing caches", cacheCleanupDetail(removedFiles, freed, removedTmpDirs, pruneSkipped))
 }
 
 // formatCacheBytes renders a byte count for the sandbox cache status line.
@@ -148,8 +159,9 @@ func createSandboxTmpDirAttempt(parentDir string) (string, error) {
 // buildRuntimeSandbox creates a Sandbox when sandboxing is enabled. Returns nil
 // when cfg.Sandbox.Enabled is false (e.g. --unsafe flag was set). Returns nil
 // when bwrap is unavailable (unsupported platform or missing binary). The
-// returned status is "bypassed", "unavailable", or "active" respectively.
-func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome string) (*sandbox.Sandbox, string, error) {
+// returned status is "bypassed", "unavailable", or "active" respectively. sl
+// receives the cache cleanup progress lines.
+func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome string, sl *startupLogger) (*sandbox.Sandbox, string, error) {
 	if !cfg.Sandbox.Enabled {
 		return nil, "bypassed", nil
 	}
@@ -163,7 +175,6 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 	if err := sandbox.EnsureDirectoryPath(projectRoot, parentDir); err != nil {
 		return nil, "", fmt.Errorf("sandbox setup: unsafe temporary directory: %w", err)
 	}
-	cleanupSandboxTmpOrphans(parentDir, 48*time.Hour)
 	tmpDir, err := createSandboxTmpDir(parentDir)
 	if err != nil {
 		return nil, "", err
@@ -178,7 +189,7 @@ func buildRuntimeSandbox(cfg *config.Config, projectRoot, workDir, userHome stri
 		_ = s.Cleanup()
 		return nil, "", fmt.Errorf("sandbox setup: %w", err)
 	}
-	pruneSandboxHomeCache(projectRoot, cfg.Sandbox.BindHostCache)
+	runSandboxCacheCleanups(sl, projectRoot, parentDir, cfg.Sandbox.BindHostCache)
 	return s, "active", nil
 }
 
