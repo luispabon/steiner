@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,32 +163,94 @@ func TestPruneSandboxHomeCacheSkipsHostCacheMode(t *testing.T) {
 	}
 }
 
-func TestRunSandboxCacheCleanupsEmitsPendingThenStep(t *testing.T) {
+func TestPruneSandboxHomeCacheLogsErrors(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permission checks")
+	}
 	root := t.TempDir()
-	parent := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp")
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		t.Fatalf("mkdir parent: %v", err)
+	cacheDir := filepath.Join(root, ".steiner", "home", "cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatalf("mkdir cache dir: %v", err)
 	}
-	var buf bytes.Buffer
-	runSandboxCacheCleanups(&startupLogger{w: &buf, enabled: true}, root, parent, false)
+	if err := os.Chmod(cacheDir, 0o000); err != nil {
+		t.Fatalf("chmod cache dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cacheDir, 0o755) })
 
-	out := buf.String()
-	if got := strings.Count(out, "Clearing caches"); got != 2 {
-		t.Fatalf("output %q has %d \"Clearing caches\" lines, want 2", out, got)
+	var logs bytes.Buffer
+	prevLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prevLogger) })
+
+	removed, freed, skipped := pruneSandboxHomeCache(root, false)
+	if removed != 0 || freed != 0 {
+		t.Errorf("removed, freed = %d, %d, want 0, 0", removed, freed)
 	}
-	pendingIdx := strings.Index(out, "\u2026")
-	stepIdx := strings.Index(out, "\u2714")
-	if pendingIdx < 0 {
-		t.Fatalf("output %q missing the pending glyph", out)
+	if skipped {
+		t.Error("skipped = true, want false")
 	}
-	if stepIdx < 0 {
-		t.Fatalf("output %q missing the completed glyph", out)
+	logged := logs.String()
+	if !strings.Contains(logged, "level=WARN") || !strings.Contains(logged, "prune sandbox home cache") {
+		t.Errorf("logs = %q, want a WARN record for the prune error", logged)
 	}
-	if pendingIdx > stepIdx {
-		t.Fatalf("pending glyph at %d, want before the completed glyph at %d: %q", pendingIdx, stepIdx, out)
+}
+
+func TestRunSandboxCacheCleanupsEmitsPendingThenStep(t *testing.T) {
+	tests := []struct {
+		name             string
+		bindHostCache    bool
+		wantDetail       string
+		wantPruneSkipped string
+	}{
+		{name: "private cache", wantDetail: "up to date", wantPruneSkipped: "prune_skipped=false"},
+		{name: "host cache bound", bindHostCache: true, wantDetail: "host cache bound", wantPruneSkipped: "prune_skipped=true"},
 	}
-	if !strings.Contains(out, "up to date") {
-		t.Errorf("output %q missing the up-to-date detail", out)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			prevLogger := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(prevLogger) })
+
+			root := t.TempDir()
+			parent := filepath.Join(root, ".steiner", "tmp", "sandbox-tmp")
+			if err := os.MkdirAll(parent, 0o755); err != nil {
+				t.Fatalf("mkdir parent: %v", err)
+			}
+			var buf bytes.Buffer
+			runSandboxCacheCleanups(&startupLogger{w: &buf, enabled: true}, root, parent, tc.bindHostCache)
+
+			out := buf.String()
+			if got := strings.Count(out, "Clearing caches"); got != 2 {
+				t.Fatalf("output %q has %d \"Clearing caches\" lines, want 2", out, got)
+			}
+			pendingIdx := strings.Index(out, "\u2026")
+			stepIdx := strings.Index(out, "\u2714")
+			if pendingIdx < 0 {
+				t.Fatalf("output %q missing the pending glyph", out)
+			}
+			if stepIdx < 0 {
+				t.Fatalf("output %q missing the completed glyph", out)
+			}
+			if pendingIdx > stepIdx {
+				t.Fatalf("pending glyph at %d, want before the completed glyph at %d: %q", pendingIdx, stepIdx, out)
+			}
+			if !strings.Contains(out, tc.wantDetail) {
+				t.Errorf("output %q missing detail %q", out, tc.wantDetail)
+			}
+			logged := logs.String()
+			for _, want := range []string{
+				`msg="sandbox cache cleanup"`,
+				"removed_files=0",
+				"freed_bytes=0",
+				"removed_tmp_dirs=0",
+				tc.wantPruneSkipped,
+			} {
+				if !strings.Contains(logged, want) {
+					t.Errorf("logs %q missing %q", logged, want)
+				}
+			}
+		})
 	}
 }
 

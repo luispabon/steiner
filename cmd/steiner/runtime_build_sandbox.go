@@ -94,7 +94,7 @@ func runSandboxCacheCleanups(sl *startupLogger, projectRoot, parentDir string, b
 	sl.step("Clearing caches", cacheCleanupDetail(removedFiles, freed, removedTmpDirs, pruneSkipped))
 }
 
-// formatCacheBytes renders a byte count for the sandbox cache status line.
+// formatCacheBytes renders a byte count for the cache cleanup detail line.
 func formatCacheBytes(n int64) string {
 	const (
 		gib = 1 << 30

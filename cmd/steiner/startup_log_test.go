@@ -14,6 +14,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/sandbox"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
@@ -261,9 +262,13 @@ models:
 				prev = idx
 			}
 
-			// The cleanup step runs only when the sandbox probe succeeds in this
-			// environment, so pin its position only when it appears.
-			if idx := strings.Index(out, "Clearing caches"); idx >= 0 {
+			// An active sandbox must emit the cleanup step; the probe decides whether
+			// the sandbox is active in this environment.
+			if sandbox.PrereqCheck() == nil {
+				idx := strings.Index(out, "Clearing caches")
+				if idx < 0 {
+					t.Fatalf("startup log missing the Clearing caches step with an active sandbox:\n%s", out)
+				}
 				skillsIdx := strings.Index(out, "Discovering skills")
 				sandboxIdx := strings.Index(out, "Sandbox")
 				if skillsIdx < 0 || sandboxIdx < 0 {
