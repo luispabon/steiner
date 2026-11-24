@@ -66,10 +66,10 @@ func (a *HistoryArchive) Note(source []agent.Message) (string, error) {
 	if id == "" {
 		return "", errNoSessionID
 	}
-	// Note runs before the compaction writes this source's recall files, so
-	// render with every recall file present. Otherwise a source of only result
-	// bodies would look blank and lose its note.
-	if blankHistory(renderHistory(source, recallAllPresent)) {
+	// Note runs before the compaction writes this source's recall files. The
+	// plain omitted fallback keeps a tool-only source non-blank either way, so
+	// the note never depends on those writes.
+	if blankHistory(renderHistory(source, nil)) {
 		return "", nil
 	}
 	path, err := a.store.HistoryPath(id)

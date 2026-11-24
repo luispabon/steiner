@@ -15,6 +15,7 @@ import (
 const (
 	historyDivider       = "── compacted here ──"
 	historyResultOmitted = "[sub-agent result omitted]"
+	historyToolOmitted   = "[tool result omitted]"
 	// historyToolRecallPointer and historyResultRecallPointer name the recall
 	// file that holds an omitted body, so a later reader can fetch it.
 	historyToolRecallPointer   = "[tool result omitted: recall %s]"
@@ -25,19 +26,15 @@ const (
 
 // recallPresence reports whether the recall file named name exists as a
 // regular file that is not a symlink. A nil recallPresence treats every name as
-// missing, which renders the older omitted form.
+// missing, which renders the plain omitted markers.
 type recallPresence func(name string) bool
-
-// recallAllPresent reports every name as present. Note uses it to render the
-// source before the compaction has written its recall files.
-func recallAllPresent(string) bool { return true }
 
 // renderHistory renders the source messages of one compaction as archive
 // markdown, oldest first. Each rendered message is a block, and blocks are
 // separated by one blank line. Tool result bodies, sub-agent result bodies, and
 // reasoning are omitted: a body whose recall file recall reports present is
-// replaced by a pointer naming that file, and a body without one keeps the
-// older omitted form. It returns "" when nothing renders. The output is
+// replaced by a pointer naming that file, and a body without one keeps a plain
+// omitted marker. It returns "" when nothing renders. The output is
 // deterministic for identical input and recall files.
 func renderHistory(source []agent.Message, recall recallPresence) string {
 	statuses := toolCallStatuses(source)
@@ -70,11 +67,9 @@ func renderHistoryMessage(msg agent.Message, statuses map[toolCallPosition]strin
 		heading = historyHeading(msg)
 		body = assistantParts(msg, statuses, messageIndex)
 	case agent.MessageRoleTool:
-		// Tool result bodies are not rendered. A pointer stands in for a body
-		// whose recall file exists; only images are kept otherwise.
-		if pointer := toolRecallPointer(msg, recall); pointer != "" {
-			body = append(body, pointer)
-		}
+		// Tool result bodies are not rendered. A pointer names the recall file
+		// that holds the body, or a plain marker stands in when it is missing.
+		body = append(body, toolResultMarker(msg, recall))
 	default:
 		heading = historyHeading(msg)
 		if text := strings.TrimSpace(msg.Content); text != "" {
@@ -190,14 +185,14 @@ func subAgentResultMarker(raw string, recall recallPresence) string {
 	return fmt.Sprintf(historyResultRecallPointer, name)
 }
 
-// toolRecallPointer returns the pointer to a tool result body's recall file, or
-// "" when there is no recall file. The entry must match the one
-// agent.collectRecallEntries builds.
-func toolRecallPointer(msg agent.Message, recall recallPresence) string {
+// toolResultMarker returns the pointer to a tool result body's recall file, or
+// the plain omitted marker when there is no recall file. The entry must match
+// the one agent.collectRecallEntries builds.
+func toolResultMarker(msg agent.Message, recall recallPresence) string {
 	entry := agent.RecallEntry{Kind: "tool", Tool: msg.Name, CallID: msg.ToolCallID, Body: msg.Content}
 	name, ok := recallFileName(entry, recall)
 	if !ok {
-		return ""
+		return historyToolOmitted
 	}
 	return fmt.Sprintf(historyToolRecallPointer, name)
 }

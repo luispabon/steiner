@@ -207,7 +207,7 @@ func TestRenderHistory(t *testing.T) {
 				}},
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Content: `{"ok":true,"result":{}}`},
 			},
-			want: "### assistant · turn 1\n\n- **bash** go test ./... ✓",
+			want: "### assistant · turn 1\n\n- **bash** go test ./... ✓\n\n[tool result omitted]",
 		},
 		{
 			name: "tool result with recall file renders pointer",
@@ -221,14 +221,14 @@ func TestRenderHistory(t *testing.T) {
 			want:   "### assistant · turn 1\n\n- **grep** 'maxRetries' ✓\n\n[tool result omitted: recall " + toolName + "]",
 		},
 		{
-			name: "tool result without recall file renders no pointer",
+			name: "tool result without recall file renders plain marker",
 			source: []agent.Message{
 				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{
 					{ID: "c1", Name: "grep", Arguments: map[string]any{"pattern": "maxRetries"}},
 				}},
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Name: "grep", Content: toolBody},
 			},
-			want: "### assistant · turn 1\n\n- **grep** 'maxRetries' ✓",
+			want: "### assistant · turn 1\n\n- **grep** 'maxRetries' ✓\n\n[tool result omitted]",
 		},
 		{
 			name: "plain JSON tool result counts as ok",
@@ -238,7 +238,7 @@ func TestRenderHistory(t *testing.T) {
 				}},
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Content: `{"matches":[]}`},
 			},
-			want: "### assistant · turn 1\n\n- **glob** *.go ✓",
+			want: "### assistant · turn 1\n\n- **glob** *.go ✓\n\n[tool result omitted]",
 		},
 		{
 			name: "failed tool result marks call as error",
@@ -248,7 +248,7 @@ func TestRenderHistory(t *testing.T) {
 				}},
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Content: `{"ok":false,"error":{"kind":"tool","message":"exit status 1"}}`},
 			},
-			want: "### assistant · turn 1\n\n- **bash** go test ./... error",
+			want: "### assistant · turn 1\n\n- **bash** go test ./... error\n\n[tool result omitted]",
 		},
 		{
 			name: "reused IDs pair preceding calls FIFO and ignore preceding result",
@@ -266,7 +266,7 @@ func TestRenderHistory(t *testing.T) {
 					{ID: "c1", Name: "bash", Arguments: map[string]any{"command": "third"}},
 				}},
 			},
-			want: "### assistant · turn 1\n\n- **bash** first ✓\n\n### assistant · turn 2\n\n- **bash** second error\n\n### assistant · turn 3\n\n- **bash** third",
+			want: "[tool result omitted]\n\n### assistant · turn 1\n\n- **bash** first ✓\n\n[tool result omitted]\n\n### assistant · turn 2\n\n- **bash** second error\n\n[tool result omitted]\n\n### assistant · turn 3\n\n- **bash** third",
 		},
 		{
 			name: "multiple pending reused IDs pair delegation results FIFO",
@@ -280,7 +280,7 @@ func TestRenderHistory(t *testing.T) {
 				{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "s1", Name: delegation.SubAgentToolName, Content: projectedResult(t, delegation.Result{AgentID: "a1", Status: delegation.StatusFailed, Reason: "first failed"})},
 				{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "s1", Name: delegation.SubAgentToolName, Content: projectedResult(t, delegation.Result{AgentID: "a2", Status: delegation.StatusComplete, Output: "second completed"})},
 			},
-			want: "### assistant · turn 1\n\n- **sub_agent** first objective error\n\n### assistant · turn 2\n\n- **sub_agent** second objective ✓",
+			want: "### assistant · turn 1\n\n- **sub_agent** first objective error\n\n### assistant · turn 2\n\n- **sub_agent** second objective ✓\n\n[tool result omitted]\n\n[tool result omitted]",
 		},
 		{
 			name: "unpaired tool call has no status",
@@ -342,7 +342,7 @@ func TestRenderHistory(t *testing.T) {
 			source: []agent.Message{
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Content: `{"ok":true}`, Images: []agent.ImageBlock{{ID: "img-2"}}},
 			},
-			want: "[image: img-2]",
+			want: "[tool result omitted]\n\n[image: img-2]",
 		},
 		{
 			name: "active skill becomes marker and keeps user text",
@@ -413,11 +413,11 @@ func TestRenderHistory(t *testing.T) {
 			want: "### user · turn 2\n\n[tool result omitted: recall tool-c1-deadbeef]",
 		},
 		{
-			name: "marker text in an unrecalled tool body renders nothing",
+			name: "marker text in an unrecalled tool body renders plain marker",
 			source: []agent.Message{
 				{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "c1", Name: "bash", Content: "[tool result omitted: recall tool-c1-deadbeef]"},
 			},
-			want: "",
+			want: "[tool result omitted]",
 		},
 		{
 			name: "sub-agent envelope without source tag is replaced",
@@ -482,7 +482,7 @@ func TestRenderHistoryRepeatedCallIDsDistinctBodies(t *testing.T) {
 		}},
 		{Role: agent.MessageRoleTool, Turn: 2, ToolCallID: "c1", Name: "bash", Content: secondBody},
 	}
-	want := "### assistant · turn 1\n\n- **bash** first ✓\n\n### assistant · turn 2\n\n- **bash** second ✓\n\n[tool result omitted: recall " + secondName + "]"
+	want := "### assistant · turn 1\n\n- **bash** first ✓\n\n[tool result omitted]\n\n### assistant · turn 2\n\n- **bash** second ✓\n\n[tool result omitted: recall " + secondName + "]"
 	if got := renderHistory(source, recallSet(secondName)); got != want {
 		t.Errorf("renderHistory() = %q, want %q", got, want)
 	}
@@ -595,7 +595,7 @@ func TestRenderHistoryDelegationStatus(t *testing.T) {
 				{Role: agent.MessageRoleAssistant, Turn: 1, ToolCalls: []agent.ToolCall{{ID: "c1", Name: tt.tool, Arguments: tt.args}}},
 				{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Name: tt.tool, Content: tt.content},
 			}
-			want := "### assistant · turn 1\n\n" + tt.line
+			want := "### assistant · turn 1\n\n" + tt.line + "\n\n[tool result omitted]"
 			if got := renderHistory(source, nil); got != want {
 				t.Errorf("renderHistory() = %q, want %q", got, want)
 			}
