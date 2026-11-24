@@ -168,10 +168,7 @@ func (s *claudeSubSync) plan(req ChatRequest) (claudeSubDelta, error) {
 // without a position, so it records nothing.
 func (s *claudeSubSync) planMismatch(req ChatRequest, mismatch *claudeSubSyncMismatch) (claudeSubDelta, error) {
 	fail := func(index int, role MessageRole, check string) (claudeSubDelta, error) {
-		if mismatch != nil {
-			*mismatch = claudeSubSyncMismatch{Index: index, Role: role, Check: check}
-		}
-		return claudeSubDelta{}, errClaudeSubHistoryChanged
+		return claudeSubRefusal(mismatch, index, role, check, errClaudeSubHistoryChanged)
 	}
 	if s.tainted {
 		return claudeSubDelta{}, errClaudeSubHistoryChanged

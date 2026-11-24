@@ -233,15 +233,24 @@ type ClaudeSubCallDiagnostics struct {
 	// SyncMismatchIndex is the position, counting the request's non-system
 	// messages from zero, where the live record comparison first failed. It is
 	// set only when that mismatch is what made the call reseed. It is a pointer
-	// so a divergence at the first message is reported.
+	// so a divergence at the first message is reported. A refusal that names no
+	// request position, such as a summary refused on the record's state, reports
+	// -1.
 	SyncMismatchIndex *int
 	// SyncMismatchRole is the role at SyncMismatchIndex: the request message's
 	// role, or, when the request ends before the record, the recorded entry's
-	// role.
+	// role. It is empty when the refusal names no position.
 	SyncMismatchRole string
-	// SyncMismatchCheck names the comparison that failed there: "role",
-	// "digest", "images", "tool_calls", "shape", or "length".
+	// SyncMismatchCheck names the comparison that failed: "role", "digest",
+	// "images", "tool_calls", "shape", or "length" at a request position, and
+	// "interrupted", "drained", "tainted", or "not_started" for a summary the
+	// record's state refused.
 	SyncMismatchCheck string
+	// SummaryDrainedCalls is the number of stale pending tool calls the summary
+	// path drained before planning an in-place compaction summary. Zero for every
+	// other call, and zero when the drain failed or the calls were retired as
+	// terminal-stale instead.
+	SummaryDrainedCalls int
 	// UsageGateMillis is the wall time the extra-usage gate spent on the call,
 	// truncated to whole milliseconds.
 	UsageGateMillis int64

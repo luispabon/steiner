@@ -1523,7 +1523,7 @@ func TestClaudeSubPendingCleanupInterruptsAndResolvesOpaqueHandle(t *testing.T) 
 	if call == nil {
 		t.Fatal("beginPendingCall returned nil")
 	}
-	if err := claudeSubFinishPending(context.Background(), s, ChatRequest{}); err != nil {
+	if _, err := claudeSubFinishPending(context.Background(), s, ChatRequest{}); err != nil {
 		t.Fatalf("finish pending: %v", err)
 	}
 	if len(s.pending) != 0 || !s.sync.interrupted {

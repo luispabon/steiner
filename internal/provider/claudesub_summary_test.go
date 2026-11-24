@@ -274,6 +274,338 @@ func TestClaudeSubSummarySubAgentNoPlaceReseedsOnFreshProcess(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSummarySubAgentNoPlaceReportsMismatch proves a sub-agent summary
+// that reseeds on a plan refusal reports the comparison that failed in the call
+// diagnostics: the plan reseed keeps the mismatch the in-place plan recorded.
+func TestClaudeSubSummarySubAgentNoPlaceReportsMismatch(t *testing.T) {
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1), claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	u1 := claudeSubUserText("look")
+	first := claudeSubRunMeasuredTurn(t, pool, ChatRequest{TransportSession: "parent-agent-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}})
+	// The source opens with a message the record does not hold, so the in-place
+	// append cannot take it.
+	summary := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "parent-agent-1",
+		ParentTransportSession:   "parent",
+		Model:                    model,
+		Messages:                 []Message{claudeSubUserText("not the first question"), first.Delta, claudeSubUserText("summarize")},
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	sub := summary.Diagnostics.ClaudeSub
+	if sub.ReseedReason != claudeSubReseedPlan {
+		t.Fatalf("reseed reason = %q, want %q", sub.ReseedReason, claudeSubReseedPlan)
+	}
+	if sub.SyncMismatchIndex == nil || *sub.SyncMismatchIndex != 0 {
+		t.Fatalf("mismatch index = %v, want 0", sub.SyncMismatchIndex)
+	}
+	if sub.SyncMismatchRole != string(MessageRoleUser) || sub.SyncMismatchCheck != claudeSubCheckDigest {
+		t.Errorf("mismatch = %q/%q, want %q/%q", sub.SyncMismatchRole, sub.SyncMismatchCheck, MessageRoleUser, claudeSubCheckDigest)
+	}
+	if sub.SummaryDrainedCalls != 0 {
+		t.Errorf("summary drained calls = %d, want none without a pending call", sub.SummaryDrainedCalls)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (retired sub-agent and fresh reseed helper)", got)
+	}
+	if text := summary.Delta.Content; text != "Hello world" {
+		t.Errorf("summary text = %q, want %q", text, "Hello world")
+	}
+}
+
+// TestClaudeSubSummarySubAgentAfterToolCallReportsRefusal proves a sub-agent
+// summary that drains a stale pending tool call reports both the drain count and
+// the record-state refusal that reseeds it.
+func TestClaudeSubSummarySubAgentAfterToolCallReportsRefusal(t *testing.T) {
+	sc := &claudeSubScript{
+		batches:   [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8]},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	u1 := claudeSubUserText("look")
+	first := claudeSubRunMeasuredTurn(t, pool, ChatRequest{TransportSession: "child-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}, Tools: tools})
+	if len(first.Delta.ToolCalls) != 1 {
+		t.Fatalf("first turn tool calls = %+v, want one pending", first.Delta.ToolCalls)
+	}
+	summary := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "child-1",
+		ParentTransportSession:   "parent",
+		Model:                    model,
+		Messages:                 []Message{u1, first.Delta, claudeSubUserText("summarize")},
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	sub := summary.Diagnostics.ClaudeSub
+	if sub.ReseedReason != claudeSubReseedPlan {
+		t.Fatalf("reseed reason = %q, want %q", sub.ReseedReason, claudeSubReseedPlan)
+	}
+	if sub.SyncMismatchIndex == nil || *sub.SyncMismatchIndex != claudeSubSyncMismatchNoIndex {
+		t.Fatalf("mismatch index = %v, want %d for a record-state refusal", sub.SyncMismatchIndex, claudeSubSyncMismatchNoIndex)
+	}
+	if sub.SyncMismatchRole != "" || sub.SyncMismatchCheck != claudeSubCheckInterrupted {
+		t.Errorf("mismatch = %q/%q, want no role and %q", sub.SyncMismatchRole, sub.SyncMismatchCheck, claudeSubCheckInterrupted)
+	}
+	if sub.SummaryDrainedCalls != 1 {
+		t.Errorf("summary drained calls = %d, want 1 for the stale tool call", sub.SummaryDrainedCalls)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (retired sub-agent and fresh reseed helper)", got)
+	}
+	if text := summary.Delta.Content; text != "Hello world" {
+		t.Errorf("summary text = %q, want %q", text, "Hello world")
+	}
+}
+
+// claudeSubTwoToolCallSubAgentSetup runs the two sub-agent turns a compaction
+// follows: a text turn, then a turn whose reply carries two pending tool calls.
+// It returns the pool, the spawner, the conversation the summary request carries
+// (source before the tool exchange) and the tools.
+func claudeSubTwoToolCallSubAgentSetup(t *testing.T) (*ClaudeSubscriptionPool, *claudeSubTestSpawner, []Message, []ToolSpec) {
+	t.Helper()
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+			claudeSubDecodeEvents(t, "turn_tool_pair.jsonl"),
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	u1 := claudeSubUserText("read notes")
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "child-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}, Tools: tools})
+	u2 := claudeSubUserText("keep going")
+	second := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "child-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1, first.Delta, u2}, Tools: tools})
+	if len(second.Delta.ToolCalls) != 2 {
+		t.Fatalf("second turn tool calls = %+v, want two pending", second.Delta.ToolCalls)
+	}
+	return pool, spawner, []Message{u1, first.Delta, u2}, tools
+}
+
+// claudeSubRunSubAgentToolCallSummary runs the summary request a sub-agent sends
+// when its last turn ended on two pending tool calls: the source stops before
+// that turn's reply, and the request carries no tool messages.
+func claudeSubRunSubAgentToolCallSummary(t *testing.T, pool *ClaudeSubscriptionPool, source []Message, tools []ToolSpec) claudeSubCollected {
+	t.Helper()
+	return claudeSubRunStreamCollected(t, pool, ChatRequest{
+		TransportSession:         "child-1",
+		ParentTransportSession:   "parent",
+		Model:                    claudeSubTestSpec().Model,
+		Messages:                 append(append([]Message(nil), source...), claudeSubUserText("summarize")),
+		Tools:                    tools,
+		CompactionSummary:        true,
+		CompactionSourceMessages: len(source),
+	})
+}
+
+// claudeSubWantInterruptBeforeMarkedSummary asserts the process drained its
+// pending tool calls before it was sent the marked in-place summary instruction,
+// which carries the transport-artifact disclaimer.
+func claudeSubWantInterruptBeforeMarkedSummary(t *testing.T, conn *claudeSubFakeConn) {
+	t.Helper()
+	lines := conn.sentLines()
+	interruptAt, summaryAt := -1, -1
+	for i, line := range lines {
+		switch {
+		case interruptAt < 0 && strings.Contains(line, `"subtype":"interrupt"`):
+			interruptAt = i
+		case summaryAt < 0 && strings.Contains(line, "steiner compaction summary request"):
+			summaryAt = i
+		}
+	}
+	if summaryAt < 0 {
+		t.Fatalf("no marked summary instruction was sent: %q", lines)
+	}
+	if interruptAt < 0 || interruptAt > summaryAt {
+		t.Errorf("interrupt line = %d, marked summary line = %d, want the drain interrupt first: %q", interruptAt, summaryAt, lines)
+	}
+	if !strings.Contains(lines[summaryAt], claudeSubSummaryArtifactDisclaimer) {
+		t.Errorf("marked summary instruction lacks the transport-artifact disclaimer: %s", lines[summaryAt])
+	}
+}
+
+// TestClaudeSubSummarySubAgentAfterToolCallAppendsInPlace proves a sub-agent
+// summary after a turn that ended on two pending tool calls drains them and is
+// appended to the live process, so the summary reads that process's cached
+// transcript instead of reseeding.
+func TestClaudeSubSummarySubAgentAfterToolCallAppendsInPlace(t *testing.T) {
+	pool, spawner, source, tools := claudeSubTwoToolCallSubAgentSetup(t)
+	got := claudeSubRunSubAgentToolCallSummary(t, pool, source, tools)
+	summary := got.final(t)
+	if summary.Error != "" {
+		t.Fatalf("summary error = %s", summary.Error)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (the summary appends to the sub-agent process)", n)
+	}
+	conn := spawner.call(t, 0).Conn
+	claudeSubWantInterruptBeforeMarkedSummary(t, conn)
+	sub := summary.Diagnostics.ClaudeSub
+	if sub.Process != claudeSubProcessReuse {
+		t.Errorf("process = %q, want %q", sub.Process, claudeSubProcessReuse)
+	}
+	if sub.ReseedReason != "" {
+		t.Errorf("reseed reason = %q, want none", sub.ReseedReason)
+	}
+	if sub.SyncMismatchIndex != nil || sub.SyncMismatchCheck != "" {
+		t.Errorf("sync mismatch = %v/%q, want none for an accepted summary", sub.SyncMismatchIndex, sub.SyncMismatchCheck)
+	}
+	if sub.SummaryDrainedCalls != 2 {
+		t.Errorf("summary drained calls = %d, want the 2 pending tool calls", sub.SummaryDrainedCalls)
+	}
+	if summary.Delta.Content != "Hello world" {
+		t.Errorf("summary text = %q, want %q", summary.Delta.Content, "Hello world")
+	}
+	if summary.BackendState != nil || summary.ClearBackendState {
+		t.Errorf("sub-agent summary chunk = state %s clear %v, want no state change", summary.BackendState, summary.ClearBackendState)
+	}
+	if !conn.isClosed() {
+		t.Error("in-place summary left the tainted sub-agent process running")
+	}
+	if live := claudeSubLiveSession(pool, "child-1"); live != nil {
+		t.Error("in-place summary left the sub-agent pooled")
+	}
+}
+
+// TestClaudeSubSummaryParentAfterToolCallAppendsInPlace proves a parent summary
+// whose fork is refused (no stored state) drains the live parent's pending tool
+// calls and appends in place, instead of reseeding on a helper.
+func TestClaudeSubSummaryParentAfterToolCallAppendsInPlace(t *testing.T) {
+	sc := &claudeSubScript{
+		batches: [][]claudeSubEvent{
+			claudeSubDecodeEvents(t, "turn_tool_pair.jsonl"),
+			claudeSubDecodeEvents(t, "turn_text.jsonl"),
+		},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc)
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	u1 := claudeSubUserText("read notes")
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "parent", Model: model, Messages: []Message{u1}, Tools: tools})
+	if len(first.Delta.ToolCalls) != 2 {
+		t.Fatalf("parent turn tool calls = %+v, want two pending", first.Delta.ToolCalls)
+	}
+	// The summary carries no stored state, so the parent cannot be forked and
+	// must append to the live process.
+	summary := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "parent",
+		Model:                    model,
+		Messages:                 []Message{u1, claudeSubUserText("summarize the older part")},
+		Tools:                    tools,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 1,
+	})
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (no helper for an in-place parent summary)", n)
+	}
+	conn := spawner.call(t, 0).Conn
+	claudeSubWantInterruptBeforeMarkedSummary(t, conn)
+	sub := summary.Diagnostics.ClaudeSub
+	if sub.SummaryDrainedCalls != 2 {
+		t.Errorf("summary drained calls = %d, want the 2 pending tool calls", sub.SummaryDrainedCalls)
+	}
+	if sub.ReseedReason != "" {
+		t.Errorf("reseed reason = %q, want none for an in-place parent summary", sub.ReseedReason)
+	}
+	if summary.Delta.Content != "Hello world" {
+		t.Errorf("summary text = %q, want %q", summary.Delta.Content, "Hello world")
+	}
+	if summary.BackendState != nil || !summary.ClearBackendState {
+		t.Errorf("parent summary chunk = state %s clear %v, want no state and clear", summary.BackendState, summary.ClearBackendState)
+	}
+	if !conn.isClosed() {
+		t.Error("in-place parent summary left the tainted process running")
+	}
+	if live := claudeSubLiveSession(pool, "parent"); live != nil {
+		t.Error("in-place parent summary left the parent pooled")
+	}
+}
+
+// TestClaudeSubSummaryAfterToolCallReseedsNextRequest pins the behaviour after an
+// in-place sub-agent summary: the process is retired, so the next normal request
+// cold-reseeds with no_state.
+func TestClaudeSubSummaryAfterToolCallReseedsNextRequest(t *testing.T) {
+	pool, spawner, source, tools := claudeSubTwoToolCallSubAgentSetup(t)
+	if got := claudeSubRunSubAgentToolCallSummary(t, pool, source, tools); got.err != nil {
+		t.Fatalf("summary error = %v", got.err)
+	}
+	next := claudeSubRunStreamCollected(t, pool, ChatRequest{
+		TransportSession:       "child-1",
+		ParentTransportSession: "parent",
+		Model:                  claudeSubTestSpec().Model,
+		Messages:               append(append([]Message(nil), source...), claudeSubUserText("carry on")),
+		Tools:                  tools,
+	})
+	nextFinal := next.final(t)
+	if nextFinal.Error != "" {
+		t.Fatalf("next request error = %s", nextFinal.Error)
+	}
+	if n := spawner.callCount(); n != 2 {
+		t.Fatalf("spawn count = %d, want 2 (the retired process replaced)", n)
+	}
+	sub := nextFinal.Diagnostics.ClaudeSub
+	if sub.ReseedReason != claudeSubReseedNoState {
+		t.Errorf("reseed reason = %q, want %q", sub.ReseedReason, claudeSubReseedNoState)
+	}
+	if sub.Process != claudeSubProcessSpawn {
+		t.Errorf("process = %q, want %q", sub.Process, claudeSubProcessSpawn)
+	}
+	lines := claudeSubUserLines(spawner.call(t, 1).Conn)
+	if len(lines) != 1 || !strings.Contains(lines[0], "Conversation so far") {
+		t.Errorf("reseeded user lines = %q, want one rendered transcript", lines)
+	}
+}
+
+// TestClaudeSubSummaryDrainFailureDoesNotReseed proves an unproven drain on the
+// summary path returns the error and retires the process instead of reseeding.
+func TestClaudeSubSummaryDrainFailureDoesNotReseed(t *testing.T) {
+	sc := &claudeSubScript{
+		batches:   [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_tool_pair.jsonl")},
+		interrupt: &claudeSubInterruptReply{err: "interrupt unavailable"},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	u1 := claudeSubUserText("read notes")
+	first := claudeSubRunTurn(t, pool, ChatRequest{TransportSession: "child-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}, Tools: tools})
+	if len(first.Delta.ToolCalls) != 2 {
+		t.Fatalf("first turn tool calls = %+v, want two pending", first.Delta.ToolCalls)
+	}
+	got := claudeSubRunCollected(t, pool, ChatRequest{
+		TransportSession:         "child-1",
+		ParentTransportSession:   "parent",
+		Model:                    model,
+		Messages:                 []Message{u1, first.Delta, claudeSubUserText("summarize")},
+		Tools:                    tools,
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	if got.err == nil {
+		t.Fatal("summary with an unproven drain returned no error")
+	}
+	if !strings.Contains(got.err.Error(), "interrupt unavailable") {
+		t.Errorf("summary error = %v, want the failed drain's cause", got.err)
+	}
+	if n := spawner.callCount(); n != 1 {
+		t.Fatalf("spawn count = %d, want 1 (no reseed after a failed drain)", n)
+	}
+	if !spawner.call(t, 0).Conn.isClosed() {
+		t.Error("the unproven summary process was reused")
+	}
+	if live := claudeSubLiveSession(pool, "child-1"); live != nil {
+		t.Error("the unproven summary process stayed pooled")
+	}
+	for _, line := range claudeSubUserLines(spawner.call(t, 0).Conn) {
+		if strings.Contains(line, "steiner compaction summary request") {
+			t.Errorf("the failed drain still wrote the summary: %s", line)
+		}
+	}
+}
+
 // claudeSubFailedResumeBatch is a CLI turn that fails before any output.
 func claudeSubFailedResumeBatch() []claudeSubEvent {
 	return []claudeSubEvent{{Type: "result", Raw: json.RawMessage(`{"subtype":"error_during_execution","is_error":true,"result":"resume failed"}`)}}
@@ -855,7 +1187,7 @@ func TestClaudeSubPlanSummaryAppendsAfterRetainedTail(t *testing.T) {
 		claudeSubEntryWithUUID(a2, "uuid-a2"),
 	}}
 	instruction := claudeSubUserText("summarize")
-	delta, err := s.planSummary([]Message{u1, a1, instruction}, 2)
+	delta, err := s.planSummary([]Message{u1, a1, instruction}, 2, nil)
 	if err != nil {
 		t.Fatalf("planSummary: %v", err)
 	}
@@ -866,7 +1198,7 @@ func TestClaudeSubPlanSummaryAppendsAfterRetainedTail(t *testing.T) {
 		t.Errorf("summary keeps %d entries, want the whole record of %d", len(delta.keep), len(s.entries))
 	}
 
-	if _, err := s.planSummary([]Message{u1, claudeSubUserText("other"), instruction}, 2); !errors.Is(err, errClaudeSubSummaryNoPlace) {
+	if _, err := s.planSummary([]Message{u1, claudeSubUserText("other"), instruction}, 2, nil); !errors.Is(err, errClaudeSubSummaryNoPlace) {
 		t.Errorf("planSummary with diverged source = %v, want errClaudeSubSummaryNoPlace", err)
 	}
 }

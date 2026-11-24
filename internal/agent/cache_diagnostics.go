@@ -85,10 +85,15 @@ type cachePayload struct {
 	// ClaudeSubSyncMismatchIndex is the request position where the live sync
 	// record first failed to match, present only when that mismatch made the
 	// call reseed. A pointer keeps a divergence at position zero distinct from
-	// no mismatch.
+	// no mismatch. A refusal that names no position, such as a summary refused
+	// on the record's state, reports -1.
 	ClaudeSubSyncMismatchIndex *int   `json:"claudesub_sync_mismatch_index,omitempty"`
 	ClaudeSubSyncMismatchRole  string `json:"claudesub_sync_mismatch_role,omitempty"`
 	ClaudeSubSyncFailedCheck   string `json:"claudesub_sync_failed_check,omitempty"`
+	// ClaudeSubSummaryDrainedCalls is the number of stale pending tool calls the
+	// summary path drained before planning an in-place compaction summary. It is
+	// absent when no drain preceded the plan.
+	ClaudeSubSummaryDrainedCalls int `json:"claudesub_summary_drained_calls,omitempty"`
 }
 
 // wireCachePayload is the optional wire block of a cache record. Every value
@@ -203,6 +208,7 @@ func emitCacheDiagnostic(req RunRequest, response provider.ChatResponse, callKin
 			payload.ClaudeSubSyncMismatchIndex = claudeSub.SyncMismatchIndex
 			payload.ClaudeSubSyncMismatchRole = claudeSub.SyncMismatchRole
 			payload.ClaudeSubSyncFailedCheck = claudeSub.SyncMismatchCheck
+			payload.ClaudeSubSummaryDrainedCalls = claudeSub.SummaryDrainedCalls
 		}
 	}
 	req.Diagnostics.Write(diagnostics.Record{

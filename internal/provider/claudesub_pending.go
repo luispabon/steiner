@@ -9,9 +9,13 @@ import (
 // delivery path needs. The drain these functions use lives in
 // claudesub_drain.go.
 
-func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRequest) error {
+// claudeSubFinishPending settles the stream-time tool calls this request did not
+// answer. It returns the number of stale calls it drained to the interrupted
+// turn's aborted result: a call retired as terminal-stale, and a drain that
+// failed, count zero.
+func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRequest) (int, error) {
 	if len(s.pending) == 0 {
-		return nil
+		return 0, nil
 	}
 	provided := make(map[string]struct{})
 	for _, msg := range req.Messages {
@@ -26,7 +30,7 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 		}
 	}
 	if len(stale) == 0 {
-		return nil
+		return 0, nil
 	}
 	if s.delivery.terminal {
 		// The previous delivery already read the turn's terminal result, so the
@@ -39,7 +43,7 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 			claudeSubRemovePending(s, pending.ID)
 		}
 		s.host.cancelUnresolved(s.pending)
-		return nil
+		return 0, nil
 	}
 	// The interrupted turn still reports its own terminal result. Draining to it
 	// under the same proof the cancel path uses both stops the turn and empties the
@@ -51,7 +55,7 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 		// reused: the existing unsafe-session path retires it on the next use and
 		// reports the replacement.
 		s.abandon()
-		return err
+		return 0, err
 	}
 	s.sync.markInterrupted()
 	for _, pending := range stale {
@@ -62,7 +66,7 @@ func claudeSubFinishPending(ctx context.Context, s *claudeSubSession, req ChatRe
 	// result now either, so it is retired with the stale ones. The calls this
 	// request does provide keep their handles for the delivery that resolves them.
 	s.host.cancelUnresolved(s.pending)
-	return nil
+	return len(stale), nil
 }
 
 func claudeSubPendingByID(s *claudeSubSession, id string) *claudeSubPendingCall {

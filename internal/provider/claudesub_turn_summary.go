@@ -244,7 +244,7 @@ func claudeSubSubAgentSummary(ctx context.Context, pool *ClaudeSubscriptionPool,
 func claudeSubMarkedReseedDelta(req ChatRequest) claudeSubDelta {
 	msgs := claudeSubMessages(req.Messages)
 	if n := req.CompactionSourceMessages; n == len(msgs)-1 {
-		msgs[n] = claudeSubMarkSummary(msgs[n], n, 0)
+		msgs[n] = claudeSubMarkSummary(msgs[n], n, 0, false)
 	}
 	return claudeSubReseedDelta(msgs)
 }

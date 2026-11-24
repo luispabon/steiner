@@ -780,14 +780,15 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 					Attempts:             3,
 					CacheAffinityDropped: true,
 					ClaudeSub: &provider.ClaudeSubCallDiagnostics{
-						Process:           "spawn",
-						ReseedReason:      "plan",
-						SyncMismatchIndex: intPtr(0),
-						SyncMismatchRole:  "user",
-						SyncMismatchCheck: "digest",
-						UsageGateMillis:   42,
-						UsageGatePolls:    2,
-						UsageProbeSpawned: true,
+						Process:             "spawn",
+						ReseedReason:        "plan",
+						SyncMismatchIndex:   intPtr(0),
+						SyncMismatchRole:    "user",
+						SyncMismatchCheck:   "digest",
+						UsageGateMillis:     42,
+						UsageGatePolls:      2,
+						UsageProbeSpawned:   true,
+						SummaryDrainedCalls: 2,
 					},
 				},
 			},
@@ -815,6 +816,7 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 				`"claudesub_usage_gate_ms":42`,
 				`"claudesub_usage_gate_polls":2`,
 				`"claudesub_usage_probe_spawned":true`,
+				`"claudesub_summary_drained_calls":2`,
 			},
 		},
 		{
@@ -839,7 +841,34 @@ func TestEmitCacheDiagnostic_MeasurementFields(t *testing.T) {
 				"claudesub_sync_mismatch_index",
 				"claudesub_sync_mismatch_role",
 				"claudesub_sync_failed_check",
+				"claudesub_summary_drained_calls",
 			},
+		},
+		{
+			// A summary refused on the record's state names no request position,
+			// so the pointer keeps -1 present and distinct from no mismatch, while
+			// the role stays absent.
+			name: "record-state mismatch reports no position",
+			response: provider.ChatResponse{
+				Usage: &provider.UsageStats{PromptTokens: 10},
+				Diagnostics: &provider.CallDiagnostics{
+					ClaudeSub: &provider.ClaudeSubCallDiagnostics{
+						Process:             "spawn",
+						ReseedReason:        "plan",
+						SyncMismatchIndex:   intPtr(-1),
+						SyncMismatchCheck:   "interrupted",
+						SummaryDrainedCalls: 1,
+					},
+				},
+			},
+			stats: requestCacheStats{prefixHash: "abcd", messageHashes: []string{"a"}},
+			wantPresent: []string{
+				`"claudesub_reseed_reason":"plan"`,
+				`"claudesub_sync_mismatch_index":-1`,
+				`"claudesub_sync_failed_check":"interrupted"`,
+				`"claudesub_summary_drained_calls":1`,
+			},
+			wantAbsent: []string{"claudesub_sync_mismatch_role"},
 		},
 		{
 			name: "single attempt",

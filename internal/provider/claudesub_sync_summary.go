@@ -126,15 +126,35 @@ func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool
 // messages must be a prefix of the record, and the instruction after them is
 // appended after the whole record, retained tail included. It never changes the
 // record, and it reports errClaudeSubSummaryNoPlace when the record cannot take
-// the request.
-func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta, error) {
-	if s.tainted || !s.started || s.interrupted || s.drained || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
-		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+// the request. An interrupted record is accepted when the interrupted assistant
+// lies in the retained tail (interruptible >= source): the compared source
+// prefix then excludes it, and the marked instruction explains the CLI's own
+// interrupt clean-up lines. When mismatch is not nil, the refusal records why: a
+// record-state refusal (tainted, not_started, interrupted, drained) and a count
+// problem name no position, while a request comparison records its position and
+// role.
+func (s *claudeSubSync) planSummary(msgs []Message, source int, mismatch *claudeSubSyncMismatch) (claudeSubDelta, error) {
+	fail := func(index int, role MessageRole, check string) (claudeSubDelta, error) {
+		return claudeSubRefusal(mismatch, index, role, check, errClaudeSubSummaryNoPlace)
 	}
-	if !s.sourcePrefixMatches(msgs, source) {
-		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+	switch {
+	case s.tainted:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckTainted)
+	case !s.started:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckNotStarted)
+	case s.interrupted && s.interruptible < source:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckInterrupted)
+	case s.drained:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckDrained)
+	case source <= 0 || len(msgs) != source+1 || len(s.entries) < source:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckLength)
+	case msgs[source].Role != MessageRoleUser:
+		return fail(source, msgs[source].Role, claudeSubCheckShape)
 	}
-	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source)
+	if i, check := s.sourcePrefixMismatch(msgs, source); check != "" {
+		return fail(i, msgs[i].Role, check)
+	}
+	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source, s.interrupted)
 	return claudeSubDelta{
 		User:              []Message{instruction},
 		keep:              append([]claudeSubEntry(nil), s.entries...),
@@ -142,22 +162,42 @@ func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta,
 	}, nil
 }
 
+// sourcePrefixMismatch returns the position and check label of the first
+// recorded entry that does not match the request message at that position, or
+// claudeSubSyncMismatchNoIndex with an empty check when the whole prefix
+// matches. The caller bounds source against both.
+func (s *claudeSubSync) sourcePrefixMismatch(msgs []Message, source int) (int, string) {
+	for i := range source {
+		if check := claudeSubEntryMismatch(s.entries[i], msgs[i]); check != "" {
+			return i, check
+		}
+	}
+	return claudeSubSyncMismatchNoIndex, ""
+}
+
 // sourcePrefixMatches reports whether the record's first source entries match
 // the first source request messages. The caller bounds source against both.
 func (s *claudeSubSync) sourcePrefixMatches(msgs []Message, source int) bool {
-	for i := range source {
-		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
-			return false
-		}
-	}
-	return true
+	_, check := s.sourcePrefixMismatch(msgs, source)
+	return check == ""
 }
+
+// claudeSubSummaryArtifactDisclaimer tells the summarizing model that the lines
+// the CLI writes when it cancels a pending tool call are not the conversation.
+// It is appended only to a marked instruction planned from an interrupted
+// record, so every other summary's prompt bytes stay unchanged.
+const claudeSubSummaryArtifactDisclaimer = " The tool rejection and interrupt lines the CLI wrote after the source are transport artifacts from cancelling a pending tool call: do not summarize them as user intent or as the outcome of those tool calls."
 
 // claudeSubMarkSummary marks a summary instruction sent in place. It names the
 // older source the summary covers and the retained tail that already sits in
-// the transcript.
-func claudeSubMarkSummary(instruction Message, source, tail int) Message {
-	instruction.Content = fmt.Sprintf("[steiner compaction summary request: summarize the %d older source messages earlier in this transcript. The %d retained tail messages after them are already part of this transcript.]\n\n%s", source, tail, instruction.Content)
+// the transcript, and it explains the interrupt clean-up lines when the record
+// was interrupted.
+func claudeSubMarkSummary(instruction Message, source, tail int, interrupted bool) Message {
+	disclaimer := ""
+	if interrupted {
+		disclaimer = claudeSubSummaryArtifactDisclaimer
+	}
+	instruction.Content = fmt.Sprintf("[steiner compaction summary request: summarize the %d older source messages earlier in this transcript. The %d retained tail messages after them are already part of this transcript.%s]\n\n%s", source, tail, disclaimer, instruction.Content)
 	return instruction
 }
 

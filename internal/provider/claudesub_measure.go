@@ -87,6 +87,7 @@ type claudeSubCallMetrics struct {
 	reseedReason      string
 	recovery          string
 	syncMismatch      *claudeSubSyncMismatch
+	summaryDrained    int
 	usageGate         time.Duration
 	usageGatePolls    int
 	usageProbeSpawned bool
@@ -117,15 +118,16 @@ func (m *claudeSubCallMetrics) diagnostics() *CallDiagnostics {
 		return nil
 	}
 	return &CallDiagnostics{ClaudeSub: &ClaudeSubCallDiagnostics{
-		Process:           m.process,
-		ReseedReason:      m.reseedReason,
-		Recovery:          m.recovery,
-		SyncMismatchIndex: m.mismatchIndex(),
-		SyncMismatchRole:  m.mismatchRole(),
-		SyncMismatchCheck: m.mismatchCheck(),
-		UsageGateMillis:   m.usageGate.Milliseconds(),
-		UsageGatePolls:    m.usageGatePolls,
-		UsageProbeSpawned: m.usageProbeSpawned,
+		Process:             m.process,
+		ReseedReason:        m.reseedReason,
+		Recovery:            m.recovery,
+		SyncMismatchIndex:   m.mismatchIndex(),
+		SyncMismatchRole:    m.mismatchRole(),
+		SyncMismatchCheck:   m.mismatchCheck(),
+		SummaryDrainedCalls: m.summaryDrained,
+		UsageGateMillis:     m.usageGate.Milliseconds(),
+		UsageGatePolls:      m.usageGatePolls,
+		UsageProbeSpawned:   m.usageProbeSpawned,
 	}}
 }
 
@@ -205,8 +207,10 @@ func (m *claudeSubCallMetrics) clearReseed() {
 }
 
 // noteSyncMismatch records the first request position a live process's record
-// could not take. Only bounded values are kept: a known role and one of the
-// fixed check labels, with the position clamped.
+// could not take. Only bounded values are kept: one of the fixed check labels,
+// with the position clamped. A record-state label (interrupted, drained,
+// tainted, not_started) names no position, so it is kept only at index -1 with
+// an empty role; a drop leaves the fields absent.
 func (m *claudeSubCallMetrics) noteSyncMismatch(mismatch claudeSubSyncMismatch) {
 	if m == nil || !claudeSubSyncMismatchValid(mismatch) {
 		return
@@ -238,6 +242,18 @@ func (m *claudeSubCallMetrics) noteRecovery(reason string) {
 		return
 	}
 	m.recovery = reason
+}
+
+// noteSummaryDrained records the stale pending tool calls the summary path
+// drained before planning an in-place summary. Only actual drains count, so a
+// terminal-stale retirement or a failed drain records nothing. It accumulates
+// like the usage gate fields, because every attempt in the call may have
+// drained first.
+func (m *claudeSubCallMetrics) noteSummaryDrained(calls int) {
+	if m == nil || calls <= 0 {
+		return
+	}
+	m.summaryDrained += calls
 }
 
 // noteUsageGate records the time and poll count of one delivery attempt's
