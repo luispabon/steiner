@@ -185,7 +185,7 @@ func TestNormalizeMessage_AppendsReasoningDetailsToReasoningContent(t *testing.T
 	}
 }
 
-func TestNormalizeChatResponse_TextPartsAndRefusal(t *testing.T) {
+func TestNormalizeChatResponse_TextPartsSkipRefusal(t *testing.T) {
 	tests := []struct {
 		name         string
 		message      string
@@ -210,12 +210,12 @@ func TestNormalizeChatResponse_TextPartsAndRefusal(t *testing.T) {
 		{
 			name:        "refusal with null content",
 			message:     `{"role":"assistant","content":null,"refusal":"I can't help with that."}`,
-			wantContent: "I can't help with that.",
+			wantContent: "",
 		},
 		{
 			name:         "refusal with tool call",
 			message:      `{"role":"assistant","content":null,"refusal":"Checking first.","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]}`,
-			wantContent:  "Checking first.",
+			wantContent:  "",
 			wantToolName: "read",
 		},
 	}

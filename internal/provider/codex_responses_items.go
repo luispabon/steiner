@@ -83,22 +83,26 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 	return result
 }
 
-// keepStreamedMessages returns the authoritative ledger with its message entries
-// replaced by the streamed ones: calls follow the final output, text keeps what
-// was streamed.
+// keepStreamedMessages returns the authoritative ledger with each message slot
+// filled by the next streamed message: calls keep the final output's order and
+// text keeps what was streamed. Streamed messages without a slot go last.
 func keepStreamedMessages(authoritative, streamed []responsesLedgerEntry) []responsesLedgerEntry {
-	out := make([]responsesLedgerEntry, 0, len(authoritative)+len(streamed))
+	var messages []responsesLedgerEntry
+	for _, entry := range streamed {
+		if entry.kind == "message" {
+			messages = append(messages, entry)
+		}
+	}
+	out := make([]responsesLedgerEntry, 0, len(authoritative)+len(messages))
 	for _, entry := range authoritative {
 		if entry.kind != "message" {
 			out = append(out, entry)
+		} else if len(messages) > 0 {
+			out = append(out, messages[0])
+			messages = messages[1:]
 		}
 	}
-	for _, entry := range streamed {
-		if entry.kind == "message" {
-			out = append(out, entry)
-		}
-	}
-	return out
+	return append(out, messages...)
 }
 
 func streamedCallByItemID(streamed []responsesLedgerEntry, id string) *responsesLedgerEntry {

@@ -159,7 +159,7 @@ func TestResponsesWireDecodeResponse(t *testing.T) {
 	}
 }
 
-func TestResponsesWireNormalizeRefusalParts(t *testing.T) {
+func TestResponsesWireNormalizeSkipsRefusalParts(t *testing.T) {
 	tests := []struct {
 		name         string
 		output       string
@@ -169,17 +169,17 @@ func TestResponsesWireNormalizeRefusalParts(t *testing.T) {
 		{
 			name:        "output_text then refusal in one message",
 			output:      `[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Part one. "},{"type":"refusal","refusal":"I can't help."}]}]`,
-			wantContent: "Part one. I can't help.",
+			wantContent: "Part one. ",
 		},
 		{
 			name:        "refusal only message",
 			output:      `[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"I can't help."}]}]`,
-			wantContent: "I can't help.",
+			wantContent: "",
 		},
 		{
 			name:         "refusal with function call",
 			output:       `[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"Checking."}]},{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}]`,
-			wantContent:  "Checking.",
+			wantContent:  "",
 			wantToolName: "read",
 		},
 	}

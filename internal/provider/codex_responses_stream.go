@@ -143,7 +143,7 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 			}
 		}
 		return false, nil
-	case "response.output_text.delta", "response.refusal.delta":
+	case "response.output_text.delta":
 		return handleResponsesTextDelta(state, payload, emit)
 	case "response.output_text.done":
 		return handleResponsesTextDone(state, payload)

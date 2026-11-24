@@ -106,7 +106,7 @@ func handleStreamChoice(state *openAIStreamState, choice openAIChoice, emit func
 	if choice.Delta.Role == "assistant" {
 		state.assistantRole = true
 	}
-	if err := handleStreamChoiceContent(state, choice.Delta.Content, choice.Delta.Refusal, emit); err != nil {
+	if err := handleStreamChoiceContent(state, choice.Delta.Content, emit); err != nil {
 		return err
 	}
 	var reasoningDelta string
@@ -123,7 +123,7 @@ func handleStreamChoice(state *openAIStreamState, choice openAIChoice, emit func
 	return nil
 }
 
-func handleStreamChoiceContent(state *openAIStreamState, content any, refusal string, emit func(ChatChunk) error) error {
+func handleStreamChoiceContent(state *openAIStreamState, content any, emit func(ChatChunk) error) error {
 	if thinking := extractThinkingDelta(content); thinking != "" {
 		state.thinking.WriteString(thinking)
 		state.sawThinking = true
@@ -131,7 +131,7 @@ func handleStreamChoiceContent(state *openAIStreamState, content any, refusal st
 			return err
 		}
 	}
-	if text := extractTextDelta(content) + refusal; text != "" {
+	if text := extractTextDelta(content); text != "" {
 		state.content.WriteString(text)
 		state.sawContent = true
 		return emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: text}})

@@ -466,50 +466,6 @@ func TestOpenAIStreamDecodeChatStreamWithHandler_UsesReasoningDetailsAndEOFWithF
 	}
 }
 
-func TestOpenAIStreamRefusalIsText(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want string
-	}{
-		{
-			name: "refusal deltas only",
-			body: "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"refusal\":\"I can\"}}]}\n\n" +
-				"data: {\"choices\":[{\"delta\":{\"refusal\":\"'t help\"},\"finish_reason\":\"stop\"}]}\n\n" +
-				"data: [DONE]\n\n",
-			want: "I can't help",
-		},
-		{
-			name: "refusal alongside tool call",
-			body: "data: {\"choices\":[{\"delta\":{\"refusal\":\"Checking. \"}}]}\n\n" +
-				"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
-				"data: [DONE]\n\n",
-			want: "Checking. ",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			chunks, err := collectOpenAIStreamChunks(t, strings.NewReader(tt.body))
-			if err != nil {
-				t.Fatalf("decodeChatStreamWithHandler() error = %v", err)
-			}
-			if len(chunks) < 2 {
-				t.Fatalf("chunks len = %d, want at least 2", len(chunks))
-			}
-			var streamed strings.Builder
-			for _, chunk := range chunks[:len(chunks)-1] {
-				streamed.WriteString(chunk.Delta.Content)
-			}
-			if streamed.String() != tt.want {
-				t.Fatalf("streamed content = %q, want %q", streamed.String(), tt.want)
-			}
-			if final := chunks[len(chunks)-1]; final.Delta.Content != tt.want {
-				t.Fatalf("final Content = %q, want %q", final.Delta.Content, tt.want)
-			}
-		})
-	}
-}
-
 func TestOpenAIStreamDecodeChatStreamWithHandler_SeparatesIndexlessToolCalls(t *testing.T) {
 	body := strings.NewReader(
 		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_first\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"{\\\"value\\\":\"}}]}}]}\n\n" +

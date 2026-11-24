@@ -248,7 +248,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 
 	currentFit, err := compactionCurrentFit(ctx, req, *state, beforeFit)
 	if err != nil {
-		return false, false, "", err
+		return false, false, "", reportCompactionFailure(req.Events, turn, nil, err)
 	}
 
 	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)

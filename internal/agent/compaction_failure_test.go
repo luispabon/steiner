@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -174,6 +175,36 @@ func TestCompactionFailureRecordsEachAttempt(t *testing.T) {
 				t.Errorf("event SummaryAttemptDetails = %+v, want %+v", payload.SummaryAttemptDetails, tt.want)
 			}
 		})
+	}
+}
+
+// TestCompactionFitErrorIsReported proves a fit error before any summary call emits
+// the one failure diagnostic, like every other non-cancel compaction error. An
+// expired deadline makes the fit fail without being a cancellation.
+func TestCompactionFitErrorIsReported(t *testing.T) {
+	t.Parallel()
+	r := retryRun()
+	var rec eventRecorder
+	r.req.Events = rec.sink()
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	state := r.state
+	compactionCount := 0
+	_, applied, _, err := (&Runner{}).compactConversationForBudgetWithSteering(ctx, r.req, &state, 5, nil, map[string]bool{}, &compactionCount, "")
+	if err == nil || applied {
+		t.Fatalf("compactConversationForBudgetWithSteering() applied = %v, err = %v, want a failed attempt", applied, err)
+	}
+	if !CompactionFailureReported(err) {
+		t.Errorf("CompactionFailureReported(%v) = false, want true", err)
+	}
+	failures := 0
+	for _, ev := range rec.snapshot() {
+		if payload, ok := output.AsContextCompactionEvent(ev.Payload); ok && payload.Severity == "skipped" {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Errorf("skipped compaction events = %d, want exactly one failure event", failures)
 	}
 }
 

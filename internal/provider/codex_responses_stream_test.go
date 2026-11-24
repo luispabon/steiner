@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,57 +60,6 @@ func TestResponsesStreamReasoningTextDelta(t *testing.T) {
 	final := chunks[len(chunks)-1]
 	if final.Delta.ReasoningContent != "raw thinking" {
 		t.Fatalf("final ReasoningContent = %q, want %q", final.Delta.ReasoningContent, "raw thinking")
-	}
-}
-
-func TestResponsesStreamRefusalIsText(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want string
-	}{
-		{
-			name: "refusal deltas then completed with empty output",
-			body: `data: {"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"I can"}` + "\n\n" +
-				`data: {"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"'t help."}` + "\n\n" +
-				`data: {"type":"response.completed","response":{"output":[],"usage":{}}}` + "\n\n" +
-				"data: [DONE]\n\n",
-			want: "I can't help.",
-		},
-		{
-			name: "refusal only in completed output",
-			body: `data: {"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"refusal","refusal":"I can't help."}]}],"usage":{}}}` + "\n\n" +
-				"data: [DONE]\n\n",
-			want: "I can't help.",
-		},
-		{
-			name: "refusal only in output_item.done",
-			body: `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"refusal","refusal":"I can't help."}]}}` + "\n\n" +
-				`data: {"type":"response.completed","response":{"output":[],"usage":{}}}` + "\n\n" +
-				"data: [DONE]\n\n",
-			want: "I can't help.",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			chunks, err := collectResponsesStreamChunks(t, strings.NewReader(tt.body))
-			if err != nil {
-				t.Fatalf("decodeResponsesStreamWithHandler() error = %v", err)
-			}
-			if len(chunks) == 0 {
-				t.Fatal("no chunks emitted")
-			}
-			var streamed strings.Builder
-			for _, chunk := range chunks[:len(chunks)-1] {
-				streamed.WriteString(chunk.Delta.Content)
-			}
-			if !strings.HasPrefix(tt.want, streamed.String()) {
-				t.Fatalf("streamed content = %q, not a prefix of %q", streamed.String(), tt.want)
-			}
-			if final := chunks[len(chunks)-1]; final.Delta.Content != tt.want {
-				t.Fatalf("final Content = %q, want %q", final.Delta.Content, tt.want)
-			}
-		})
 	}
 }
 
@@ -186,6 +136,26 @@ func TestResponsesStreamEmptyFinalTextKeepsStreamed(t *testing.T) {
 				t.Fatalf("ToolCalls = %#v, want one call %q", final.Delta.ToolCalls, tt.wantTool)
 			}
 		})
+	}
+}
+
+// Streamed text without an output index keeps its place before the final calls.
+func TestResponsesStreamKeepsStreamedTextBeforeCalls(t *testing.T) {
+	body := strings.NewReader(
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"Let me check.\"}\n\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[]},{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"c1\",\"name\":\"read\",\"arguments\":\"{}\"}],\"usage\":{}}}\n\n" +
+			"data: [DONE]\n\n")
+	chunks, err := collectResponsesStreamChunks(t, body)
+	if err != nil {
+		t.Fatalf("decodeResponsesStreamWithHandler() error = %v", err)
+	}
+	final := chunks[len(chunks)-1].Delta
+	if final.ProviderMetadata == nil || final.ProviderMetadata.Codex == nil {
+		t.Fatalf("final ProviderMetadata = %#v, want Codex blocks", final.ProviderMetadata)
+	}
+	want := []CodexMessageBlock{{Kind: "message", Text: "Let me check."}, {Kind: "function_call", CallID: "c1"}}
+	if got := final.ProviderMetadata.Codex.Blocks; !slices.Equal(got, want) {
+		t.Fatalf("Blocks = %#v, want %#v", got, want)
 	}
 }
 

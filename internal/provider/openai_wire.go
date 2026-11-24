@@ -73,7 +73,6 @@ type openAIStreamOptions struct {
 type openAIMessage struct {
 	Role             string           `json:"role,omitempty"`
 	Content          any              `json:"content,omitempty"`
-	Refusal          string           `json:"refusal,omitempty"`
 	ReasoningContent *string          `json:"reasoning_content,omitempty"`
 	ReasoningDetails any              `json:"reasoning_details,omitempty"`
 	Name             string           `json:"name,omitempty"`
@@ -325,8 +324,9 @@ func normalizeMessage(message openAIMessage) Message {
 	out := Message{
 		Role: MessageRole(message.Role),
 	}
-	// A refusal is the model's text and arrives beside null content, so it is kept.
-	out.Content = extractMessageContent(message.Content) + message.Refusal
+	if content := extractMessageContent(message.Content); content != "" {
+		out.Content = content
+	}
 	if message.ReasoningContent != nil {
 		out.ReasoningContent = *message.ReasoningContent
 	}

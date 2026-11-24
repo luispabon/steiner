@@ -72,7 +72,6 @@ type responsesItem struct {
 type responsesContentPart struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
-	Refusal  string `json:"refusal,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 }
 
@@ -351,13 +350,10 @@ func outputContentParts(content string) []responsesContentPart {
 }
 
 // responsesPartText returns the assistant text a message content part carries.
-// A refusal is the model's text, so it is read from its refusal field.
+// Refusal parts are deliberately not text: a refusal must not become a compaction summary.
 func responsesPartText(part responsesContentPart) (string, bool) {
-	switch part.Type {
-	case "output_text", "text":
+	if part.Type == "output_text" || part.Type == "text" {
 		return part.Text, true
-	case "refusal":
-		return part.Refusal, true
 	}
 	return "", false
 }
