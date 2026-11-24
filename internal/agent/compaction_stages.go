@@ -94,6 +94,10 @@ func (s summarizeCompactionStages) run(
 	}
 	emergencySource, emergencyRetained, err := selectEmergencyRetention(ctx, req, normalOutcome.State, postNormalMessages, emergencyRetentionBase)
 	if err != nil {
+		// No emergency stage runs when its tail is too large, so the normal result is the only retry.
+		if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, normalOutcome, err); ok {
+			return dropped, nil
+		}
 		return compactionFailedOutcome(normalOutcome, err)
 	}
 	emergencyCandidate := makeCompactionCandidate(normalOutcome.Candidate, emergencySource, emergencyRetained)
@@ -241,8 +245,9 @@ func (s summarizeCompactionStages) runStageAndFit(
 }
 
 // compactionBudgetMissError marks a stage failure caused by budget alone: an
-// applied stage that still needs emergency compaction, or a not-applied stage
-// whose retained conversation does not hard-fit. The latest-request ladder
+// applied stage that still needs emergency compaction, a not-applied stage whose
+// retained conversation does not hard-fit, or an emergency tail too large even
+// without its block. The latest-request ladder
 // retries only these failures without the block; every other failure, such as a
 // provider, fallback, or fit error, propagates.
 type compactionBudgetMissError struct{ err error }

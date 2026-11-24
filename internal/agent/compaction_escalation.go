@@ -64,9 +64,9 @@ func compactionCannotSolveError(fit prompt.RequestTokenBudget) error {
 	)
 }
 
-// compactionTailTooLargeError reports that the newest unit, kept with its latest
-// request block and summary reserve, does not fit the main budget. It is terminal
-// for a fallback attempt: a rerun on main selects the same unit and fails alike.
+// compactionTailTooLargeError reports that the newest unit does not fit the main
+// budget with its summary reserve, even without its latest request block. It is
+// terminal for a fallback attempt: a rerun on main selects the same unit and fails alike.
 type compactionTailTooLargeError struct {
 	Fit                  prompt.RequestTokenBudget
 	ProtectedTokens      int
@@ -77,7 +77,7 @@ type compactionTailTooLargeError struct {
 
 func (e *compactionTailTooLargeError) Error() string {
 	return fmt.Sprintf(
-		"compaction cannot solve this request: the newest unit does not fit with its request block and summary reserve: protected_outputs=%d retained_tail=%d request_block=%d summary_reserve=%d context_window=%d safety_margin=%d hard_limit=%d",
+		"compaction cannot solve this request: the newest unit does not fit with its summary reserve even without its request block: protected_outputs=%d retained_tail=%d request_block=%d summary_reserve=%d context_window=%d safety_margin=%d hard_limit=%d",
 		e.ProtectedTokens,
 		e.RetainedTokens,
 		e.RequestBlockTokens,

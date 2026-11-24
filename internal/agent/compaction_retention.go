@@ -29,7 +29,8 @@ func selectRetention(ctx context.Context, req RunRequest, state RunState, full, 
 // selectEmergencyRetention returns the one-unit emergency tail of full. When that
 // unit does not fit with its request block, it is kept without the block if that
 // fits: the stage then drops the block if its summary still misses the budget. It
-// returns a compactionTailTooLargeError when the unit does not fit even without it.
+// returns a compactionBudgetMissError wrapping compactionTailTooLargeError when the
+// unit does not fit even without it.
 func selectEmergencyRetention(ctx context.Context, req RunRequest, state RunState, full, base []Message) ([]Message, []Message, error) {
 	source, retained, ok, err := selectRetention(ctx, req, state, full, base, prompt.CompactionModeEmergency, emergencyCompactionRetainTurns)
 	if err != nil {
@@ -50,7 +51,7 @@ func selectEmergencyRetention(ctx context.Context, req RunRequest, state RunStat
 	if err != nil {
 		return nil, nil, err
 	}
-	return nil, nil, tooLarge
+	return nil, nil, &compactionBudgetMissError{err: tooLarge}
 }
 
 // tailFitsWithBlock reports whether retained fits req's hard limit with the latest

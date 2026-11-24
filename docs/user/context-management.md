@@ -27,7 +27,7 @@ The number of recent turns kept verbatim shrinks automatically. Steiner keeps th
 If even the newest turn does not fit, for example because of very large tool output, compaction stops with an error like this:
 
 ```text
-compaction cannot solve this request: the newest unit does not fit with its request block and summary reserve: protected_outputs=N retained_tail=N request_block=N summary_reserve=N context_window=N safety_margin=N hard_limit=N
+compaction cannot solve this request: the newest unit does not fit with its summary reserve even without its request block: protected_outputs=N retained_tail=N request_block=N summary_reserve=N context_window=N safety_margin=N hard_limit=N
 ```
 
 The values are token estimates. `protected_outputs` is the tool and sub-agent output of the newest turn that the model has not read yet. `retained_tail` is the rest of the kept turn. Start a new session and carry over what matters, and reduce tool output (narrower `read` ranges, `grep` patterns or command output). Compaction can also fail with `emergency compaction could not reduce context enough` when earlier turns are too large to summarise.

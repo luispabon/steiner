@@ -531,6 +531,9 @@ func TestCompactionEmergencyTailWithoutBlock(t *testing.T) {
 				if !errors.As(err, &tooLarge) {
 					t.Fatalf("Compact() error = %v, want compactionTailTooLargeError", err)
 				}
+				if want := "does not fit with its summary reserve even without its request block"; !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+				}
 				if got := len(providerStub.requests); got != 0 {
 					t.Errorf("summary calls = %d, want 0 when no tail fits", got)
 				}
@@ -544,6 +547,84 @@ func TestCompactionEmergencyTailWithoutBlock(t *testing.T) {
 			}
 			if got := len(providerStub.requests); got != 1 {
 				t.Errorf("summary calls = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// TestSummarizeCompactionStagesRescuesNormalWhenEmergencyTailTooLarge proves a
+// normal outcome that still needs emergency compaction is adopted without its
+// block when the one-unit emergency tail is too large for the budget, as a
+// budget-missing emergency stage allows. No emergency summary runs in that case.
+func TestSummarizeCompactionStagesRescuesNormalWhenEmergencyTailTooLarge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		droppedFits bool
+	}{
+		{name: "normal fits without its block", droppedFits: true},
+		{name: "normal still needs emergency without its block", droppedFits: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 6000, PromptUsage: 0.1}
+			dense := prompt.RequestTokenBudget{Fits: true, ContextSize: 6000, PromptUsage: 0.9}
+			dropped := dense
+			if tt.droppedFits {
+				dropped = fits
+			}
+			conv := requestBlockTurns()
+			req := retentionFixtureRequest(6000, &fakeProvider{})
+			req.ModelBudget.EmergencySummaryMaxTokens = 6000
+			emergencyCalls := 0
+			stages := summarizeCompactionStages{
+				stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+					if params.mode == prompt.CompactionModeEmergency {
+						emergencyCalls++
+						return CompactionOutcome{}, nil
+					}
+					return CompactionOutcome{
+						Applied:           true,
+						State:             requestBlockSummaryState("normal summary"),
+						SummaryText:       withRequestBlock("normal summary", "latest request"),
+						RequestBlock:      output.RequestBlockNew,
+						RequestBlockBytes: len("latest request"),
+					}, nil
+				},
+				fitRunner: func(_ context.Context, _ RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
+					if strings.Contains(state.Conversation[0].Content, requestBlockMarker) {
+						return dense, nil
+					}
+					return dropped, nil
+				},
+			}
+			preStage := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+
+			outcome, err := stages.run(context.Background(), req, preStage, 1, ConversationCandidate{Messages: conv})
+			if got := emergencyCalls; got != 0 {
+				t.Errorf("emergency stage calls = %d, want 0 when the tail is too large", got)
+			}
+			if !tt.droppedFits {
+				var tooLarge *compactionTailTooLargeError
+				if !errors.As(err, &tooLarge) {
+					t.Fatalf("run() error = %v, want compactionTailTooLargeError when the dropped normal outcome still needs emergency", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("run() error = %v, want the normal outcome adopted without its block", err)
+			}
+			if outcome.RequestBlock != output.RequestBlockDropped {
+				t.Errorf("RequestBlock = %q, want %q", outcome.RequestBlock, output.RequestBlockDropped)
+			}
+			if outcome.SummaryText != "normal summary" {
+				t.Errorf("SummaryText = %q, want the normal summary", outcome.SummaryText)
+			}
+			if got, want := outcome.StageCount, 1; got != want {
+				t.Errorf("StageCount = %d, want %d (no emergency call ran)", got, want)
 			}
 		})
 	}
