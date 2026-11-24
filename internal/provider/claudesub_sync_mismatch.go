@@ -4,9 +4,10 @@ import "slices"
 
 // claude_subscription sync mismatch checks reported in
 // ClaudeSubCallDiagnostics.SyncMismatchCheck. Each value names the first
-// comparison a live process's record failed against the request, and each is
-// reported at the request position with that position's role. The
-// record-state checks below name no position.
+// comparison a live process's record failed against the request. All but
+// claudeSubCheckLength are reported at the request position with that
+// position's role; claudeSubCheckLength also reports a summary count problem
+// that names no position, and the record-state checks below always name none.
 const (
 	// claudeSubCheckRole: the request message at that position has another
 	// role than the recorded entry.

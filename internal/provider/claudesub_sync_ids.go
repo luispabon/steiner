@@ -1,13 +1,5 @@
 package provider
 
-// claudeSubEntryMatches reports whether a request message still matches the
-// recorded entry for its position. Assistant text is not compared (steiner may
-// normalise it); user and tool messages are compared by digest and their images
-// must be a subset of the images recorded as sent.
-func claudeSubEntryMatches(entry claudeSubEntry, m Message) bool {
-	return claudeSubEntryMismatch(entry, m) == ""
-}
-
 // claudeSubEntryMismatch returns the fixed check label that fails when entry
 // does not match m, or "" when it matches.
 func claudeSubEntryMismatch(entry claudeSubEntry, m Message) string {
