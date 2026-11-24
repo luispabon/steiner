@@ -140,6 +140,13 @@ func phaseHistoryArchive(rt *cliRuntime, phaseSessionID string) agent.HistoryArc
 	return newHistoryArchive(rt.sessionStore, func() string { return phaseSessionID })
 }
 
+// phaseRecallArchive returns the recall archive that a phase's compaction
+// writes to, keyed on the phase session ID. It is nil without a session store,
+// so a runtime without one does not wrap a nil store in a non-nil interface.
+func phaseRecallArchive(rt *cliRuntime, phaseSessionID string) agent.RecallArchive {
+	return newRecallArchive(rt.sessionStore, func() string { return phaseSessionID })
+}
+
 // newHistoryArchive returns the archive for the session that sessionID
 // resolves, or nil when store is nil.
 func newHistoryArchive(store *session.Store, sessionID func() string) agent.HistoryArchive {
@@ -183,9 +190,10 @@ func (a recallArchive) Path(name string) string {
 }
 
 func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (oneshot.RunResult, error) {
-	// The archive is keyed on the phase session, not the run ID. r is a value
-	// copy, so this override is local to this call.
+	// The archives are keyed on the phase session, not the run ID. r is a value
+	// copy, so these overrides are local to this call.
 	r.runner.historyArchive = phaseHistoryArchive(&r.runner.runtime, in.Session.ID)
+	r.runner.recallArchive = phaseRecallArchive(&r.runner.runtime, in.Session.ID)
 	// closeRuntime runs after runPhaseOnDriver has already shut the sub-agents
 	// down and settled the driver, so its own shutdown is a no-op on failure.
 	defer closeRuntime(&r.runner.runtime)

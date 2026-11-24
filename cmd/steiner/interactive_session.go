@@ -398,6 +398,7 @@ func wireInteractiveRunner(rt cliRuntime, sess *interactive.Session) {
 		cacheBaseline:            agent.NewCacheBaselineStore(),
 		compactionTargets:        delegation.NewCompactionFallbackTargets(),
 		historyArchive:           newHistoryArchive(rt.sessionStore, sess.SessionID),
+		recallArchive:            newRecallArchive(rt.sessionStore, sess.SessionID),
 	}
 	runner.approver = sess.Approver(rt.events)
 	if rt.mcpState != nil {

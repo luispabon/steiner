@@ -55,6 +55,12 @@ type cliRunner struct {
 	// phase runner archives under that phase's session ID, set per RunPhase call.
 	// The exec runner leaves it nil, which disables archiving.
 	historyArchive agent.HistoryArchive
+	// recallArchive stores the tool and sub-agent result bodies compaction drops
+	// from the active context. It follows the same session scoping as
+	// historyArchive: interactive runners use the running session, oneshot phase
+	// runners the phase session set per RunPhase call, and the exec runner
+	// leaves it nil, which disables recall.
+	recallArchive agent.RecallArchive
 	// compactionTargets is the memo owner for the lazy compaction fallback
 	// provider. Each constructor sets it once; value copies of the runner share
 	// it. A nil memo disables the fallback.
