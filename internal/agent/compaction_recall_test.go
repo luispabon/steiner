@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -277,6 +278,97 @@ func TestCompactionRecallNilArchiveAdoptsWithoutWrites(t *testing.T) {
 		t.Errorf("adopted first role = %q, want %q", got, want)
 	}
 	assertNoConversationWarnings(t, &rec)
+}
+
+// TestCompactionRecallRequestBlockRetryArchivesOnlyAdoptedSources proves the
+// latest-request-block retry paths archive only the stages whose summaries are
+// adopted: the merged emergency retry keeps both stage sources, and the
+// normal-only retry drops the discarded emergency source.
+func TestCompactionRecallRequestBlockRetryArchivesOnlyAdoptedSources(t *testing.T) {
+	t.Parallel()
+
+	const (
+		normalBody    = "normal stage recall body"
+		emergencyBody = "emergency stage recall body"
+	)
+	normalEntry := RecallEntry{Kind: "tool", Tool: "bash", CallID: "call-normal", Body: normalBody}
+	emergencyEntry := RecallEntry{Kind: "tool", Tool: "bash", CallID: "call-emergency", Body: emergencyBody}
+	fits := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.1}
+	dense := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.9}
+
+	tests := []struct {
+		name string
+		// emergencyFitsWithoutBlock keeps the emergency summary once its block
+		// is dropped; otherwise the ladder falls back to the normal summary.
+		emergencyFitsWithoutBlock bool
+		wantSummary               string
+		want                      []RecallEntry
+	}{
+		{
+			name:                      "emergency retry keeps both stage sources",
+			emergencyFitsWithoutBlock: true,
+			wantSummary:               "emergency summary",
+			want:                      []RecallEntry{normalEntry, emergencyEntry},
+		},
+		{
+			name:        "normal-only retry keeps the normal source",
+			wantSummary: "normal summary",
+			want:        []RecallEntry{normalEntry},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conv := requestBlockTurns()
+			preStage := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
+			stages := summarizeCompactionStages{
+				stageRunner: func(_ context.Context, _ RunRequest, _ RunState, _ int, _ ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+					summary, body, callID := "normal summary", normalBody, "call-normal"
+					if params.mode == prompt.CompactionModeEmergency {
+						summary, body, callID = "emergency summary", emergencyBody, "call-emergency"
+					}
+					return CompactionOutcome{
+						Applied:           true,
+						State:             requestBlockSummaryState(summary),
+						SummaryText:       withRequestBlock(summary, "latest request"),
+						RequestBlock:      output.RequestBlockNew,
+						RequestBlockBytes: len("latest request"),
+						pendingRecall:     []Message{{Role: MessageRoleTool, Name: "bash", ToolCallID: callID, Content: body}},
+					}, nil
+				},
+				fitRunner: func(_ context.Context, _ RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
+					text := state.Conversation[0].Content
+					hasBlock := strings.Contains(text, requestBlockMarker)
+					if strings.Contains(text, "emergency summary") {
+						if hasBlock || !tt.emergencyFitsWithoutBlock {
+							return dense, nil
+						}
+						return fits, nil
+					}
+					if hasBlock {
+						return dense, nil
+					}
+					return fits, nil
+				},
+			}
+
+			outcome, err := stages.run(context.Background(), RunRequest{}, preStage, 1, ConversationCandidate{Messages: conv})
+			if err != nil {
+				t.Fatalf("run() error = %v", err)
+			}
+			if !outcome.Applied {
+				t.Fatal("Applied = false, want a stage adopted")
+			}
+			if got, want := outcome.RequestBlock, output.RequestBlockDropped; got != want {
+				t.Fatalf("RequestBlock = %q, want %q", got, want)
+			}
+			if got := outcome.State.Conversation[0].Content; !strings.Contains(got, tt.wantSummary) {
+				t.Fatalf("adopted summary = %q, want %q", got, tt.wantSummary)
+			}
+			assertRecallEntries(t, collectRecallEntries(outcome.pendingRecall), tt.want)
+		})
+	}
 }
 
 // markerRecallArchive emits a marker warning from Write, so a test can place the

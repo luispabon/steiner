@@ -118,6 +118,27 @@ func TestCollectRecallEntriesSubAgentEnvelopes(t *testing.T) {
 	}
 }
 
+// TestCollectRecallEntriesDeliveryMessageWithPendingLine proves the collector
+// finds the result envelope in a delivered user message whose content starts
+// with a pending sub-agents line, and archives only the parsed inner body.
+func TestCollectRecallEntriesDeliveryMessageWithPendingLine(t *testing.T) {
+	t.Parallel()
+	completion := recallTestCompletion("code", "call-agent-1", "sub-agent body")
+	_, inner := recallTestEnvelope(t, completion)
+	msg, ok := BuildDeliveryMessage(DeliveryParts{
+		Pending:     []PendingSubAgent{{AgentID: "explore-1", AgentType: "explore", State: SubAgentRunning}},
+		Completions: []SubAgentCompletion{completion},
+	})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage() ok = false, want true")
+	}
+	if !strings.HasPrefix(msg.Content, "<steiner-sub-agents-pending>") {
+		t.Fatalf("content = %q, want the pending line first", msg.Content)
+	}
+	want := []RecallEntry{{Kind: "agent", Tool: "code", CallID: "call-agent-1", Body: inner}}
+	assertRecallEntries(t, collectRecallEntries([]Message{msg}), want)
+}
+
 // TestCollectRecallEntriesIgnoresMalformedEnvelope proves a result-shaped but
 // truncated envelope is not archived as an agent entry, and marker-shaped
 // tool bodies are archived verbatim.
