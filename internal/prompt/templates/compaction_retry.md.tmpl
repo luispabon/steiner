@@ -1,0 +1,15 @@
+This is a retry of the summary request above. The previous reply did not contain a summary: it {{if .ToolCalls}}contained tool calls and no text{{else}}contained no text{{end}}.
+
+Do not call tools. Any tool call will be discarded and not executed. Reply with the plain-text handoff summary in the format requested above.
+{{- if .Final}}
+
+This is the final attempt.
+{{- if .Attempted}}
+The previous reply attempted these tool calls, which were not executed:
+{{- range .Attempted}}
+- {{.}}
+{{- end}}
+{{- end}}
+
+The entire reply is used as the summary, so begin directly with the summary, with no preamble.
+{{- end}}

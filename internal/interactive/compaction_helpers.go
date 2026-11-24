@@ -40,7 +40,8 @@ func (s *Session) runManualCompaction(ctx context.Context, model string, run fun
 				reason = "error"
 			}
 		}
-		if err != nil || !applied {
+		// An agent failure already emitted its skipped event, so it is not reported twice.
+		if !agent.CompactionFailureReported(err) && (err != nil || !applied) {
 			// Clears the compacting state the run started with; no stage changed the conversation.
 			s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 				Kind: "compaction", Scope: "conversation", Severity: "skipped", Notes: []string{"compaction skipped: no stage applied"},

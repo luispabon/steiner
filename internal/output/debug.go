@@ -207,6 +207,7 @@ func formatContextCompactionSummary(payload ContextDiagnosticsEvent) string {
 	parts = append(parts, formatCompactionBudget(payload)...)
 	parts = append(parts, formatCompactionSummaryDetails(payload)...)
 	parts = append(parts, formatCompactionFallback(payload)...)
+	parts = append(parts, formatCompactionFailure(payload)...)
 	if notes := joinDiagnosticNotes(payload.Notes); notes != "" {
 		parts = append(parts, "notes "+notes)
 	}
@@ -286,6 +287,25 @@ func formatCompactionFallback(payload ContextDiagnosticsEvent) []string {
 	}
 	if reason := strings.TrimSpace(payload.FallbackReason); reason != "" {
 		parts = append(parts, fmt.Sprintf("fallback_reason=%s", reason))
+	}
+	return parts
+}
+
+// formatCompactionFailure renders the explicit result of a failed compaction and
+// the summary attempts behind it. Zero and empty fields are omitted.
+func formatCompactionFailure(payload ContextDiagnosticsEvent) []string {
+	parts := make([]string, 0, 4)
+	if result := strings.TrimSpace(payload.CompactionResult); result != "" {
+		parts = append(parts, fmt.Sprintf("compaction_result=%s", result))
+	}
+	if payload.SummaryAttempts > 0 {
+		parts = append(parts, fmt.Sprintf("summary_attempts=%d", payload.SummaryAttempts))
+	}
+	if reason := strings.TrimSpace(payload.SummaryFailureReason); reason != "" {
+		parts = append(parts, fmt.Sprintf("summary_failure_reason=%s", reason))
+	}
+	if payload.SummaryToolCalls > 0 {
+		parts = append(parts, fmt.Sprintf("summary_tool_calls=%d", payload.SummaryToolCalls))
 	}
 	return parts
 }

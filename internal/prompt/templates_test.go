@@ -42,6 +42,7 @@ func TestPromptTemplatesParseAndExecute(t *testing.T) {
 		{name: templateCompactionSystem},
 		{name: templateCompactionEmergency},
 		{name: templateCompactionDefaultBody},
+		{name: templateCompactionRetry, data: CompactionRetry{Final: true, Attempted: []string{"read {}"}}},
 		{name: templateOutputVoice},
 		{name: templateLSP},
 		{name: templateToolBatching},

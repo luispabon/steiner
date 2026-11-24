@@ -16,6 +16,10 @@ const CompactionFallbackUsed = "used"
 // CompactionFallbackSkipped is the FallbackStatus of a compaction that did not use the fallback model.
 const CompactionFallbackSkipped = "skipped"
 
+// CompactionResultFailed is the CompactionResult of a compaction that failed
+// and adopted no state. It is distinct from the token budget Status.
+const CompactionResultFailed = "failed"
+
 // Compaction request-block statuses. RequestBlockNew reports the verbatim latest
 // user request taken from the summarized source, RequestBlockCarried reports one
 // carried forward from the prior summary, and RequestBlockNone reports neither.
@@ -83,6 +87,10 @@ type ContextDiagnosticsEvent struct {
 	CompactionModelAlias      string   `json:"compaction_model_alias,omitempty"`
 	FallbackStatus            string   `json:"fallback_status,omitempty"`
 	FallbackReason            string   `json:"fallback_reason,omitempty"`
+	CompactionResult          string   `json:"compaction_result,omitempty"`
+	SummaryAttempts           int      `json:"summary_attempts,omitempty"`
+	SummaryFailureReason      string   `json:"summary_failure_reason,omitempty"`
+	SummaryToolCalls          int      `json:"summary_tool_calls,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
 
 	// Stages sizes each compaction stage that applied, plus a failed stage when the
@@ -137,6 +145,10 @@ type ContextCompactionEvent struct {
 	CompactionModelAlias      string   `json:"compaction_model_alias,omitempty"`
 	FallbackStatus            string   `json:"fallback_status,omitempty"`
 	FallbackReason            string   `json:"fallback_reason,omitempty"`
+	CompactionResult          string   `json:"compaction_result,omitempty"`
+	SummaryAttempts           int      `json:"summary_attempts,omitempty"`
+	SummaryFailureReason      string   `json:"summary_failure_reason,omitempty"`
+	SummaryToolCalls          int      `json:"summary_tool_calls,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
 
 	// Stages sizes each compaction stage that applied, plus a failed stage when the
@@ -292,6 +304,10 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		CompactionModelAlias:      payload.CompactionModelAlias,
 		FallbackStatus:            payload.FallbackStatus,
 		FallbackReason:            payload.FallbackReason,
+		CompactionResult:          payload.CompactionResult,
+		SummaryAttempts:           payload.SummaryAttempts,
+		SummaryFailureReason:      payload.SummaryFailureReason,
+		SummaryToolCalls:          payload.SummaryToolCalls,
 		Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
 		Notes:                     append([]string(nil), payload.Notes...),
 	}
@@ -415,6 +431,10 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			CompactionModelAlias:      payload.CompactionModelAlias,
 			FallbackStatus:            payload.FallbackStatus,
 			FallbackReason:            payload.FallbackReason,
+			CompactionResult:          payload.CompactionResult,
+			SummaryAttempts:           payload.SummaryAttempts,
+			SummaryFailureReason:      payload.SummaryFailureReason,
+			SummaryToolCalls:          payload.SummaryToolCalls,
 			Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
 			Notes:                     append([]string(nil), payload.Notes...),
 		}

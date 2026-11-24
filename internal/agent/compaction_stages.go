@@ -367,17 +367,10 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	// announce on main makes this a no-op.
 	params.announce.announce()
 	summary := compactionSummaryRequest(req, params.summaryReq)
-	// Only a main summary retires the main generation's backend state, so only
-	// it carries the request-scoped retirement signal. A fallback summary runs
-	// on another provider's transcript.
-	summaryCtx := ctx
-	if !onFallback {
-		summaryCtx = provider.WithBackendStateRetirement(ctx)
-	}
-	response, err := completeCompactionCall(summaryCtx, summary, turn, plan.request, summary.ModelBudget, plan.blocks)
-	// A canceled or failed summary can lose its terminal chunk, so the response
-	// alone does not report every retirement: read the request signal too.
-	cleared := compactionSummaryRetired(summaryCtx, onFallback, response, err)
+	// The retry ladder owns the retirement signal of each call, so this stage only
+	// reads the cumulative result.
+	calls, err := summarizeCompactionCalls(ctx, summary, turn, plan, onFallback)
+	cleared := calls.cleared
 	if cleared {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
@@ -386,16 +379,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	if err != nil {
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
-
-	if onFallback && strings.TrimSpace(response.Message.Content) == "" {
-		return CompactionOutcome{}, errCompactionFallbackEmptySummary
-	}
-	summaryText := compactionSummaryText(response.Message.Content, plan.candidate)
-	if summaryText == "" {
-		outcome := compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens)
-		outcome.BackendStateCleared = cleared
-		return outcome, nil
-	}
+	summaryText := strings.TrimSpace(calls.response.Message.Content)
 
 	var pendingArchive [][]Message
 	if req.HistoryArchive != nil {
@@ -433,8 +417,8 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		PromptText:               plan.promptText,
 		RequestBlock:             requestBlockStatus,
 		RequestBlockBytes:        len(requestBlock),
-		Usage:                    response.Usage,
-		CacheReportedInputTokens: cacheReportedInputTokens(response.Usage),
+		Usage:                    calls.usage,
+		CacheReportedInputTokens: calls.cacheReported,
 		BackendStateCleared:      cleared,
 		pendingArchive:           pendingArchive,
 		StageSizes:               []output.ContextCompactionStage{stage},

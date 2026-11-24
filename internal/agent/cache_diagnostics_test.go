@@ -469,7 +469,7 @@ func TestCompleteCompactionCallEmitsDiagnosticWithoutPromotingBaseline(t *testin
 		{Role: provider.MessageRoleUser, Content: "summary"},
 		{Role: provider.MessageRoleUser, Content: "compaction instruction"},
 	}
-	if _, err := completeCompactionCall(context.Background(), req, 2, provider.ChatRequest{Model: "model", Messages: compactionMessages}, prompt.ModelTokenBudget{}, nil); err != nil {
+	if _, err := completeCompactionCall(context.Background(), req, 2, 1, provider.ChatRequest{Model: "model", Messages: compactionMessages}, prompt.ModelTokenBudget{}, nil); err != nil {
 		t.Fatalf("completeCompactionCall() error = %v", err)
 	}
 

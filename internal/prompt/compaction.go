@@ -6,6 +6,7 @@ const (
 	templateCompactionSystem      = "compaction_system.md.tmpl"
 	templateCompactionEmergency   = "compaction_emergency.md.tmpl"
 	templateCompactionDefaultBody = "compaction_default_body.md.tmpl"
+	templateCompactionRetry       = "compaction_retry.md.tmpl"
 )
 
 func compactionPromptSystemInstruction() string {
@@ -51,4 +52,22 @@ func RenderConversationCompactionInstruction(override string, mode CompactionMod
 }
 func compactionPromptSystem() string {
 	return compactionPromptSystemInstruction() + "\n\n" + compactionPromptInstructionBody()
+}
+
+// CompactionRetry describes a tail-only retry of a summary request whose previous
+// reply carried no text.
+type CompactionRetry struct {
+	// ToolCalls reports that the previous reply carried tool calls and no text,
+	// rather than no text alone.
+	ToolCalls bool
+	// Final marks the last attempt, which also anchors the reply format.
+	Final bool
+	// Attempted quotes the previous reply's tool calls, already capped by the caller.
+	Attempted []string
+}
+
+// RenderCompactionRetryInstruction renders the steering text a retry appends to
+// the final compaction instruction. The output depends only on retry.
+func RenderCompactionRetryInstruction(retry CompactionRetry) string {
+	return strings.TrimSpace(renderTemplate(templateCompactionRetry, retry))
 }

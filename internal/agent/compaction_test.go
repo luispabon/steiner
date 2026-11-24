@@ -1002,7 +1002,7 @@ func TestCompactionOnMainAfterFallbackSkipsRerunForTailTooLarge(t *testing.T) {
 		},
 		{
 			name:        "other fallback failure reruns on main",
-			fallbackErr: errCompactionFallbackEmptySummary,
+			fallbackErr: &compactionSummaryError{Reason: summaryFailNoText, Attempts: 1},
 			wantRuns:    1,
 		},
 	}
@@ -1374,7 +1374,7 @@ func TestCompleteCompactionCallRecordsUsageOnSuccess(t *testing.T) {
 				},
 				UsageRecorder: recorder,
 				Events:        output.SinkFunc(func(output.Event) {}),
-			}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, nil)
+			}, 1, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, nil)
 
 			if err != nil {
 				t.Fatalf("completeCompactionCall() error = %v", err)
@@ -1431,7 +1431,7 @@ func TestCompleteCompactionCallDoesNotRecordOnError(t *testing.T) {
 		},
 		UsageRecorder: recorder,
 		Events:        output.SinkFunc(func(output.Event) {}),
-	}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, nil)
+	}, 1, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, nil)
 
 	if !errors.Is(err, boom) {
 		t.Fatalf("completeCompactionCall() error = %v, want %v", err, boom)
@@ -2238,6 +2238,7 @@ func TestCompleteCompactionCallUsesStreaming(t *testing.T) {
 			Events: output.NoopSink{},
 		},
 		1,
+		1,
 		provider.ChatRequest{Model: "test-model"},
 		prompt.ModelTokenBudget{},
 		nil,
@@ -2265,7 +2266,7 @@ func TestCompleteCompactionCallRecordsCompactionCallKind(t *testing.T) {
 		Provider:      prov,
 		ResolvedModel: provider.ResolvedModel{Alias: "m", BackendModelID: "m"},
 		UsageRecorder: recorder,
-	}, 1, provider.ChatRequest{Model: "m"}, prompt.ModelTokenBudget{}, nil)
+	}, 1, 1, provider.ChatRequest{Model: "m"}, prompt.ModelTokenBudget{}, nil)
 	if err != nil {
 		t.Fatalf("completeCompactionCall() error = %v", err)
 	}
@@ -2306,7 +2307,7 @@ func TestCompleteCompactionCallEmitsAPIRequestEventWithBlocks(t *testing.T) {
 		Events: output.SinkFunc(func(e output.Event) {
 			events = append(events, e)
 		}),
-	}, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, blocks)
+	}, 1, 1, provider.ChatRequest{Model: "test"}, prompt.ModelTokenBudget{}, blocks)
 	if err != nil {
 		t.Fatalf("completeCompactionCall() error = %v", err)
 	}
