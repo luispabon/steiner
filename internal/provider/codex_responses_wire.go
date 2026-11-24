@@ -362,6 +362,17 @@ func responsesPartText(part responsesContentPart) (string, bool) {
 	return "", false
 }
 
+// responsesContentText joins the assistant text of a message's content parts.
+func responsesContentText(parts []responsesContentPart) string {
+	var sb strings.Builder
+	for _, part := range parts {
+		if text, ok := responsesPartText(part); ok {
+			sb.WriteString(text)
+		}
+	}
+	return sb.String()
+}
+
 //nolint:gocyclo // Response normalization builds ordered blocks and legacy flattened fields together.
 func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error) {
 	message := Message{Role: MessageRoleAssistant}

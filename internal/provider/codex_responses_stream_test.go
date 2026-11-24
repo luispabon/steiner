@@ -113,6 +113,82 @@ func TestResponsesStreamRefusalIsText(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamEmptyFinalTextKeepsStreamed(t *testing.T) {
+	const deltas = `data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"Hel"}` + "\n\n" +
+		`data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"lo"}` + "\n\n"
+	const done = "data: [DONE]\n\n"
+	tests := []struct {
+		name         string
+		body         string
+		wantStreamed string
+		wantContent  string
+		wantTool     string
+	}{
+		{
+			name:         "completed message with empty content array",
+			body:         deltas + `data: {"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[]}],"usage":{}}}` + "\n\n" + done,
+			wantStreamed: "Hello",
+			wantContent:  "Hello",
+		},
+		{
+			name:         "completed message with empty output_text part",
+			body:         deltas + `data: {"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":""}]}],"usage":{}}}` + "\n\n" + done,
+			wantStreamed: "Hello",
+			wantContent:  "Hello",
+		},
+		{
+			name:         "completed call kept alongside streamed text",
+			body:         deltas + `data: {"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[]},{"type":"function_call","id":"fc_1","call_id":"c1","name":"read","arguments":"{}"}],"usage":{}}}` + "\n\n" + done,
+			wantStreamed: "Hello",
+			wantContent:  "Hello",
+			wantTool:     "read",
+		},
+		{
+			name:         "output_item.done with empty content keeps streamed text",
+			body:         deltas + `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}` + "\n\n" + `data: {"type":"response.completed","response":{"output":[],"usage":{}}}` + "\n\n" + done,
+			wantStreamed: "Hello",
+			wantContent:  "Hello",
+		},
+		{
+			name:         "output_text.done with empty text keeps streamed text",
+			body:         deltas + `data: {"type":"response.output_text.done","item_id":"msg_1","output_index":0,"content_index":0,"text":""}` + "\n\n" + `data: {"type":"response.completed","response":{"output":[],"usage":{}}}` + "\n\n" + done,
+			wantStreamed: "Hello",
+			wantContent:  "Hello",
+		},
+		{
+			name:         "non-empty final text still wins over streamed text",
+			body:         `data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"Hxl"}` + "\n\n" + `data: {"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{}}}` + "\n\n" + done,
+			wantStreamed: "Hxl",
+			wantContent:  "Hello",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := collectResponsesStreamChunks(t, strings.NewReader(tt.body))
+			if err != nil {
+				t.Fatalf("decodeResponsesStreamWithHandler() error = %v", err)
+			}
+			if len(chunks) == 0 {
+				t.Fatal("no chunks emitted")
+			}
+			var streamed strings.Builder
+			for _, chunk := range chunks[:len(chunks)-1] {
+				streamed.WriteString(chunk.Delta.Content)
+			}
+			if streamed.String() != tt.wantStreamed {
+				t.Fatalf("streamed content = %q, want %q", streamed.String(), tt.wantStreamed)
+			}
+			final := chunks[len(chunks)-1]
+			if final.Delta.Content != tt.wantContent {
+				t.Fatalf("final Content = %q, want %q", final.Delta.Content, tt.wantContent)
+			}
+			if tt.wantTool != "" && (len(final.Delta.ToolCalls) != 1 || final.Delta.ToolCalls[0].Name != tt.wantTool) {
+				t.Fatalf("ToolCalls = %#v, want one call %q", final.Delta.ToolCalls, tt.wantTool)
+			}
+		})
+	}
+}
+
 func TestResponsesStreamReasoningItemID(t *testing.T) {
 	body := strings.NewReader(
 		"data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"thinking\"}\n\n" +
