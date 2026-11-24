@@ -149,6 +149,39 @@ func newHistoryArchive(store *session.Store, sessionID func() string) agent.Hist
 	return session.NewHistoryArchive(store, sessionID)
 }
 
+// recallArchive stores recall entries in the session that sessionID resolves.
+// sessionID is read on every call, so the archive follows the active session.
+type recallArchive struct {
+	store     *session.Store
+	sessionID func() string
+}
+
+var _ agent.RecallArchive = recallArchive{}
+
+// newRecallArchive returns the recall archive for the session that sessionID
+// resolves, or nil when store is nil.
+func newRecallArchive(store *session.Store, sessionID func() string) agent.RecallArchive {
+	if store == nil {
+		return nil
+	}
+	return recallArchive{store: store, sessionID: sessionID}
+}
+
+// Write stores entry for the current session and returns its absolute path.
+func (a recallArchive) Write(ctx context.Context, entry agent.RecallEntry) (string, error) {
+	return a.store.WriteRecall(ctx, a.sessionID(), entry)
+}
+
+// Path returns the absolute path Write would use for name, or "" when the
+// session id or name is invalid. It writes nothing.
+func (a recallArchive) Path(name string) string {
+	path, err := a.store.RecallPath(a.sessionID(), name)
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
 func (r phaseRunner) RunPhase(ctx context.Context, in oneshot.PhaseRunInput) (oneshot.RunResult, error) {
 	// The archive is keyed on the phase session, not the run ID. r is a value
 	// copy, so this override is local to this call.
