@@ -54,6 +54,14 @@ Interactive sessions and oneshot phases save the messages each compaction remove
 
 Use `/recall` to view the current session's archive. `--exec` runs and sub-agents do not keep an archive. Deleting a session deletes its archive; a forked session starts its own archive.
 
+### Empty summaries
+
+If the summary model replies with no text (an empty reply, or tool calls only), Steiner asks again up to two more times, so a stage makes at most 3 summary calls. The retries repeat the same request with a short extra instruction: reply with plain text and do not call tools. The last retry also names up to 3 of the tool calls the model tried, with their arguments cut to 120 bytes, and asks it to start directly with the summary. A reply that has text is used as the summary even when it also carries tool calls. The tool calls are ignored and a note says so. A reply that stopped at the output limit (`length`) fails at once, because a retry would hit the same limit.
+
+A fallback model gets one call. If it replies with no text, the compaction reruns on the main model as described below.
+
+If every attempt is empty, the compaction fails with an error and a single failed diagnostic that gives the attempts, the reason (`tool_calls`, `no_text`, `length` or `retry_does_not_fit`) and the tool-call count. The conversation is left unchanged. Steiner does not continue uncompacted and does not build a placeholder summary. Run `/compact` again, or switch to a model that writes text summaries.
+
 ### Compaction fallback
 
 When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive cold-cache threshold on the main model's provider. The threshold is `compaction_fallback_after`; when that key is unset it uses the provider's `prompt_cache_ttl` (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). The fallback stays off when the resulting threshold is `0`; negative values are invalid. See [Configuration](configuration.md#providers-block).
