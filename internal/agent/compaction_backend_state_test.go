@@ -351,16 +351,16 @@ func TestCompactWithFallbackKeepsOnlyMainClear(t *testing.T) {
 				},
 			}
 			state := RunState{LastMainRequest: LastMainRequest{At: now.Add(-time.Hour)}}
-			run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+			run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 				if summaryReq != nil {
 					return CompactionOutcome{BackendStateCleared: tt.targetClear}, fallbackErr
 				}
 				return tt.mainOutcome, tt.mainErr
 			}
 
-			outcome, err := compactWithFallback(context.Background(), req, state, 1, run)
+			outcome, err := compactWithFallbackAnnounced(context.Background(), req, state, 1, run)
 			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("compactWithFallback() error = %v, want %v", err, tt.wantErr)
+				t.Fatalf("compactWithFallbackAnnounced() error = %v, want %v", err, tt.wantErr)
 			}
 			if got := provider.BackendStateRetired(err); got != tt.wantMarked {
 				t.Errorf("provider.BackendStateRetired(error) = %v, want %v", got, tt.wantMarked)

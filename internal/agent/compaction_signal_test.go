@@ -205,7 +205,7 @@ func TestCompactWithFallbackHidesTargetRetirementWhenCanceled(t *testing.T) {
 	req.CompactionFallback.Resolve = func(context.Context) (CompactionTarget, error) {
 		return compactionFallbackSummaryTarget(&fakeProvider{}, compactionFallbackSummaryBudget()), nil
 	}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq != nil {
 			return CompactionOutcome{}, targetErr
 		}
@@ -215,9 +215,9 @@ func TestCompactWithFallbackHidesTargetRetirementWhenCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	outcome, err := compactWithFallback(ctx, req, RunState{}, 1, run)
+	outcome, err := compactWithFallbackAnnounced(ctx, req, RunState{}, 1, run)
 	if !errors.Is(err, targetErr) {
-		t.Fatalf("compactWithFallback() error = %v, want it to wrap %v", err, targetErr)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v, want it to wrap %v", err, targetErr)
 	}
 	if provider.BackendStateRetired(err) {
 		t.Error("provider.BackendStateRetired(error) = true, want a fallback target retirement hidden")
@@ -234,16 +234,16 @@ func TestCompactWithFallbackDropsTargetClearFlag(t *testing.T) {
 	req.CompactionFallback.Resolve = func(context.Context) (CompactionTarget, error) {
 		return compactionFallbackSummaryTarget(&fakeProvider{}, compactionFallbackSummaryBudget()), nil
 	}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq == nil {
 			t.Error("run used main, want the fallback target")
 		}
 		return CompactionOutcome{Applied: true, BackendStateCleared: true}, nil
 	}
 
-	outcome, err := compactWithFallback(context.Background(), req, RunState{}, 1, run)
+	outcome, err := compactWithFallbackAnnounced(context.Background(), req, RunState{}, 1, run)
 	if err != nil {
-		t.Fatalf("compactWithFallback() error = %v", err)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v", err)
 	}
 	if !outcome.Applied {
 		t.Error("Applied = false, want the fallback summary")

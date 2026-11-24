@@ -374,15 +374,15 @@ func TestCompactionFallbackNotAppliedIsNotLabeledUsed(t *testing.T) {
 	t.Parallel()
 	r := newFallbackOperationRun(fallbackOperationNow)
 	state := RunState{LastMainRequest: LastMainRequest{At: fallbackOperationNow.Add(-time.Hour)}}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq == nil {
 			return CompactionOutcome{}, errors.New("run used main, want the fallback target")
 		}
 		return CompactionOutcome{}, nil
 	}
-	outcome, err := compactWithFallback(context.Background(), r.req, state, 1, run)
+	outcome, err := compactWithFallbackAnnounced(context.Background(), r.req, state, 1, run)
 	if err != nil {
-		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
 	}
 	if outcome.FallbackStatus != "" {
 		t.Errorf("FallbackStatus = %q, want empty for a fallback that applied nothing", outcome.FallbackStatus)
@@ -399,15 +399,15 @@ func TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing(t *testing.T)
 	t.Parallel()
 	r := newFallbackOperationRun(fallbackOperationNow)
 	state := RunState{LastMainRequest: LastMainRequest{At: fallbackOperationNow.Add(-time.Hour)}}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq != nil {
 			return CompactionOutcome{}, errors.New("target unavailable")
 		}
 		return CompactionOutcome{}, nil
 	}
-	outcome, err := compactWithFallback(context.Background(), r.req, state, 1, run)
+	outcome, err := compactWithFallbackAnnounced(context.Background(), r.req, state, 1, run)
 	if err != nil {
-		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
 	}
 	if outcome.Applied {
 		t.Error("outcome.Applied = true, want false when main applies nothing")

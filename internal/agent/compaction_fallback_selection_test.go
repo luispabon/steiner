@@ -143,7 +143,7 @@ func TestCompactWithFallbackSelectedWithoutEventSink(t *testing.T) {
 	}
 
 	ran := false
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq == nil {
 			t.Error("run used main, want the fallback target")
 		}
@@ -151,9 +151,9 @@ func TestCompactWithFallbackSelectedWithoutEventSink(t *testing.T) {
 		return CompactionOutcome{Applied: true}, nil
 	}
 
-	outcome, err := compactWithFallback(context.Background(), req, RunState{}, 3, run)
+	outcome, err := compactWithFallbackAnnounced(context.Background(), req, RunState{}, 3, run)
 	if err != nil {
-		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
 	}
 	if !ran {
 		t.Error("run did not execute, want the fallback operation")
@@ -184,7 +184,7 @@ func TestCompactWithFallbackNoSelectionEventWhenWarm(t *testing.T) {
 	state := RunState{LastMainRequest: LastMainRequest{At: now.Add(-time.Minute)}}
 
 	ran := false
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq != nil {
 			t.Error("run used the fallback target, want main on a warm cache")
 		}
@@ -192,9 +192,9 @@ func TestCompactWithFallbackNoSelectionEventWhenWarm(t *testing.T) {
 		return CompactionOutcome{Applied: true}, nil
 	}
 
-	outcome, err := compactWithFallback(context.Background(), req, state, 3, run)
+	outcome, err := compactWithFallbackAnnounced(context.Background(), req, state, 3, run)
 	if err != nil {
-		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
 	}
 	if !ran {
 		t.Error("run did not execute, want the main operation")

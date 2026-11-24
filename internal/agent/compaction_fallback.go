@@ -179,14 +179,6 @@ func (a *compactionFallbackAnnouncement) announce() {
 	emitCompactionFallbackSelectedEvent(a.sink, a.turn, a.model, a.alias, a.reason)
 }
 
-// compactWithFallback runs compactWithFallbackAnnounced for a run that does not
-// use the fallback announcement.
-func compactWithFallback(ctx context.Context, req RunRequest, state RunState, turn int, run compactionRun) (CompactionOutcome, error) {
-	return compactWithFallbackAnnounced(ctx, req, state, turn, func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
-		return run(summaryReq)
-	})
-}
-
 // compactWithFallbackAnnounced runs one compaction operation on the fallback target when
 // selectCompactionFallback selects it for state's last main request, and on main
 // otherwise. A selected target passes its announcement to run, which emits the
