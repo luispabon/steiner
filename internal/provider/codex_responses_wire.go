@@ -72,6 +72,7 @@ type responsesItem struct {
 type responsesContentPart struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
+	Refusal  string `json:"refusal,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 }
 
@@ -349,6 +350,18 @@ func outputContentParts(content string) []responsesContentPart {
 	return []responsesContentPart{{Type: "output_text", Text: content}}
 }
 
+// responsesPartText returns the assistant text a message content part carries.
+// A refusal is the model's text, so it is read from its refusal field.
+func responsesPartText(part responsesContentPart) (string, bool) {
+	switch part.Type {
+	case "output_text", "text":
+		return part.Text, true
+	case "refusal":
+		return part.Refusal, true
+	}
+	return "", false
+}
+
 //nolint:gocyclo // Response normalization builds ordered blocks and legacy flattened fields together.
 func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error) {
 	message := Message{Role: MessageRoleAssistant}
@@ -361,8 +374,8 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 		case "message":
 			var blockText strings.Builder
 			for _, part := range item.Content {
-				if part.Type == "output_text" || part.Type == "text" {
-					blockText.WriteString(part.Text)
+				if text, ok := responsesPartText(part); ok {
+					blockText.WriteString(text)
 				}
 			}
 			block := CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()}

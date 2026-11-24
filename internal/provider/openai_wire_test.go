@@ -185,6 +185,61 @@ func TestNormalizeMessage_AppendsReasoningDetailsToReasoningContent(t *testing.T
 	}
 }
 
+func TestNormalizeChatResponse_TextPartsAndRefusal(t *testing.T) {
+	tests := []struct {
+		name         string
+		message      string
+		wantContent  string
+		wantToolName string
+	}{
+		{
+			name:        "string content",
+			message:     `{"role":"assistant","content":"hello"}`,
+			wantContent: "hello",
+		},
+		{
+			name:        "typed text and output_text parts",
+			message:     `{"role":"assistant","content":[{"type":"text","text":"a"},{"type":"output_text","text":"b"}]}`,
+			wantContent: "ab",
+		},
+		{
+			name:        "untyped text part",
+			message:     `{"role":"assistant","content":[{"text":"a"},{"type":"text","text":"b"}]}`,
+			wantContent: "ab",
+		},
+		{
+			name:        "refusal with null content",
+			message:     `{"role":"assistant","content":null,"refusal":"I can't help with that."}`,
+			wantContent: "I can't help with that.",
+		},
+		{
+			name:         "refusal with tool call",
+			message:      `{"role":"assistant","content":null,"refusal":"Checking first.","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]}`,
+			wantContent:  "Checking first.",
+			wantToolName: "read",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var payload openAIResponse
+			body := `{"choices":[{"message":` + tt.message + `,"finish_reason":"stop"}]}`
+			if err := json.Unmarshal([]byte(body), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			got, err := normalizeChatResponse(&payload)
+			if err != nil {
+				t.Fatalf("normalizeChatResponse() error = %v", err)
+			}
+			if got.Message.Content != tt.wantContent {
+				t.Fatalf("Content = %q, want %q", got.Message.Content, tt.wantContent)
+			}
+			if tt.wantToolName != "" && (len(got.Message.ToolCalls) != 1 || got.Message.ToolCalls[0].Name != tt.wantToolName) {
+				t.Fatalf("ToolCalls = %#v, want one call %q", got.Message.ToolCalls, tt.wantToolName)
+			}
+		})
+	}
+}
+
 func TestNormalizeMessage_PreservesToolCallsWithEmptyOrWhitespaceContent(t *testing.T) {
 	tests := []struct {
 		name         string

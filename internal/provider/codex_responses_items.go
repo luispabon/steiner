@@ -51,8 +51,8 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 		case "message":
 			entry = responsesLedgerEntry{kind: "message", itemID: item.ID, phase: item.Phase, parts: make(map[int]string)}
 			for i, part := range item.Content {
-				if part.Type == "output_text" || part.Type == "text" {
-					entry.parts[i] = part.Text
+				if text, ok := responsesPartText(part); ok {
+					entry.parts[i] = text
 					entry.partOrder = append(entry.partOrder, i)
 				}
 			}

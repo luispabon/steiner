@@ -143,7 +143,7 @@ func processResponsesStreamEvent(state *responsesStreamState, event string, emit
 			}
 		}
 		return false, nil
-	case "response.output_text.delta":
+	case "response.output_text.delta", "response.refusal.delta":
 		return handleResponsesTextDelta(state, payload, emit)
 	case "response.output_text.done":
 		return handleResponsesTextDone(state, payload)
@@ -266,8 +266,8 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 			entry.parts = make(map[int]string)
 			entry.partOrder = nil
 			for i, part := range item.Content {
-				if part.Type == "output_text" || part.Type == "text" {
-					entry.parts[i] = part.Text
+				if text, ok := responsesPartText(part); ok {
+					entry.parts[i] = text
 					entry.partOrder = append(entry.partOrder, i)
 				}
 			}

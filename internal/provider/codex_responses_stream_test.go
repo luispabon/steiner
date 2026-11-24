@@ -62,6 +62,57 @@ func TestResponsesStreamReasoningTextDelta(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamRefusalIsText(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "refusal deltas then completed with empty output",
+			body: `data: {"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"I can"}` + "\n\n" +
+				`data: {"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"'t help."}` + "\n\n" +
+				`data: {"type":"response.completed","response":{"output":[],"usage":{}}}` + "\n\n" +
+				"data: [DONE]\n\n",
+			want: "I can't help.",
+		},
+		{
+			name: "refusal only in completed output",
+			body: `data: {"type":"response.completed","response":{"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"refusal","refusal":"I can't help."}]}],"usage":{}}}` + "\n\n" +
+				"data: [DONE]\n\n",
+			want: "I can't help.",
+		},
+		{
+			name: "refusal only in output_item.done",
+			body: `data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"refusal","refusal":"I can't help."}]}}` + "\n\n" +
+				`data: {"type":"response.completed","response":{"output":[],"usage":{}}}` + "\n\n" +
+				"data: [DONE]\n\n",
+			want: "I can't help.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := collectResponsesStreamChunks(t, strings.NewReader(tt.body))
+			if err != nil {
+				t.Fatalf("decodeResponsesStreamWithHandler() error = %v", err)
+			}
+			if len(chunks) == 0 {
+				t.Fatal("no chunks emitted")
+			}
+			var streamed strings.Builder
+			for _, chunk := range chunks[:len(chunks)-1] {
+				streamed.WriteString(chunk.Delta.Content)
+			}
+			if !strings.HasPrefix(tt.want, streamed.String()) {
+				t.Fatalf("streamed content = %q, not a prefix of %q", streamed.String(), tt.want)
+			}
+			if final := chunks[len(chunks)-1]; final.Delta.Content != tt.want {
+				t.Fatalf("final Content = %q, want %q", final.Delta.Content, tt.want)
+			}
+		})
+	}
+}
+
 func TestResponsesStreamReasoningItemID(t *testing.T) {
 	body := strings.NewReader(
 		"data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"thinking\"}\n\n" +

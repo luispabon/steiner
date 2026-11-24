@@ -159,6 +159,50 @@ func TestResponsesWireDecodeResponse(t *testing.T) {
 	}
 }
 
+func TestResponsesWireNormalizeRefusalParts(t *testing.T) {
+	tests := []struct {
+		name         string
+		output       string
+		wantContent  string
+		wantToolName string
+	}{
+		{
+			name:        "output_text then refusal in one message",
+			output:      `[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Part one. "},{"type":"refusal","refusal":"I can't help."}]}]`,
+			wantContent: "Part one. I can't help.",
+		},
+		{
+			name:        "refusal only message",
+			output:      `[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"I can't help."}]}]`,
+			wantContent: "I can't help.",
+		},
+		{
+			name:         "refusal with function call",
+			output:       `[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"Checking."}]},{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}]`,
+			wantContent:  "Checking.",
+			wantToolName: "read",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var payload responsesResponse
+			if err := json.Unmarshal([]byte(`{"output":`+tt.output+`,"status":"completed"}`), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+			got, err := normalizeResponsesResponse(payload)
+			if err != nil {
+				t.Fatalf("normalizeResponsesResponse() error = %v", err)
+			}
+			if got.Message.Content != tt.wantContent {
+				t.Fatalf("Content = %q, want %q", got.Message.Content, tt.wantContent)
+			}
+			if tt.wantToolName != "" && (len(got.Message.ToolCalls) != 1 || got.Message.ToolCalls[0].Name != tt.wantToolName) {
+				t.Fatalf("ToolCalls = %#v, want one call %q", got.Message.ToolCalls, tt.wantToolName)
+			}
+		})
+	}
+}
+
 func TestResponsesWireDecodeResponseMissingInputTokenDetails(t *testing.T) {
 	w := testResponsesWire(t, "https://chatgpt.com/backend-api/codex")
 
