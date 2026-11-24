@@ -1,6 +1,10 @@
 package output
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // SessionHealthScopeSave is the Scope of a session_health diagnostic that
 // reports a failed session save.
@@ -96,6 +100,9 @@ type ContextDiagnosticsEvent struct {
 	// Stages sizes each compaction stage that applied, plus a failed stage when the
 	// compaction could not run.
 	Stages []ContextCompactionStage `json:"stages,omitempty"`
+
+	// SummaryAttemptDetails lists each summary call of a failed compaction stage, in order.
+	SummaryAttemptDetails []CompactionSummaryAttempt `json:"summary_attempt_details,omitempty"`
 }
 
 // ContextCompactionEvent records context compaction progress and results.
@@ -154,6 +161,39 @@ type ContextCompactionEvent struct {
 	// Stages sizes each compaction stage that applied, plus a failed stage when the
 	// compaction could not run.
 	Stages []ContextCompactionStage `json:"stages,omitempty"`
+
+	// SummaryAttemptDetails lists each summary call of a failed compaction stage, in order.
+	SummaryAttemptDetails []CompactionSummaryAttempt `json:"summary_attempt_details,omitempty"`
+}
+
+// CompactionSummaryAttempt records one summary call of a compaction stage as the
+// provider reported it, with the classification the stage gave the reply. Reason
+// is empty when the reply carried summary text. CompletionTokens is logged as
+// reported and never used to classify the reply, because some providers exclude
+// reasoning tokens from it. It is nil when the provider reported no usage.
+type CompactionSummaryAttempt struct {
+	Attempt          int    `json:"attempt"`
+	FinishReason     string `json:"finish_reason,omitempty"`
+	CompletionTokens *int   `json:"completion_tokens,omitempty"`
+	ToolCalls        int    `json:"tool_calls,omitempty"`
+	ReasoningContent bool   `json:"reasoning_content,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+}
+
+// String renders the attempt as space-separated key=value pairs for notes and debug output.
+func (a CompactionSummaryAttempt) String() string {
+	parts := []string{fmt.Sprintf("attempt=%d", a.Attempt)}
+	if a.FinishReason != "" {
+		parts = append(parts, "finish_reason="+a.FinishReason)
+	}
+	if a.CompletionTokens != nil {
+		parts = append(parts, fmt.Sprintf("completion_tokens=%d", *a.CompletionTokens))
+	}
+	parts = append(parts, fmt.Sprintf("tool_calls=%d", a.ToolCalls), fmt.Sprintf("reasoning_content=%t", a.ReasoningContent))
+	if a.Reason != "" {
+		parts = append(parts, "reason="+a.Reason)
+	}
+	return strings.Join(parts, " ")
 }
 
 // ContextCompactionStage sizes one compaction stage, as token counts. SourceTokens
@@ -253,6 +293,7 @@ func (payload ContextDiagnosticsEvent) toLegacyContextDiagnostics() ContextDiagn
 	}
 	payload.Notes = append([]string(nil), payload.Notes...)
 	payload.Stages = append([]ContextCompactionStage(nil), payload.Stages...)
+	payload.SummaryAttemptDetails = append([]CompactionSummaryAttempt(nil), payload.SummaryAttemptDetails...)
 	return payload
 }
 
@@ -308,6 +349,7 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		SummaryAttempts:           payload.SummaryAttempts,
 		SummaryFailureReason:      payload.SummaryFailureReason,
 		SummaryToolCalls:          payload.SummaryToolCalls,
+		SummaryAttemptDetails:     append([]CompactionSummaryAttempt(nil), payload.SummaryAttemptDetails...),
 		Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
 		Notes:                     append([]string(nil), payload.Notes...),
 	}
@@ -435,6 +477,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			SummaryAttempts:           payload.SummaryAttempts,
 			SummaryFailureReason:      payload.SummaryFailureReason,
 			SummaryToolCalls:          payload.SummaryToolCalls,
+			SummaryAttemptDetails:     append([]CompactionSummaryAttempt(nil), payload.SummaryAttemptDetails...),
 			Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
 			Notes:                     append([]string(nil), payload.Notes...),
 		}

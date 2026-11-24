@@ -337,8 +337,9 @@ func TestCompactionFallbackOperationRerunsOnMainAfterEmptyTargetSummary(t *testi
 	if got := len(r.target.requests); got != 1 {
 		t.Errorf("target requests = %d, want 1 (the empty normal summary)", got)
 	}
-	if len(r.main.requests) == 0 {
-		t.Error("main requests = 0, want the operation rerun on main")
+	// The main rerun runs the normal stage, which overflows main's budget, then the emergency stage.
+	if got := len(r.main.requests); got != 2 {
+		t.Errorf("main requests = %d, want 2 (normal, then emergency) on the rerun", got)
 	}
 	if !outcome.Applied {
 		t.Error("outcome.Applied = false, want the main rerun to apply")
