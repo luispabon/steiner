@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -36,21 +38,53 @@ func blankHistory(rendered string) bool {
 	return strings.TrimSpace(rendered) == ""
 }
 
+// recallPresence returns the renderer's file check for session id: a recall
+// file counts only when Lstat finds a regular file that is not a symlink.
+func (a *HistoryArchive) recallPresence(id string) recallPresence {
+	return func(name string) bool {
+		path, err := a.store.RecallPath(id, name)
+		if err != nil {
+			return false
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return false
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return false
+		}
+		return info.Mode().IsRegular()
+	}
+}
+
 // Note returns the summary note that names the session's archive file, or ""
-// when source renders nothing. It writes nothing.
+// when source renders nothing. A source that holds result bodies also gets the
+// recall directory: it may hold the bodies those lines point at, though the note
+// does not promise every body is there. Note writes nothing.
 func (a *HistoryArchive) Note(source []agent.Message) (string, error) {
 	id := a.sessionID()
 	if id == "" {
 		return "", errNoSessionID
 	}
-	if blankHistory(renderHistory(source)) {
+	// Note runs before the compaction writes this source's recall files, so
+	// render with every recall file present. Otherwise a source of only result
+	// bodies would look blank and lose its note.
+	if blankHistory(renderHistory(source, recallAllPresent)) {
 		return "", nil
 	}
 	path, err := a.store.HistoryPath(id)
 	if err != nil {
 		return "", fmt.Errorf("history archive: %w", err)
 	}
-	return agent.HistoryNoteMarker + " Conversation before this summary is archived at " + path + " (markdown, oldest first, tool results omitted). If a detail you need is missing from this summary, grep that file and read the matching lines.", nil
+	note := agent.HistoryNoteMarker + " Conversation before this summary is archived at " + path + " (markdown, oldest first, tool results omitted). If a detail you need is missing from this summary, grep that file and read the matching lines."
+	if !historyHasResultBodies(source) {
+		return note, nil
+	}
+	recallDir, err := a.store.RecallDir(id)
+	if err != nil {
+		return "", fmt.Errorf("history archive: %w", err)
+	}
+	return note + " Result bodies may be stored under " + recallDir + "; an archived line that names a recall file points at the file that holds that body.", nil
 }
 
 // Append renders source and appends it to the session's archive file. Source
@@ -60,7 +94,7 @@ func (a *HistoryArchive) Append(_ context.Context, source []agent.Message) error
 	if id == "" {
 		return errNoSessionID
 	}
-	rendered := renderHistory(source)
+	rendered := renderHistory(source, a.recallPresence(id))
 	if blankHistory(rendered) {
 		return nil
 	}
