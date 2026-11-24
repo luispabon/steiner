@@ -959,6 +959,67 @@ func TestClaudeSubFinishPendingDrainsStaleToolCall(t *testing.T) {
 	}
 }
 
+// TestClaudeSubFinishPendingDrainedCount proves only a stale call drained to the
+// interrupted turn's aborted result counts, and a terminal-stale retirement or a
+// failed drain reports zero.
+func TestClaudeSubFinishPendingDrainedCount(t *testing.T) {
+	acquire := func(t *testing.T, sc *claudeSubScript) *claudeSubSession {
+		t.Helper()
+		pool, _ := claudeSubPoolWithScripts(t, sc)
+		spec := claudeSubTestSpec()
+		spec.Tools = []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+		s, err := pool.acquire(context.Background(), "pending-drain-count", spec)
+		if err != nil {
+			t.Fatalf("acquire: %v", err)
+		}
+		t.Cleanup(func() { pool.release(s) })
+		return s
+	}
+	t.Run("every stale call of a proven drain counts", func(t *testing.T) {
+		s := acquire(t, &claudeSubScript{interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")}})
+		if s.beginPendingCall("toolu-a") == nil || s.beginPendingCall("toolu-b") == nil {
+			t.Fatal("beginPendingCall returned nil")
+		}
+		drained, err := claudeSubFinishPending(context.Background(), s, ChatRequest{})
+		if err != nil {
+			t.Fatalf("finish pending: %v", err)
+		}
+		if drained != 2 {
+			t.Errorf("drained = %d, want both stale calls", drained)
+		}
+	})
+	t.Run("a terminal-stale retirement counts nothing", func(t *testing.T) {
+		s := acquire(t, &claudeSubScript{})
+		s.delivery.terminal = true
+		if s.beginPendingCall("toolu-c") == nil {
+			t.Fatal("beginPendingCall returned nil")
+		}
+		drained, err := claudeSubFinishPending(context.Background(), s, ChatRequest{})
+		if err != nil {
+			t.Fatalf("finish pending: %v", err)
+		}
+		if drained != 0 {
+			t.Errorf("drained = %d, want none for a terminal-stale retirement", drained)
+		}
+		if len(s.pending) != 0 {
+			t.Errorf("pending = %d, want the stale call retired", len(s.pending))
+		}
+	})
+	t.Run("a failed drain counts nothing", func(t *testing.T) {
+		s := acquire(t, &claudeSubScript{interrupt: &claudeSubInterruptReply{err: "interrupt unavailable"}})
+		if s.beginPendingCall("toolu-d") == nil {
+			t.Fatal("beginPendingCall returned nil")
+		}
+		drained, err := claudeSubFinishPending(context.Background(), s, ChatRequest{})
+		if err == nil {
+			t.Fatal("finish pending with an unproven drain returned no error")
+		}
+		if drained != 0 {
+			t.Errorf("drained = %d, want none after a failed drain", drained)
+		}
+	})
+}
+
 // TestClaudeSubFinishPendingDrainFailureRetires proves an unproven stale-call
 // drain abandons the process, and the request re-attaches on a fresh one with the
 // existing replacement warning.
@@ -1239,7 +1300,7 @@ func TestClaudeSubSummaryInPlaceCancelDrainsWithoutNotice(t *testing.T) {
 func TestClaudeSubSyncDrainedRefusesSummary(t *testing.T) {
 	s := claudeSubSyncStartedSync(t, claudeSubSyncUserMsg("hi"))
 	s.markDrained(0)
-	if _, err := s.planSummary([]Message{claudeSubSyncUserMsg("hi"), claudeSubSyncUserMsg("summarize")}, 1); !errors.Is(err, errClaudeSubSummaryNoPlace) {
+	if _, err := s.planSummary([]Message{claudeSubSyncUserMsg("hi"), claudeSubSyncUserMsg("summarize")}, 1, nil); !errors.Is(err, errClaudeSubSummaryNoPlace) {
 		t.Fatalf("planSummary error = %v, want errClaudeSubSummaryNoPlace", err)
 	}
 }

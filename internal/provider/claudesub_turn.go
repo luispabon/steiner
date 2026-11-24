@@ -218,7 +218,7 @@ func claudeSubAdvisorTurn(ctx context.Context, pool *ClaudeSubscriptionPool, req
 
 // claudeSubAdvisorPlan settles pending calls and plans the advisor delta.
 func claudeSubAdvisorPlan(ctx context.Context, s *claudeSubSession, req ChatRequest) (claudeSubDelta, error) {
-	if err := claudeSubFinishPending(ctx, s, req); err != nil {
+	if _, err := claudeSubFinishPending(ctx, s, req); err != nil {
 		return claudeSubDelta{}, err
 	}
 	return s.sync.planAdvisor(req)
@@ -239,13 +239,21 @@ func (e *claudeSubUsageGateError) Unwrap() error { return e.err }
 const claudeSubSummarySuffix = "|summary"
 
 // claudeSubInPlaceSummary sends a summary request on the locked live process s
-// as one marked instruction appended to its record.
+// as one marked instruction appended to its record. Stale pending tool calls are
+// drained first; the count reaches the call diagnostics, and a plan refusal
+// records why it could not place the summary.
 func claudeSubInPlaceSummary(ctx context.Context, s *claudeSubSession, req ChatRequest, emit func(ChatChunk) error) error {
-	if err := claudeSubFinishPending(ctx, s, req); err != nil {
+	drained, err := claudeSubFinishPending(ctx, s, req)
+	if err != nil {
 		return err
 	}
-	delta, err := s.sync.planSummary(claudeSubMessages(req.Messages), req.CompactionSourceMessages)
+	claudeSubMetricsFrom(ctx).noteSummaryDrained(drained)
+	var mismatch claudeSubSyncMismatch
+	delta, err := s.sync.planSummary(claudeSubMessages(req.Messages), req.CompactionSourceMessages, &mismatch)
 	if err != nil {
+		// The refusal is what makes the caller reseed; a sub-agent plan reseed
+		// keeps this mismatch in its diagnostics.
+		claudeSubMetricsFrom(ctx).noteSyncMismatch(mismatch)
 		return err
 	}
 	return claudeSubDeliverTainted(ctx, s, req, delta, emit)

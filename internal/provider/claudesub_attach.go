@@ -159,7 +159,7 @@ func claudeSubAttachSession(ctx context.Context, pool *ClaudeSubscriptionPool, r
 		return claudeSubAttachResult{}, errClaudeSubRetryNeedsReseed
 	}
 	if s.primed {
-		if err := claudeSubFinishPending(ctx, s, req); err != nil {
+		if _, err := claudeSubFinishPending(ctx, s, req); err != nil {
 			if s.unsafeForReuse() {
 				// A stale-pending interrupt that could not be drained leaves the CLI
 				// possibly still producing that turn's events, so the process is

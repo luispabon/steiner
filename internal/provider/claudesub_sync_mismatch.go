@@ -1,5 +1,7 @@
 package provider
 
+import "slices"
+
 // claude_subscription sync mismatch checks reported in
 // ClaudeSubCallDiagnostics.SyncMismatchCheck. Each value names the first
 // comparison a live process's record failed against the request.
@@ -22,6 +24,45 @@ const (
 	claudeSubCheckLength = "length"
 )
 
+// claude_subscription record-state refusals reported in
+// ClaudeSubCallDiagnostics.SyncMismatchCheck when a summary cannot be appended
+// to the live transcript. Each names the state of the record rather than a
+// request position, so it is reported at claudeSubSyncMismatchNoIndex with no
+// role.
+const (
+	// claudeSubCheckInterrupted: the last turn on the record was interrupted by a
+	// cancelled call or by the drain of its stale tool calls, so the record's
+	// tail is not a completed turn.
+	claudeSubCheckInterrupted = "interrupted"
+	// claudeSubCheckDrained: the record was driven to the aborted result of a
+	// stopped delivery.
+	claudeSubCheckDrained = "drained"
+	// claudeSubCheckTainted: an in-place summary was already sent, so the record
+	// no longer describes the CLI transcript.
+	claudeSubCheckTainted = "tainted"
+	// claudeSubCheckNotStarted: the record holds no delivered turn yet.
+	claudeSubCheckNotStarted = "not_started"
+)
+
+// claudeSubSyncCheckLabels is the one list of every check label a mismatch may
+// carry, so the known-label set cannot drift from the labels reported.
+var claudeSubSyncCheckLabels = []string{
+	claudeSubCheckRole,
+	claudeSubCheckDigest,
+	claudeSubCheckImages,
+	claudeSubCheckToolCalls,
+	claudeSubCheckShape,
+	claudeSubCheckLength,
+	claudeSubCheckInterrupted,
+	claudeSubCheckDrained,
+	claudeSubCheckTainted,
+	claudeSubCheckNotStarted,
+}
+
+// claudeSubSyncMismatchNoIndex is the index of a mismatch that names no request
+// position. Its role is empty.
+const claudeSubSyncMismatchNoIndex = -1
+
 // claudeSubSyncMismatchMaxIndex bounds the reported request position so a
 // diagnostic stays a small integer whatever the request holds.
 const claudeSubSyncMismatchMaxIndex = 1 << 16
@@ -38,15 +79,26 @@ type claudeSubSyncMismatch struct {
 }
 
 // clampedIndex returns the position bounded to
-// [0, claudeSubSyncMismatchMaxIndex].
+// [claudeSubSyncMismatchNoIndex, claudeSubSyncMismatchMaxIndex]. An index below
+// no-index means the mismatch names no position and reports none.
 func (m claudeSubSyncMismatch) clampedIndex() int {
-	return min(max(m.Index, 0), claudeSubSyncMismatchMaxIndex)
+	if m.Index < 0 {
+		return claudeSubSyncMismatchNoIndex
+	}
+	return min(m.Index, claudeSubSyncMismatchMaxIndex)
 }
 
 // claudeSubSyncMismatchValid reports whether mismatch carries only bounded
-// values: a known role and one of the fixed check labels.
+// values: one of the fixed check labels, reported either at no request position
+// with no role or at a position with a known role.
 func claudeSubSyncMismatchValid(mismatch claudeSubSyncMismatch) bool {
-	return claudeSubSyncRoleKnown(mismatch.Role) && claudeSubSyncCheckKnown(mismatch.Check)
+	if !claudeSubSyncCheckKnown(mismatch.Check) {
+		return false
+	}
+	if mismatch.Index < 0 {
+		return mismatch.Role == ""
+	}
+	return claudeSubSyncRoleKnown(mismatch.Role)
 }
 
 func claudeSubSyncRoleKnown(role MessageRole) bool {
@@ -57,11 +109,8 @@ func claudeSubSyncRoleKnown(role MessageRole) bool {
 	return false
 }
 
+// claudeSubSyncCheckKnown reports whether check is one of the labels
+// claudeSubSyncCheckLabels names.
 func claudeSubSyncCheckKnown(check string) bool {
-	switch check {
-	case claudeSubCheckRole, claudeSubCheckDigest, claudeSubCheckImages,
-		claudeSubCheckToolCalls, claudeSubCheckShape, claudeSubCheckLength:
-		return true
-	}
-	return false
+	return slices.Contains(claudeSubSyncCheckLabels, check)
 }

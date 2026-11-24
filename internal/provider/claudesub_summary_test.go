@@ -274,6 +274,90 @@ func TestClaudeSubSummarySubAgentNoPlaceReseedsOnFreshProcess(t *testing.T) {
 	}
 }
 
+// TestClaudeSubSummarySubAgentNoPlaceReportsMismatch proves a sub-agent summary
+// that reseeds on a plan refusal reports the comparison that failed in the call
+// diagnostics: the plan reseed keeps the mismatch the in-place plan recorded.
+func TestClaudeSubSummarySubAgentNoPlaceReportsMismatch(t *testing.T) {
+	pool, spawner := claudeSubPoolWithScripts(t, claudeSubTextTurns(t, 1), claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	u1 := claudeSubUserText("look")
+	first := claudeSubRunMeasuredTurn(t, pool, ChatRequest{TransportSession: "parent-agent-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}})
+	// The source opens with a message the record does not hold, so the in-place
+	// append cannot take it.
+	summary := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "parent-agent-1",
+		ParentTransportSession:   "parent",
+		Model:                    model,
+		Messages:                 []Message{claudeSubUserText("not the first question"), first.Delta, claudeSubUserText("summarize")},
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	sub := summary.Diagnostics.ClaudeSub
+	if sub.ReseedReason != claudeSubReseedPlan {
+		t.Fatalf("reseed reason = %q, want %q", sub.ReseedReason, claudeSubReseedPlan)
+	}
+	if sub.SyncMismatchIndex == nil || *sub.SyncMismatchIndex != 0 {
+		t.Fatalf("mismatch index = %v, want 0", sub.SyncMismatchIndex)
+	}
+	if sub.SyncMismatchRole != string(MessageRoleUser) || sub.SyncMismatchCheck != claudeSubCheckDigest {
+		t.Errorf("mismatch = %q/%q, want %q/%q", sub.SyncMismatchRole, sub.SyncMismatchCheck, MessageRoleUser, claudeSubCheckDigest)
+	}
+	if sub.SummaryDrainedCalls != 0 {
+		t.Errorf("summary drained calls = %d, want none without a pending call", sub.SummaryDrainedCalls)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (retired sub-agent and fresh reseed helper)", got)
+	}
+	if text := summary.Delta.Content; text != "Hello world" {
+		t.Errorf("summary text = %q, want %q", text, "Hello world")
+	}
+}
+
+// TestClaudeSubSummarySubAgentAfterToolCallReportsRefusal proves a sub-agent
+// summary that drains a stale pending tool call reports both the drain count and
+// the record-state refusal that reseeds it.
+func TestClaudeSubSummarySubAgentAfterToolCallReportsRefusal(t *testing.T) {
+	sc := &claudeSubScript{
+		batches:   [][]claudeSubEvent{claudeSubDecodeEvents(t, "turn_tool_use.jsonl")[:8]},
+		interrupt: &claudeSubInterruptReply{events: claudeSubDecodeEvents(t, "interrupt_tool_stream.jsonl")},
+	}
+	pool, spawner := claudeSubPoolWithScripts(t, sc, claudeSubTextTurns(t, 1))
+	model := claudeSubTestSpec().Model
+	tools := []ToolSpec{{Type: "function", Function: ToolFunctionSpec{Name: "read"}}}
+	u1 := claudeSubUserText("look")
+	first := claudeSubRunMeasuredTurn(t, pool, ChatRequest{TransportSession: "child-1", ParentTransportSession: "parent", Model: model, Messages: []Message{u1}, Tools: tools})
+	if len(first.Delta.ToolCalls) != 1 {
+		t.Fatalf("first turn tool calls = %+v, want one pending", first.Delta.ToolCalls)
+	}
+	summary := claudeSubRunMeasuredTurn(t, pool, ChatRequest{
+		TransportSession:         "child-1",
+		ParentTransportSession:   "parent",
+		Model:                    model,
+		Messages:                 []Message{u1, first.Delta, claudeSubUserText("summarize")},
+		CompactionSummary:        true,
+		CompactionSourceMessages: 2,
+	})
+	sub := summary.Diagnostics.ClaudeSub
+	if sub.ReseedReason != claudeSubReseedPlan {
+		t.Fatalf("reseed reason = %q, want %q", sub.ReseedReason, claudeSubReseedPlan)
+	}
+	if sub.SyncMismatchIndex == nil || *sub.SyncMismatchIndex != claudeSubSyncMismatchNoIndex {
+		t.Fatalf("mismatch index = %v, want %d for a record-state refusal", sub.SyncMismatchIndex, claudeSubSyncMismatchNoIndex)
+	}
+	if sub.SyncMismatchRole != "" || sub.SyncMismatchCheck != claudeSubCheckInterrupted {
+		t.Errorf("mismatch = %q/%q, want no role and %q", sub.SyncMismatchRole, sub.SyncMismatchCheck, claudeSubCheckInterrupted)
+	}
+	if sub.SummaryDrainedCalls != 1 {
+		t.Errorf("summary drained calls = %d, want 1 for the stale tool call", sub.SummaryDrainedCalls)
+	}
+	if got := spawner.callCount(); got != 2 {
+		t.Fatalf("spawned %d processes, want 2 (retired sub-agent and fresh reseed helper)", got)
+	}
+	if text := summary.Delta.Content; text != "Hello world" {
+		t.Errorf("summary text = %q, want %q", text, "Hello world")
+	}
+}
+
 // claudeSubFailedResumeBatch is a CLI turn that fails before any output.
 func claudeSubFailedResumeBatch() []claudeSubEvent {
 	return []claudeSubEvent{{Type: "result", Raw: json.RawMessage(`{"subtype":"error_during_execution","is_error":true,"result":"resume failed"}`)}}
@@ -855,7 +939,7 @@ func TestClaudeSubPlanSummaryAppendsAfterRetainedTail(t *testing.T) {
 		claudeSubEntryWithUUID(a2, "uuid-a2"),
 	}}
 	instruction := claudeSubUserText("summarize")
-	delta, err := s.planSummary([]Message{u1, a1, instruction}, 2)
+	delta, err := s.planSummary([]Message{u1, a1, instruction}, 2, nil)
 	if err != nil {
 		t.Fatalf("planSummary: %v", err)
 	}
@@ -866,7 +950,7 @@ func TestClaudeSubPlanSummaryAppendsAfterRetainedTail(t *testing.T) {
 		t.Errorf("summary keeps %d entries, want the whole record of %d", len(delta.keep), len(s.entries))
 	}
 
-	if _, err := s.planSummary([]Message{u1, claudeSubUserText("other"), instruction}, 2); !errors.Is(err, errClaudeSubSummaryNoPlace) {
+	if _, err := s.planSummary([]Message{u1, claudeSubUserText("other"), instruction}, 2, nil); !errors.Is(err, errClaudeSubSummaryNoPlace) {
 		t.Errorf("planSummary with diverged source = %v, want errClaudeSubSummaryNoPlace", err)
 	}
 }

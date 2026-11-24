@@ -126,13 +126,34 @@ func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool
 // messages must be a prefix of the record, and the instruction after them is
 // appended after the whole record, retained tail included. It never changes the
 // record, and it reports errClaudeSubSummaryNoPlace when the record cannot take
-// the request.
-func (s *claudeSubSync) planSummary(msgs []Message, source int) (claudeSubDelta, error) {
-	if s.tainted || !s.started || s.interrupted || s.drained || source <= 0 || len(msgs) != source+1 || len(s.entries) < source || msgs[source].Role != MessageRoleUser {
+// the request. When mismatch is not nil, the refusal records why: a record-state
+// refusal (tainted, not_started, interrupted, drained) and a count problem name
+// no position, while a request comparison records its position and role.
+func (s *claudeSubSync) planSummary(msgs []Message, source int, mismatch *claudeSubSyncMismatch) (claudeSubDelta, error) {
+	fail := func(index int, role MessageRole, check string) (claudeSubDelta, error) {
+		if mismatch != nil {
+			*mismatch = claudeSubSyncMismatch{Index: index, Role: role, Check: check}
+		}
 		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
 	}
-	if !s.sourcePrefixMatches(msgs, source) {
-		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+	switch {
+	case s.tainted:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckTainted)
+	case !s.started:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckNotStarted)
+	case s.interrupted:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckInterrupted)
+	case s.drained:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckDrained)
+	case source <= 0 || len(msgs) != source+1 || len(s.entries) < source:
+		return fail(claudeSubSyncMismatchNoIndex, "", claudeSubCheckLength)
+	case msgs[source].Role != MessageRoleUser:
+		return fail(source, msgs[source].Role, claudeSubCheckShape)
+	}
+	for i := range source {
+		if check := claudeSubEntryMismatch(s.entries[i], msgs[i]); check != "" {
+			return fail(i, msgs[i].Role, check)
+		}
 	}
 	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source)
 	return claudeSubDelta{

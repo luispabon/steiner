@@ -301,6 +301,25 @@ func TestClaudeSubCallMetricsGateAccumulates(t *testing.T) {
 	}
 }
 
+// TestClaudeSubCallMetricsSummaryDrained proves the drained-call count reports
+// only when the summary path actually drained a pending call.
+func TestClaudeSubCallMetricsSummaryDrained(t *testing.T) {
+	metrics := &claudeSubCallMetrics{}
+	metrics.noteSummaryDrained(0)
+	if got := metrics.diagnostics(); got != nil {
+		t.Fatalf("diagnostics = %+v, want none for a call that drained nothing", got.ClaudeSub)
+	}
+	metrics.noteSummaryDrained(2)
+	metrics.noteSummaryDrained(1)
+	got := metrics.diagnostics()
+	if got == nil || got.ClaudeSub == nil {
+		t.Fatal("diagnostics = nil, want claude_subscription measurements")
+	}
+	if got.ClaudeSub.SummaryDrainedCalls != 3 {
+		t.Errorf("SummaryDrainedCalls = %d, want 3 across the call's summary attempts", got.ClaudeSub.SummaryDrainedCalls)
+	}
+}
+
 // TestClaudeSubCallDiagnosticsSummaryForkFallback proves a summary whose fork
 // helper fails before output reports the live parent that actually answered, not
 // the failed helper.

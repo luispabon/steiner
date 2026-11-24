@@ -810,7 +810,8 @@ func TestClaudeSubFinishPendingCancelAbandonsProcess(t *testing.T) {
 	err = nil
 	done := make(chan error, 1)
 	go func() {
-		done <- claudeSubFinishPending(ctx, s, ChatRequest{TransportSession: "parent", Model: spec.Model, Messages: []Message{claudeSubUserText("next")}})
+		_, err := claudeSubFinishPending(ctx, s, ChatRequest{TransportSession: "parent", Model: spec.Model, Messages: []Message{claudeSubUserText("next")}})
+		done <- err
 	}()
 	lines := conn.waitSent(t, 1)
 	if !strings.Contains(lines[0], `"subtype":"interrupt"`) {

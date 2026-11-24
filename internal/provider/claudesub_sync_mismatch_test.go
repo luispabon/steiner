@@ -186,10 +186,24 @@ func TestClaudeSubCallMetricsSyncMismatchBounds(t *testing.T) {
 			wantIndex:    0,
 		},
 		{
-			name:         "negative index clamps to zero",
-			mismatch:     claudeSubSyncMismatch{Index: -5, Role: MessageRoleTool, Check: claudeSubCheckLength},
+			name:         "negative index reports no position",
+			mismatch:     claudeSubSyncMismatch{Index: -5, Check: claudeSubCheckLength},
 			wantRecorded: true,
-			wantIndex:    0,
+			wantIndex:    claudeSubSyncMismatchNoIndex,
+		},
+		{
+			name:     "negative index with a role is dropped",
+			mismatch: claudeSubSyncMismatch{Index: -5, Role: MessageRoleTool, Check: claudeSubCheckLength},
+		},
+		{
+			name:         "record-state refusal reports no position",
+			mismatch:     claudeSubSyncMismatch{Index: claudeSubSyncMismatchNoIndex, Check: claudeSubCheckInterrupted},
+			wantRecorded: true,
+			wantIndex:    claudeSubSyncMismatchNoIndex,
+		},
+		{
+			name:     "record-state refusal with a role is dropped",
+			mismatch: claudeSubSyncMismatch{Index: claudeSubSyncMismatchNoIndex, Role: MessageRoleUser, Check: claudeSubCheckTainted},
 		},
 		{
 			name:         "large index clamps to the bound",
