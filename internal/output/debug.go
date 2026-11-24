@@ -307,6 +307,9 @@ func formatCompactionFailure(payload ContextDiagnosticsEvent) []string {
 	if payload.SummaryToolCalls > 0 {
 		parts = append(parts, fmt.Sprintf("summary_tool_calls=%d", payload.SummaryToolCalls))
 	}
+	for _, attempt := range payload.SummaryAttemptDetails {
+		parts = append(parts, "summary_attempt "+attempt.String())
+	}
 	return parts
 }
 

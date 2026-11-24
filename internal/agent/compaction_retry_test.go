@@ -343,6 +343,7 @@ func TestCompactionSummaryRetryNotes(t *testing.T) {
 		Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "handoff summary", ToolCalls: []provider.ToolCall{retryReadCall("a.go")}},
 		FinishReason: "tool_calls",
 	}
+	reasoningEmpty := provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant, ReasoningContent: "thinking"}, FinishReason: "stop", Usage: &provider.UsageStats{CompletionTokens: 0}}
 	tests := []struct {
 		name      string
 		responses []provider.ChatResponse
@@ -350,6 +351,7 @@ func TestCompactionSummaryRetryNotes(t *testing.T) {
 	}{
 		{name: "recovered retry", responses: []provider.ChatResponse{retryEmptyReply(), summaryResponse("handoff summary")}, wantNote: "recovered on attempt 2 of 3"},
 		{name: "text with tool calls", responses: []provider.ChatResponse{textWithCalls}, wantNote: "carried 1 tool call(s) with its text"},
+		{name: "recovered retry lists failed attempt", responses: []provider.ChatResponse{reasoningEmpty, summaryResponse("handoff summary")}, wantNote: "failed summary attempt: attempt=1 finish_reason=stop completion_tokens=0 tool_calls=0 reasoning_content=true reason=no_text"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

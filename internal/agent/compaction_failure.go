@@ -26,6 +26,8 @@ type compactionSummaryError struct {
 	Reason    string
 	Attempts  int
 	ToolCalls int
+	// Details lists every reply of the stage in order, with its classification.
+	Details []output.CompactionSummaryAttempt
 }
 
 // Error describes the failure by its reason.
@@ -101,6 +103,7 @@ func emitCompactionFailedDiagnostics(sink output.EventSink, turn int, stages []o
 		payload.SummaryAttempts = summaryErr.Attempts
 		payload.SummaryFailureReason = summaryErr.Reason
 		payload.SummaryToolCalls = summaryErr.ToolCalls
+		payload.SummaryAttemptDetails = summaryErr.Details
 	}
 	payload.Stages = stages
 	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))

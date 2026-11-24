@@ -36,6 +36,8 @@ type summaryCalls struct {
 	cacheReported int
 	// cleared reports that a call retired the main generation's backend state.
 	cleared bool
+	// attempts records every reply of the stage in order, with its classification.
+	attempts []output.CompactionSummaryAttempt
 }
 
 // summarizeCompactionCalls runs the summary calls of one stage. The first call is
@@ -69,14 +71,15 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 		calls.cacheReported += cacheReportedInputTokens(response.Usage)
 
 		reason := emptySummaryReason(response)
+		calls.attempts = append(calls.attempts, summaryAttemptRecord(attempt, response, reason))
 		if reason == "" {
 			calls.response = response
-			noteSummaryReply(summary.Events, turn, attempt, response)
+			noteSummaryReply(summary.Events, turn, calls.attempts, response)
 			return calls, nil
 		}
 		// Retrying a reply that hit the output limit repeats the same limit, so it fails at once.
 		if reason == summaryFailLength || attempt >= maxAttempts {
-			return calls, &compactionSummaryError{Reason: reason, Attempts: attempt, ToolCalls: len(response.Message.ToolCalls)}
+			return calls, &compactionSummaryError{Reason: reason, Attempts: attempt, ToolCalls: len(response.Message.ToolCalls), Details: calls.attempts}
 		}
 
 		retry := prompt.CompactionRetry{
@@ -90,7 +93,7 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 			return calls, err
 		}
 		if !fit.Fits {
-			return calls, &compactionSummaryError{Reason: summaryFailRetryNoFit, Attempts: attempt}
+			return calls, &compactionSummaryError{Reason: summaryFailRetryNoFit, Attempts: attempt, Details: calls.attempts}
 		}
 	}
 }
@@ -148,26 +151,51 @@ func quoteAttemptedToolCalls(calls []provider.ToolCall) []string {
 	return quoted
 }
 
-// noteSummaryReply reports a recovered retry and tool calls that came with the
-// summary text. Both are notes: the stage still succeeds.
-func noteSummaryReply(sink output.EventSink, turn, attempt int, response provider.ChatResponse) {
-	if attempt > 1 {
-		emitCompactionNote(sink, turn, fmt.Sprintf("compaction summary recovered on attempt %d of %d", attempt, maxSummaryAttempts))
+// summaryAttemptRecord records one reply as the provider sent it, with the stage's
+// classification. CompletionTokens stays nil when the provider reported no usage, so
+// a reported zero is kept apart from no report.
+func summaryAttemptRecord(attempt int, response provider.ChatResponse, reason string) output.CompactionSummaryAttempt {
+	record := output.CompactionSummaryAttempt{
+		Attempt:          attempt,
+		FinishReason:     response.FinishReason,
+		ToolCalls:        len(response.Message.ToolCalls),
+		ReasoningContent: response.Message.ReasoningContent != "",
+		Reason:           reason,
+	}
+	if response.Usage != nil {
+		completion := response.Usage.CompletionTokens
+		record.CompletionTokens = &completion
+	}
+	return record
+}
+
+// noteSummaryReply reports a recovered retry with each failed attempt's details, and
+// tool calls that came with the summary text. Both are notes: the stage still succeeds.
+func noteSummaryReply(sink output.EventSink, turn int, attempts []output.CompactionSummaryAttempt, response provider.ChatResponse) {
+	var notes []string
+	if n := len(attempts); n > 1 {
+		notes = append(notes, fmt.Sprintf("compaction summary recovered on attempt %d of %d", n, maxSummaryAttempts))
+		for _, failed := range attempts[:n-1] {
+			notes = append(notes, "failed summary attempt: "+failed.String())
+		}
 	}
 	if n := len(response.Message.ToolCalls); n > 0 {
-		emitCompactionNote(sink, turn, fmt.Sprintf("compaction reply carried %d tool call(s) with its text; the tool calls were ignored", n))
+		notes = append(notes, fmt.Sprintf("compaction reply carried %d tool call(s) with its text; the tool calls were ignored", n))
+	}
+	if len(notes) > 0 {
+		emitCompactionNote(sink, turn, notes)
 	}
 }
 
-// emitCompactionNote reports a note while a compaction is still running. Its
+// emitCompactionNote reports notes while a compaction is still running. Its
 // compacting severity keeps the TUI in the compacting state, as the fallback
 // announcement does.
-func emitCompactionNote(sink output.EventSink, turn int, note string) {
+func emitCompactionNote(sink output.EventSink, turn int, notes []string) {
 	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
 		Kind:     "compaction",
 		Scope:    "conversation",
 		Turn:     turn,
 		Severity: "compacting",
-		Notes:    []string{note},
+		Notes:    notes,
 	}))
 }

@@ -117,6 +117,112 @@ func TestHandleCompactionEmptySummaryStopsWithoutTurnRequest(t *testing.T) {
 	}
 }
 
+// TestCompactionFailureRecordsEachAttempt proves the failure carries every reply of
+// the failed stage: raw finish reason, reported completion tokens, tool-call count,
+// reasoning presence and classification. The failure event carries the same list.
+func TestCompactionFailureRecordsEachAttempt(t *testing.T) {
+	t.Parallel()
+	zero, fortyTwo := 0, 42
+	lengthReply := provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant}, FinishReason: "length"}
+	mixed := []provider.ChatResponse{
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, ReasoningContent: "thinking"}, FinishReason: "stop", Usage: &provider.UsageStats{CompletionTokens: 0}},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant, ToolCalls: []provider.ToolCall{retryReadCall("a.go")}}, FinishReason: "tool_calls"},
+		{Message: provider.Message{Role: provider.MessageRoleAssistant}, FinishReason: "stop", Usage: &provider.UsageStats{CompletionTokens: 42}},
+	}
+	tests := []struct {
+		name      string
+		responses []provider.ChatResponse
+		want      []output.CompactionSummaryAttempt
+	}{
+		{
+			name:      "length stops at once",
+			responses: []provider.ChatResponse{lengthReply},
+			want:      []output.CompactionSummaryAttempt{{Attempt: 1, FinishReason: "length", Reason: summaryFailLength}},
+		},
+		{
+			name:      "mixed replies over three attempts",
+			responses: mixed,
+			want: []output.CompactionSummaryAttempt{
+				{Attempt: 1, FinishReason: "stop", CompletionTokens: &zero, ReasoningContent: true, Reason: summaryFailNoText},
+				{Attempt: 2, FinishReason: "tool_calls", ToolCalls: 1, Reason: summaryFailToolCalls},
+				{Attempt: 3, FinishReason: "stop", CompletionTokens: &fortyTwo, Reason: summaryFailNoText},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := retryRun(tt.responses...)
+			_, err := r.compact(context.Background())
+			var summaryErr *compactionSummaryError
+			if !errors.As(err, &summaryErr) {
+				t.Fatalf("compact() error = %v, want an empty-summary error", err)
+			}
+			if !reflect.DeepEqual(summaryErr.Details, tt.want) {
+				t.Errorf("Details = %+v, want %+v", summaryErr.Details, tt.want)
+			}
+			var rec eventRecorder
+			if !CompactionFailureReported(reportCompactionFailure(rec.sink(), 5, nil, err)) {
+				t.Fatal("reportCompactionFailure() did not mark the error as reported")
+			}
+			events := rec.snapshot()
+			if len(events) != 1 {
+				t.Fatalf("events = %d, want one failure event", len(events))
+			}
+			payload, ok := output.AsContextCompactionEvent(events[0].Payload)
+			if !ok || !reflect.DeepEqual(payload.SummaryAttemptDetails, tt.want) {
+				t.Errorf("event SummaryAttemptDetails = %+v, want %+v", payload.SummaryAttemptDetails, tt.want)
+			}
+		})
+	}
+}
+
+// TestCompactionNormalEmptySummaryDoesNotRunEmergency proves an empty normal summary
+// ends the operation at the normal stage. The emergency stage never runs after a
+// failed normal stage, so the provider sees only the normal stage's three calls.
+func TestCompactionNormalEmptySummaryDoesNotRunEmergency(t *testing.T) {
+	t.Parallel()
+	r := retryRun(retryEmptyReply(), retryEmptyReply(), retryEmptyReply())
+	outcome, err := r.compact(context.Background())
+	var summaryErr *compactionSummaryError
+	if !errors.As(err, &summaryErr) || summaryErr.Reason != summaryFailNoText {
+		t.Fatalf("compact() error = %v, want an empty-summary error", err)
+	}
+	if outcome.Applied || outcome.StageCount != 0 {
+		t.Errorf("Applied = %t, StageCount = %d, want no stage applied", outcome.Applied, outcome.StageCount)
+	}
+	if got := len(r.main.requests); got != 3 {
+		t.Errorf("provider calls = %d, want 3 (the normal stage only)", got)
+	}
+}
+
+// TestCompactConversationForBudgetClearsRetiredStateOnEmptySummary proves an empty
+// summary that retired the latest generation's backend state drops that state when
+// the compaction fails. The conversation and generation IDs are kept.
+// Not parallel: stubBackendStateRetirement replaces a package-level hook.
+func TestCompactConversationForBudgetClearsRetiredStateOnEmptySummary(t *testing.T) {
+	stubBackendStateRetirement(t, func(context.Context) bool { return true })
+	r := retryRun(retryEmptyReply(), retryEmptyReply(), retryEmptyReply())
+	state := r.state
+	state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), []byte(`{"version":1}`), false)
+	originalIDs := lineageGenerationIDs(state.Lineage)
+
+	_, applied, _, err := (&Runner{}).compactConversationForBudgetWithSteering(context.Background(), r.req, &state, 0, nil, map[string]bool{}, nil, "")
+	var summaryErr *compactionSummaryError
+	if !errors.As(err, &summaryErr) {
+		t.Fatalf("compactConversationForBudgetWithSteering() error = %v, want an empty-summary error", err)
+	}
+	if applied {
+		t.Error("applied = true, want false")
+	}
+	if got := state.Lineage.latestBackendState(); got != nil {
+		t.Errorf("latest generation kept backend state %s, want it cleared", got)
+	}
+	if got := lineageGenerationIDs(state.Lineage); !reflect.DeepEqual(got, originalIDs) {
+		t.Errorf("generation IDs = %v, want %v", got, originalIDs)
+	}
+}
+
 // TestCompactionSummaryErrorIsNotRetriedByRunLoop proves the empty-summary error,
 // alone or reported, matches neither the transient provider retry nor
 // RetryableProviderError, so the run loop does not retry the turn.
