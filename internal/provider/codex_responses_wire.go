@@ -349,6 +349,26 @@ func outputContentParts(content string) []responsesContentPart {
 	return []responsesContentPart{{Type: "output_text", Text: content}}
 }
 
+// responsesPartText returns the assistant text a message content part carries.
+// Refusal parts are deliberately not text: a refusal must not become a compaction summary.
+func responsesPartText(part responsesContentPart) (string, bool) {
+	if part.Type == "output_text" || part.Type == "text" {
+		return part.Text, true
+	}
+	return "", false
+}
+
+// responsesContentText joins the assistant text of a message's content parts.
+func responsesContentText(parts []responsesContentPart) string {
+	var sb strings.Builder
+	for _, part := range parts {
+		if text, ok := responsesPartText(part); ok {
+			sb.WriteString(text)
+		}
+	}
+	return sb.String()
+}
+
 //nolint:gocyclo // Response normalization builds ordered blocks and legacy flattened fields together.
 func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error) {
 	message := Message{Role: MessageRoleAssistant}
@@ -361,8 +381,8 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 		case "message":
 			var blockText strings.Builder
 			for _, part := range item.Content {
-				if part.Type == "output_text" || part.Type == "text" {
-					blockText.WriteString(part.Text)
+				if text, ok := responsesPartText(part); ok {
+					blockText.WriteString(text)
 				}
 			}
 			block := CodexMessageBlock{Kind: "message", Phase: item.Phase, Text: blockText.String()}
@@ -407,13 +427,23 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 
 	finish := "stop"
 	if payload.Status == "incomplete" && payload.IncompleteDetail != nil {
-		finish = payload.IncompleteDetail.Reason
+		finish = responsesIncompleteFinishReason(payload.IncompleteDetail.Reason)
 	}
 	return ChatResponse{
 		Message:      message,
 		Usage:        payload.Usage.toUsageStats(),
 		FinishReason: finish,
 	}, nil
+}
+
+// responsesIncompleteFinishReason maps an incomplete_details reason to the
+// normalized finish reason. max_output_tokens is "length"; other reasons, such
+// as content_filter, pass through unchanged.
+func responsesIncompleteFinishReason(reason string) string {
+	if reason == "max_output_tokens" {
+		return "length"
+	}
+	return reason
 }
 
 func responsesToolCall(item responsesItem) ToolCall {

@@ -51,8 +51,8 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 		case "message":
 			entry = responsesLedgerEntry{kind: "message", itemID: item.ID, phase: item.Phase, parts: make(map[int]string)}
 			for i, part := range item.Content {
-				if part.Type == "output_text" || part.Type == "text" {
-					entry.parts[i] = part.Text
+				if text, ok := responsesPartText(part); ok {
+					entry.parts[i] = text
 					entry.partOrder = append(entry.partOrder, i)
 				}
 			}
@@ -81,6 +81,28 @@ func completedResponsesItems(output []responsesItem, streamed []responsesLedgerE
 		result = append(result, entry)
 	}
 	return result
+}
+
+// keepStreamedMessages returns the authoritative ledger with each message slot
+// filled by the next streamed message: calls keep the final output's order and
+// text keeps what was streamed. Streamed messages without a slot go last.
+func keepStreamedMessages(authoritative, streamed []responsesLedgerEntry) []responsesLedgerEntry {
+	var messages []responsesLedgerEntry
+	for _, entry := range streamed {
+		if entry.kind == "message" {
+			messages = append(messages, entry)
+		}
+	}
+	out := make([]responsesLedgerEntry, 0, len(authoritative)+len(messages))
+	for _, entry := range authoritative {
+		if entry.kind != "message" {
+			out = append(out, entry)
+		} else if len(messages) > 0 {
+			out = append(out, messages[0])
+			messages = messages[1:]
+		}
+	}
+	return append(out, messages...)
 }
 
 func streamedCallByItemID(streamed []responsesLedgerEntry, id string) *responsesLedgerEntry {

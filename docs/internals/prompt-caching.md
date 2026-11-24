@@ -22,6 +22,12 @@ OpenCode-compatible routing applies only when the wire configures an `X-Opencode
 
 The fallback request sets `CacheBaseline` to nil. Its call neither compares against nor advances the main prefix baseline (`computeRequestCacheStats`, `promoteRequestCacheStats`).
 
+### Compaction summary retries
+
+A retry after an empty summary (`retryCompactionRequest`, `internal/agent/compaction_retry.go`) changes only the text of the final message. Tools, system prompt, history, params and `PromptCacheKey` match the first call, so the cacheable prefix is preserved. On Anthropic the breakpoints sit on system and tools, the final message and the second-to-last user message, so the history stays cached and only the final message is new. Steering is not applied through `tool_choice`: changing it invalidates cached message blocks on Anthropic, and other wires are not verified. A retry after a call that retired the main backend state drops `BackendState` and is a full reseed from messages, which is a cache miss by design. See [context management internals](context-management.md#summary-retries).
+
+The Responses and Codex wire maps an `incomplete` response with reason `max_output_tokens` to finish reason `length` (`responsesIncompleteFinishReason`, `internal/provider/codex_responses_wire.go`), so a truncated summary fails at once instead of being retried.
+
 ## Codex affinity headers
 
 When the key is non-empty, Codex Responses requests set `session-id` and `thread-id` to the key and `originator` to `codex_cli_rs`. `(*responsesWire).HTTPRequest` sets them in `wire_responses.go`, and the WebSocket dial in `codex_ws_conn.go` sets the same three headers. The headers pin one conversation to one backend shard.

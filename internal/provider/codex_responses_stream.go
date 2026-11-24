@@ -262,12 +262,13 @@ func handleResponsesOutputItemDone(state *responsesStreamState, item responsesIt
 		if item.Phase != "" {
 			entry.phase = item.Phase
 		}
-		if item.Content != nil {
+		// Content without text must not erase the deltas already streamed.
+		if item.Content != nil && responsesContentText(item.Content) != "" {
 			entry.parts = make(map[int]string)
 			entry.partOrder = nil
 			for i, part := range item.Content {
-				if part.Type == "output_text" || part.Type == "text" {
-					entry.parts[i] = part.Text
+				if text, ok := responsesPartText(part); ok {
+					entry.parts[i] = text
 					entry.partOrder = append(entry.partOrder, i)
 				}
 			}
@@ -348,7 +349,10 @@ func handleResponsesTextDone(state *responsesStreamState, payload responsesStrea
 	if text == "" {
 		text = payload.Delta
 	}
-	entry.parts[index] = text
+	// An empty done text must not erase the deltas already streamed for this part.
+	if text != "" {
+		entry.parts[index] = text
+	}
 	return false, nil
 }
 
@@ -449,14 +453,20 @@ func handleResponsesCompleted(state *responsesStreamState, response responsesRes
 	if len(response.Output) > 0 {
 		ledger := completedResponsesItems(response.Output, state.ledger)
 		_, _, text := (&responsesStreamState{ledger: ledger}).projected()
-		streamed := state.content.String()
-		if strings.HasPrefix(text, streamed) && len(text) > len(streamed) {
-			if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: text[len(streamed):]}}); err != nil {
-				return false, err
+		_, _, held := state.projected()
+		if text == "" && held != "" {
+			// A final output with no message text must not erase streamed text; its calls still apply.
+			ledger = keepStreamedMessages(ledger, state.ledger)
+		} else {
+			streamed := state.content.String()
+			if strings.HasPrefix(text, streamed) && len(text) > len(streamed) {
+				if err := emit(ChatChunk{Delta: Message{Role: MessageRoleAssistant, Content: text[len(streamed):]}}); err != nil {
+					return false, err
+				}
 			}
+			state.content.Reset()
+			state.content.WriteString(text)
 		}
-		state.content.Reset()
-		state.content.WriteString(text)
 		state.ledger = ledger
 		state.textEntrySet = false
 		state.textBoundaryCommitted = false

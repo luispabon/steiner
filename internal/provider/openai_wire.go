@@ -472,7 +472,8 @@ func extractMessageContent(value any) string {
 			continue
 		}
 		t, _ := m["type"].(string)
-		if t == "text" || t == "output_text" {
+		// Untyped parts carry text too; the streaming path accepts them.
+		if t == "" || t == "text" || t == "output_text" {
 			if text, ok := m["text"].(string); ok {
 				sb.WriteString(text)
 			}

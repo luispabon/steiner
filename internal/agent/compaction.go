@@ -40,12 +40,6 @@ var errStatefulCompaction = errors.New("compaction is not supported yet with the
 // than a skipped stage, so a caller can retry without the fallback target.
 var errCompactionFallbackNotFit = errors.New("compaction fallback summary request does not fit the fallback target budget")
 
-// errCompactionFallbackEmptySummary is returned when a summary call on a
-// fallback compaction target returns no summary text. It is an error rather
-// than a not-applied stage, so the operation reruns on main instead of
-// treating the empty summary as a no-op.
-var errCompactionFallbackEmptySummary = errors.New("fallback summary is empty")
-
 // CompactionOutcome captures the state mutation and diagnostics emitted by a
 // compaction strategy.
 type CompactionOutcome struct {
@@ -254,7 +248,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 
 	currentFit, err := compactionCurrentFit(ctx, req, *state, beforeFit)
 	if err != nil {
-		return false, false, "", err
+		return false, false, "", reportCompactionFailure(req.Events, turn, nil, err)
 	}
 
 	outcome, err := summarizeCompactor{}.Compact(ctx, req, *state, turn, candidate, steering)
@@ -264,8 +258,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 		// state: the failed outcome's conversation and pending archive are not
 		// adopted.
 		clearRetiredBackendState(state, outcome)
-		emitCompactionFailedDiagnostics(req.Events, turn, outcome.StageSizes, err)
-		return false, false, "", err
+		return false, false, "", reportCompactionFailure(req.Events, turn, outcome.StageSizes, err)
 	}
 
 	if !outcome.Applied {

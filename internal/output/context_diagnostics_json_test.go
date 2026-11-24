@@ -22,6 +22,18 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 			fieldText: `"compaction_threshold_tokens":3000`,
 		},
 		{
+			name:      "compaction failure",
+			payload:   contextDiagnosticFromLegacy(ContextDiagnosticsEvent{Kind: "compaction", CompactionResult: CompactionResultFailed, SummaryAttempts: 3, SummaryFailureReason: "no_text", SummaryToolCalls: 2}),
+			kind:      "compaction",
+			fieldText: `"summary_failure_reason":"no_text"`,
+		},
+		{
+			name:      "compaction failure attempts",
+			payload:   contextDiagnosticFromLegacy(ContextDiagnosticsEvent{Kind: "compaction", CompactionResult: CompactionResultFailed, SummaryAttemptDetails: []CompactionSummaryAttempt{{Attempt: 1, FinishReason: "length", CompletionTokens: summaryTokens(4096), Reason: "length"}}}),
+			kind:      "compaction",
+			fieldText: `"summary_attempt_details":[{"attempt":1,"finish_reason":"length","completion_tokens":4096,"reason":"length"}]`,
+		},
+		{
 			name:      "session health",
 			payload:   ContextSessionHealthEvent{Turn: 8, CompactionCount: 2, Notes: []string{"note"}},
 			kind:      "session_health",

@@ -34,7 +34,7 @@ func TestCompactionLogger(t *testing.T) {
 		},
 	}
 
-	if err := logger.LogRequest(req); err != nil {
+	if err := logger.LogRequest(req, 1); err != nil {
 		t.Fatalf("LogRequest: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestCompactionLogger_NilMaxTokens(t *testing.T) {
 		},
 	}
 
-	if err := logger.LogRequest(req); err != nil {
+	if err := logger.LogRequest(req, 1); err != nil {
 		t.Fatalf("LogRequest: %v", err)
 	}
 
@@ -259,7 +259,7 @@ func TestCompactionLogger_CreatesParentDirs(t *testing.T) {
 		_ = logger.Close()
 	}()
 
-	if err := logger.LogRequest(provider.ChatRequest{Model: "test", Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}}}); err != nil {
+	if err := logger.LogRequest(provider.ChatRequest{Model: "test", Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "hi"}}}, 1); err != nil {
 		t.Fatalf("LogRequest: %v", err)
 	}
 
@@ -295,7 +295,7 @@ func TestCompactionLogger_ConcurrentSafety(t *testing.T) {
 				Model:    fmt.Sprintf("model-%d", i),
 				Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: fmt.Sprintf("request-body-%d", i)}},
 			}
-			logger.LogRequest(req) //nolint: errcheck
+			logger.LogRequest(req, 1) //nolint: errcheck
 			resp := provider.ChatResponse{
 				FinishReason: fmt.Sprintf("stop-%d", i),
 				Message:      provider.Message{Content: fmt.Sprintf("response-body-%d", i)},

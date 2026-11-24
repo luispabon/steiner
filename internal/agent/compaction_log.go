@@ -33,14 +33,15 @@ func NewCompactionLogger(path string) (*CompactionLogger, error) {
 	return &CompactionLogger{file: f}, nil
 }
 
-// LogRequest writes the full compaction API request (model, max tokens, every message verbatim).
-func (l *CompactionLogger) LogRequest(req provider.ChatRequest) error {
+// LogRequest writes the full compaction API request (attempt, model, max tokens, every message verbatim).
+func (l *CompactionLogger) LogRequest(req provider.ChatRequest, attempt int) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "=== Compaction Request ===\n")
 	fmt.Fprintf(&b, "Timestamp: %s\n", time.Now().Format(time.RFC3339Nano))
+	fmt.Fprintf(&b, "Attempt: %d\n", attempt)
 	fmt.Fprintf(&b, "Model: %s\n", req.Model)
 	if req.MaxTokens != nil {
 		fmt.Fprintf(&b, "MaxTokens: %d\n", *req.MaxTokens)
