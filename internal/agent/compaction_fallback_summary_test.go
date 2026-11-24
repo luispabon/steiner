@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
@@ -485,6 +486,61 @@ func TestSummarizeCompactionStageClearBackendStateScope(t *testing.T) {
 				t.Errorf("outcome.BackendStateCleared = %v, want %v", outcome.BackendStateCleared, tt.wantCleared)
 			}
 		})
+	}
+}
+
+// TestCompactionFallbackTailTooLargeEndsWithoutMainRerun drives compactWithFallback
+// on a cold main cache, so the fallback target runs first. The newest unit does not
+// fit main's budget, so the attempt fails with compactionTailTooLargeError and the
+// operation ends without a rerun on main.
+func TestCompactionFallbackTailTooLargeEndsWithoutMainRerun(t *testing.T) {
+	mainProv := &fakeProvider{}
+	targetProv := &fakeProvider{}
+	req := retentionFixtureRequest(3000, mainProv)
+	req.CompactionFallback = CompactionFallback{
+		After: time.Minute,
+		Ref:   "anthropic/claude-small",
+		Resolve: func(context.Context) (CompactionTarget, error) {
+			return compactionFallbackSummaryTarget(targetProv, prompt.ModelTokenBudget{ContextSize: 100000, NormalSummaryMaxTokens: 128}), nil
+		},
+	}
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleUser, Content: "turn 2 user"},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant", ToolCalls: []ToolCall{{ID: "call-2", Name: "read"}}},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call-2", Content: retentionHugeOutput},
+	}
+	state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	var attempts []bool
+	run := func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error) {
+		attempts = append(attempts, summaryReq != nil)
+		// The stage pipeline twoStageSummarizeCompaction builds for each run.
+		return summarizeCompactionStages{
+			stageRunner: func(ctx context.Context, stageReq RunRequest, stageState RunState, turn int, stageCandidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+				params.announce = announce
+				return summarizeCompactionStage(ctx, stageReq, stageState, turn, stageCandidate, params)
+			},
+			fitRunner:  fitConversationState,
+			summaryReq: summaryReq,
+		}.run(context.Background(), req, state, 1, candidate)
+	}
+
+	_, err := compactWithFallback(context.Background(), req, state, 1, run)
+	var tooLarge *compactionTailTooLargeError
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("compactWithFallback() error = %v, want compactionTailTooLargeError", err)
+	}
+	if !reflect.DeepEqual(attempts, []bool{true}) {
+		t.Fatalf("attempts (true = fallback) = %v, want one fallback attempt and no main rerun", attempts)
+	}
+	if got := len(mainProv.requests) + len(targetProv.requests); got != 0 {
+		t.Errorf("provider calls = %d, want 0 when no tail fits", got)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -166,6 +167,83 @@ func TestCompactionLogger_NilUsage(t *testing.T) {
 
 	if !strings.Contains(string(data), "Usage: null") {
 		t.Error("expected Usage: null for nil Usage")
+	}
+}
+
+func TestCompactionLogger_LogSizes(t *testing.T) {
+	tests := []struct {
+		name  string
+		stage output.ContextCompactionStage
+		want  string
+	}{
+		{
+			name:  "normal stage",
+			stage: output.ContextCompactionStage{Stage: "normal", RetainedUnits: 3, SourceTokens: 120, SummaryTokens: 40, RetainedTokens: 300, ProtectedTokens: 20},
+			want:  "Stage Sizes: stage=normal retained_units=3 source_tokens=120 summary_tokens=40 retained_tokens=300 protected_tokens=20\n",
+		},
+		{
+			name:  "emergency stage",
+			stage: output.ContextCompactionStage{Stage: "emergency", RetainedUnits: 1, SourceTokens: 50, SummaryTokens: 8, RetainedTokens: 7},
+			want:  "Stage Sizes: stage=emergency retained_units=1 source_tokens=50 summary_tokens=8 retained_tokens=7 protected_tokens=0\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "compaction.log")
+			logger, err := NewCompactionLogger(logPath)
+			if err != nil {
+				t.Fatalf("NewCompactionLogger: %v", err)
+			}
+			if err := logger.LogSizes(tt.stage); err != nil {
+				t.Fatalf("LogSizes: %v", err)
+			}
+			if err := logger.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			data, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if got := string(data); got != tt.want {
+				t.Errorf("log = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogCompactionStageSizes(t *testing.T) {
+	stage := output.ContextCompactionStage{Stage: "normal", RetainedUnits: 1}
+	tests := []struct {
+		name     string
+		path     func(dir string) string
+		wantFile bool
+	}{
+		{name: "empty path logs nothing", path: func(string) string { return "" }},
+		{name: "path appends the stage line", path: func(dir string) string { return filepath.Join(dir, "compaction.log") }, wantFile: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := tt.path(dir)
+			logCompactionStageSizes(path, stage)
+			if !tt.wantFile {
+				entries, err := os.ReadDir(dir)
+				if err != nil {
+					t.Fatalf("ReadDir: %v", err)
+				}
+				if len(entries) != 0 {
+					t.Errorf("dir entries = %d, want none", len(entries))
+				}
+				return
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if !strings.HasPrefix(string(data), "Stage Sizes: stage=normal retained_units=1 ") {
+				t.Errorf("log = %q, want a stage sizes line", data)
+			}
+		})
 	}
 }
 

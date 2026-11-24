@@ -241,9 +241,13 @@ func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compacti
 
 // compactionOnMainAfterFallback discards a failed fallback attempt and reruns the
 // operation on main. It returns fallbackErr without a rerun when the attempt was
-// canceled or hit a run limit timeout.
+// canceled, hit a run limit timeout, or left a tail too large for main's budget.
 func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run compactionAnnouncedRun, fallbackErr error) (CompactionOutcome, error) {
 	if ctx.Err() != nil || errors.Is(fallbackErr, context.Canceled) {
+		return CompactionOutcome{}, hideFallbackRetirement(fallbackErr)
+	}
+	var tooLarge *compactionTailTooLargeError
+	if errors.As(fallbackErr, &tooLarge) {
 		return CompactionOutcome{}, hideFallbackRetirement(fallbackErr)
 	}
 	outcome, err := run(nil, nil)

@@ -3,12 +3,14 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -80,6 +82,38 @@ func (l *CompactionLogger) LogResponse(resp provider.ChatResponse) error {
 
 	_, err := l.file.WriteString(b.String())
 	return err
+}
+
+// LogSizes writes one line with the token sizes of a compaction stage. It holds
+// counts only, never prompt or summary text.
+func (l *CompactionLogger) LogSizes(stage output.ContextCompactionStage) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	_, err := fmt.Fprintf(l.file, "Stage Sizes: stage=%s retained_units=%d source_tokens=%d summary_tokens=%d retained_tokens=%d protected_tokens=%d\n",
+		stage.Stage, stage.RetainedUnits, stage.SourceTokens, stage.SummaryTokens, stage.RetainedTokens, stage.ProtectedTokens)
+	return err
+}
+
+// logCompactionStageSizes appends the sizes of an applied stage to the compaction
+// log at path. An empty path logs nothing.
+func logCompactionStageSizes(path string, stage output.ContextCompactionStage) {
+	if path == "" {
+		return
+	}
+	logger, err := NewCompactionLogger(path)
+	if err != nil {
+		slog.Warn("compaction logger unavailable", "path", path, "error", err)
+		return
+	}
+	defer func() {
+		if err := logger.Close(); err != nil {
+			slog.Warn("compaction logger close failed", "path", path, "error", err)
+		}
+	}()
+	if err := logger.LogSizes(stage); err != nil {
+		slog.Warn("compaction sizes log failed", "path", path, "error", err)
+	}
 }
 
 // Close closes the underlying file.

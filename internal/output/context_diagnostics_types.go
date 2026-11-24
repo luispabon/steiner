@@ -84,6 +84,10 @@ type ContextDiagnosticsEvent struct {
 	FallbackStatus            string   `json:"fallback_status,omitempty"`
 	FallbackReason            string   `json:"fallback_reason,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
+
+	// Stages sizes each compaction stage that applied, plus a failed stage when the
+	// compaction could not run.
+	Stages []ContextCompactionStage `json:"stages,omitempty"`
 }
 
 // ContextCompactionEvent records context compaction progress and results.
@@ -134,6 +138,25 @@ type ContextCompactionEvent struct {
 	FallbackStatus            string   `json:"fallback_status,omitempty"`
 	FallbackReason            string   `json:"fallback_reason,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
+
+	// Stages sizes each compaction stage that applied, plus a failed stage when the
+	// compaction could not run.
+	Stages []ContextCompactionStage `json:"stages,omitempty"`
+}
+
+// ContextCompactionStage sizes one compaction stage, as token counts. SourceTokens
+// is the summary request's prompt, SummaryTokens the summary it produced, and
+// RetainedTokens the kept tail without ProtectedTokens: the newest unit's tool and
+// sub-agent results the model has not read yet. Failed marks a stage that could not
+// run because its tail does not fit the main budget.
+type ContextCompactionStage struct {
+	Stage           string `json:"stage,omitempty"`
+	RetainedUnits   int    `json:"retained_units,omitempty"`
+	SourceTokens    int    `json:"source_tokens,omitempty"`
+	SummaryTokens   int    `json:"summary_tokens,omitempty"`
+	RetainedTokens  int    `json:"retained_tokens,omitempty"`
+	ProtectedTokens int    `json:"protected_tokens,omitempty"`
+	Failed          bool   `json:"failed,omitempty"`
 }
 
 // BudgetSnapshot returns the token-budget fields of a compaction event as a
@@ -217,6 +240,7 @@ func (payload ContextDiagnosticsEvent) toLegacyContextDiagnostics() ContextDiagn
 		payload.Kind = "diagnostic"
 	}
 	payload.Notes = append([]string(nil), payload.Notes...)
+	payload.Stages = append([]ContextCompactionStage(nil), payload.Stages...)
 	return payload
 }
 
@@ -268,6 +292,7 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		CompactionModelAlias:      payload.CompactionModelAlias,
 		FallbackStatus:            payload.FallbackStatus,
 		FallbackReason:            payload.FallbackReason,
+		Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
 		Notes:                     append([]string(nil), payload.Notes...),
 	}
 }
@@ -390,6 +415,7 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			CompactionModelAlias:      payload.CompactionModelAlias,
 			FallbackStatus:            payload.FallbackStatus,
 			FallbackReason:            payload.FallbackReason,
+			Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
 			Notes:                     append([]string(nil), payload.Notes...),
 		}
 	case "session_health":
