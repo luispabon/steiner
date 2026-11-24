@@ -106,6 +106,27 @@ func TestAsContextCompactionEventFallbackFields(t *testing.T) {
 	}
 }
 
+func TestAsContextCompactionEventFailureFields(t *testing.T) {
+	legacy := ContextDiagnosticsEvent{
+		Kind:                 "compaction",
+		Severity:             "skipped",
+		CompactionResult:     CompactionResultFailed,
+		SummaryAttempts:      3,
+		SummaryFailureReason: "tool_calls",
+		SummaryToolCalls:     2,
+	}
+	event, ok := AsContextCompactionEvent(legacy)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if event.CompactionResult != legacy.CompactionResult || event.SummaryAttempts != legacy.SummaryAttempts || event.SummaryFailureReason != legacy.SummaryFailureReason || event.SummaryToolCalls != legacy.SummaryToolCalls {
+		t.Fatalf("AsContextCompactionEvent() = %+v, want failure fields from %+v", event, legacy)
+	}
+	if got := event.toLegacyContextDiagnostics(); !reflect.DeepEqual(got, legacy) {
+		t.Fatalf("legacy round trip = %+v, want %+v", got, legacy)
+	}
+}
+
 func TestAsContextBudgetEventSessionLoaded(t *testing.T) {
 	payload := ContextDiagnosticsEvent{
 		Kind:                "session_loaded",

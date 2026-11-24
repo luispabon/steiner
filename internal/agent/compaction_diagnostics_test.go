@@ -244,34 +244,32 @@ func TestCompactionFailureReportsTailBreakdown(t *testing.T) {
 	}
 }
 
-// TestEmitCompactionFailedDiagnostics proves only a too-large tail error emits the
-// failed stage, after the stages that already applied.
+// TestEmitCompactionFailedDiagnostics proves every failed compaction emits one
+// skipped failure event. Only a too-large tail appends the failed emergency stage,
+// after the stages that already applied.
 func TestEmitCompactionFailedDiagnostics(t *testing.T) {
 	tooLarge := &compactionTailTooLargeError{RetainedTokens: 7, ProtectedTokens: 3}
 	applied := output.ContextCompactionStage{Stage: "normal", RetainedUnits: 2, SourceTokens: 40, SummaryTokens: 9, RetainedTokens: 30, ProtectedTokens: 5}
 	failed := output.ContextCompactionStage{Stage: "emergency", RetainedUnits: 1, RetainedTokens: 7, ProtectedTokens: 3, Failed: true}
 	tests := []struct {
-		name       string
-		err        error
-		prior      []output.ContextCompactionStage
-		wantEvent  bool
-		wantStages []output.ContextCompactionStage
+		name          string
+		err           error
+		prior         []output.ContextCompactionStage
+		wantStages    []output.ContextCompactionStage
+		wantAttempts  int
+		wantReason    string
+		wantToolCalls int
 	}{
-		{name: "tail too large after an applied stage", err: tooLarge, prior: []output.ContextCompactionStage{applied}, wantEvent: true, wantStages: []output.ContextCompactionStage{applied, failed}},
-		{name: "wrapped tail too large", err: fmt.Errorf("fallback: %w", tooLarge), wantEvent: true, wantStages: []output.ContextCompactionStage{failed}},
-		{name: "other error emits nothing", err: errors.New("provider down")},
+		{name: "tail too large after an applied stage", err: tooLarge, prior: []output.ContextCompactionStage{applied}, wantStages: []output.ContextCompactionStage{applied, failed}},
+		{name: "wrapped tail too large", err: fmt.Errorf("fallback: %w", tooLarge), wantStages: []output.ContextCompactionStage{failed}},
+		{name: "empty summary carries attempts, reason and tool calls", err: &compactionSummaryError{Reason: summaryFailToolCalls, Attempts: 3, ToolCalls: 2}, prior: []output.ContextCompactionStage{applied}, wantStages: []output.ContextCompactionStage{applied}, wantAttempts: 3, wantReason: summaryFailToolCalls, wantToolCalls: 2},
+		{name: "other error emits a skipped failure", err: errors.New("provider down")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var rec eventRecorder
 			emitCompactionFailedDiagnostics(rec.sink(), 4, tt.prior, tt.err)
 			events := rec.snapshot()
-			if !tt.wantEvent {
-				if len(events) != 0 {
-					t.Fatalf("events = %d, want none", len(events))
-				}
-				return
-			}
 			if len(events) != 1 {
 				t.Fatalf("events = %d, want 1", len(events))
 			}
@@ -279,11 +277,14 @@ func TestEmitCompactionFailedDiagnostics(t *testing.T) {
 			if !ok {
 				t.Fatalf("payload type = %T, want output.ContextCompactionEvent", events[0].Payload)
 			}
-			if payload.Turn != 4 || payload.Severity != "skipped" {
-				t.Errorf("Turn, Severity = %d, %q, want 4, skipped", payload.Turn, payload.Severity)
+			if payload.Turn != 4 || payload.Severity != "skipped" || payload.CompactionResult != output.CompactionResultFailed {
+				t.Errorf("Turn, Severity, CompactionResult = %d, %q, %q, want 4, skipped, failed", payload.Turn, payload.Severity, payload.CompactionResult)
 			}
 			if !slices.Equal(payload.Stages, tt.wantStages) {
 				t.Errorf("Stages = %+v, want %+v", payload.Stages, tt.wantStages)
+			}
+			if payload.SummaryAttempts != tt.wantAttempts || payload.SummaryFailureReason != tt.wantReason || payload.SummaryToolCalls != tt.wantToolCalls {
+				t.Errorf("summary attempts, reason, tool calls = %d, %q, %d, want %d, %q, %d", payload.SummaryAttempts, payload.SummaryFailureReason, payload.SummaryToolCalls, tt.wantAttempts, tt.wantReason, tt.wantToolCalls)
 			}
 		})
 	}

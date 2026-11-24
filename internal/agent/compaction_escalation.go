@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -88,26 +87,6 @@ func (e *compactionTailTooLargeError) Error() string {
 	)
 }
 
-func fallbackCompactionSummary(candidate ConversationCandidate) string {
-	if len(candidate.Messages) == 0 {
-		return ""
-	}
-
-	sections := []string{
-		"# Request intent",
-		"- " + summarizeTextPreview(firstMessageContentByRole(candidate.Messages, MessageRoleUser), 160),
-		"# Solution design",
-		"- " + summarizeTextPreview(firstMessageContentByRole(candidate.Messages, MessageRoleAssistant), 160),
-		"# Recent actions",
-		"- " + summarizeConversationMessages(candidate.Messages, 3),
-		"# Unresolved decisions",
-		"- none recorded",
-		"# Pending work",
-		"- continue from the retained conversation",
-	}
-	return strings.Join(sections, "\n")
-}
-
 func compactionEscalationForFit(compactionCount int, fit prompt.RequestTokenBudget) compactionEscalation {
 	fragile := compactionBudgetIsFragile(fit)
 	switch {
@@ -163,14 +142,6 @@ func compactionBudgetIsFragile(fit prompt.RequestTokenBudget) bool {
 		return false
 	}
 	return overage*100 >= limit*compactionFragilityOveragePercent
-}
-
-func compactionSummaryText(content string, candidate ConversationCandidate) string {
-	summaryText := strings.TrimSpace(content)
-	if summaryText != "" {
-		return summaryText
-	}
-	return fallbackCompactionSummary(candidate)
 }
 
 func buildSummarizedCompactionState(state RunState, summaryText string, retained []Message) RunState {
@@ -243,7 +214,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	return request, assembly.Blocks, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), mode), nil
 }
 
-func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget, blocks []prompt.ContextBlock) (provider.ChatResponse, error) {
+func completeCompactionCall(ctx context.Context, req RunRequest, turn, attempt int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget, blocks []prompt.ContextBlock) (provider.ChatResponse, error) {
 	var logger *CompactionLogger
 	if req.CompactionLogPath != "" {
 		var err error
@@ -251,7 +222,7 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn int, chatR
 		if err != nil {
 			slog.Warn("compaction logger unavailable", "path", req.CompactionLogPath, "error", err)
 		} else {
-			if err := logger.LogRequest(chatRequest); err != nil {
+			if err := logger.LogRequest(chatRequest, attempt); err != nil {
 				slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", err)
 			}
 			defer func() {

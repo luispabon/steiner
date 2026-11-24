@@ -348,23 +348,24 @@ func TestCompactionFallbackOperationRerunsOnMainAfterEmptyTargetSummary(t *testi
 	}
 }
 
-// TestCompactionEmptyMainSummaryKeepsFallbackText checks that an empty summary on
-// main still applies the deterministic summary text and is not rerun.
-func TestCompactionEmptyMainSummaryKeepsFallbackText(t *testing.T) {
+// TestCompactionEmptyMainSummaryFailsAfterRetries checks that an empty summary on
+// main is retried twice, then fails the operation with no applied summary.
+func TestCompactionEmptyMainSummaryFailsAfterRetries(t *testing.T) {
 	t.Parallel()
 	r := newFallbackOperationRun(fallbackOperationNow)
 	r.req.CompactionFallback = CompactionFallback{}
 	empty := provider.ChatResponse{Message: provider.Message{Role: provider.MessageRoleAssistant}, FinishReason: "stop"}
-	r.main.responses = []provider.ChatResponse{empty, empty}
+	r.main.responses = []provider.ChatResponse{empty, empty, empty}
 	outcome, err := r.compact(context.Background())
-	if err != nil {
-		t.Fatalf("compact() error = %v, want nil for an empty main summary", err)
+	var summaryErr *compactionSummaryError
+	if !errors.As(err, &summaryErr) || summaryErr.Attempts != 3 {
+		t.Fatalf("compact() error = %v, want an empty-summary error after 3 attempts", err)
 	}
-	if !outcome.Applied {
-		t.Error("outcome.Applied = false, want the deterministic summary to apply on main")
+	if outcome.Applied {
+		t.Error("outcome.Applied = true, want no summary applied after failed retries")
 	}
-	if outcome.FallbackStatus != "" {
-		t.Errorf("FallbackStatus = %q, want empty when no fallback was selected", outcome.FallbackStatus)
+	if got := len(r.main.requests); got != 3 {
+		t.Errorf("main requests = %d, want 3", got)
 	}
 }
 

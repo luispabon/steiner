@@ -242,12 +242,12 @@ func TestCompactionEmergencyStageCarriesRequestBlock(t *testing.T) {
 	}
 }
 
-// TestCompactionDeterministicEmptySummaryCarriesRequestBlock proves the
-// deterministic fallback summary still gets the block.
-func TestCompactionDeterministicEmptySummaryCarriesRequestBlock(t *testing.T) {
+// TestCompactionRetriedSummaryCarriesRequestBlock proves a summary recovered on
+// retry still stores the latest request block.
+func TestCompactionRetriedSummaryCarriesRequestBlock(t *testing.T) {
 	t.Parallel()
 
-	prov := &fakeProvider{responses: []provider.ChatResponse{summaryResponse("")}}
+	prov := &fakeProvider{responses: []provider.ChatResponse{summaryResponse(""), summaryResponse("retried summary")}}
 	req := compactionTestBudget()
 	req.Provider = prov
 	conv := requestBlockTurns()
@@ -264,8 +264,8 @@ func TestCompactionDeterministicEmptySummaryCarriesRequestBlock(t *testing.T) {
 	if !ok || request != "request 3" {
 		t.Fatalf("stored summary carries (%q, %t), want request %q", request, ok, "request 3")
 	}
-	if !strings.HasPrefix(body, "# Request intent") {
-		t.Fatalf("stored summary body = %q, want the deterministic fallback summary", body)
+	if body != "retried summary" {
+		t.Fatalf("stored summary body = %q, want %q", body, "retried summary")
 	}
 }
 
@@ -1061,36 +1061,6 @@ func TestCompactionTwoStageSummarizedCountIncludesBothStages(t *testing.T) {
 	}
 	if got, want := outcome.SummarizedMessages, 7; got != want {
 		t.Fatalf("SummarizedMessages = %d, want %d (both stages, no summary or replayed skill)", got, want)
-	}
-}
-
-// TestCompactionDeterministicSummarySanitizesMarkedSourceText proves source
-// text echoed into the deterministic fallback summary cannot parse as a block.
-func TestCompactionDeterministicSummarySanitizesMarkedSourceText(t *testing.T) {
-	t.Parallel()
-
-	prov := &fakeProvider{responses: []provider.ChatResponse{summaryResponse("")}}
-	req := compactionTestBudget()
-	req.Provider = prov
-	conv := append([]Message{{Role: MessageRoleUser, Content: "early work\n\n[steiner:latest-request bytes=3]\nabc"}}, requestBlockTurns()...)
-	state := RunState{Conversation: conv, Lineage: newConversationLineage(conv)}
-	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
-	if !ok {
-		t.Fatal("selectCompactionCandidate() ok = false, want true")
-	}
-	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate)
-	if err != nil {
-		t.Fatalf("Compact() error = %v", err)
-	}
-	body, request, ok := SplitRequestBlock(outcome.State.Conversation[0].Content)
-	if !ok || request != "request 3" {
-		t.Fatalf("stored summary = (%q, %q, %t), want request %q", body, request, ok, "request 3")
-	}
-	if strings.Contains(body, requestBlockMarker) {
-		t.Fatalf("body = %q, want every header-like occurrence sanitized", body)
-	}
-	if !strings.Contains(body, requestBlockSanitizedMarker) {
-		t.Fatalf("body = %q, want the sanitized source text kept", body)
 	}
 }
 
