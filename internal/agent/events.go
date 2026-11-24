@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/luispabon/steiner/internal/output"
@@ -112,6 +113,32 @@ func emitCompactionSkippedEvent(sink output.EventSink, turn int, model, alias, f
 	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))
 }
 
+// emitCompactionFailedDiagnostics reports a compaction that failed because its
+// newest unit does not fit the main budget. It appends the failed emergency stage
+// with the breakdown the error measured. Any other error emits nothing.
+func emitCompactionFailedDiagnostics(sink output.EventSink, turn int, stages []output.ContextCompactionStage, err error) {
+	var tooLarge *compactionTailTooLargeError
+	if sink == nil || !errors.As(err, &tooLarge) {
+		return
+	}
+	stages = append(stages, output.ContextCompactionStage{
+		Stage:           string(prompt.CompactionModeEmergency),
+		RetainedUnits:   emergencyCompactionRetainTurns,
+		RetainedTokens:  tooLarge.RetainedTokens,
+		ProtectedTokens: tooLarge.ProtectedTokens,
+		Failed:          true,
+	})
+	// "skipped" keeps the TUI on its skipped banner: other non-compacting severities render as a finished compaction and reset the budget.
+	emitEvent(sink, output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+		Kind:     "compaction",
+		Scope:    "conversation",
+		Turn:     turn,
+		Severity: "skipped",
+		Stages:   stages,
+		Notes:    []string{"compaction failed: the newest unit does not fit the main budget"},
+	}))
+}
+
 // emitCompactionFallbackSelectedEvent announces the fallback model a compaction
 // operation will run on, before its summary calls. model is canonical
 // ProviderAlias/BackendModelID and alias is the configured reference, empty for
@@ -156,6 +183,7 @@ type compactionDiagnosticsParams struct {
 	compactionModelAlias     string
 	fallbackStatus           string
 	fallbackReason           string
+	stages                   []output.ContextCompactionStage
 }
 
 func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosticsParams) {
@@ -233,6 +261,7 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		CompactionModelAlias:      params.compactionModelAlias,
 		FallbackStatus:            params.fallbackStatus,
 		FallbackReason:            params.fallbackReason,
+		Stages:                    params.stages,
 		Notes:                     notes,
 	}))
 	emitEvent(sink, output.NewContextSessionHealthEvent("conversation", params.turn, params.compactionCount, escalation.Severity, escalation.SessionState, escalation.RestartGuidance, notes...))

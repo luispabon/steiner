@@ -1,7 +1,9 @@
 package output
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -162,6 +164,7 @@ func TestContextDiagnosticTypedLegacyRoundTripsPreserveFields(t *testing.T) {
 				AfterUsagePercent: 24.5, SummaryTokenBudget: 26,
 				CompactionModel: "model", CompactionModelAlias: "alias", FallbackStatus: CompactionFallbackUsed, FallbackReason: "reason",
 				ThresholdAchieved: true, Notes: []string{"note"},
+				Stages: []ContextCompactionStage{{Stage: "normal", RetainedUnits: 2, SourceTokens: 3, SummaryTokens: 4, RetainedTokens: 5, ProtectedTokens: 6, Failed: true}},
 			},
 		},
 		{
@@ -200,6 +203,80 @@ func TestContextDiagnosticTypedLegacyRoundTripsPreserveFields(t *testing.T) {
 			legacy.Notes[0] = "changed"
 			if tt.payload.toLegacyContextDiagnostics().Notes[0] != "note" {
 				t.Fatal("legacy conversion reused notes slice")
+			}
+		})
+	}
+}
+
+func TestContextCompactionStagesLegacyRoundTrip(t *testing.T) {
+	stages := []ContextCompactionStage{
+		{Stage: "normal", RetainedUnits: 3, SourceTokens: 120, SummaryTokens: 40, RetainedTokens: 300, ProtectedTokens: 20},
+		{Stage: "emergency", RetainedUnits: 1, RetainedTokens: 7, ProtectedTokens: 3, Failed: true},
+	}
+	tests := []struct {
+		name   string
+		legacy ContextDiagnosticsEvent
+		want   []ContextCompactionStage
+	}{
+		{name: "stages", legacy: ContextDiagnosticsEvent{Kind: "compaction", Stages: stages}, want: stages},
+		{name: "no stages stay nil", legacy: ContextDiagnosticsEvent{Kind: "compaction"}, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event, ok := AsContextCompactionEvent(tt.legacy)
+			if !ok {
+				t.Fatal("AsContextCompactionEvent() ok = false, want true")
+			}
+			if !reflect.DeepEqual(event.Stages, tt.want) {
+				t.Fatalf("Stages = %+v, want %+v", event.Stages, tt.want)
+			}
+			if got := event.toLegacyContextDiagnostics(); !reflect.DeepEqual(got, tt.legacy) {
+				t.Fatalf("legacy round trip = %+v, want %+v", got, tt.legacy)
+			}
+		})
+	}
+}
+
+func TestContextCompactionStagesAreCopied(t *testing.T) {
+	typed := ContextCompactionEvent{Stages: []ContextCompactionStage{{Stage: "normal"}}}
+	clone, ok := CloneContextDiagnosticPayload(typed)
+	if !ok {
+		t.Fatal("CloneContextDiagnosticPayload() ok = false, want true")
+	}
+	typed.Stages[0].Stage = "changed"
+	if got := clone.(ContextCompactionEvent).Stages[0].Stage; got != "normal" {
+		t.Fatalf("cloned stage = %q, want %q: clone shares the stages slice", got, "normal")
+	}
+}
+
+func TestContextCompactionStagesJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		stages  []ContextCompactionStage
+		omitted bool
+		want    string
+	}{
+		{
+			name:   "failed emergency stage",
+			stages: []ContextCompactionStage{{Stage: "emergency", RetainedUnits: 1, RetainedTokens: 7, ProtectedTokens: 3, Failed: true}},
+			want:   `"stages":[{"stage":"emergency","retained_units":1,"retained_tokens":7,"protected_tokens":3,"failed":true}]`,
+		},
+		{name: "no stages omit the key", omitted: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(contextDiagnosticPayloadForJSON(ContextCompactionEvent{Stages: tt.stages}))
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			if tt.omitted {
+				if strings.Contains(string(data), `"stages"`) {
+					t.Errorf("json = %s, want no stages key", data)
+				}
+				return
+			}
+			if !strings.Contains(string(data), tt.want) {
+				t.Errorf("json = %s, want it to contain %s", data, tt.want)
 			}
 		})
 	}
