@@ -594,9 +594,9 @@ func TestCompactionModelLabelPrefersAlias(t *testing.T) {
 			want: "anthropic/claude-haiku-5-5",
 		},
 		{
-			name:    "skipped fallback reports the skip",
-			cd:      &compactionBannerData{finished: true, skipped: true, compactionModel: "anthropic/claude-haiku-5-5", compactionModelAlias: "haiku", fallbackStatus: output.CompactionFallbackSkipped, fallbackReason: "fallback failed: boom"},
-			want:    "fallback skipped",
+			name:    "skipped fallback names the main model",
+			cd:      &compactionBannerData{finished: true, skipped: true, compactionModel: "anthropic/claude-sonnet-5", compactionModelAlias: "sonnet", fallbackStatus: output.CompactionFallbackSkipped, fallbackReason: "fallback failed: boom"},
+			want:    "fallback skipped · sonnet",
 			notWant: "haiku",
 		},
 	}
