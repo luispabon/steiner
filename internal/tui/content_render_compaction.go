@@ -256,15 +256,19 @@ func (b *contentBuffer) compactionHeaderMetaParts(cd *compactionBannerData) []co
 
 // compactionModelLabel returns the model label shown in the header meta: the
 // configured alias when one exists, else the canonical provider/model. A
-// skipped fallback reports that in the model slot instead of naming a model.
+// skipped fallback prefixes that label, so the header names the main model.
 func compactionModelLabel(cd *compactionBannerData) string {
-	if cd.fallbackStatus == output.CompactionFallbackSkipped {
+	label := cd.compactionModelAlias
+	if label == "" {
+		label = cd.compactionModel
+	}
+	if cd.fallbackStatus != output.CompactionFallbackSkipped {
+		return label
+	}
+	if label == "" {
 		return "fallback skipped"
 	}
-	if cd.compactionModelAlias != "" {
-		return cd.compactionModelAlias
-	}
-	return cd.compactionModel
+	return "fallback skipped · " + label
 }
 
 // compactionDetailRows builds the expanded detail rows of the compaction box.
