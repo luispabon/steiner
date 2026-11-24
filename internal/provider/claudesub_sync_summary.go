@@ -135,10 +135,7 @@ func (s *claudeSubSync) sourceTailUUID(msgs []Message, source int) (string, bool
 // role.
 func (s *claudeSubSync) planSummary(msgs []Message, source int, mismatch *claudeSubSyncMismatch) (claudeSubDelta, error) {
 	fail := func(index int, role MessageRole, check string) (claudeSubDelta, error) {
-		if mismatch != nil {
-			*mismatch = claudeSubSyncMismatch{Index: index, Role: role, Check: check}
-		}
-		return claudeSubDelta{}, errClaudeSubSummaryNoPlace
+		return claudeSubRefusal(mismatch, index, role, check, errClaudeSubSummaryNoPlace)
 	}
 	switch {
 	case s.tainted:
@@ -154,10 +151,8 @@ func (s *claudeSubSync) planSummary(msgs []Message, source int, mismatch *claude
 	case msgs[source].Role != MessageRoleUser:
 		return fail(source, msgs[source].Role, claudeSubCheckShape)
 	}
-	for i := range source {
-		if check := claudeSubEntryMismatch(s.entries[i], msgs[i]); check != "" {
-			return fail(i, msgs[i].Role, check)
-		}
+	if i, check := s.sourcePrefixMismatch(msgs, source); check != "" {
+		return fail(i, msgs[i].Role, check)
 	}
 	instruction := claudeSubMarkSummary(msgs[source], source, len(s.entries)-source, s.interrupted)
 	return claudeSubDelta{
@@ -167,15 +162,24 @@ func (s *claudeSubSync) planSummary(msgs []Message, source int, mismatch *claude
 	}, nil
 }
 
+// sourcePrefixMismatch returns the position and check label of the first
+// recorded entry that does not match the request message at that position, or
+// claudeSubSyncMismatchNoIndex with an empty check when the whole prefix
+// matches. The caller bounds source against both.
+func (s *claudeSubSync) sourcePrefixMismatch(msgs []Message, source int) (int, string) {
+	for i := range source {
+		if check := claudeSubEntryMismatch(s.entries[i], msgs[i]); check != "" {
+			return i, check
+		}
+	}
+	return claudeSubSyncMismatchNoIndex, ""
+}
+
 // sourcePrefixMatches reports whether the record's first source entries match
 // the first source request messages. The caller bounds source against both.
 func (s *claudeSubSync) sourcePrefixMatches(msgs []Message, source int) bool {
-	for i := range source {
-		if !claudeSubEntryMatches(s.entries[i], msgs[i]) {
-			return false
-		}
-	}
-	return true
+	_, check := s.sourcePrefixMismatch(msgs, source)
+	return check == ""
 }
 
 // claudeSubSummaryArtifactDisclaimer tells the summarizing model that the lines

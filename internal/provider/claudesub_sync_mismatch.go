@@ -4,7 +4,9 @@ import "slices"
 
 // claude_subscription sync mismatch checks reported in
 // ClaudeSubCallDiagnostics.SyncMismatchCheck. Each value names the first
-// comparison a live process's record failed against the request.
+// comparison a live process's record failed against the request, and each is
+// reported at the request position with that position's role. The
+// record-state checks below name no position.
 const (
 	// claudeSubCheckRole: the request message at that position has another
 	// role than the recorded entry.
@@ -74,15 +76,28 @@ const claudeSubSyncMismatchNoIndex = -1
 // diagnostic stays a small integer whatever the request holds.
 const claudeSubSyncMismatchMaxIndex = 1 << 16
 
-// claudeSubSyncMismatch is the first request position a live process's sync
-// record failed to accept, and the check that failed there. It carries no
-// message content, digest, identifier or image data: one bounded index, one
-// allowed role and one fixed check label only.
+// claudeSubSyncMismatch is the first comparison a live process's sync record
+// failed: a request position it could not accept, with that position's role and
+// the check that failed there, or a record-state refusal that names no position
+// and no role. It carries no message content, digest, identifier or image data:
+// one bounded index, one allowed role and one fixed check label only.
 type claudeSubSyncMismatch struct {
-	// Index is the position in the request's non-system messages.
+	// Index is the position in the request's non-system messages, or
+	// claudeSubSyncMismatchNoIndex when a record-state refusal names none.
 	Index int
 	Role  MessageRole
 	Check string
+}
+
+// claudeSubRefusal records mismatch in *record when the caller wants
+// diagnostics and returns the empty delta with err, the refusal the caller
+// reports. record may be nil, and err stays the caller's own refusal error, so
+// every caller keeps its error identity.
+func claudeSubRefusal(record *claudeSubSyncMismatch, index int, role MessageRole, check string, err error) (claudeSubDelta, error) {
+	if record != nil {
+		*record = claudeSubSyncMismatch{Index: index, Role: role, Check: check}
+	}
+	return claudeSubDelta{}, err
 }
 
 // clampedIndex returns the position bounded to
