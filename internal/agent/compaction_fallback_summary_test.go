@@ -80,7 +80,14 @@ func compactionFallbackSummaryParams(maxTokens int, summaryReq *RunRequest) summ
 func TestSummarizeCompactionStageFallbackRunsOnTarget(t *testing.T) {
 	t.Parallel()
 	mainProv := &fakeProvider{}
-	targetProv := &fakeProvider{responses: []provider.ChatResponse{compactionFallbackSummaryResponse(false)}}
+	var rec eventRecorder
+	var eventsAtSummary int
+	targetProv := &fakeProvider{}
+	targetProv.chatFn = func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		// The selection must already be announced when the summary call runs.
+		eventsAtSummary = len(rec.snapshot())
+		return compactionFallbackSummaryResponse(false), nil
+	}
 	recorder := &testRecorder{}
 	req := compactionFallbackSummaryFixture(mainProv, recorder)
 	target := compactionFallbackSummaryTarget(targetProv, compactionFallbackSummaryBudget())
@@ -93,12 +100,21 @@ func TestSummarizeCompactionStageFallbackRunsOnTarget(t *testing.T) {
 	candidate := ConversationCandidate{Messages: msgs}
 	maxTokens := compactionSummaryMaxTokensForMode(target.ModelBudget, prompt.CompactionModeNormal)
 
-	outcome, err := summarizeCompactionStage(context.Background(), req, state, 1, candidate, compactionFallbackSummaryParams(maxTokens, &fallback))
+	params := compactionFallbackSummaryParams(maxTokens, &fallback)
+	params.announce = &compactionFallbackAnnouncement{sink: rec.sink(), turn: 1, model: compactionModelName(target.ResolvedModel), reason: "no recent request"}
+	outcome, err := summarizeCompactionStage(context.Background(), req, state, 1, candidate, params)
 	if err != nil {
 		t.Fatalf("summarizeCompactionStage() error = %v", err)
 	}
 	if !outcome.Applied {
 		t.Error("Applied = false, want true")
+	}
+	if eventsAtSummary != 1 {
+		t.Errorf("selection events before the summary call = %d, want 1", eventsAtSummary)
+	}
+	selected := compactionEventPayloads(t, rec.snapshot())
+	if len(selected) != 1 || selected[0].Severity != "compacting" || selected[0].CompactionModel != "anthropic/claude-small" {
+		t.Errorf("selection events = %+v, want one compacting event for anthropic/claude-small", selected)
 	}
 	if got := len(mainProv.requests); got != 0 {
 		t.Errorf("main provider requests = %d, want 0", got)
@@ -131,6 +147,7 @@ func TestSummarizeCompactionStageFallbackRunsOnTarget(t *testing.T) {
 func TestSummarizeCompactionStageFallbackNotFitReturnsSentinel(t *testing.T) {
 	t.Parallel()
 	mainProv := &fakeProvider{}
+	var rec eventRecorder
 	targetProv := &fakeProvider{}
 	req := compactionFallbackSummaryFixture(mainProv, &testRecorder{})
 	target := compactionFallbackSummaryTarget(targetProv, prompt.ModelTokenBudget{ContextSize: 1, NormalSummaryMaxTokens: 128})
@@ -142,7 +159,9 @@ func TestSummarizeCompactionStageFallbackNotFitReturnsSentinel(t *testing.T) {
 	state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
 	candidate := ConversationCandidate{Messages: msgs}
 
-	outcome, err := summarizeCompactionStage(context.Background(), req, state, 1, candidate, compactionFallbackSummaryParams(128, &fallback))
+	params := compactionFallbackSummaryParams(128, &fallback)
+	params.announce = &compactionFallbackAnnouncement{sink: rec.sink(), turn: 1, model: compactionModelName(target.ResolvedModel), reason: "no recent request"}
+	outcome, err := summarizeCompactionStage(context.Background(), req, state, 1, candidate, params)
 	if !errors.Is(err, errCompactionFallbackNotFit) {
 		t.Fatalf("error = %v, want errCompactionFallbackNotFit", err)
 	}
@@ -151,6 +170,9 @@ func TestSummarizeCompactionStageFallbackNotFitReturnsSentinel(t *testing.T) {
 	}
 	if got := len(targetProv.requests); got != 0 {
 		t.Errorf("target provider requests = %d, want 0 when the summary does not fit", got)
+	}
+	if got := len(compactionEventPayloads(t, rec.snapshot())); got != 0 {
+		t.Errorf("selection events = %d, want 0 when the fit check fails", got)
 	}
 	if got := len(mainProv.requests); got != 0 {
 		t.Errorf("main provider requests = %d, want 0", got)

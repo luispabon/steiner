@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -40,8 +41,9 @@ func selectionTestTarget() CompactionTarget {
 }
 
 // TestCompactWithFallbackEmitsSelectionBeforeSummary proves a selected fallback
-// is announced on the compaction turn before the summary call runs, carrying the
-// canonical model, the configured alias, the used status and the reason.
+// is announced on the compaction turn when its summary stage passes the fit check,
+// before the summary call runs, carrying the canonical model, the configured
+// alias, the used status and the reason. The operation itself emits nothing.
 func TestCompactWithFallbackEmitsSelectionBeforeSummary(t *testing.T) {
 	t.Parallel()
 	now := fallbackOperationNow
@@ -59,11 +61,15 @@ func TestCompactWithFallbackEmitsSelectionBeforeSummary(t *testing.T) {
 		},
 	}
 
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
-		if summaryReq == nil {
-			t.Error("run used main, want the fallback target")
-			return CompactionOutcome{}, nil
+	run := func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error) {
+		if summaryReq == nil || announce == nil {
+			t.Fatal("run did not get the fallback target and its announcement")
 		}
+		if events := rec.snapshot(); len(events) != 0 {
+			t.Fatalf("events before the fit check = %d, want 0", len(events))
+		}
+		// A passing fit check announces the selection just before the summary call.
+		announce.announce()
 		selected := compactionEventPayloads(t, rec.snapshot())
 		if len(selected) != 1 {
 			t.Fatalf("compaction events before the summary call = %d, want 1", len(selected))
@@ -77,9 +83,9 @@ func TestCompactWithFallbackEmitsSelectionBeforeSummary(t *testing.T) {
 		return CompactionOutcome{Applied: true}, nil
 	}
 
-	outcome, err := compactWithFallback(context.Background(), req, RunState{}, 3, run)
+	outcome, err := compactWithFallbackAnnounced(context.Background(), req, RunState{}, 3, run)
 	if err != nil {
-		t.Fatalf("compactWithFallback() error = %v, want nil", err)
+		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
 	}
 
 	payloads := compactionEventPayloads(t, rec.snapshot())
@@ -201,6 +207,59 @@ func TestCompactWithFallbackNoSelectionEventWhenWarm(t *testing.T) {
 	}
 	if outcome.CompactionModelAlias != "" {
 		t.Errorf("CompactionModelAlias = %q, want empty for a warm cache", outcome.CompactionModelAlias)
+	}
+}
+
+// TestSummarizeCompactionStagesSelectionEmittedOnce proves a fallback operation
+// whose normal and emergency stages both pass the fit check announces the
+// selection once, before the first summary call.
+func TestSummarizeCompactionStagesSelectionEmittedOnce(t *testing.T) {
+	t.Parallel()
+	mainReq := compactionFallbackSummaryFixture(&fakeProvider{}, &testRecorder{})
+	targetProv := &fakeProvider{responses: []provider.ChatResponse{compactionFallbackSummaryResponse(false), compactionFallbackSummaryResponse(false)}}
+	target := compactionFallbackSummaryTarget(targetProv, compactionFallbackSummaryBudget())
+	fallback, err := compactionFallbackRequest(mainReq, target)
+	if err != nil {
+		t.Fatalf("compactionFallbackRequest() error = %v", err)
+	}
+	var rec eventRecorder
+	announce := &compactionFallbackAnnouncement{sink: rec.sink(), turn: 1, model: compactionModelName(target.ResolvedModel), reason: "no recent request"}
+	// Five turns leave a source for the normal stage (it keeps three turns) and
+	// for the emergency stage (it keeps one turn of the normal result).
+	msgs := []Message{
+		{Role: MessageRoleUser, Content: "question 1"}, {Role: MessageRoleAssistant, Content: "answer 1"},
+		{Role: MessageRoleUser, Content: "question 2"}, {Role: MessageRoleAssistant, Content: "answer 2"},
+		{Role: MessageRoleUser, Content: "question 3"}, {Role: MessageRoleAssistant, Content: "answer 3"},
+		{Role: MessageRoleUser, Content: "question 4"}, {Role: MessageRoleAssistant, Content: "answer 4"},
+		{Role: MessageRoleUser, Content: "question 5"}, {Role: MessageRoleAssistant, Content: "answer 5"},
+	}
+	state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
+	candidate := ConversationCandidate{Messages: msgs}
+
+	fitCalls := 0
+	stages := summarizeCompactionStages{
+		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
+			params.announce = announce
+			return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
+		},
+		// The normal result needs emergency compaction; the emergency result fits.
+		fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+			fitCalls++
+			if fitCalls == 1 {
+				return prompt.RequestTokenBudget{ContextSize: 4000, PromptUsage: 1}, nil
+			}
+			return prompt.RequestTokenBudget{ContextSize: 4000, PromptUsage: 0.1, Fits: true}, nil
+		},
+		summaryReq: &fallback,
+	}
+	if _, err := stages.run(context.Background(), mainReq, state, 1, candidate); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if got := len(targetProv.requests); got != 2 {
+		t.Fatalf("target provider requests = %d, want 2 (normal and emergency)", got)
+	}
+	if got := len(compactionEventPayloads(t, rec.snapshot())); got != 1 {
+		t.Errorf("selection events = %d, want 1 across both stages", got)
 	}
 }
 

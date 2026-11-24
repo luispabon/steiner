@@ -152,15 +152,50 @@ func compactionFallbackRequest(req RunRequest, target CompactionTarget) (RunRequ
 // the summary calls on main; otherwise they run on summaryReq.
 type compactionRun func(summaryReq *RunRequest) (CompactionOutcome, error)
 
-// compactWithFallback runs one compaction operation on the fallback target when
-// selectCompactionFallback selects it for state's last main request, and on main
-// otherwise. A selected target is announced on turn with a compacting event
-// before its summary calls. A failed target attempt is discarded and the
-// operation reruns once on main from the original state. Cancellation and run
-// limit timeouts return the error without a rerun.
+// compactionAnnouncedRun is compactionRun that also receives the fallback
+// announcement for its summary stages. announce is nil when the summary calls
+// run on main.
+type compactionAnnouncedRun func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error)
+
+// compactionFallbackAnnouncement emits the selected fallback event at most once
+// per compaction operation. Stages run one after another, so emitted needs no
+// lock. A nil announcement emits nothing.
+type compactionFallbackAnnouncement struct {
+	sink    output.EventSink
+	turn    int
+	model   string
+	alias   string
+	reason  string
+	emitted bool
+}
+
+// announce emits the selected fallback event on the first call. The summary
+// stage calls it once its fallback fit check passes, just before the summary call.
+func (a *compactionFallbackAnnouncement) announce() {
+	if a == nil || a.emitted {
+		return
+	}
+	a.emitted = true
+	emitCompactionFallbackSelectedEvent(a.sink, a.turn, a.model, a.alias, a.reason)
+}
+
+// compactWithFallback runs compactWithFallbackAnnounced for a run that does not
+// use the fallback announcement.
 func compactWithFallback(ctx context.Context, req RunRequest, state RunState, turn int, run compactionRun) (CompactionOutcome, error) {
+	return compactWithFallbackAnnounced(ctx, req, state, turn, func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
+		return run(summaryReq)
+	})
+}
+
+// compactWithFallbackAnnounced runs one compaction operation on the fallback target when
+// selectCompactionFallback selects it for state's last main request, and on main
+// otherwise. A selected target passes its announcement to run, which emits the
+// selected event once a summary stage passes its fit check. A failed target attempt
+// is discarded and the operation reruns once on main from the original state.
+// Cancellation and run limit timeouts return the error without a rerun.
+func compactWithFallbackAnnounced(ctx context.Context, req RunRequest, state RunState, turn int, run compactionAnnouncedRun) (CompactionOutcome, error) {
 	if !compactionFallbackEnabled(req.CompactionFallback) {
-		return run(nil)
+		return run(nil, nil)
 	}
 	now := requestNow(req)
 	target, selected, err := selectCompactionFallback(ctx, req, state.LastMainRequest, now)
@@ -168,11 +203,19 @@ func compactWithFallback(ctx context.Context, req RunRequest, state RunState, tu
 		return compactionOnMainAfterFallback(ctx, req, run, err)
 	}
 	if !selected {
-		return run(nil)
+		return run(nil, nil)
 	}
 	reason := compactionUsedReason(now, state.LastMainRequest, req.CompactionFallback.After)
-	emitCompactionFallbackSelectedEvent(req.Events, turn, compactionModelName(target.ResolvedModel), compactionModelAlias(target.ResolvedModel), reason)
-	outcome, err := runCompactionOnTarget(req, target, run)
+	announce := &compactionFallbackAnnouncement{
+		sink:   req.Events,
+		turn:   turn,
+		model:  compactionModelName(target.ResolvedModel),
+		alias:  compactionModelAlias(target.ResolvedModel),
+		reason: reason,
+	}
+	outcome, err := runCompactionOnTarget(req, target, func(summaryReq *RunRequest) (CompactionOutcome, error) {
+		return run(summaryReq, announce)
+	})
 	if err != nil {
 		return compactionOnMainAfterFallback(ctx, req, run, err)
 	}
@@ -207,11 +250,11 @@ func runCompactionOnTarget(req RunRequest, target CompactionTarget, run compacti
 // compactionOnMainAfterFallback discards a failed fallback attempt and reruns the
 // operation on main. It returns fallbackErr without a rerun when the attempt was
 // canceled or hit a run limit timeout.
-func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run compactionRun, fallbackErr error) (CompactionOutcome, error) {
+func compactionOnMainAfterFallback(ctx context.Context, req RunRequest, run compactionAnnouncedRun, fallbackErr error) (CompactionOutcome, error) {
 	if ctx.Err() != nil || errors.Is(fallbackErr, context.Canceled) {
 		return CompactionOutcome{}, hideFallbackRetirement(fallbackErr)
 	}
-	outcome, err := run(nil)
+	outcome, err := run(nil, nil)
 	if err != nil {
 		// The main rerun reports its own backend state clear, carried on the
 		// outcome and marked on the error. The discarded fallback attempt never

@@ -21,6 +21,8 @@ type summarizeCompactionStageParams struct {
 	steering         string
 	// summaryReq is the request the summary call runs on. Nil means main.
 	summaryReq *RunRequest
+	// announce emits the selected fallback event once the fit check passes. Nil on main.
+	announce *compactionFallbackAnnouncement
 }
 
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
@@ -32,10 +34,11 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
-	return compactWithFallback(ctx, req, state, turn, func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	return compactWithFallbackAnnounced(ctx, req, state, turn, func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		return summarizeCompactionStages{
 			stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
 				params.steering = steering
+				params.announce = announce
 				return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
 			},
 			fitRunner:  fitConversationState,
@@ -321,6 +324,9 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
 	}
 
+	// The fallback selection is announced only once its fit check passed. Nil
+	// announce on main makes this a no-op.
+	params.announce.announce()
 	summary := compactionSummaryRequest(req, params.summaryReq)
 	// Only a main summary retires the main generation's backend state, so only
 	// it carries the request-scoped retirement signal. A fallback summary runs
