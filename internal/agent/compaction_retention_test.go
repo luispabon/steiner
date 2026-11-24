@@ -155,12 +155,12 @@ func subAgentPairMessages() []Message {
 }
 
 // summaryProvider returns a fakeProvider whose first summary is first and whose
-// later summaries are later.
-func summaryProvider(first, later string) *fakeProvider {
+// later summaries are the emergency handoff text.
+func summaryProvider(first string) *fakeProvider {
 	calls := 0
 	return &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
 		calls++
-		content := later
+		content := "emergency handoff text"
 		if calls == 1 {
 			content = first
 		}
@@ -263,7 +263,7 @@ func TestCompactionHugeSummaryEscalatesFromSmallTail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			providerStub := summaryProvider(tt.summary, "emergency handoff text")
+			providerStub := summaryProvider(tt.summary)
 			messages := retentionFixtureMessages()
 			outcome := compactState(t, retentionFixtureRequest(4930, providerStub), RunState{Conversation: messages, Lineage: newConversationLineage(messages)})
 			if !outcome.Applied {
@@ -316,7 +316,7 @@ func TestCompactionParallelToolResultsKeepPairsUnderStepDown(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			providerStub := summaryProvider("summary handoff text", "emergency handoff text")
+			providerStub := summaryProvider("summary handoff text")
 			messages := parallelToolMessages()
 			outcome := compactState(t, retentionFixtureRequest(tt.contextSize, providerStub), RunState{Conversation: messages, Lineage: newConversationLineage(messages)})
 			if outcome.Mode != tt.wantMode || outcome.StageCount != tt.wantStages {
@@ -367,7 +367,7 @@ func TestCompactionSubAgentResultKeepsItsPairUnderStepDown(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			providerStub := summaryProvider("summary handoff text", "emergency handoff text")
+			providerStub := summaryProvider("summary handoff text")
 			messages := subAgentPairMessages()
 			outcome := compactState(t, retentionFixtureRequest(tt.contextSize, providerStub), RunState{Conversation: messages, Lineage: newConversationLineage(messages)})
 			if outcome.Mode != tt.wantMode || outcome.StageCount != tt.wantStages {
@@ -411,7 +411,7 @@ func TestCompactionShrinkingTailMovesNewestUserIntoSource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			messages := retentionFixtureMessages()
-			req := retentionFixtureRequest(tt.contextSize, summaryProvider("summary handoff text", "emergency handoff text"))
+			req := retentionFixtureRequest(tt.contextSize, summaryProvider("summary handoff text"))
 			state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
 			source, _, _, ok, err := selectRetention(context.Background(), req, state, messages, messages, prompt.CompactionModeNormal, normalCompactionRetainTurns)
 			if err != nil || !ok {
