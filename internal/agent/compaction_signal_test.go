@@ -215,9 +215,9 @@ func TestCompactWithFallbackHidesTargetRetirementWhenCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	outcome, err := compactWithFallbackAnnounced(ctx, req, RunState{}, 1, run)
+	outcome, err := compactWithFallback(ctx, req, RunState{}, 1, run)
 	if !errors.Is(err, targetErr) {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want it to wrap %v", err, targetErr)
+		t.Fatalf("compactWithFallback() error = %v, want it to wrap %v", err, targetErr)
 	}
 	if provider.BackendStateRetired(err) {
 		t.Error("provider.BackendStateRetired(error) = true, want a fallback target retirement hidden")
@@ -241,9 +241,9 @@ func TestCompactWithFallbackDropsTargetClearFlag(t *testing.T) {
 		return CompactionOutcome{Applied: true, BackendStateCleared: true}, nil
 	}
 
-	outcome, err := compactWithFallbackAnnounced(context.Background(), req, RunState{}, 1, run)
+	outcome, err := compactWithFallback(context.Background(), req, RunState{}, 1, run)
 	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v", err)
+		t.Fatalf("compactWithFallback() error = %v", err)
 	}
 	if !outcome.Applied {
 		t.Error("Applied = false, want the fallback summary")

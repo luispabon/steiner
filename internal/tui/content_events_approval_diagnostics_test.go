@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -627,9 +628,14 @@ func TestCompactionCompactingEventShowsFallbackModel(t *testing.T) {
 		}
 		return stripANSI(skipped.compactionBoxRows(skipped.segments[0].compactionData, 120)[0])
 	}
+	// Pin the clock so the started elapsed text is fixed at 0ms.
+	started := time.Unix(1_800_000_000, 0)
+	skipped.clock = func() time.Time { return started }
 	skipped.handleCompactionDiagnostics(output.ContextCompactionEvent{Severity: "compacting", CompactionCount: 2})
-	if header := skippedHeader(); strings.Contains(header, "haiku") {
-		t.Errorf("started header = %q, want no fallback alias", header)
+	// Fields collapses the padding that separates the left and right header groups.
+	const wantStarted = "▸ compaction summarizing context 0ms · #2 ⠋"
+	if header := strings.Join(strings.Fields(skippedHeader()), " "); header != wantStarted {
+		t.Errorf("started header = %q, want %q", header, wantStarted)
 	}
 	skipped.handleCompactionDiagnostics(output.ContextCompactionEvent{
 		Severity:             "ok",

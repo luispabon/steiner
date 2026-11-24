@@ -179,13 +179,13 @@ func (a *compactionFallbackAnnouncement) announce() {
 	emitCompactionFallbackSelectedEvent(a.sink, a.turn, a.model, a.alias, a.reason)
 }
 
-// compactWithFallbackAnnounced runs one compaction operation on the fallback target when
+// compactWithFallback runs one compaction operation on the fallback target when
 // selectCompactionFallback selects it for state's last main request, and on main
 // otherwise. A selected target passes its announcement to run, which emits the
 // selected event once a summary stage passes its fit check. A failed target attempt
 // is discarded and the operation reruns once on main from the original state.
 // Cancellation and run limit timeouts return the error without a rerun.
-func compactWithFallbackAnnounced(ctx context.Context, req RunRequest, state RunState, turn int, run compactionAnnouncedRun) (CompactionOutcome, error) {
+func compactWithFallback(ctx context.Context, req RunRequest, state RunState, turn int, run compactionAnnouncedRun) (CompactionOutcome, error) {
 	if !compactionFallbackEnabled(req.CompactionFallback) {
 		return run(nil, nil)
 	}

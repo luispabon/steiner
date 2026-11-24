@@ -2,11 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/luispabon/steiner/internal/output"
-	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -40,92 +40,6 @@ func selectionTestTarget() CompactionTarget {
 	}
 }
 
-// TestCompactWithFallbackEmitsSelectionBeforeSummary proves a selected fallback
-// is announced on the compaction turn when its summary stage passes the fit check,
-// before the summary call runs, carrying the canonical model, the configured
-// alias, the used status and the reason. The operation itself emits nothing.
-func TestCompactWithFallbackEmitsSelectionBeforeSummary(t *testing.T) {
-	t.Parallel()
-	now := fallbackOperationNow
-	var rec eventRecorder
-	req := RunRequest{
-		ResolvedModel: provider.ResolvedModel{ProviderAlias: "openai", BackendModelID: "gpt-main"},
-		Clock:         fixedCompactionClock{now: now},
-		Events:        rec.sink(),
-		CompactionFallback: CompactionFallback{
-			After: 5 * time.Minute,
-			Ref:   "ds-flash",
-			Resolve: func(context.Context) (CompactionTarget, error) {
-				return selectionTestTarget(), nil
-			},
-		},
-	}
-
-	run := func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error) {
-		if summaryReq == nil || announce == nil {
-			t.Fatal("run did not get the fallback target and its announcement")
-		}
-		if events := rec.snapshot(); len(events) != 0 {
-			t.Fatalf("events before the fit check = %d, want 0", len(events))
-		}
-		// A passing fit check announces the selection just before the summary call.
-		announce.announce()
-		selected := compactionEventPayloads(t, rec.snapshot())
-		if len(selected) != 1 {
-			t.Fatalf("compaction events before the summary call = %d, want 1", len(selected))
-		}
-		if got := selected[0].Severity; got != "compacting" {
-			t.Errorf("selection severity = %q, want %q", got, "compacting")
-		}
-		if got := selected[0].FallbackStatus; got != output.CompactionFallbackUsed {
-			t.Errorf("selection FallbackStatus = %q, want %q", got, output.CompactionFallbackUsed)
-		}
-		return CompactionOutcome{Applied: true}, nil
-	}
-
-	outcome, err := compactWithFallbackAnnounced(context.Background(), req, RunState{}, 3, run)
-	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
-	}
-
-	payloads := compactionEventPayloads(t, rec.snapshot())
-	events := rec.snapshot()
-	if len(events) != 1 {
-		t.Fatalf("events = %d, want exactly the selection event", len(events))
-	}
-	if len(payloads) != 1 {
-		t.Fatalf("compaction events = %d, want 1", len(payloads))
-	}
-	payload := payloads[0]
-	if payload.Severity != "compacting" {
-		t.Errorf("Severity = %q, want %q", payload.Severity, "compacting")
-	}
-	if payload.Scope != "conversation" {
-		t.Errorf("Scope = %q, want %q", payload.Scope, "conversation")
-	}
-	if payload.Turn != 3 {
-		t.Errorf("Turn = %d, want 3", payload.Turn)
-	}
-	if want := "opencode-go/deepseek-v4.1-flash"; payload.CompactionModel != want {
-		t.Errorf("CompactionModel = %q, want %q", payload.CompactionModel, want)
-	}
-	if payload.CompactionModelAlias != "ds-flash" {
-		t.Errorf("CompactionModelAlias = %q, want %q", payload.CompactionModelAlias, "ds-flash")
-	}
-	if payload.FallbackStatus != output.CompactionFallbackUsed {
-		t.Errorf("FallbackStatus = %q, want %q", payload.FallbackStatus, output.CompactionFallbackUsed)
-	}
-	if payload.FallbackReason != "no recent request" {
-		t.Errorf("FallbackReason = %q, want %q", payload.FallbackReason, "no recent request")
-	}
-	if got := outcome.CompactionModelAlias; got != "ds-flash" {
-		t.Errorf("outcome.CompactionModelAlias = %q, want %q", got, "ds-flash")
-	}
-	if want := "opencode-go/deepseek-v4.1-flash"; outcome.CompactionModel != want {
-		t.Errorf("outcome.CompactionModel = %q, want %q", outcome.CompactionModel, want)
-	}
-}
-
 // TestCompactWithFallbackSelectedWithoutEventSink proves a selected fallback
 // still runs its summary on the target when the request has no event sink.
 func TestCompactWithFallbackSelectedWithoutEventSink(t *testing.T) {
@@ -151,9 +65,9 @@ func TestCompactWithFallbackSelectedWithoutEventSink(t *testing.T) {
 		return CompactionOutcome{Applied: true}, nil
 	}
 
-	outcome, err := compactWithFallbackAnnounced(context.Background(), req, RunState{}, 3, run)
+	outcome, err := compactWithFallback(context.Background(), req, RunState{}, 3, run)
 	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
 	}
 	if !ran {
 		t.Error("run did not execute, want the fallback operation")
@@ -192,9 +106,9 @@ func TestCompactWithFallbackNoSelectionEventWhenWarm(t *testing.T) {
 		return CompactionOutcome{Applied: true}, nil
 	}
 
-	outcome, err := compactWithFallbackAnnounced(context.Background(), req, state, 3, run)
+	outcome, err := compactWithFallback(context.Background(), req, state, 3, run)
 	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
 	}
 	if !ran {
 		t.Error("run did not execute, want the main operation")
@@ -210,56 +124,71 @@ func TestCompactWithFallbackNoSelectionEventWhenWarm(t *testing.T) {
 	}
 }
 
-// TestSummarizeCompactionStagesSelectionEmittedOnce proves a fallback operation
-// whose normal and emergency stages both pass the fit check announces the
-// selection once, before the first summary call.
-func TestSummarizeCompactionStagesSelectionEmittedOnce(t *testing.T) {
+// TestTwoStageSummarizeCompactionEmitsSelectionOnce proves a fallback operation
+// whose normal and emergency summary calls both run on the fallback announces
+// the selection once, before the first summary call.
+func TestTwoStageSummarizeCompactionEmitsSelectionOnce(t *testing.T) {
 	t.Parallel()
-	mainReq := compactionFallbackSummaryFixture(&fakeProvider{}, &testRecorder{})
-	targetProv := &fakeProvider{responses: []provider.ChatResponse{compactionFallbackSummaryResponse(false), compactionFallbackSummaryResponse(false)}}
-	target := compactionFallbackSummaryTarget(targetProv, compactionFallbackSummaryBudget())
-	fallback, err := compactionFallbackRequest(mainReq, target)
-	if err != nil {
-		t.Fatalf("compactionFallbackRequest() error = %v", err)
-	}
+	r := newFallbackOperationRun(fallbackOperationNow)
+	r.resolved.ResolvedModel.Alias = "ds-flash"
 	var rec eventRecorder
-	announce := &compactionFallbackAnnouncement{sink: rec.sink(), turn: 1, model: compactionModelName(target.ResolvedModel), reason: "no recent request"}
-	// Five turns leave a source for the normal stage (it keeps three turns) and
-	// for the emergency stage (it keeps one turn of the normal result).
-	msgs := []Message{
-		{Role: MessageRoleUser, Content: "question 1"}, {Role: MessageRoleAssistant, Content: "answer 1"},
-		{Role: MessageRoleUser, Content: "question 2"}, {Role: MessageRoleAssistant, Content: "answer 2"},
-		{Role: MessageRoleUser, Content: "question 3"}, {Role: MessageRoleAssistant, Content: "answer 3"},
-		{Role: MessageRoleUser, Content: "question 4"}, {Role: MessageRoleAssistant, Content: "answer 4"},
-		{Role: MessageRoleUser, Content: "question 5"}, {Role: MessageRoleAssistant, Content: "answer 5"},
+	r.req.Events = rec.sink()
+	responses := fallbackOperationResponses()
+	var selectedAtSummary []int
+	r.target.chatFn = func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		selectedAtSummary = append(selectedAtSummary, len(compactionEventPayloads(t, rec.snapshot())))
+		if len(responses) == 0 {
+			return provider.ChatResponse{}, errors.New("unexpected target summary call")
+		}
+		resp := responses[0]
+		responses = responses[1:]
+		return resp, nil
 	}
-	state := RunState{Conversation: msgs, Lineage: newConversationLineage(msgs)}
-	candidate := ConversationCandidate{Messages: msgs}
 
-	fitCalls := 0
-	stages := summarizeCompactionStages{
-		stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
-			params.announce = announce
-			return summarizeCompactionStage(ctx, req, state, turn, candidate, params)
-		},
-		// The normal result needs emergency compaction; the emergency result fits.
-		fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
-			fitCalls++
-			if fitCalls == 1 {
-				return prompt.RequestTokenBudget{ContextSize: 4000, PromptUsage: 1}, nil
-			}
-			return prompt.RequestTokenBudget{ContextSize: 4000, PromptUsage: 0.1, Fits: true}, nil
-		},
-		summaryReq: &fallback,
+	outcome, err := r.compact(context.Background())
+	if err != nil {
+		t.Fatalf("compact() error = %v", err)
 	}
-	if _, err := stages.run(context.Background(), mainReq, state, 1, candidate); err != nil {
-		t.Fatalf("run() error = %v", err)
+	if outcome.StageCount != 2 {
+		t.Fatalf("StageCount = %d, want 2 (normal and emergency)", outcome.StageCount)
 	}
-	if got := len(targetProv.requests); got != 2 {
-		t.Fatalf("target provider requests = %d, want 2 (normal and emergency)", got)
+	if len(selectedAtSummary) != 2 {
+		t.Fatalf("target summary calls = %d, want 2", len(selectedAtSummary))
 	}
-	if got := len(compactionEventPayloads(t, rec.snapshot())); got != 1 {
-		t.Errorf("selection events = %d, want 1 across both stages", got)
+	for i, n := range selectedAtSummary {
+		if n != 1 {
+			t.Errorf("summary call %d saw %d selection events, want 1", i+1, n)
+		}
+	}
+	if got := len(r.main.requests); got != 0 {
+		t.Errorf("main requests = %d, want 0", got)
+	}
+
+	selected := compactionEventPayloads(t, rec.snapshot())
+	if len(selected) != 1 {
+		t.Fatalf("selection events = %d, want 1 across both stages", len(selected))
+	}
+	payload := selected[0]
+	if payload.Severity != "compacting" {
+		t.Errorf("Severity = %q, want %q", payload.Severity, "compacting")
+	}
+	if payload.Turn != 5 {
+		t.Errorf("Turn = %d, want 5", payload.Turn)
+	}
+	if payload.CompactionModel != fallbackOperationTargetRef {
+		t.Errorf("CompactionModel = %q, want %q", payload.CompactionModel, fallbackOperationTargetRef)
+	}
+	if payload.FallbackStatus != output.CompactionFallbackUsed {
+		t.Errorf("FallbackStatus = %q, want %q", payload.FallbackStatus, output.CompactionFallbackUsed)
+	}
+	if payload.FallbackReason != "no recent request" {
+		t.Errorf("FallbackReason = %q, want %q", payload.FallbackReason, "no recent request")
+	}
+	if payload.CompactionModelAlias != "ds-flash" {
+		t.Errorf("CompactionModelAlias = %q, want %q", payload.CompactionModelAlias, "ds-flash")
+	}
+	if got := outcome.CompactionModelAlias; got != "ds-flash" {
+		t.Errorf("outcome.CompactionModelAlias = %q, want %q", got, "ds-flash")
 	}
 }
 

@@ -380,9 +380,9 @@ func TestCompactionFallbackNotAppliedIsNotLabeledUsed(t *testing.T) {
 		}
 		return CompactionOutcome{}, nil
 	}
-	outcome, err := compactWithFallbackAnnounced(context.Background(), r.req, state, 1, run)
+	outcome, err := compactWithFallback(context.Background(), r.req, state, 1, run)
 	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
 	}
 	if outcome.FallbackStatus != "" {
 		t.Errorf("FallbackStatus = %q, want empty for a fallback that applied nothing", outcome.FallbackStatus)
@@ -405,9 +405,9 @@ func TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing(t *testing.T)
 		}
 		return CompactionOutcome{}, nil
 	}
-	outcome, err := compactWithFallbackAnnounced(context.Background(), r.req, state, 1, run)
+	outcome, err := compactWithFallback(context.Background(), r.req, state, 1, run)
 	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want nil", err)
+		t.Fatalf("compactWithFallback() error = %v, want nil", err)
 	}
 	if outcome.Applied {
 		t.Error("outcome.Applied = true, want false when main applies nothing")

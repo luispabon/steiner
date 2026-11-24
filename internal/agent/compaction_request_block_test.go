@@ -1011,9 +1011,9 @@ func TestSummarizeCompactionStagesFallbackProviderErrorRerunsOnMain(t *testing.T
 		}.run(context.Background(), run.req, run.state, 5, ConversationCandidate{Messages: run.state.Conversation})
 	}
 
-	outcome, err := compactWithFallbackAnnounced(context.Background(), run.req, run.state, 5, compaction)
+	outcome, err := compactWithFallback(context.Background(), run.req, run.state, 5, compaction)
 	if err != nil {
-		t.Fatalf("compactWithFallbackAnnounced() error = %v, want the main rerun to succeed", err)
+		t.Fatalf("compactWithFallback() error = %v, want the main rerun to succeed", err)
 	}
 	if mainReruns != 1 {
 		t.Errorf("main reruns = %d, want 1", mainReruns)

@@ -111,7 +111,7 @@ Compaction runs when the context is too large. Two limits apply:
 
 `RunRequest.CompactionFallback` names a second model for compaction summary calls. The zero value disables it. The CLI runner sets it per run request (`cliRunner.compactionFallback`, `cmd/steiner/runner_run.go`), and delegated children set it through `delegation.NewCompactionFallback` (`internal/delegation/compaction_fallback.go`, called from `internal/delegation/bootstrap.go`). Config fields are in the [configuration internals](configuration.md#compaction-fallback).
 
-Selection (`compactWithFallbackAnnounced`, `internal/agent/compaction_fallback.go`):
+Selection (`compactWithFallback`, `internal/agent/compaction_fallback.go`):
 
 - Selection runs once per compaction operation. The whole two-stage operation (normal, then emergency when needed) runs on the same target, and both stages share one summary request.
 - Nothing is read or resolved when `CompactionFallback.After` is not positive or `Resolve` is nil.
@@ -161,7 +161,7 @@ Backend isolation (`compactionFallbackRequest`):
 
 - The fallback request is a copy of the run request, used for summary calls only. It takes the target's provider, resolved model, budget, and compaction prompt override. Tools, conversations, and string lists are cloned. It clears `ParentTransportSession`, sets `CacheBaseline` to nil, and clears `CompactionFallback`. It is marked `compactionFallbackTarget`, and it is never passed to `Runner.Run`.
 - Provider, executor, context manager, event sink, and `DrainInbox` are shared with the main run.
-- `buildCompactionRequestWithMode` sets `BackendState` to nil for fallback targets, so a fallback summary does not send the main generation's backend state. The retirement signal, `ClearBackendState`, and `BackendStateCleared` apply only to main summaries: `compactWithFallbackAnnounced` discards a fallback outcome's clear, and `hideFallbackRetirement` hides a fallback error's marker when cancellation returns that error. `TransportSession` comes from `compactionFallbackIdentity` when the main session is set, and a fresh random key otherwise, so a stateful provider never treats a fallback summary as the main session.
+- `buildCompactionRequestWithMode` sets `BackendState` to nil for fallback targets, so a fallback summary does not send the main generation's backend state. The retirement signal, `ClearBackendState`, and `BackendStateCleared` apply only to main summaries: `compactWithFallback` discards a fallback outcome's clear, and `hideFallbackRetirement` hides a fallback error's marker when cancellation returns that error. `TransportSession` comes from `compactionFallbackIdentity` when the main session is set, and a fresh random key otherwise, so a stateful provider never treats a fallback summary as the main session.
 - Fallback calls write `cold_start` false and leave the process-wide cold-start latch alone (`emitCacheDiagnostic`).
 - Cache and transport identities for the fallback request are in [prompt caching internals](prompt-caching.md#compaction-fallback-identities).
 
