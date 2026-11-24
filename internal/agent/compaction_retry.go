@@ -11,11 +11,13 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// maxSummaryAttempts is the number of summary calls one main-model stage makes:
-// the first call plus two tail-only retries. A fallback target makes one call and
-// reruns on main. Worst case per operation: the normal stage makes up to one
-// fallback call and three main calls. The emergency stage, reached only when the
-// normal stage did not fail with an error, makes up to three more main calls.
+// maxSummaryAttempts is the summary calls one main-model stage makes at most: the
+// first call plus two tail-only retries. A fallback target makes one call per
+// stage and never retries. Worst case per operation with a fallback selected: up
+// to 2 fallback calls (normal, then emergency after an applied normal stage), then
+// a main rerun of up to 6 calls (3 normal, then 3 emergency), so 8 in total.
+// Without a fallback, an operation makes up to 6 main calls. An empty normal stage
+// returns its error before the emergency stage runs.
 const maxSummaryAttempts = 3
 
 // Caps on the tool calls quoted into a final retry. Arguments can be large or
