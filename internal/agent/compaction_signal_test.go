@@ -205,7 +205,7 @@ func TestCompactWithFallbackHidesTargetRetirementWhenCanceled(t *testing.T) {
 	req.CompactionFallback.Resolve = func(context.Context) (CompactionTarget, error) {
 		return compactionFallbackSummaryTarget(&fakeProvider{}, compactionFallbackSummaryBudget()), nil
 	}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq != nil {
 			return CompactionOutcome{}, targetErr
 		}
@@ -234,7 +234,7 @@ func TestCompactWithFallbackDropsTargetClearFlag(t *testing.T) {
 	req.CompactionFallback.Resolve = func(context.Context) (CompactionTarget, error) {
 		return compactionFallbackSummaryTarget(&fakeProvider{}, compactionFallbackSummaryBudget()), nil
 	}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq == nil {
 			t.Error("run used main, want the fallback target")
 		}

@@ -351,7 +351,7 @@ func TestCompactWithFallbackKeepsOnlyMainClear(t *testing.T) {
 				},
 			}
 			state := RunState{LastMainRequest: LastMainRequest{At: now.Add(-time.Hour)}}
-			run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+			run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 				if summaryReq != nil {
 					return CompactionOutcome{BackendStateCleared: tt.targetClear}, fallbackErr
 				}

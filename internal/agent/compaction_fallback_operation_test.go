@@ -374,7 +374,7 @@ func TestCompactionFallbackNotAppliedIsNotLabeledUsed(t *testing.T) {
 	t.Parallel()
 	r := newFallbackOperationRun(fallbackOperationNow)
 	state := RunState{LastMainRequest: LastMainRequest{At: fallbackOperationNow.Add(-time.Hour)}}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq == nil {
 			return CompactionOutcome{}, errors.New("run used main, want the fallback target")
 		}
@@ -399,7 +399,7 @@ func TestCompactionFallbackFailureReasonKeptWhenMainAppliesNothing(t *testing.T)
 	t.Parallel()
 	r := newFallbackOperationRun(fallbackOperationNow)
 	state := RunState{LastMainRequest: LastMainRequest{At: fallbackOperationNow.Add(-time.Hour)}}
-	run := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	run := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq != nil {
 			return CompactionOutcome{}, errors.New("target unavailable")
 		}
@@ -550,12 +550,14 @@ func TestCompactWithLineageFallbackSeed(t *testing.T) {
 
 // TestCompactWithLineageFallbackSkippedEvent checks the diagnostic of a discarded
 // fallback: main produces the summary, and the event names main with the fallback reason.
+// Only a target whose summary passed the fit check announces its selection.
 func TestCompactWithLineageFallbackSkippedEvent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name       string
-		setup      func(r *fallbackOperationRun)
-		wantReason string
+		name         string
+		setup        func(r *fallbackOperationRun)
+		wantReason   string
+		wantSelected int // compacting events that name the fallback target
 	}{
 		{
 			name: "target summary does not fit",
@@ -571,7 +573,8 @@ func TestCompactWithLineageFallbackSkippedEvent(t *testing.T) {
 					return provider.ChatResponse{}, errors.New("target unavailable")
 				}
 			},
-			wantReason: "fallback failed: target unavailable",
+			wantReason:   "fallback failed: target unavailable",
+			wantSelected: 1,
 		},
 	}
 	for _, tt := range tests {
@@ -592,6 +595,22 @@ func TestCompactWithLineageFallbackSkippedEvent(t *testing.T) {
 			}
 			if got := len(r.main.requests); got != 2 {
 				t.Errorf("main requests = %d, want 2 (rerun)", got)
+			}
+			selected := 0
+			for _, event := range events {
+				if event.Type != output.EventTypeContextDiagnostics || output.ContextDiagnosticKind(event.Payload) != "compaction" {
+					continue
+				}
+				diag, ok := output.AsContextCompactionEvent(event.Payload)
+				if !ok {
+					t.Fatalf("diagnostic payload type = %T, want output.ContextCompactionEvent", event.Payload)
+				}
+				if diag.Severity == "compacting" && diag.CompactionModel == fallbackOperationTargetRef {
+					selected++
+				}
+			}
+			if selected != tt.wantSelected {
+				t.Errorf("compacting events naming the fallback = %d, want %d", selected, tt.wantSelected)
 			}
 			payload := fallbackCompactionPayload(t, events)
 			if payload.CompactionModel != fallbackOperationMainRef {

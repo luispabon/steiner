@@ -984,7 +984,7 @@ func TestSummarizeCompactionStagesFallbackProviderErrorRerunsOnMain(t *testing.T
 	dense := prompt.RequestTokenBudget{Fits: true, ContextSize: 1000, PromptUsage: 0.9}
 	providerErr := errors.New("target emergency failed")
 	mainReruns := 0
-	compaction := func(summaryReq *RunRequest) (CompactionOutcome, error) {
+	compaction := func(summaryReq *RunRequest, _ *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		if summaryReq == nil {
 			mainReruns++
 			return CompactionOutcome{Applied: true, State: run.state, Fit: fits}, nil

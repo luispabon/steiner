@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/tui/theme"
@@ -392,7 +393,7 @@ func TestCompactionBannerFallbackFields(t *testing.T) {
 			wantModel:  "claude-haiku-5-5",
 			wantStatus: output.CompactionFallbackSkipped,
 			wantReason: "no fallback configured",
-			wantHeader: "fallback skipped",
+			wantHeader: "fallback skipped · claude-haiku-5-5",
 		},
 		{
 			name: "skipped severity",
@@ -615,6 +616,37 @@ func TestCompactionCompactingEventShowsFallbackModel(t *testing.T) {
 	}
 	if strings.Contains(header, "primary over budget") {
 		t.Errorf("header = %q, want the fallback reason kept to the detail rows", header)
+	}
+
+	// A skip names the main model. The started event carries no model, and the
+	// fallback alias must not show at either step.
+	skipped := newTestBuffer(t)
+	skippedHeader := func() string {
+		t.Helper()
+		if len(skipped.segments) != 1 {
+			t.Fatalf("segments = %d, want 1", len(skipped.segments))
+		}
+		return stripANSI(skipped.compactionBoxRows(skipped.segments[0].compactionData, 120)[0])
+	}
+	// Pin the clock so the started elapsed text is fixed at 0ms.
+	started := time.Unix(1_800_000_000, 0)
+	skipped.clock = func() time.Time { return started }
+	skipped.handleCompactionDiagnostics(output.ContextCompactionEvent{Severity: "compacting", CompactionCount: 2})
+	// Fields collapses the padding that separates the left and right header groups.
+	const wantStarted = "▸ compaction summarizing context 0ms · #2 ⠋"
+	if header := strings.Join(strings.Fields(skippedHeader()), " "); header != wantStarted {
+		t.Errorf("started header = %q, want %q", header, wantStarted)
+	}
+	skipped.handleCompactionDiagnostics(output.ContextCompactionEvent{
+		Severity:             "ok",
+		CompactionCount:      2,
+		CompactionModel:      "anthropic/claude-sonnet-5",
+		CompactionModelAlias: "sonnet",
+		FallbackStatus:       output.CompactionFallbackSkipped,
+		FallbackReason:       "fallback does not fit",
+	})
+	if header := skippedHeader(); strings.Contains(header, "haiku") || !strings.Contains(header, "fallback skipped · sonnet") {
+		t.Errorf("skipped header = %q, want it to contain %q and not the fallback alias", header, "fallback skipped · sonnet")
 	}
 }
 
