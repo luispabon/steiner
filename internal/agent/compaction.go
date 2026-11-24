@@ -93,6 +93,11 @@ type CompactionOutcome struct {
 	// pendingArchive holds the sources to append to the history archive once
 	// this outcome's state is adopted.
 	pendingArchive [][]Message
+	// pendingRecall holds the messages whose result bodies to archive for recall
+	// once this outcome's state is adopted, in message order across stages. It
+	// is independent of pendingArchive, which is conditional on the history
+	// archive reporting a note.
+	pendingRecall []Message
 }
 
 // compactionBackendStateRetiredError marks an error that followed a summary
@@ -267,6 +272,9 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 		return true, false, outcome.FallbackReason, nil
 	}
 
+	// Archive the removed result bodies first: they are snapshots of bodies this
+	// outcome drops, and a recall write failure must not abort the compaction.
+	archiveRecallEntries(ctx, req.RecallArchive, req.Events, outcome.pendingRecall)
 	*state = outcome.State
 	commitHistoryArchive(ctx, req, outcome.pendingArchive)
 	appendPendingSubAgentsLine(req, state)

@@ -114,6 +114,7 @@ func (s summarizeCompactionStages) run(
 		outcome.Usage, outcome.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, outcome)
 		outcome.SummarizedMessages += normalOutcome.SummarizedMessages
 		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
+		outcome.pendingRecall = append(normalOutcome.pendingRecall, outcome.pendingRecall...)
 		outcome.StageSizes = append(normalOutcome.StageSizes, outcome.StageSizes...)
 		return outcome, nil
 	}
@@ -126,6 +127,7 @@ func (s summarizeCompactionStages) run(
 		dropped.Usage, dropped.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, dropped)
 		dropped.SummarizedMessages += normalOutcome.SummarizedMessages
 		dropped.pendingArchive = append(normalOutcome.pendingArchive, dropped.pendingArchive...)
+		dropped.pendingRecall = append(normalOutcome.pendingRecall, dropped.pendingRecall...)
 		dropped.StageSizes = append(normalOutcome.StageSizes, dropped.StageSizes...)
 		return dropped, nil
 	}
@@ -381,12 +383,13 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 	summaryText := strings.TrimSpace(calls.response.Message.Content)
 
+	removedSource := stripRequestBlocks(params.sourceMessages)
 	var pendingArchive [][]Message
 	if req.HistoryArchive != nil {
 		// The archive note must not re-quote the verbatim request. The summary
 		// request itself keeps the block, because it replays this conversation
 		// exactly as a main request projects it, so the shared prefix stays cached.
-		summaryText, pendingArchive = withHistoryNote(req, summaryText, stripRequestBlocks(params.sourceMessages))
+		summaryText, pendingArchive = withHistoryNote(req, summaryText, removedSource)
 	}
 	summaryText = withRequestBlock(summaryText, requestBlock)
 
@@ -421,6 +424,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		CacheReportedInputTokens: calls.cacheReported,
 		BackendStateCleared:      cleared,
 		pendingArchive:           pendingArchive,
+		pendingRecall:            removedSource,
 		StageSizes:               []output.ContextCompactionStage{stage},
 	}, nil
 }
