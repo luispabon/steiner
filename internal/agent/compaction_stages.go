@@ -68,46 +68,13 @@ func (s summarizeCompactionStages) run(
 ) (CompactionOutcome, error) {
 	fullMessages := cloneMessages(candidate.Messages)
 	retentionBase := compactionRetentionBaseMessages(state.Lineage, candidate)
-	normalSource, normalRetained := compactionSourceAndRetention(fullMessages, retentionBase, normalCompactionRetainTurns)
-	emergencySource, emergencyRetained := compactionSourceAndRetention(fullMessages, retentionBase, emergencyCompactionRetainTurns)
-
 	summaryBudget := compactionSummaryRequest(req, s.summaryReq).ModelBudget
-	normalOutcome, err := s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{
-		sourceMessages:   normalSource,
-		retainedMessages: normalRetained,
-		mode:             prompt.CompactionModeNormal,
-		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeNormal),
-		summaryReq:       s.summaryReq,
-	})
+	normalOutcome, err := s.normalStage(ctx, req, state, turn, candidate, fullMessages, retentionBase, summaryBudget)
 	if err != nil {
 		return compactionFailedOutcome(normalOutcome, err)
 	}
 	if !normalOutcome.Applied {
-		if normalOutcome.BackendStateCleared {
-			// The normal summary retired the latest generation's backend state
-			// before applying nothing, so the emergency stage must not issue its
-			// summary against that retired state.
-			state.Lineage = state.Lineage.WithoutLatestBackendState()
-		}
-		emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
-		outcome, err := s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, summarizeCompactionStageParams{
-			sourceMessages:   emergencySource,
-			retainedMessages: emergencyRetained,
-			mode:             prompt.CompactionModeEmergency,
-			maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
-			summaryReq:       s.summaryReq,
-		})
-		outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
-		if err == nil {
-			outcome.StageCount = 1
-			return outcome, nil
-		}
-		if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome, err); ok {
-			dropped.StageCount = 1
-			return dropped, nil
-		}
-		outcome, err = compactionFailedOutcome(outcome, err)
-		return outcome, err
+		return s.emergencyAfterNormal(ctx, req, state, turn, candidate, normalOutcome, fullMessages, retentionBase, summaryBudget)
 	}
 
 	normalFit, err := s.fitRunner(ctx, req, normalOutcome.State)
@@ -120,12 +87,15 @@ func (s summarizeCompactionStages) run(
 		return normalOutcome, nil
 	}
 
-	emergencySource = normalOutcome.State.Conversation
+	postNormalMessages := normalOutcome.State.Conversation
 	emergencyRetentionBase := normalOutcome.State.Lineage.SummaryPrefixStrippedMessages()
 	if len(emergencyRetentionBase) == 0 {
-		emergencyRetentionBase = cloneMessages(emergencySource)
+		emergencyRetentionBase = cloneMessages(postNormalMessages)
 	}
-	emergencySource, emergencyRetained = compactionSourceAndRetention(emergencySource, emergencyRetentionBase, emergencyCompactionRetainTurns)
+	emergencySource, emergencyRetained, err := selectEmergencyRetention(ctx, req, normalOutcome.State, postNormalMessages, emergencyRetentionBase)
+	if err != nil {
+		return compactionFailedOutcome(normalOutcome, err)
+	}
 	emergencyCandidate := makeCompactionCandidate(normalOutcome.Candidate, emergencySource, emergencyRetained)
 	outcome, err := s.runStageAndFit(ctx, req, normalOutcome.State, turn, emergencyCandidate, summarizeCompactionStageParams{
 		sourceMessages:   emergencySource,
@@ -166,6 +136,66 @@ func (s summarizeCompactionStages) run(
 	}
 	outcome, err = compactionFailedOutcome(outcome, err)
 	return outcome, err
+}
+
+// emergencyAfterNormal runs the emergency stage when the normal stage applied
+// nothing. It is split out of run to keep run's cyclomatic complexity in bounds.
+func (s summarizeCompactionStages) emergencyAfterNormal(
+	ctx context.Context,
+	req RunRequest,
+	state RunState,
+	turn int,
+	candidate ConversationCandidate,
+	normalOutcome CompactionOutcome,
+	full, base []Message,
+	summaryBudget prompt.ModelTokenBudget,
+) (CompactionOutcome, error) {
+	if normalOutcome.BackendStateCleared {
+		// The normal summary retired the latest generation's backend state
+		// before applying nothing, so the emergency stage must not issue its
+		// summary against that retired state.
+		state.Lineage = state.Lineage.WithoutLatestBackendState()
+	}
+	emergencySource, emergencyRetained, err := selectEmergencyRetention(ctx, req, state, full, base)
+	if err != nil {
+		return compactionFailedOutcome(normalOutcome, err)
+	}
+	emergencyCandidate := makeCompactionCandidate(candidate, emergencySource, emergencyRetained)
+	outcome, err := s.runStageAndFit(ctx, req, state, turn, emergencyCandidate, summarizeCompactionStageParams{
+		sourceMessages:   emergencySource,
+		retainedMessages: emergencyRetained,
+		mode:             prompt.CompactionModeEmergency,
+		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
+		summaryReq:       s.summaryReq,
+	})
+	outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
+	if err == nil {
+		outcome.StageCount = 1
+		return outcome, nil
+	}
+	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, outcome, err); ok {
+		dropped.StageCount = 1
+		return dropped, nil
+	}
+	outcome, err = compactionFailedOutcome(outcome, err)
+	return outcome, err
+}
+
+// normalStage runs the normal stage on the newest normal tail that fits. With no
+// such tail it returns a zero outcome and makes no model call, so the caller falls
+// through to the emergency stage, as it does after a not-applied normal stage.
+func (s summarizeCompactionStages) normalStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, full, base []Message, summaryBudget prompt.ModelTokenBudget) (CompactionOutcome, error) {
+	source, retained, _, ok, err := selectRetention(ctx, req, state, full, base, prompt.CompactionModeNormal, normalCompactionRetainTurns)
+	if err != nil || !ok {
+		return CompactionOutcome{}, err
+	}
+	return s.stageRunner(ctx, req, state, turn, candidate, summarizeCompactionStageParams{
+		sourceMessages:   source,
+		retainedMessages: retained,
+		mode:             prompt.CompactionModeNormal,
+		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeNormal),
+		summaryReq:       s.summaryReq,
+	})
 }
 
 // runStageAndFit runs a single compaction stage and verifies it applied. An

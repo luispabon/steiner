@@ -699,9 +699,11 @@ func TestTwoStageSummarizeCompactionErrorsWhenEmergencyStageDoesNotApply(t *test
 		}),
 	}
 
+	// Tail selection measures the real prompt, so the window must hold it; the
+	// fake stages below still decide the outcome.
 	req := RunRequest{
 		ModelBudget: prompt.ModelTokenBudget{
-			ContextSize:               1000,
+			ContextSize:               100000,
 			MaxCompletionTokens:       128,
 			SafetyMarginTokens:        0,
 			SummaryMaxTokens:          64,
@@ -817,6 +819,209 @@ func TestSummarizeCompactorFailsWhenEmergencyTailCannotFit(t *testing.T) {
 	}
 	if got := len(providerStub.requests); got != 0 {
 		t.Fatalf("provider calls = %d, want 0 when retained tail cannot fit", got)
+	}
+}
+
+// retentionHugeOutput is a tool result large enough to dominate the prompt estimate.
+var retentionHugeOutput = strings.Repeat("tool output line 0123456789 ", 300)
+
+// retentionFixtureMessages returns four turns. The oldest turn's tool result is
+// huge, so the three-turn normal tail overflows, while the two-turn tail fits and
+// its source still fits the summary request.
+func retentionFixtureMessages() []Message {
+	return []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleUser, Content: "turn 2 user"},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant", ToolCalls: []ToolCall{{ID: "call-2", Name: "read"}}},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call-2", Content: retentionHugeOutput},
+		{Role: MessageRoleUser, Content: "turn 3 user"},
+		{Role: MessageRoleAssistant, Content: strings.Repeat("turn 3 assistant detail words ", 120)},
+		{Role: MessageRoleUser, Content: "turn 4 user"},
+		{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+	}
+}
+
+// retentionFixtureRequest returns a main request whose budget is fixed by
+// contextSize and the reserves used by the retention fixtures.
+func retentionFixtureRequest(contextSize int, providerStub *fakeProvider) RunRequest {
+	return RunRequest{
+		Provider:      providerStub,
+		ResolvedModel: provider.ResolvedModel{BackendModelID: "test-model"},
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               contextSize,
+			MaxCompletionTokens:       32,
+			NormalSummaryMaxTokens:    64,
+			EmergencySummaryMaxTokens: 16,
+		},
+	}
+}
+
+// TestSummarizeCompactorStepsDownWhenNormalTailOverflows is the regression test
+// for #1039: the three-unit normal tail overflows, so the stage must step down
+// to the largest fitting tail and summarize once instead of failing.
+func TestSummarizeCompactorStepsDownWhenNormalTailOverflows(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "summary handoff text"},
+			FinishReason: "stop",
+		}},
+	}
+	messages := retentionFixtureMessages()
+	state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	req := retentionFixtureRequest(5060, providerStub)
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v, want the two-turn tail to apply", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("summarizer calls = %d, want %d", got, want)
+	}
+	retained := ToProviderMessages(outcome.RetainedMessages)
+	if got, want := len(retained), 4; got != want {
+		t.Fatalf("retained messages = %d, want %d (the two newest turns)", got, want)
+	}
+	if !messageContentsContain(retained, "turn 3 user") || !messageContentsContain(retained, "turn 4 user") {
+		t.Fatal("retained messages missing the two newest turns")
+	}
+	if messageContentsContain(retained, "turn 2 user") {
+		t.Fatal("retained messages kept turn 2, want it summarized")
+	}
+}
+
+// TestSummarizeCompactorReturnsTailTooLargeWhenNewestUnitOverflows covers a newest
+// unit whose unconsumed tool result alone overflows the window: no tail fits, so
+// the error is typed and carries a non-zero breakdown, and no summary call runs.
+func TestSummarizeCompactorReturnsTailTooLargeWhenNewestUnitOverflows(t *testing.T) {
+	providerStub := &fakeProvider{}
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleUser, Content: "turn 2 user"},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant", ToolCalls: []ToolCall{{ID: "call-2", Name: "read"}}},
+		{Role: MessageRoleTool, Name: "read", ToolCallID: "call-2", Content: retentionHugeOutput},
+	}
+	state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	req := retentionFixtureRequest(3000, providerStub)
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
+	var tooLarge *compactionTailTooLargeError
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("Compact() error = %v, want compactionTailTooLargeError", err)
+	}
+	if !strings.HasPrefix(err.Error(), "compaction cannot solve this request: ") {
+		t.Fatalf("error = %q, want the cannot-solve prefix", err.Error())
+	}
+	if tooLarge.ProtectedTokens <= 0 || tooLarge.RetainedTokens <= 0 || tooLarge.RequestBlockTokens <= 0 || tooLarge.SummaryReserveTokens <= 0 {
+		t.Fatalf("breakdown = %+v, want every part non-zero", *tooLarge)
+	}
+	if got, want := tooLarge.Fit.ContextSize, 3000; got != want {
+		t.Fatalf("Fit.ContextSize = %d, want %d", got, want)
+	}
+	if outcome.Applied {
+		t.Fatal("Applied = true, want false")
+	}
+	if got := len(providerStub.requests); got != 0 {
+		t.Fatalf("provider calls = %d, want 0 when no tail fits", got)
+	}
+}
+
+// TestSummarizeCompactorUsesEmergencyStageWhenNoNormalTailFits covers D10: when no
+// normal tail fits with the normal summary reserve, compaction falls through to the
+// emergency stage, which fits with its smaller reserve, instead of failing.
+func TestSummarizeCompactorUsesEmergencyStageWhenNoNormalTailFits(t *testing.T) {
+	providerStub := &fakeProvider{
+		responses: []provider.ChatResponse{{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: "summary handoff text"},
+			FinishReason: "stop",
+		}},
+	}
+	messages := []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleUser, Content: "turn 2 user"},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+		{Role: MessageRoleUser, Content: "turn 3 user"},
+		{Role: MessageRoleAssistant, Content: "turn 3 assistant"},
+		{Role: MessageRoleUser, Content: "turn 4 user"},
+		{Role: MessageRoleAssistant, Content: "turn 4 assistant"},
+	}
+	state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	req := retentionFixtureRequest(2640, providerStub)
+	req.ModelBudget.NormalSummaryMaxTokens = 800
+	req.ModelBudget.CompactionThreshold = 0.95
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v, want the emergency stage to apply", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if got, want := outcome.Mode, prompt.CompactionModeEmergency; got != want {
+		t.Fatalf("Mode = %q, want %q", got, want)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("summarizer calls = %d, want %d", got, want)
+	}
+	if got, want := len(outcome.RetainedMessages), 2; got != want {
+		t.Fatalf("retained messages = %d, want %d (the newest turn)", got, want)
+	}
+}
+
+// TestCompactionOnMainAfterFallbackSkipsRerunForTailTooLarge checks that a tail too
+// large for main ends the operation: main would select the same tail.
+func TestCompactionOnMainAfterFallbackSkipsRerunForTailTooLarge(t *testing.T) {
+	tests := []struct {
+		name         string
+		fallbackErr  error
+		wantRuns     int
+		wantTooLarge bool
+	}{
+		{
+			name:         "tail too large is terminal",
+			fallbackErr:  &compactionTailTooLargeError{SummaryReserveTokens: 16},
+			wantRuns:     0,
+			wantTooLarge: true,
+		},
+		{
+			name:        "other fallback failure reruns on main",
+			fallbackErr: errCompactionFallbackEmptySummary,
+			wantRuns:    1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runs := 0
+			run := func(*RunRequest, *compactionFallbackAnnouncement) (CompactionOutcome, error) {
+				runs++
+				return CompactionOutcome{Applied: true}, nil
+			}
+			_, err := compactionOnMainAfterFallback(context.Background(), RunRequest{}, run, tt.fallbackErr)
+			if runs != tt.wantRuns {
+				t.Fatalf("main reruns = %d, want %d", runs, tt.wantRuns)
+			}
+			var tooLarge *compactionTailTooLargeError
+			if got := errors.As(err, &tooLarge); got != tt.wantTooLarge {
+				t.Fatalf("errors.As(compactionTailTooLargeError) = %v, want %v (err = %v)", got, tt.wantTooLarge, err)
+			}
+		})
 	}
 }
 
