@@ -207,8 +207,10 @@ func (m *claudeSubCallMetrics) clearReseed() {
 }
 
 // noteSyncMismatch records the first request position a live process's record
-// could not take. Only bounded values are kept: a known role and one of the
-// fixed check labels, with the position clamped.
+// could not take. Only bounded values are kept: one of the fixed check labels,
+// with the position clamped. A record-state label (interrupted, drained,
+// tainted, not_started) names no position, so it is kept only at index -1 with
+// an empty role; a drop leaves the fields absent.
 func (m *claudeSubCallMetrics) noteSyncMismatch(mismatch claudeSubSyncMismatch) {
 	if m == nil || !claudeSubSyncMismatchValid(mismatch) {
 		return

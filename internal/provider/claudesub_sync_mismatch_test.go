@@ -206,6 +206,16 @@ func TestClaudeSubCallMetricsSyncMismatchBounds(t *testing.T) {
 			mismatch: claudeSubSyncMismatch{Index: claudeSubSyncMismatchNoIndex, Role: MessageRoleUser, Check: claudeSubCheckTainted},
 		},
 		{
+			name:     "record-state refusal at a position is dropped",
+			mismatch: claudeSubSyncMismatch{Index: 1, Role: MessageRoleUser, Check: claudeSubCheckInterrupted},
+		},
+		{
+			name:         "length at a position stays valid",
+			mismatch:     claudeSubSyncMismatch{Index: 1, Role: MessageRoleUser, Check: claudeSubCheckLength},
+			wantRecorded: true,
+			wantIndex:    1,
+		},
+		{
 			name:         "large index clamps to the bound",
 			mismatch:     claudeSubSyncMismatch{Index: claudeSubSyncMismatchMaxIndex + 10, Role: MessageRoleAssistant, Check: claudeSubCheckImages},
 			wantRecorded: true,

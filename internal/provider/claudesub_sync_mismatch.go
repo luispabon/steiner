@@ -30,9 +30,9 @@ const (
 // request position, so it is reported at claudeSubSyncMismatchNoIndex with no
 // role.
 const (
-	// claudeSubCheckInterrupted: the last turn on the record was interrupted by a
-	// cancelled call or by the drain of its stale tool calls, so the record's
-	// tail is not a completed turn.
+	// claudeSubCheckInterrupted: the drain of the record's stale tool calls
+	// interrupted the last turn, and the interrupted assistant is not in the
+	// retained tail, so a placed summary would cover it.
 	claudeSubCheckInterrupted = "interrupted"
 	// claudeSubCheckDrained: the record was driven to the aborted result of a
 	// stopped delivery.
@@ -44,20 +44,27 @@ const (
 	claudeSubCheckNotStarted = "not_started"
 )
 
+// claudeSubSyncRecordStateChecks is the one list of the labels that name the
+// record's state rather than a request position. Each is valid only at
+// claudeSubSyncMismatchNoIndex with no role.
+var claudeSubSyncRecordStateChecks = []string{
+	claudeSubCheckInterrupted,
+	claudeSubCheckDrained,
+	claudeSubCheckTainted,
+	claudeSubCheckNotStarted,
+}
+
 // claudeSubSyncCheckLabels is the one list of every check label a mismatch may
-// carry, so the known-label set cannot drift from the labels reported.
-var claudeSubSyncCheckLabels = []string{
+// carry, derived from the positional labels and the record-state labels, so the
+// known-label set cannot drift from the labels reported.
+var claudeSubSyncCheckLabels = append([]string{
 	claudeSubCheckRole,
 	claudeSubCheckDigest,
 	claudeSubCheckImages,
 	claudeSubCheckToolCalls,
 	claudeSubCheckShape,
 	claudeSubCheckLength,
-	claudeSubCheckInterrupted,
-	claudeSubCheckDrained,
-	claudeSubCheckTainted,
-	claudeSubCheckNotStarted,
-}
+}, claudeSubSyncRecordStateChecks...)
 
 // claudeSubSyncMismatchNoIndex is the index of a mismatch that names no request
 // position. Its role is empty.
@@ -90,13 +97,18 @@ func (m claudeSubSyncMismatch) clampedIndex() int {
 
 // claudeSubSyncMismatchValid reports whether mismatch carries only bounded
 // values: one of the fixed check labels, reported either at no request position
-// with no role or at a position with a known role.
+// with no role or at a position with a known role. A record-state label names
+// the record rather than a request position, so it is valid only at no position
+// with no role.
 func claudeSubSyncMismatchValid(mismatch claudeSubSyncMismatch) bool {
 	if !claudeSubSyncCheckKnown(mismatch.Check) {
 		return false
 	}
 	if mismatch.Index < 0 {
 		return mismatch.Role == ""
+	}
+	if slices.Contains(claudeSubSyncRecordStateChecks, mismatch.Check) {
+		return false
 	}
 	return claudeSubSyncRoleKnown(mismatch.Role)
 }
