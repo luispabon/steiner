@@ -64,6 +64,11 @@ type RunRequest struct {
 	// (exec runs and sub-agents).
 	HistoryArchive HistoryArchive
 
+	// RecallArchive receives the tool and sub-agent result bodies compaction
+	// drops from the active context, so recall markers can point at them. Nil
+	// disables recall (exec runs and sub-agents).
+	RecallArchive RecallArchive
+
 	// DrainInbox returns the next boundary delivery. Nil for sub-agents.
 	DrainInbox func() InboxDrain
 
