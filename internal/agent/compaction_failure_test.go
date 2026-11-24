@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/output"
+	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
 
@@ -73,6 +75,45 @@ func TestCompactionFailureReportsEmptySummaryAttempts(t *testing.T) {
 	}
 	if payload.SummaryAttempts != 3 || payload.SummaryFailureReason != summaryFailNoText {
 		t.Errorf("SummaryAttempts, SummaryFailureReason = %d, %q, want 3, %q", payload.SummaryAttempts, payload.SummaryFailureReason, summaryFailNoText)
+	}
+}
+
+// TestHandleCompactionEmptySummaryStopsWithoutTurnRequest proves an exhausted
+// summary ladder stops the turn with its error. The provider sees only summary
+// calls, never the turn request, and the conversation is left as it was.
+func TestHandleCompactionEmptySummaryStopsWithoutTurnRequest(t *testing.T) {
+	t.Parallel()
+	r := retryRun(retryEmptyReply(), retryEmptyReply(), retryEmptyReply())
+	var rec eventRecorder
+	r.req.Events = rec.sink()
+	state := r.state
+	p := newTurnProgressor(r.req, prompt.AssemblyOptions{}, (&Runner{}).compactConversationForBudget)
+	fit := prompt.RequestTokenBudget{ContextSize: 6066, TotalTokens: 7000, Fits: false}
+	outcome := p.handleCompaction(context.Background(), state, fit)
+
+	var summaryErr *compactionSummaryError
+	if !outcome.Stop || !errors.As(outcome.Error, &summaryErr) || summaryErr.Reason != summaryFailNoText || summaryErr.Attempts != 3 {
+		t.Fatalf("handleCompaction() = %+v, want a stop with an empty-summary error after 3 attempts", outcome)
+	}
+	if got := len(r.main.requests); got != 3 {
+		t.Fatalf("provider calls = %d, want 3 summary calls", got)
+	}
+	for i, req := range r.main.requests {
+		if !req.CompactionSummary {
+			t.Errorf("provider call %d is a turn request, want only summary calls", i+1)
+		}
+	}
+	if !reflect.DeepEqual(outcome.State.Conversation, state.Conversation) {
+		t.Error("conversation changed after a failed compaction")
+	}
+	failures := 0
+	for _, ev := range rec.snapshot() {
+		if payload, ok := output.AsContextCompactionEvent(ev.Payload); ok && payload.Severity == "skipped" {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Errorf("skipped compaction events = %d, want exactly one failure event", failures)
 	}
 }
 
