@@ -88,13 +88,7 @@ func newCompactionTailTooLargeError(ctx context.Context, req RunRequest, state R
 	if err != nil {
 		return nil, err
 	}
-	empty, err := fitConversationState(ctx, req, state.WithConversation(nil))
-	if err != nil {
-		return nil, err
-	}
-	unit := newestCompactionUnit(retained)
-	withoutProtected := append(cloneMessages(retained[:len(retained)-len(unit)]), withoutProtectedOutputs(unit)...)
-	unprotected, err := fitConversationState(ctx, req, state.WithConversation(withoutProtected))
+	retainedTokens, protectedTokens, err := compactionTailTokens(ctx, req, state, retained, tail)
 	if err != nil {
 		return nil, err
 	}
@@ -104,11 +98,29 @@ func newCompactionTailTooLargeError(ctx context.Context, req RunRequest, state R
 	}
 	return &compactionTailTooLargeError{
 		Fit:                  tail,
-		ProtectedTokens:      tail.EstimatedPromptTokens - unprotected.EstimatedPromptTokens,
-		RetainedTokens:       unprotected.EstimatedPromptTokens - empty.EstimatedPromptTokens,
+		ProtectedTokens:      protectedTokens,
+		RetainedTokens:       retainedTokens,
 		RequestBlockTokens:   withBlock.EstimatedPromptTokens - tail.EstimatedPromptTokens,
 		SummaryReserveTokens: compactionSummaryMaxTokensForMode(req.ModelBudget, mode),
 	}, nil
+}
+
+// compactionTailTokens measures a retained tail as fit deltas, the measure
+// compactionTailTooLargeError reports. tail is the fit of retained. It returns the
+// tokens of retained without the newest unit's protected outputs, and those
+// protected outputs alone.
+func compactionTailTokens(ctx context.Context, req RunRequest, state RunState, retained []Message, tail prompt.RequestTokenBudget) (int, int, error) {
+	empty, err := fitConversationState(ctx, req, state.WithConversation(nil))
+	if err != nil {
+		return 0, 0, err
+	}
+	unit := newestCompactionUnit(retained)
+	withoutProtected := append(cloneMessages(retained[:len(retained)-len(unit)]), withoutProtectedOutputs(unit)...)
+	unprotected, err := fitConversationState(ctx, req, state.WithConversation(withoutProtected))
+	if err != nil {
+		return 0, 0, err
+	}
+	return unprotected.EstimatedPromptTokens - empty.EstimatedPromptTokens, tail.EstimatedPromptTokens - unprotected.EstimatedPromptTokens, nil
 }
 
 // newestCompactionUnit returns the last unit of messages, or nil when it has none.

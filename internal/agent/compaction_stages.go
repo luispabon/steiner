@@ -110,6 +110,7 @@ func (s summarizeCompactionStages) run(
 		outcome.Usage, outcome.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, outcome)
 		outcome.SummarizedMessages += normalOutcome.SummarizedMessages
 		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
+		outcome.StageSizes = append(normalOutcome.StageSizes, outcome.StageSizes...)
 		return outcome, nil
 	}
 	// A kept block can push a small window back over the compaction threshold.
@@ -121,6 +122,7 @@ func (s summarizeCompactionStages) run(
 		dropped.Usage, dropped.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, dropped)
 		dropped.SummarizedMessages += normalOutcome.SummarizedMessages
 		dropped.pendingArchive = append(normalOutcome.pendingArchive, dropped.pendingArchive...)
+		dropped.StageSizes = append(normalOutcome.StageSizes, dropped.StageSizes...)
 		return dropped, nil
 	}
 	if dropped, ok := s.adoptWithoutRequestBlock(ctx, req, normalOutcome, err); ok {
@@ -131,9 +133,11 @@ func (s summarizeCompactionStages) run(
 			// were spent and its stage escalated the compaction count.
 			dropped.StageCount = 2
 			dropped.Usage, dropped.CacheReportedInputTokens = sumCompactionUsage(dropped, outcome)
+			dropped.StageSizes = append(dropped.StageSizes, outcome.StageSizes...)
 		}
 		return dropped, nil
 	}
+	outcome.StageSizes = append(normalOutcome.StageSizes, outcome.StageSizes...)
 	outcome, err = compactionFailedOutcome(outcome, err)
 	return outcome, err
 }
@@ -405,10 +409,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	// buildSummarizedCompactionState prepends is not a retained source message.
 	retained = stripRetainedSkillBlocks(retained)
 	nextState := buildSummarizedCompactionState(state, summaryText, retained)
-	latestFit, err := fitConversationState(ctx, req, nextState)
+	latestFit, stage, err := fitAppliedStage(ctx, req, state, nextState, params, retainedFit, plan.fit.EstimatedPromptTokens, summaryText)
 	if err != nil {
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
+	logCompactionStageSizes(summary.CompactionLogPath, stage)
 
 	return CompactionOutcome{
 		State:                    nextState,
@@ -427,6 +432,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		CacheReportedInputTokens: cacheReportedInputTokens(response.Usage),
 		BackendStateCleared:      cleared,
 		pendingArchive:           pendingArchive,
+		StageSizes:               []output.ContextCompactionStage{stage},
 	}, nil
 }
 

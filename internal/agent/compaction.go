@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -71,6 +72,9 @@ type CompactionOutcome struct {
 	CacheReportedInputTokens int
 	// StageCount is the number of compaction stages (1 or 2) executed in this outcome.
 	StageCount int
+	// StageSizes holds the size entry of each stage that applied. A failed outcome
+	// keeps the entries of the stages that applied before the failure.
+	StageSizes []output.ContextCompactionStage
 	// CompactionModel is the canonical ProviderAlias/BackendModelID of the model
 	// that produced the summary: the fallback target when FallbackStatus is used,
 	// main when it is skipped. Empty when no fallback was selected or the
@@ -124,12 +128,13 @@ func markCompactionBackendStateRetired(err error) error {
 // compactionFailedOutcome reports a failed compaction stage. A stage that
 // already retired the main backend state contributes only that flag, never a
 // partial State or pending archive, and its error is marked retired so the
-// caller can drop the state it keeps.
+// caller can drop the state it keeps. The stage sizes are kept for the failure
+// diagnostics.
 func compactionFailedOutcome(outcome CompactionOutcome, err error) (CompactionOutcome, error) {
 	if !outcome.BackendStateCleared {
-		return CompactionOutcome{}, err
+		return CompactionOutcome{StageSizes: outcome.StageSizes}, err
 	}
-	return CompactionOutcome{BackendStateCleared: true}, markCompactionBackendStateRetired(err)
+	return CompactionOutcome{BackendStateCleared: true, StageSizes: outcome.StageSizes}, markCompactionBackendStateRetired(err)
 }
 
 // compactionCarryCleared keeps a backend state clear reported by an earlier
@@ -259,6 +264,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 		// state: the failed outcome's conversation and pending archive are not
 		// adopted.
 		clearRetiredBackendState(state, outcome)
+		emitCompactionFailedDiagnostics(req.Events, turn, outcome.StageSizes, err)
 		return false, false, "", err
 	}
 
@@ -293,6 +299,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 			compactionModelAlias:     outcome.CompactionModelAlias,
 			fallbackStatus:           outcome.FallbackStatus,
 			fallbackReason:           outcome.FallbackReason,
+			stages:                   outcome.StageSizes,
 		})
 	}
 	skipped[compactionCandidateKey(candidate)] = true
@@ -307,6 +314,34 @@ func clearRetiredBackendState(state *RunState, outcome CompactionOutcome) {
 		return
 	}
 	state.Lineage = state.Lineage.WithoutLatestBackendState()
+}
+
+// fitAppliedStage fits the state an applied stage produced and sizes the stage for
+// diagnostics. tail is the fit of the stage's retained messages on req's main
+// budget, and sourceTokens the prompt of the summary request. The summary is
+// estimated on the model that wrote it.
+func fitAppliedStage(ctx context.Context, req RunRequest, state, nextState RunState, params summarizeCompactionStageParams, tail prompt.RequestTokenBudget, sourceTokens int, summaryText string) (prompt.RequestTokenBudget, output.ContextCompactionStage, error) {
+	latestFit, err := fitConversationState(ctx, req, nextState)
+	if err != nil {
+		return prompt.RequestTokenBudget{}, output.ContextCompactionStage{}, err
+	}
+	retainedTokens, protectedTokens, err := compactionTailTokens(ctx, req, state, params.retainedMessages, tail)
+	if err != nil {
+		return prompt.RequestTokenBudget{}, output.ContextCompactionStage{}, err
+	}
+	model := compactionSummaryRequest(req, params.summaryReq).ResolvedModel.BackendModelID
+	summaryTokens, err := provider.EstimateMessageTokens(ctx, model, provider.Message{Role: provider.MessageRoleUser, Content: summaryText})
+	if err != nil {
+		return prompt.RequestTokenBudget{}, output.ContextCompactionStage{}, fmt.Errorf("estimate compaction summary tokens: %w", err)
+	}
+	return latestFit, output.ContextCompactionStage{
+		Stage:           string(params.mode),
+		RetainedUnits:   len(splitCompactionTurns(params.retainedMessages)),
+		SourceTokens:    sourceTokens,
+		SummaryTokens:   summaryTokens,
+		RetainedTokens:  retainedTokens,
+		ProtectedTokens: protectedTokens,
+	}, nil
 }
 
 func compactionCurrentFit(ctx context.Context, req RunRequest, state RunState, beforeFit *prompt.RequestTokenBudget) (prompt.RequestTokenBudget, error) {
