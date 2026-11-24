@@ -623,6 +623,132 @@ func TestRunnerCompactStatefulSummaryReportsClearedState(t *testing.T) {
 	}
 }
 
+// TestCompactionStatefulStepDownSummarizesChosenSource checks that a claude-like
+// provider compacts after the normal tail steps down to two units. The summary
+// request marks the chosen stage's source count and keeps the generation's
+// backend state.
+func TestCompactionStatefulStepDownSummarizesChosenSource(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(false)
+	messages := retentionFixtureMessages()
+	backend := []byte(`{"provider":"claude_subscription","version":1}`)
+	lineage := newConversationLineage(messages)
+	lineage = lineage.withBackendState(lineage.latestGenerationID(), backend, false)
+	req := retentionFixtureRequest(5060, &fakeProvider{})
+	req.Provider = prov
+
+	outcome := compactState(t, req, RunState{Conversation: messages, Lineage: lineage})
+	if !outcome.Applied || outcome.StageCount != 1 {
+		t.Fatalf("Applied = %v, StageCount = %d, want the normal stage to apply once", outcome.Applied, outcome.StageCount)
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 summary", len(prov.requests))
+	}
+	sent := prov.requests[0]
+	// The normal tail keeps turns 3 and 4, so the source is turns 1 and 2: five messages.
+	const wantSource = 5
+	if sent.CompactionSourceMessages != wantSource {
+		t.Errorf("CompactionSourceMessages = %d, want %d", sent.CompactionSourceMessages, wantSource)
+	}
+	// The request is the source followed by one summary instruction.
+	if got := nonSystemCount(sent.Messages) - 1; got != wantSource {
+		t.Errorf("non-system source messages = %d, want %d", got, wantSource)
+	}
+	if string(sent.BackendState) != string(backend) {
+		t.Errorf("summary BackendState = %s, want the generation state %s", sent.BackendState, backend)
+	}
+}
+
+// TestCompactionStatefulInPlaceSummarySendsSourceOnly checks the in-place summary
+// after the tail steps down: the request carries the source messages and the
+// generation's backend state, and the retained tail is not sent.
+func TestCompactionStatefulInPlaceSummarySendsSourceOnly(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(false)
+	messages := retentionFixtureMessages()
+	backend := []byte(`{"provider":"claude_subscription","version":1}`)
+	lineage := newConversationLineage(messages)
+	lineage = lineage.withBackendState(lineage.latestGenerationID(), backend, false)
+	req := retentionFixtureRequest(5060, &fakeProvider{})
+	req.Provider = prov
+
+	if outcome := compactState(t, req, RunState{Conversation: messages, Lineage: lineage}); !outcome.Applied {
+		t.Fatal("Applied = false, want the in-place summary to apply")
+	}
+	if len(prov.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1 summary", len(prov.requests))
+	}
+	sent := prov.requests[0]
+	for _, want := range []string{"turn 1 user", "turn 2 user", "turn 2 assistant"} {
+		if !messageContentsContain(sent.Messages, want) {
+			t.Errorf("summary request lacks source message %q", want)
+		}
+	}
+	for _, retained := range []string{"turn 3 user", "turn 4 assistant"} {
+		if messageContentsContain(sent.Messages, retained) {
+			t.Errorf("summary request carries retained message %q, want the tail left out", retained)
+		}
+	}
+	if string(sent.BackendState) != string(backend) {
+		t.Errorf("summary BackendState = %s, want the generation state %s", sent.BackendState, backend)
+	}
+}
+
+// TestCompactionStatefulEmergencyKeepsClearedState checks a normal summary that
+// clears the stateful backend state. The emergency stage that follows reports the
+// clear, and its summary runs without the retired state.
+func TestCompactionStatefulEmergencyKeepsClearedState(t *testing.T) {
+	prov := newClaudeLikeCompactionProvider(true)
+	calls := 0
+	prov.streamFn = func(context.Context, provider.ChatRequest) (<-chan provider.ChatChunk, error) {
+		calls++
+		content := "emergency handoff text"
+		if calls == 1 {
+			content = strings.Repeat("summary detail ", 600)
+		}
+		ch := make(chan provider.ChatChunk, 1)
+		ch <- provider.ChatChunk{
+			Delta:             provider.Message{Role: provider.MessageRoleAssistant, Content: content},
+			ContentSnapshot:   true,
+			Done:              true,
+			FinishReason:      "stop",
+			ClearBackendState: true,
+		}
+		close(ch)
+		return ch, nil
+	}
+	messages := retentionFixtureMessages()
+	backend := []byte(`{"provider":"claude_subscription","version":1}`)
+	lineage := newConversationLineage(messages)
+	lineage = lineage.withBackendState(lineage.latestGenerationID(), backend, false)
+	req := retentionFixtureRequest(4930, &fakeProvider{})
+	req.Provider = prov
+
+	outcome := compactState(t, req, RunState{Conversation: messages, Lineage: lineage})
+	if outcome.Mode != prompt.CompactionModeEmergency || outcome.StageCount != 2 {
+		t.Fatalf("Mode = %q, StageCount = %d, want emergency after two stages", outcome.Mode, outcome.StageCount)
+	}
+	if !outcome.BackendStateCleared {
+		t.Error("BackendStateCleared = false, want the normal stage's clear carried into the emergency outcome")
+	}
+	if len(prov.requests) != 2 {
+		t.Fatalf("provider requests = %d, want 2 (normal and emergency)", len(prov.requests))
+	}
+	if string(prov.requests[0].BackendState) != string(backend) {
+		t.Errorf("normal BackendState = %s, want the generation state %s", prov.requests[0].BackendState, backend)
+	}
+	emergency := prov.requests[1]
+	if emergency.BackendState != nil {
+		t.Errorf("emergency BackendState = %s, want nil: the retired state must not be reused", emergency.BackendState)
+	}
+	// The emergency tail keeps turn 4, so the source is the summary and turn 3.
+	const wantSource = 3
+	if emergency.CompactionSourceMessages != wantSource {
+		t.Errorf("emergency CompactionSourceMessages = %d, want %d", emergency.CompactionSourceMessages, wantSource)
+	}
+	if got := nonSystemCount(emergency.Messages) - 1; got != wantSource {
+		t.Errorf("emergency non-system source messages = %d, want %d", got, wantSource)
+	}
+}
+
 // TestTurnProgressorCompactionDue proves the automatic trigger: a native
 // provider keeps the estimated fit, a stateful compaction provider triggers on
 // CLI usage against the context window, and the hard limit always triggers.
