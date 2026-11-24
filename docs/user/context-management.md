@@ -22,6 +22,16 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 
+The number of recent turns kept verbatim shrinks automatically. Steiner keeps the 3 newest turns when they fit the context window together with your latest request and room for the summary, otherwise 2, then 1. The emergency pass keeps 1.
+
+If even the newest turn does not fit, for example because of very large tool output, compaction stops with an error like this:
+
+```text
+compaction cannot solve this request: the newest unit does not fit with its request block and summary reserve: protected_outputs=N retained_tail=N request_block=N summary_reserve=N context_window=N safety_margin=N hard_limit=N
+```
+
+The values are token estimates. `protected_outputs` is the tool and sub-agent output of the newest turn that the model has not read yet. `retained_tail` is the rest of the kept turn. Start a new session and carry over what matters, and reduce tool output (narrower `read` ranges, `grep` patterns or command output). Compaction can also fail with `emergency compaction could not reduce context enough` when earlier turns are too large to summarise.
+
 Compaction summaries are delivered as user-role historical context, not as system instructions. The model is told to treat them as a record of earlier conversation.
 
 Everything else is reduced to the summary, so details can be lost. Each compaction loses a little more. If Steiner warns that a session is likely lossy, start a fresh session and carry over what matters. Keep important state in files or git, not only in the conversation.
