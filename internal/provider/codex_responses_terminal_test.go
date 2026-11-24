@@ -24,7 +24,7 @@ func TestResponsesStreamTerminalEvents(t *testing.T) {
 			name: "incomplete carries finish reason",
 			body: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n" +
 				"data: {\"type\":\"response.incomplete\",\"response\":{\"output\":[],\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"}}}\n\n",
-			wantFinish: "max_output_tokens",
+			wantFinish: "length",
 			wantText:   "partial",
 		},
 		{
@@ -110,7 +110,7 @@ func TestCodexWSTerminalEvents(t *testing.T) {
 					"incomplete_details": map[string]any{"reason": "max_output_tokens"},
 				},
 			},
-			wantFinish: "max_output_tokens",
+			wantFinish: "length",
 		},
 		{
 			name: "failed errors without resend",

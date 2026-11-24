@@ -407,13 +407,23 @@ func normalizeResponsesResponse(payload responsesResponse) (ChatResponse, error)
 
 	finish := "stop"
 	if payload.Status == "incomplete" && payload.IncompleteDetail != nil {
-		finish = payload.IncompleteDetail.Reason
+		finish = responsesIncompleteFinishReason(payload.IncompleteDetail.Reason)
 	}
 	return ChatResponse{
 		Message:      message,
 		Usage:        payload.Usage.toUsageStats(),
 		FinishReason: finish,
 	}, nil
+}
+
+// responsesIncompleteFinishReason maps an incomplete_details reason to the
+// normalized finish reason. max_output_tokens is "length"; other reasons, such
+// as content_filter, pass through unchanged.
+func responsesIncompleteFinishReason(reason string) string {
+	if reason == "max_output_tokens" {
+		return "length"
+	}
+	return reason
 }
 
 func responsesToolCall(item responsesItem) ToolCall {
