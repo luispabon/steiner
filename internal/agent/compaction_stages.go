@@ -189,7 +189,7 @@ func (s summarizeCompactionStages) emergencyAfterNormal(
 // such tail it returns a zero outcome and makes no model call, so the caller falls
 // through to the emergency stage, as it does after a not-applied normal stage.
 func (s summarizeCompactionStages) normalStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, full, base []Message, summaryBudget prompt.ModelTokenBudget) (CompactionOutcome, error) {
-	source, retained, _, ok, err := selectRetention(ctx, req, state, full, base, prompt.CompactionModeNormal, normalCompactionRetainTurns)
+	source, retained, ok, err := selectRetention(ctx, req, state, full, base, prompt.CompactionModeNormal, normalCompactionRetainTurns)
 	if err != nil || !ok {
 		return CompactionOutcome{}, err
 	}

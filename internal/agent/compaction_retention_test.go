@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -23,7 +24,6 @@ func TestSelectRetention(t *testing.T) {
 		contextSize  int
 		maxUnits     int
 		wantOK       bool
-		wantUnits    int
 		wantRetained int
 	}{
 		{
@@ -32,7 +32,6 @@ func TestSelectRetention(t *testing.T) {
 			contextSize:  6000,
 			maxUnits:     3,
 			wantOK:       true,
-			wantUnits:    3,
 			wantRetained: 7,
 		},
 		{
@@ -41,7 +40,6 @@ func TestSelectRetention(t *testing.T) {
 			contextSize:  5060,
 			maxUnits:     3,
 			wantOK:       true,
-			wantUnits:    2,
 			wantRetained: 4,
 		},
 		{
@@ -50,7 +48,6 @@ func TestSelectRetention(t *testing.T) {
 			contextSize:  2100,
 			maxUnits:     3,
 			wantOK:       true,
-			wantUnits:    1,
 			wantRetained: 2,
 		},
 		{
@@ -59,7 +56,6 @@ func TestSelectRetention(t *testing.T) {
 			contextSize:  1500,
 			maxUnits:     3,
 			wantOK:       false,
-			wantUnits:    0,
 			wantRetained: 2,
 		},
 		{
@@ -68,7 +64,6 @@ func TestSelectRetention(t *testing.T) {
 			contextSize:  6000,
 			maxUnits:     3,
 			wantOK:       true,
-			wantUnits:    2,
 			wantRetained: 4,
 		},
 		{
@@ -77,7 +72,6 @@ func TestSelectRetention(t *testing.T) {
 			contextSize:  0,
 			maxUnits:     3,
 			wantOK:       true,
-			wantUnits:    3,
 			wantRetained: 7,
 		},
 	}
@@ -86,15 +80,12 @@ func TestSelectRetention(t *testing.T) {
 			providerStub := &fakeProvider{}
 			req := retentionFixtureRequest(tt.contextSize, providerStub)
 			state := RunState{Lineage: newConversationLineage(tt.messages)}
-			source, retained, units, ok, err := selectRetention(context.Background(), req, state, tt.messages, tt.messages, prompt.CompactionModeNormal, tt.maxUnits)
+			source, retained, ok, err := selectRetention(context.Background(), req, state, tt.messages, tt.messages, prompt.CompactionModeNormal, tt.maxUnits)
 			if err != nil {
 				t.Fatalf("selectRetention() error = %v", err)
 			}
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
-			}
-			if units != tt.wantUnits {
-				t.Fatalf("units = %d, want %d", units, tt.wantUnits)
 			}
 			if len(retained) != tt.wantRetained {
 				t.Fatalf("retained = %d messages, want %d", len(retained), tt.wantRetained)
@@ -413,7 +404,7 @@ func TestCompactionShrinkingTailMovesNewestUserIntoSource(t *testing.T) {
 			messages := retentionFixtureMessages()
 			req := retentionFixtureRequest(tt.contextSize, summaryProvider("summary handoff text"))
 			state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
-			source, _, _, ok, err := selectRetention(context.Background(), req, state, messages, messages, prompt.CompactionModeNormal, normalCompactionRetainTurns)
+			source, _, ok, err := selectRetention(context.Background(), req, state, messages, messages, prompt.CompactionModeNormal, normalCompactionRetainTurns)
 			if err != nil || !ok {
 				t.Fatalf("selectRetention() ok = %v, err = %v, want a fitting tail", ok, err)
 			}
@@ -488,6 +479,71 @@ func TestWithoutProtectedOutputs(t *testing.T) {
 			}
 			if !slices.Equal(got, tt.want) {
 				t.Fatalf("withoutProtectedOutputs() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// emergencyBlockMessages returns three turns. The second turn's request is long
+// enough that its block adds about 125 tokens to the newest tail, and the newest
+// tail is reps repeats of assistant text.
+func emergencyBlockMessages(reps int) []Message {
+	return []Message{
+		{Role: MessageRoleUser, Content: "turn 1 user"},
+		{Role: MessageRoleAssistant, Content: "turn 1 assistant"},
+		{Role: MessageRoleUser, Content: strings.Repeat("turn 2 user request with many more words in it ", 11)},
+		{Role: MessageRoleAssistant, Content: "turn 2 assistant"},
+		{Role: MessageRoleUser, Content: "turn 3 user"},
+		{Role: MessageRoleAssistant, Content: strings.Repeat("turn 3 assistant detail words ", reps)},
+	}
+}
+
+// TestCompactionEmergencyTailWithoutBlock checks a one-unit emergency tail that
+// fits without its request block but not with it. The tail is accepted, and the
+// stage drops the block because the block alone pushes the summary past the
+// compaction threshold. A tail that fits neither way stays the too-large error.
+// Sizes are measured for a 4000-token window with 1300-token summary reserves.
+func TestCompactionEmergencyTailWithoutBlock(t *testing.T) {
+	tests := []struct {
+		name    string
+		reps    int
+		wantErr bool
+	}{
+		{name: "fits without the block and drops it", reps: 115},
+		{name: "fits neither with nor without the block", reps: 130, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			messages := emergencyBlockMessages(tt.reps)
+			providerStub := summaryProvider("summary handoff text")
+			req := retentionFixtureRequest(4000, providerStub)
+			req.ModelBudget.NormalSummaryMaxTokens = 1300
+			req.ModelBudget.EmergencySummaryMaxTokens = 1300
+			state := RunState{Conversation: messages, Lineage: newConversationLineage(messages)}
+			candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+			if !ok {
+				t.Fatal("selectCompactionCandidate() ok = false, want true")
+			}
+
+			outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
+			if tt.wantErr {
+				var tooLarge *compactionTailTooLargeError
+				if !errors.As(err, &tooLarge) {
+					t.Fatalf("Compact() error = %v, want compactionTailTooLargeError", err)
+				}
+				if got := len(providerStub.requests); got != 0 {
+					t.Errorf("summary calls = %d, want 0 when no tail fits", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Compact() error = %v, want success", err)
+			}
+			if outcome.Mode != prompt.CompactionModeEmergency || outcome.RequestBlock != output.RequestBlockDropped {
+				t.Errorf("Mode = %q, RequestBlock = %q, want %q, %q", outcome.Mode, outcome.RequestBlock, prompt.CompactionModeEmergency, output.RequestBlockDropped)
+			}
+			if got := len(providerStub.requests); got != 1 {
+				t.Errorf("summary calls = %d, want 1", got)
 			}
 		})
 	}

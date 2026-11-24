@@ -22,7 +22,7 @@ Compaction is automatic: the agent pauses briefly, summarises, and carries on. A
 - a note of any sub-agents still running
 - enabled skills, re-applied after the summary
 
-The number of recent turns kept verbatim shrinks automatically. Steiner keeps the 3 newest turns when they fit the context window together with your latest request and room for the summary, otherwise 2, then 1. The emergency pass keeps 1.
+The number of recent turns kept verbatim shrinks automatically. Steiner keeps the 3 newest turns when they fit the context window together with your latest request and room for the summary, otherwise 2, then 1. The emergency pass keeps 1. When the summary's verbatim copy of your latest request keeps the result above the compaction threshold, Steiner drops that copy and keeps the summary.
 
 If even the newest turn does not fit, for example because of very large tool output, compaction stops with an error like this:
 

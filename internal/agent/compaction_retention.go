@@ -9,32 +9,41 @@ import (
 // selectRetention returns the largest retained tail of 1 to maxUnits units that
 // fits req's main budget with its latest request block and the summary reserve
 // for mode. Selection is pure computation: it issues no model call. It returns
-// the source and retained messages, the unit count (capped by the number of
-// units in base), and ok. When no tail fits, ok is false and the source and
-// retained messages are the one-unit candidate, for the too-large breakdown.
-func selectRetention(ctx context.Context, req RunRequest, state RunState, full, base []Message, mode prompt.CompactionMode, maxUnits int) ([]Message, []Message, int, bool, error) {
+// the source and retained messages, and ok. When no tail fits, ok is false and the
+// source and retained messages are the one-unit candidate, for the too-large breakdown.
+func selectRetention(ctx context.Context, req RunRequest, state RunState, full, base []Message, mode prompt.CompactionMode, maxUnits int) ([]Message, []Message, bool, error) {
 	var source, retained []Message
 	for units := maxUnits; units >= 1; units-- {
 		source, retained = compactionSourceAndRetention(full, base, units)
 		fits, err := tailFitsWithBlock(ctx, req, state, source, retained, mode)
 		if err != nil {
-			return nil, nil, 0, false, err
+			return nil, nil, false, err
 		}
 		if fits {
-			return source, retained, min(units, len(splitCompactionTurns(base))), true, nil
+			return source, retained, true, nil
 		}
 	}
-	return source, retained, 0, false, nil
+	return source, retained, false, nil
 }
 
-// selectEmergencyRetention returns the one-unit emergency tail of full. It returns
-// a compactionTailTooLargeError when that unit does not fit.
+// selectEmergencyRetention returns the one-unit emergency tail of full. When that
+// unit does not fit with its request block, it is kept without the block if that
+// fits: the stage then drops the block if its summary still misses the budget. It
+// returns a compactionTailTooLargeError when the unit does not fit even without it.
 func selectEmergencyRetention(ctx context.Context, req RunRequest, state RunState, full, base []Message) ([]Message, []Message, error) {
-	source, retained, _, ok, err := selectRetention(ctx, req, state, full, base, prompt.CompactionModeEmergency, emergencyCompactionRetainTurns)
+	source, retained, ok, err := selectRetention(ctx, req, state, full, base, prompt.CompactionModeEmergency, emergencyCompactionRetainTurns)
 	if err != nil {
 		return nil, nil, err
 	}
 	if ok {
+		return source, retained, nil
+	}
+	// A nil source carries no request block, so this is the plain fit check.
+	fitsWithoutBlock, err := tailFitsWithBlock(ctx, req, state, nil, retained, prompt.CompactionModeEmergency)
+	if err != nil {
+		return nil, nil, err
+	}
+	if fitsWithoutBlock {
 		return source, retained, nil
 	}
 	tooLarge, err := newCompactionTailTooLargeError(ctx, req, state, source, retained, prompt.CompactionModeEmergency)
