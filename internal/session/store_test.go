@@ -611,6 +611,149 @@ func TestEvictionAt26Sessions(t *testing.T) {
 	}
 }
 
+// fillStoreToCap saves maxSessions sessions whose UpdatedAt rises by one
+// minute per index, so session-0 is the oldest and session-(maxSessions-1) the
+// newest.
+func fillStoreToCap(t *testing.T, store *Store) time.Time {
+	t.Helper()
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := range maxSessions {
+		id := fmt.Sprintf("session-%d", i)
+		session := Session{ID: id, CreatedAt: base, UpdatedAt: base.Add(time.Duration(i) * time.Minute)}
+		if err := store.Save(session); err != nil {
+			t.Fatalf("Save(%s) failed: %v", id, err)
+		}
+	}
+	return base
+}
+
+// requireSessionFile checks whether the session JSON file for id exists.
+func requireSessionFile(t *testing.T, store *Store, id string, wantExists bool) {
+	t.Helper()
+	path, err := safeSessionPath(store.dir, id)
+	if err != nil {
+		t.Fatalf("safeSessionPath(%s) failed: %v", id, err)
+	}
+	_, statErr := os.Stat(path)
+	if exists := statErr == nil; exists != wantExists {
+		t.Errorf("session file %s exists = %v, want %v (stat error: %v)", id, exists, wantExists, statErr)
+	}
+}
+
+func TestSaveForkEviction(t *testing.T) {
+	base := time.Now().UTC().Add(-time.Hour)
+	// Fork timestamps are chosen relative to base so the fork sorts newest
+	// (base+1h) or oldest (base-1m) in the index.
+	tests := []struct {
+		name        string
+		forkUpdated time.Time
+		parentID    string
+		useForkSave bool
+		wantEvicted string
+		wantKept    []string
+	}{
+		{
+			name:        "protects oldest parent",
+			forkUpdated: base.Add(time.Hour),
+			parentID:    "session-0",
+			useForkSave: true,
+			wantEvicted: "session-1",
+			wantKept:    []string{"session-0", "fork"},
+		},
+		{
+			name:        "plain save still evicts oldest",
+			forkUpdated: base.Add(time.Hour),
+			wantEvicted: "session-0",
+			wantKept:    []string{"session-1", "fork"},
+		},
+		{
+			name:        "empty parent behaves like save",
+			forkUpdated: base.Add(time.Hour),
+			parentID:    "",
+			useForkSave: true,
+			wantEvicted: "session-0",
+			wantKept:    []string{"session-1", "fork"},
+		},
+		{
+			name:        "unknown parent behaves like save",
+			forkUpdated: base.Add(time.Hour),
+			parentID:    "no-such-session",
+			useForkSave: true,
+			wantEvicted: "session-0",
+			wantKept:    []string{"session-1", "fork"},
+		},
+		{
+			name:        "protects fork when it is oldest",
+			forkUpdated: base.Add(-time.Minute),
+			parentID:    "session-5",
+			useForkSave: true,
+			wantEvicted: "session-0",
+			wantKept:    []string{"fork", "session-5"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, err := NewStore(dir)
+			if err != nil {
+				t.Fatalf("NewStore failed: %v", err)
+			}
+			fillStoreToCap(t, store)
+
+			fork := Session{ID: "fork", CreatedAt: tt.forkUpdated, UpdatedAt: tt.forkUpdated}
+			if tt.useForkSave {
+				if err := store.SaveFork(fork, tt.parentID); err != nil {
+					t.Fatalf("SaveFork failed: %v", err)
+				}
+			} else if err := store.Save(fork); err != nil {
+				t.Fatalf("Save failed: %v", err)
+			}
+
+			entries, err := store.List()
+			if err != nil {
+				t.Fatalf("List failed: %v", err)
+			}
+			if len(entries) != maxSessions {
+				t.Errorf("index size = %d, want %d", len(entries), maxSessions)
+			}
+
+			requireSessionFile(t, store, tt.wantEvicted, false)
+			for _, id := range tt.wantKept {
+				requireSessionFile(t, store, id, true)
+			}
+		})
+	}
+}
+
+// TestEvictOldestLockedKeepsProtectedSessions covers the case where every index
+// entry is protected: the store keeps the excess instead of failing.
+func TestEvictOldestLockedKeepsProtectedSessions(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore failed: %v", err)
+	}
+
+	base := time.Now().UTC()
+	protected := make([]string, 0, maxSessions+1)
+	for i := range maxSessions + 1 {
+		id := fmt.Sprintf("session-%d", i)
+		protected = append(protected, id)
+		store.index = append(store.index, IndexEntry{
+			ID:        id,
+			CreatedAt: base,
+			UpdatedAt: base.Add(time.Duration(maxSessions-i) * time.Minute),
+		})
+	}
+
+	if err := store.evictOldestLocked(protected); err != nil {
+		t.Fatalf("evictOldestLocked failed: %v", err)
+	}
+	if len(store.index) != maxSessions+1 {
+		t.Errorf("index size = %d, want %d (nothing evicted)", len(store.index), maxSessions+1)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := NewStore(tmpDir)
@@ -1179,7 +1322,7 @@ func TestEvictionNeverDeletesOutsideStoreDir(t *testing.T) {
 	}
 	store.index = append(store.index, IndexEntry{ID: "../victim", UpdatedAt: old}) // oldest, evicted last-in-slice
 	store.mu.Lock()
-	err = store.evictOldestLocked()
+	err = store.evictOldestLocked(nil)
 	store.mu.Unlock()
 	if err == nil {
 		t.Error("expected error evicting invalid id")
