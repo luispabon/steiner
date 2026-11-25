@@ -64,6 +64,12 @@ type CompactionRetry struct {
 	Final bool
 	// Attempted quotes the previous reply's tool calls, already capped by the caller.
 	Attempted []string
+	// Condense asks for a shorter complete rewrite of a reply cut off at the output limit.
+	Condense bool
+	// TargetWords is the approximate word budget for a condense rewrite; 0 omits it.
+	TargetWords int
+	// Draft is the truncated reply, already tag-escaped by the caller.
+	Draft string
 }
 
 // RenderCompactionRetryInstruction renders the steering text a retry appends to

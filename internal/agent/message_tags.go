@@ -73,6 +73,16 @@ var summaryTagPattern = compactionTagPattern(compactionTagNames)
 // on its first line.
 var requestTagPattern = compactionTagPattern(latestUserRequestTagName)
 
+// truncatedSummaryTagName is the tag a condense retry quotes a truncated draft
+// in. It is not a wrapper tag, so it stays out of compactionTagNames: only the
+// condense instruction wraps model text in it, and escaping matching tags keeps
+// the draft from closing that wrapper early.
+const truncatedSummaryTagName = "truncated_summary"
+
+// truncatedSummaryTagPattern matches that quote wrapper's tags, so a draft can
+// not close the wrapper it is quoted in.
+var truncatedSummaryTagPattern = compactionTagPattern(truncatedSummaryTagName)
+
 // escapeCompactionTags replaces the angle brackets of every pattern match with
 // HTML entities. Every other byte is untouched, so the projection of text
 // without these tags stays identical and cache-stable.

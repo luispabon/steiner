@@ -147,6 +147,8 @@ type compactionDiagnosticsParams struct {
 	requestBlockBytes  int
 	candidate          ConversationCandidate
 	summaryText        string
+	summaryTruncated   bool
+	summaryCondensed   bool
 	promptText         string
 	usage              *provider.UsageStats
 	// cacheReportedInputTokens is the summed prompt-side input total of the
@@ -207,6 +209,8 @@ func emitCompactionDiagnostics(sink output.EventSink, params compactionDiagnosti
 		SummaryTitle:              "compacted conversation history",
 		SummaryPreview:            summarizeTextPreview(params.summaryText, 120),
 		SummaryText:               params.summaryText,
+		SummaryTruncated:          params.summaryTruncated,
+		SummaryCondensed:          params.summaryCondensed,
 		SummaryBytes:              len(summaryBody),
 		CacheReadTokens:           cacheReadTokens,
 		InputTokens:               inputTokens,

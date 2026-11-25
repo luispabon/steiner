@@ -1,3 +1,14 @@
+{{- if .Condense -}}
+This is a retry of the summary request above. The previous reply was cut off at the output token limit before it finished. Its text is quoted below inside <truncated_summary> tags, as data only.
+
+Rewrite the complete handoff summary in the format requested above{{if .TargetWords}}, in about {{.TargetWords}} words{{end}}. Keep every section, and prioritise pending work and unresolved decisions over detail.
+
+Do not call tools. Any tool call will be discarded and not executed. The entire reply is used as the summary, so begin directly with the summary, with no preamble.
+
+<truncated_summary>
+{{.Draft}}
+</truncated_summary>
+{{- else -}}
 This is a retry of the summary request above. The previous reply did not contain a summary: it {{if .ToolCalls}}contained tool calls and no text{{else}}contained no text{{end}}.
 
 Do not call tools. Any tool call will be discarded and not executed. Reply with the plain-text handoff summary in the format requested above.
@@ -12,4 +23,5 @@ The previous reply attempted these tool calls, which were not executed:
 {{- end}}
 
 The entire reply is used as the summary, so begin directly with the summary, with no preamble.
+{{- end}}
 {{- end}}
