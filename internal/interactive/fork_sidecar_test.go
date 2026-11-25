@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -34,6 +35,16 @@ type failingForkStore struct {
 }
 
 func (s *failingForkStore) Save(ses session.Session) error {
+	return s.saveWith(ses, func() error { return s.Store.Save(ses) })
+}
+
+func (s *failingForkStore) SaveFork(forked session.Session, parentID string) error {
+	return s.saveWith(forked, func() error { return s.Store.SaveFork(forked, parentID) })
+}
+
+// saveWith records what Save or SaveFork observed, then runs write unless the
+// session fails before reaching the store.
+func (s *failingForkStore) saveWith(ses session.Session, write func() error) error {
 	s.mu.Lock()
 	s.savedIDs = append(s.savedIDs, ses.ID)
 	allow := ses.ID == s.allowID
@@ -49,7 +60,7 @@ func (s *failingForkStore) Save(ses session.Session) error {
 		}
 	}
 	if allow || failAfterSave {
-		if err := s.Store.Save(ses); err != nil {
+		if err := write(); err != nil {
 			return err
 		}
 		if failAfterSave {
@@ -230,6 +241,84 @@ func TestHandleForkSavedSessionCopiesSidecars(t *testing.T) {
 	assertForkFileCopy(t, forkRecall, parentRecall)
 	assertForkConversationNames(t, s.Conversation(), forkHistory, parentHistory)
 	assertForkConversationNames(t, s.Conversation(), forkRecall, parentRecall)
+}
+
+// forkStoreCap returns the number of entries a session store keeps once saving
+// sessions with rising timestamps starts evicting the oldest.
+func forkStoreCap(t *testing.T) int {
+	t.Helper()
+	probe := newForkTestStore(t)
+	base := time.Now().UTC()
+	for i := 1; i <= 1000; i++ {
+		probeSession := session.Session{ID: fmt.Sprintf("probe-%03d", i), CreatedAt: base, UpdatedAt: base.Add(time.Duration(i) * time.Minute)}
+		if err := probe.Save(probeSession); err != nil {
+			t.Fatalf("probe Save failed: %v", err)
+		}
+		entries, err := probe.List()
+		if err != nil {
+			t.Fatalf("probe List failed: %v", err)
+		}
+		if len(entries) < i {
+			return len(entries)
+		}
+	}
+	t.Fatal("the session store never evicted a session")
+	return 0
+}
+
+func TestHandleForkSavedSessionKeepsParentAtStoreCap(t *testing.T) {
+	storeCap := forkStoreCap(t)
+	store := newForkTestStore(t)
+	parentID := "saved-parent"
+	lineage, _, parentHistory, parentRecall := forkTestSidecars(t, store, parentID)
+	base := time.Now().UTC().Add(-time.Hour)
+	parent := session.Session{ID: parentID, Title: "Saved Parent", Model: "test-model", CreatedAt: base, UpdatedAt: base, Lineage: lineage}
+	if err := store.Save(parent); err != nil {
+		t.Fatalf("save parent: %v", err)
+	}
+	for i := 1; i < storeCap; i++ {
+		filler := session.Session{
+			ID:        fmt.Sprintf("filler-%02d", i),
+			CreatedAt: base,
+			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
+		}
+		if err := store.Save(filler); err != nil {
+			t.Fatalf("save filler %d: %v", i, err)
+		}
+	}
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != storeCap {
+		t.Fatalf("store holds %d sessions, want %d", len(entries), storeCap)
+	}
+	if oldest := entries[len(entries)-1]; oldest.ID != parentID {
+		t.Fatalf("oldest session is %q, want the parent %q", oldest.ID, parentID)
+	}
+
+	s := testNewSession(t, Dependencies{SessionStore: store, Config: guardTestConfig()})
+	if err := s.handleForkSavedSession(context.Background(), parentID); err != nil {
+		t.Fatalf("handleForkSavedSession() = %v, want nil", err)
+	}
+	if forkedID := s.SessionID(); forkedID == parentID {
+		t.Fatal("fork kept the parent session id")
+	}
+	if _, err := store.Load(parentID); err != nil {
+		t.Errorf("parent is not loadable after the fork: %v", err)
+	}
+	for _, path := range []string{parentHistory, parentRecall} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("parent sidecar %s is gone after the fork: %v", path, err)
+		}
+	}
+	entries, err = store.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(entries) != storeCap {
+		t.Errorf("store holds %d sessions after the fork, want %d", len(entries), storeCap)
+	}
 }
 
 func TestHandleForkSessionSidecarCopyFailureWarnsAndKeepsParentPaths(t *testing.T) {

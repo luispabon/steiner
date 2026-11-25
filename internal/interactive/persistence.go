@@ -428,9 +428,10 @@ func (s *Session) copySessionImages(fromID, toID string) {
 }
 
 // forkSidecarStore copies a parent session's history archive and recall files
-// into a fork and discards them when the fork cannot be saved. cmd/steiner wires
-// *session.Store, which implements it; a store without it forks without
-// sidecars.
+// into a fork, discards them when the fork cannot be saved, and saves the fork
+// without evicting its parent. cmd/steiner wires *session.Store, which
+// implements it; a store without it forks without sidecars and saves the fork
+// with Save.
 type forkSidecarStore interface {
 	// ForkSidecars copies the parent's sidecar files and returns the fork with
 	// its inherited references rewritten to the copies.
@@ -439,6 +440,18 @@ type forkSidecarStore interface {
 	// unindexed fork whose Save failed, and reports an indexed fork as
 	// session.ErrForkIndexed.
 	DiscardForkSidecars(forkID string) error
+	// SaveFork saves the fork without evicting the parent or the fork itself.
+	SaveFork(forked session.Session, parentID string) error
+}
+
+// saveFork saves a forked session, keeping the parent out of eviction when the
+// store supports it.
+func (s *Session) saveFork(forked session.Session, parentID string) error {
+	store, ok := s.deps.SessionStore.(forkSidecarStore)
+	if !ok {
+		return s.deps.SessionStore.Save(forked)
+	}
+	return store.SaveFork(forked, parentID)
 }
 
 // copyForkSidecars copies the parent's history archive and recall files into the
@@ -540,9 +553,9 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 		return err
 	}
 
-	// Copy sidecars before Save: saving the fork can evict the parent.
+	// Copy sidecars before saving so the fork record names the copies.
 	forked = s.copyForkSidecars(currentSession.ID, forked)
-	if err := s.deps.SessionStore.Save(forked); err != nil {
+	if err := s.saveFork(forked, currentSession.ID); err != nil {
 		if !s.reportForkSaveFailure(forked, err, fmt.Sprintf("fork session: save fork failed: %v", err)) {
 			return err
 		}
@@ -586,9 +599,9 @@ func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) 
 		return err
 	}
 
-	// Copy sidecars before Save: saving the fork can evict the parent.
+	// Copy sidecars before saving so the fork record names the copies.
 	forked = s.copyForkSidecars(loadedSession.ID, forked)
-	if err := s.deps.SessionStore.Save(forked); err != nil {
+	if err := s.saveFork(forked, loadedSession.ID); err != nil {
 		if !s.reportForkSaveFailure(forked, err, fmt.Sprintf("fork saved session: save failed: %v", err)) {
 			return err
 		}
