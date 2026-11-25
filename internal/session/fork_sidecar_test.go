@@ -598,6 +598,38 @@ func TestForkSidecarsRejectsSymlinkedParentSessionDir(t *testing.T) {
 	}
 }
 
+func TestForkSidecarsRejectsSymlinkedForkSessionDirWithRecallOnly(t *testing.T) {
+	store := newRecallTestStore(t)
+	parent, _, parentHistory, _ := forkSidecarParent(t, store)
+	if err := os.Remove(parentHistory); err != nil {
+		t.Fatalf("remove parent history: %v", err)
+	}
+	forked, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(store.dir, forked.ID)); err != nil {
+		t.Fatalf("symlink fork session directory: %v", err)
+	}
+	before := forked.Lineage.FullMessages()
+
+	got, err := store.ForkSidecars(parent.ID, forked)
+	if err == nil {
+		t.Fatal("ForkSidecars wrote recall files through a symlinked fork session directory")
+	}
+	if !reflect.DeepEqual(got.Lineage.FullMessages(), before) {
+		t.Errorf("fork content changed on copy failure: got %+v, want %+v", got.Lineage.FullMessages(), before)
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		t.Fatalf("list symlink target: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("recall files were written through the symlink: %v", entries)
+	}
+}
+
 func TestForkSidecarsRejectsSymlinkedForkSessionDir(t *testing.T) {
 	store := newRecallTestStore(t)
 	parent, _, _, _ := forkSidecarParent(t, store)

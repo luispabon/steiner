@@ -304,6 +304,78 @@ func forkTestReports(events []output.Event) string {
 	return joined.String()
 }
 
+func TestHandleForkSavedSessionSaveFailureRemovesForkSidecars(t *testing.T) {
+	tests := []struct {
+		name        string
+		discardErr  error
+		wantDirGone bool
+	}{
+		{name: "removes the copied sidecars", wantDirGone: true},
+		{name: "keeps the directory when the discard fails", discardErr: errors.New("simulated discard failure")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := newForkTestStore(t)
+			parentID := "saved-parent"
+			lineage, _, _, _ := forkTestSidecars(t, base, parentID)
+			now := time.Now().UTC()
+			parent := session.Session{ID: parentID, Title: "Saved Parent", Model: "test-model", CreatedAt: now, UpdatedAt: now, Lineage: lineage}
+			if err := base.Save(parent); err != nil {
+				t.Fatalf("save parent: %v", err)
+			}
+			store := &failingForkStore{Store: base, discardErr: tt.discardErr}
+			var events []output.Event
+			s := testNewSession(t, Dependencies{
+				SessionStore: store,
+				BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+				Config:       guardTestConfig(),
+			})
+			originalID := s.SessionID()
+
+			err := s.handleForkSavedSession(context.Background(), parentID)
+			if !errors.Is(err, errForkTestSave) {
+				t.Fatalf("handleForkSavedSession() = %v, want the Save error", err)
+			}
+			if got := s.SessionID(); got != originalID {
+				t.Errorf("session switched to %q after a failed save, want %q", got, originalID)
+			}
+			forkedID, forkDirAtSave, discards := store.forkSnapshot(t)
+			if forkedID == parentID {
+				t.Fatal("the fork save never ran")
+			}
+			if !forkDirAtSave {
+				t.Fatal("the fork had no sidecar directory before Save, so nothing was copied")
+			}
+			if len(discards) != 1 || discards[0] != forkedID {
+				t.Errorf("discarded %v, want [%s]", discards, forkedID)
+			}
+			history, err := store.HistoryPath(forkedID)
+			if err != nil {
+				t.Fatalf("fork HistoryPath failed: %v", err)
+			}
+			_, statErr := os.Stat(filepath.Dir(history))
+			if tt.wantDirGone && !errors.Is(statErr, fs.ErrNotExist) {
+				t.Errorf("fork session directory survived a failed save: %v", statErr)
+			}
+			if !tt.wantDirGone && statErr != nil {
+				t.Errorf("fork session directory removed although the discard failed: %v", statErr)
+			}
+
+			reports := forkTestReports(events)
+			if !strings.Contains(reports, errForkTestSave.Error()) {
+				t.Errorf("reports do not name the save failure: %q", reports)
+			}
+			if tt.discardErr != nil {
+				if !strings.Contains(reports, tt.discardErr.Error()) {
+					t.Errorf("reports do not name the discard failure: %q", reports)
+				}
+			} else if strings.Contains(reports, "discard fork sidecars") {
+				t.Errorf("reports name a discard failure that did not happen: %q", reports)
+			}
+		})
+	}
+}
+
 func TestHandleForkSessionSaveFailureRemovesForkSidecars(t *testing.T) {
 	tests := []struct {
 		name        string

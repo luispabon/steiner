@@ -176,6 +176,11 @@ func copyForkRecallFiles(fromDir, toDir string) (map[string]bool, error) {
 			return nil, fmt.Errorf("read %s: %w", from, err)
 		}
 		if !dirReady {
+			// ensureForkDir checks only toDir, so a symlinked fork session
+			// directory would be followed here when no history is copied.
+			if err := ensureForkDir(filepath.Dir(toDir)); err != nil {
+				return nil, err
+			}
 			if err := ensureForkDir(toDir); err != nil {
 				return nil, err
 			}
