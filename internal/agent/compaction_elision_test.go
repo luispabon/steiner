@@ -171,6 +171,55 @@ func TestElisionRetainedToolOutputsCountsUnconsumed(t *testing.T) {
 	}
 }
 
+// TestElisionRetainedToolOutputsKeepsUnconsumedPastBudget proves the spent
+// budget does not skip the consumption check: an older unconsumed body stays
+// verbatim in the over-budget branch and is never archived for elision.
+func TestElisionRetainedToolOutputsKeepsUnconsumedPastBudget(t *testing.T) {
+	t.Parallel()
+	bodies := []string{elisionTestBody("oldest"), elisionTestBody("newest")}
+	calls := []ToolCall{{ID: "call-0", Name: "bash"}, {ID: "call-1", Name: "bash"}}
+	base := []Message{
+		{Role: MessageRoleUser, Content: "start"},
+		{Role: MessageRoleAssistant, ToolCalls: calls},
+		{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-0", Content: bodies[0]},
+		{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: bodies[1]},
+	}
+	cases := []struct {
+		label string
+		tail  []Message
+	}{
+		{label: "no assistant after the results"},
+		{label: "incomplete assistant after the results", tail: []Message{{Role: MessageRoleAssistant, Content: "partial", Incomplete: true}}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+			msgs := append(cloneMessages(base), tc.tail...)
+			archive := &fakeRecallArchive{}
+			req := elisionTestRequest(archive)
+			state := elisionTestState(msgs)
+			// The newest unconsumed body alone fills the budget, so the older one
+			// is decided in the over-budget branch.
+			budget := elisionTestTokens(t, req, bodies[1])
+
+			out, elided := elideRetainedToolOutputs(context.Background(), req, state, msgs, budget, fitConversationState)
+			if elided {
+				t.Error("elided = true, want false: no result is consumed")
+			}
+			if got := out[2].Content; got != bodies[0] {
+				t.Errorf("older unconsumed body = %q, want it verbatim", got)
+			}
+			if got := out[3].Content; got != bodies[1] {
+				t.Errorf("newer unconsumed body = %q, want it verbatim", got)
+			}
+			if len(archive.written) != 0 {
+				t.Errorf("archived entries = %+v, want none", archive.written)
+			}
+		})
+	}
+}
+
 // TestElisionRetainedToolOutputsThresholds proves both size limits keep a body
 // verbatim, including a marker-larger-than-body case caused by a long path.
 func TestElisionRetainedToolOutputsThresholds(t *testing.T) {
