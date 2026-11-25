@@ -51,8 +51,10 @@ func rewriteForkReferences(forked Session, rw forkReferenceRewrite) Session {
 	return forked
 }
 
-// rewriteContent rewrites one message: the history path in a summary's history
-// note lines, and elision markers anywhere in the message.
+// rewriteContent rewrites one message: the sidecar paths in a summary's history
+// note lines, the whole-content elision marker of a tool message, and the
+// whole-inner elision marker of a sub-agent result envelope. Every other byte,
+// including marker-shaped user text, is left alone.
 func (rw forkReferenceRewrite) rewriteContent(msg agent.Message) string {
 	content := msg.Content
 	if msg.Role == agent.MessageRoleSummary {
@@ -61,7 +63,18 @@ func (rw forkReferenceRewrite) rewriteContent(msg agent.Message) string {
 	if len(rw.copiedRecall) == 0 {
 		return content
 	}
-	return rw.rewriteMarkersInMessage(content)
+	switch msg.Role {
+	case agent.MessageRoleTool:
+		rewritten, ok := rw.rewriteMarkerText(content)
+		if !ok {
+			return content
+		}
+		return rewritten
+	case agent.MessageRoleUser:
+		return rw.rewriteEnvelopeMarkers(content)
+	default:
+		return content
+	}
 }
 
 // rewriteHistoryNote replaces the parent history path and recall directory in
@@ -96,87 +109,101 @@ func (rw forkReferenceRewrite) rewriteHistoryNote(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// rewriteMarkersInMessage rewrites inherited elision markers in content. A
-// marker inside a sub-agent result envelope changes the envelope's inner
-// length, so the envelope is rebuilt through ReplaceSubAgentResultInner to keep
-// its bytes attribute and its parseability.
-func (rw forkReferenceRewrite) rewriteMarkersInMessage(content string) string {
-	if !strings.Contains(content, elisionMarkerPrefix) {
-		return content
+// rewriteMarkerText rewrites content when it is exactly one elision marker, the
+// form compaction writes over a whole result body.
+func (rw forkReferenceRewrite) rewriteMarkerText(content string) (string, bool) {
+	name, path, pathStart, pathEnd, ok := parseWholeMarker(content)
+	if !ok {
+		return "", false
 	}
+	forkPath, ok := rw.recallReplacement(name, path)
+	if !ok {
+		return "", false
+	}
+	return content[:pathStart] + forkPath + content[pathEnd:], true
+}
+
+// rewriteEnvelopeMarkers rewrites the sub-agent result envelope of a user
+// message whose inner is exactly one elision marker. A rewritten inner changes
+// the envelope's length, so the envelope is rebuilt through
+// ReplaceSubAgentResultInner to keep its bytes attribute and parseability. Every
+// other byte of the message, including marker-shaped text outside the
+// envelopes, is kept.
+func (rw forkReferenceRewrite) rewriteEnvelopeMarkers(content string) string {
 	spans := prompt.ResultEnvelopeSpans(content)
 	if len(spans) == 0 {
-		return rw.rewriteMarkers(content)
+		return content
 	}
 	var b strings.Builder
 	b.Grow(len(content))
 	pos := 0
+	changed := false
 	for _, span := range spans {
-		b.WriteString(rw.rewriteMarkers(content[pos:span.Start]))
-		b.WriteString(rw.rewriteEnvelope(content[span.Start:span.End]))
+		b.WriteString(content[pos:span.Start])
+		raw := content[span.Start:span.End]
+		if rewritten, ok := rw.rewriteEnvelope(raw); ok {
+			raw = rewritten
+			changed = true
+		}
+		b.WriteString(raw)
 		pos = span.End
 	}
-	b.WriteString(rw.rewriteMarkers(content[pos:]))
+	b.WriteString(content[pos:])
+	if !changed {
+		return content
+	}
 	return b.String()
 }
 
-// rewriteEnvelope rewrites markers inside one sub-agent result envelope and
-// returns raw unchanged when it holds none or cannot be rebuilt.
-func (rw forkReferenceRewrite) rewriteEnvelope(raw string) string {
+// rewriteEnvelope rewrites one sub-agent result envelope whose inner is exactly
+// one elision marker and reports whether it changed.
+func (rw forkReferenceRewrite) rewriteEnvelope(raw string) (string, bool) {
 	parsed, ok := agent.ParseSubAgentResultEnvelope(raw)
 	if !ok {
-		return raw
+		return "", false
 	}
-	inner := rw.rewriteMarkers(parsed.Inner)
-	if inner == parsed.Inner {
-		return raw
+	inner, ok := rw.rewriteMarkerText(parsed.Inner)
+	if !ok {
+		return "", false
 	}
 	rewritten, ok := agent.ReplaceSubAgentResultInner(raw, inner)
 	if !ok {
-		return raw
+		return "", false
 	}
-	return rewritten
+	return rewritten, true
 }
 
-// rewriteMarkers replaces the read path of every elision marker in text whose
-// recall file the fork copied. Text that only looks like a marker is left as is.
-func (rw forkReferenceRewrite) rewriteMarkers(text string) string {
-	var b strings.Builder
-	last, search := 0, 0
-	for {
-		rel := strings.Index(text[search:], elisionMarkerPrefix)
-		if rel < 0 {
-			break
-		}
-		nameStart := search + rel + len(elisionMarkerPrefix)
-		name, path, pathStart, markerEnd, ok := parseElisionMarker(text, nameStart)
-		if !ok {
-			search = nameStart
-			continue
-		}
-		if forkPath, ok := rw.recallReplacement(name, path); ok {
-			b.WriteString(text[last:pathStart])
-			b.WriteString(forkPath)
-			last = pathStart + len(path)
-		}
-		search = markerEnd
+// parseWholeMarker parses text that is exactly one elision marker: the prefix
+// at offset 0 and the suffix at the end of text. A marker-shaped fragment, such
+// as a bare marker prefix followed by other text, does not parse.
+func parseWholeMarker(text string) (name, path string, pathStart, pathEnd int, ok bool) {
+	if !strings.HasPrefix(text, elisionMarkerPrefix) {
+		return "", "", 0, 0, false
 	}
-	if last == 0 {
-		return text
+	name, path, pathStart, end, ok := parseElisionMarker(text, len(elisionMarkerPrefix))
+	if !ok || end != len(text) {
+		return "", "", 0, 0, false
 	}
-	b.WriteString(text[last:])
-	return b.String()
+	return name, path, pathStart, pathStart + len(path), true
 }
 
 // parseElisionMarker parses the marker whose recall name starts at nameStart.
 // It returns the name, the read path, the path's offset, and the offset just
-// past the marker.
+// past the marker. The name must be one path element, as agent.RecallName
+// produces; rejecting anything else stops a bare marker prefix earlier in the
+// text from pairing with a later marker's delimiters and hiding that marker.
 func parseElisionMarker(text string, nameStart int) (name, path string, pathStart, end int, ok bool) {
 	readRel := strings.Index(text[nameStart:], elisionMarkerRead)
 	if readRel < 0 {
 		return "", "", 0, 0, false
 	}
 	name = text[nameStart : nameStart+readRel]
+	// A real recall name never contains a newline or a nested marker prefix.
+	// Rejecting both stops a bare marker prefix earlier in the text from
+	// pairing with a later marker's delimiters and hiding that marker.
+	if safeRecallName(name) != nil || strings.Contains(name, elisionMarkerPrefix) || strings.ContainsAny(name, "\r\n") {
+		return "", "", 0, 0, false
+	}
 	pathStart = nameStart + readRel + len(elisionMarkerRead)
 	suffixRel := strings.Index(text[pathStart:], elisionMarkerSuffix)
 	if suffixRel < 0 {
@@ -189,11 +216,6 @@ func parseElisionMarker(text string, nameStart int) (name, path string, pathStar
 // recall file for name, and false for any other name, path, or uncopied file.
 func (rw forkReferenceRewrite) recallReplacement(name, path string) (string, bool) {
 	if !rw.copiedRecall[name] {
-		return "", false
-	}
-	// The copied name is a single path element, so a marker-shaped line with a
-	// separator in its name never becomes a fork path.
-	if err := safeRecallName(name); err != nil {
 		return "", false
 	}
 	parentPath := filepath.Join(rw.parentRecallDir, name+recallFileExt)

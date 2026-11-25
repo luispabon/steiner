@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,13 @@ import (
 // duplicated here so these tests do not depend on the compaction package.
 func forkMarker(name, path string) string {
 	return "[Tool output omitted from active context: recall " + name + ", read " + path + "; for long lines use bash head -c/tail -c]"
+}
+
+// rawResultEnvelope renders a sub-agent result envelope whose inner is exactly
+// inner: the form compaction leaves behind when it elides a whole result body.
+func rawResultEnvelope(inner string) string {
+	return `<steiner-sub-agent-result agent_id="agent-1" type="code" status="done" call_id="call-2" bytes="` +
+		strconv.Itoa(len(inner)) + "\">\n" + inner + "\n</steiner-sub-agent-result>"
 }
 
 // forkSidecarParent saves a parent session whose summary carries its archive
@@ -55,13 +63,7 @@ func forkSidecarParent(t *testing.T, store *Store) (Session, agent.RecallEntry, 
 		t.Fatalf("render history note: %v", err)
 	}
 	name := agent.RecallName(entry)
-	envelope := agent.RenderSubAgentResultEnvelope(agent.SubAgentCompletion{
-		ParentCallID: "call-2",
-		AgentID:      "agent-1",
-		AgentType:    "code",
-		Status:       "done",
-		Body:         forkMarker(name, parentRecall),
-	})
+	envelope := rawResultEnvelope(forkMarker(name, parentRecall))
 	parent.Lineage = agent.ConversationLineage{
 		Generations: []agent.ConversationGeneration{{
 			ID:            1,
@@ -216,6 +218,129 @@ func TestForkSidecarsCopiesAndRewritesInheritedReferences(t *testing.T) {
 	}
 }
 
+func TestParseWholeMarkerRejectsBarePrefixBeforeMarker(t *testing.T) {
+	name := "tool-call-1-" + strings.Repeat("a", 64)
+	marker := forkMarker(name, filepath.Join("/tmp/session/recall", name+recallFileExt))
+	if _, _, _, _, ok := parseWholeMarker(marker); !ok {
+		t.Fatalf("parseWholeMarker rejected a marker: %q", marker)
+	}
+	text := elisionMarkerPrefix + "not a recall name\n\n" + marker
+	if _, _, _, _, ok := parseWholeMarker(text); ok {
+		t.Errorf("parseWholeMarker accepted a bare prefix and a later marker as one marker: %q", text)
+	}
+	if _, _, _, _, ok := parseWholeMarker(elisionMarkerPrefix + "no delimiters"); ok {
+		t.Error("parseWholeMarker accepted a bare marker prefix")
+	}
+}
+
+func TestForkSidecarsRewritesOnlyWholeMarkers(t *testing.T) {
+	tests := []struct {
+		name          string
+		build         func(name, parentRecall string) agent.Message
+		envelope      bool
+		wantRewritten bool
+		// noParentPath is set for content that never names the parent path.
+		noParentPath bool
+	}{
+		{
+			name: "tool message that is one marker",
+			build: func(name, parentRecall string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: forkMarker(name, parentRecall)}
+			},
+			wantRewritten: true,
+		},
+		{
+			name: "tool message with a marker and trailing text",
+			build: func(name, parentRecall string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: forkMarker(name, parentRecall) + "\nmore text"}
+			},
+		},
+		{
+			name: "tool message with a bare prefix before a marker",
+			build: func(name, parentRecall string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: elisionMarkerPrefix + "not a recall name\n\n" + forkMarker(name, parentRecall)}
+			},
+		},
+		{
+			name: "tool message with a bare marker prefix",
+			build: func(_, _ string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: elisionMarkerPrefix}
+			},
+			noParentPath: true,
+		},
+		{
+			name: "user message that is one marker",
+			build: func(name, parentRecall string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleUser, Content: forkMarker(name, parentRecall)}
+			},
+		},
+		{
+			name: "sub-agent envelope whose inner is one marker",
+			build: func(name, parentRecall string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: rawResultEnvelope(forkMarker(name, parentRecall))}
+			},
+			envelope:      true,
+			wantRewritten: true,
+		},
+		{
+			name: "sub-agent envelope whose inner wraps a marker",
+			build: func(name, parentRecall string) agent.Message {
+				return agent.Message{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: rawResultEnvelope("result:\n" + forkMarker(name, parentRecall))}
+			},
+			envelope: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newRecallTestStore(t)
+			parent, entry, _, parentRecall := forkSidecarParent(t, store)
+			name := agent.RecallName(entry)
+			parent.Lineage = agent.ConversationLineage{
+				Generations:      []agent.ConversationGeneration{{ID: 1, Messages: []agent.Message{tt.build(name, parentRecall)}}},
+				NextGenerationID: 2,
+			}
+			forked, err := Fork(parent)
+			if err != nil {
+				t.Fatalf("Fork failed: %v", err)
+			}
+			forkRecall, err := store.RecallPath(forked.ID, name)
+			if err != nil {
+				t.Fatalf("RecallPath failed: %v", err)
+			}
+			got, err := store.ForkSidecars(parent.ID, forked)
+			if err != nil {
+				t.Fatalf("ForkSidecars failed: %v", err)
+			}
+			content := got.Lineage.Generations[0].Messages[0].Content
+			if tt.envelope {
+				parsed, ok := agent.ParseSubAgentResultEnvelope(content)
+				if !ok {
+					t.Fatalf("envelope not parseable after the fork: %q", content)
+				}
+				content = parsed.Inner
+			}
+			if tt.wantRewritten {
+				if !strings.Contains(content, forkRecall) {
+					t.Errorf("content does not name the fork recall path: %q", content)
+				}
+				if strings.Contains(content, parentRecall) {
+					t.Errorf("content still names the parent recall path: %q", content)
+				}
+				if !tt.envelope && content != forkMarker(name, forkRecall) {
+					t.Errorf("tool content = %q, want %q", content, forkMarker(name, forkRecall))
+				}
+				return
+			}
+			if strings.Contains(content, forkRecall) {
+				t.Errorf("content was rewritten although it is not a whole marker: %q", content)
+			}
+			if !tt.noParentPath && !strings.Contains(content, parentRecall) {
+				t.Errorf("content lost the parent recall path: %q", content)
+			}
+		})
+	}
+}
+
 func TestForkSidecarsCopyFailureLeavesReferencesUnchanged(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -234,6 +359,42 @@ func TestForkSidecarsCopyFailureLeavesReferencesUnchanged(t *testing.T) {
 				}
 				if err := os.Mkdir(path, 0o700); err != nil {
 					t.Fatalf("replace history with a directory: %v", err)
+				}
+			},
+		},
+		{
+			name: "history is a symlink",
+			breakParent: func(t *testing.T, store *Store, parent Session, _ agent.RecallEntry) {
+				t.Helper()
+				path, err := store.HistoryPath(parent.ID)
+				if err != nil {
+					t.Fatalf("HistoryPath failed: %v", err)
+				}
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove history: %v", err)
+				}
+				target := filepath.Join(t.TempDir(), "history.md")
+				if err := os.WriteFile(target, []byte("archive"), 0o600); err != nil {
+					t.Fatalf("seed symlink target: %v", err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatalf("symlink history: %v", err)
+				}
+			},
+		},
+		{
+			name: "recall file is not regular",
+			breakParent: func(t *testing.T, store *Store, parent Session, entry agent.RecallEntry) {
+				t.Helper()
+				path, err := store.RecallPath(parent.ID, agent.RecallName(entry))
+				if err != nil {
+					t.Fatalf("RecallPath failed: %v", err)
+				}
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove recall file: %v", err)
+				}
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatalf("replace recall file with a directory: %v", err)
 				}
 			},
 		},
@@ -331,6 +492,52 @@ func TestForkSidecarsAbsentSidecarFilesRewriteNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(store.dir, forked.ID)); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("fork session directory created with nothing copied: %v", err)
+	}
+}
+
+func TestForkSidecarsRewritesRecallDirectoryWithRecallOnlyCopy(t *testing.T) {
+	store := newRecallTestStore(t)
+	parent, entry, parentHistory, _ := forkSidecarParent(t, store)
+	if err := os.Remove(parentHistory); err != nil {
+		t.Fatalf("remove parent history: %v", err)
+	}
+	forked, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	got, err := store.ForkSidecars(parent.ID, forked)
+	if err != nil {
+		t.Fatalf("ForkSidecars failed for a missing history archive: %v", err)
+	}
+	parentRecallDir, err := store.RecallDir(parent.ID)
+	if err != nil {
+		t.Fatalf("parent RecallDir failed: %v", err)
+	}
+	forkRecallDir, err := store.RecallDir(forked.ID)
+	if err != nil {
+		t.Fatalf("fork RecallDir failed: %v", err)
+	}
+	note := got.Lineage.Generations[0].SummaryPrefix[0].Content
+	if !strings.Contains(note, forkRecallDir) {
+		t.Errorf("note does not name the fork recall directory %q: %q", forkRecallDir, note)
+	}
+	if strings.Contains(note, parentRecallDir) {
+		t.Errorf("note still names the parent recall directory %q: %q", parentRecallDir, note)
+	}
+	if !strings.Contains(note, parentHistory) {
+		t.Errorf("note lost the history path although no archive was copied: %q", note)
+	}
+	forkRecall, err := store.RecallPath(forked.ID, agent.RecallName(entry))
+	if err != nil {
+		t.Fatalf("fork RecallPath failed: %v", err)
+	}
+	if _, err := os.Stat(forkRecall); err != nil {
+		t.Errorf("recall file was not copied: %v", err)
+	}
+	if forkHistory, err := store.HistoryPath(forked.ID); err != nil {
+		t.Fatalf("fork HistoryPath failed: %v", err)
+	} else if _, err := os.Stat(forkHistory); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("fork history file created without a parent archive: %v", err)
 	}
 }
 
