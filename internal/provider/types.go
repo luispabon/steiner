@@ -104,6 +104,9 @@ type Message struct {
 	// transcript, so no provider sends it, it is not part of any digest, and no
 	// persisted format stores it.
 	IncompleteText string `json:"-"`
+	// CacheBoundary marks the end of an immutable prefix (last summary segment).
+	// Only the Anthropic normal cache profile reads it; it is never serialized.
+	CacheBoundary bool `json:"-"`
 }
 
 // UsageStats carries token accounting returned by a provider.

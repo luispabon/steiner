@@ -16,6 +16,13 @@ type anthropicRequest struct {
 	Tools       []anthropicTool         `json:"tools,omitempty"`
 	Params      map[string]any          `json:"-"`
 	ExtraParams map[string]any          `json:"-"`
+
+	// segmentBoundaryMsg is the wire message index of the last input message
+	// carrying Message.CacheBoundary; hasSegmentBoundary distinguishes "none"
+	// from message index 0. Neither field is marshalled: MarshalJSON builds the
+	// payload explicitly.
+	segmentBoundaryMsg int
+	hasSegmentBoundary bool
 }
 
 func (r anthropicRequest) MarshalJSON() ([]byte, error) {
@@ -223,6 +230,10 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 				wire.Messages = append(wire.Messages, anthropicMessage{Role: "user", Content: []anthropicContentBlock{block}})
 				inToolBatch = true
 			}
+			if msg.CacheBoundary {
+				wire.segmentBoundaryMsg = len(wire.Messages) - 1
+				wire.hasSegmentBoundary = true
+			}
 		case MessageRoleSystem:
 			if strings.TrimSpace(msg.Content) == "" {
 				continue
@@ -236,6 +247,10 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 			if wireMsg != nil {
 				wire.Messages = append(wire.Messages, *wireMsg)
 				inToolBatch = false
+				if msg.CacheBoundary {
+					wire.segmentBoundaryMsg = len(wire.Messages) - 1
+					wire.hasSegmentBoundary = true
+				}
 			}
 		}
 	}
@@ -279,14 +294,20 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	}
 
 	userMsgIndices := lastNUserMsgIndices(wire.Messages, 2)
-	if len(userMsgIndices) < 2 || numBreakpoints >= anthropicMaxCacheBreakpoints {
-		return
+	if len(userMsgIndices) >= 2 && numBreakpoints < anthropicMaxCacheBreakpoints {
+		userMsg := userMsgIndices[0]
+		userBlock := len(wire.Messages[userMsg].Content) - 1
+		beforeLimit := userMsg < limitMsg || (userMsg == limitMsg && userBlock < limitBlock)
+		if userBlock >= 0 && beforeLimit && (userMsg != finalMsg || userBlock != finalBlock) {
+			wire.Messages[userMsg].Content[userBlock].CacheControl = cacheControl
+			numBreakpoints++
+		}
 	}
-	userMsg := userMsgIndices[0]
-	userBlock := len(wire.Messages[userMsg].Content) - 1
-	beforeLimit := userMsg < limitMsg || (userMsg == limitMsg && userBlock < limitBlock)
-	if userBlock >= 0 && beforeLimit && (userMsg != finalMsg || userBlock != finalBlock) {
-		wire.Messages[userMsg].Content[userBlock].CacheControl = cacheControl
+
+	// SEGMENT BOUNDARY: the remaining slot goes on the last block of the
+	// immutable segment prefix. It never displaces a rolling breakpoint.
+	if wire.hasSegmentBoundary {
+		markSegmentBoundaryBreakpoint(wire, wire.segmentBoundaryMsg, numBreakpoints, cacheControl)
 	}
 }
 
