@@ -134,6 +134,61 @@ func TestContextCompactionFallbackFieldsOmittedJSON(t *testing.T) {
 	}
 }
 
+func TestContextCompactionInstrumentationFieldsJSON(t *testing.T) {
+	typed := ContextCompactionEvent{
+		Severity:           "done",
+		SummaryTruncated:   true,
+		SummaryCondensed:   true,
+		ProviderErrorClass: "rate_limited",
+		HTTPStatus:         429,
+	}
+	data, err := json.Marshal(Event{
+		Type:      EventTypeContextDiagnostics,
+		Timestamp: time.Unix(0, 0).UTC(),
+		Payload:   typed,
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{`"summary_truncated":true`, `"summary_condensed":true`, `"provider_error_class":"rate_limited"`, `"http_status":429`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("event JSON = %s, missing %s", text, want)
+		}
+	}
+
+	var decoded struct {
+		Payload ContextDiagnosticsEvent `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	got, ok := AsContextCompactionEvent(decoded.Payload)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if !reflect.DeepEqual(got, typed) {
+		t.Fatalf("decoded compaction = %+v, want %+v", got, typed)
+	}
+}
+
+func TestContextCompactionInstrumentationFieldsOmittedJSON(t *testing.T) {
+	data, err := json.Marshal(Event{
+		Type:      EventTypeContextDiagnostics,
+		Timestamp: time.Unix(0, 0).UTC(),
+		Payload:   ContextCompactionEvent{Turn: 2, SummarizedMessages: 1},
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, key := range []string{"summary_truncated", "summary_condensed", "provider_error_class", "http_status"} {
+		if strings.Contains(text, key) {
+			t.Fatalf("event JSON = %s, must not contain %s when unset", text, key)
+		}
+	}
+}
+
 func TestScopedContextDiagnosticEventJSONPreservesLegacyKind(t *testing.T) {
 	data, err := json.Marshal(WithAgentScope(NewContextBudgetEvent("conversation", 3, 0, 0, true), "child-1"))
 	if err != nil {

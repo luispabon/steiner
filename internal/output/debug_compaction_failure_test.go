@@ -36,6 +36,32 @@ func TestCompactionSummaryAttemptString(t *testing.T) {
 	}
 }
 
+func TestFormatCompactionSummaryDetailsFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload ContextDiagnosticsEvent
+		want    []string
+	}{
+		{
+			name:    "unset flags are omitted",
+			payload: ContextDiagnosticsEvent{SummaryBytes: 120},
+			want:    []string{"summary 120 bytes"},
+		},
+		{
+			name:    "truncated and condensed summaries are reported",
+			payload: ContextDiagnosticsEvent{SummaryBytes: 120, SummaryTruncated: true, SummaryCondensed: true},
+			want:    []string{"summary 120 bytes", "summary_truncated=true", "summary_condensed=true"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatCompactionSummaryDetails(tt.payload); !slices.Equal(got, tt.want) {
+				t.Errorf("formatCompactionSummaryDetails() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatCompactionFailure(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -51,6 +77,11 @@ func TestFormatCompactionFailure(t *testing.T) {
 			name:    "failed attempts list each reply",
 			payload: ContextDiagnosticsEvent{CompactionResult: CompactionResultFailed, SummaryAttempts: 1, SummaryFailureReason: "length", SummaryAttemptDetails: []CompactionSummaryAttempt{{Attempt: 1, FinishReason: "length", CompletionTokens: summaryTokens(4096), Reason: "length"}}},
 			want:    []string{"compaction_result=failed", "summary_attempts=1", "summary_failure_reason=length", "summary_attempt attempt=1 finish_reason=length completion_tokens=4096 tool_calls=0 reasoning_content=false reason=length"},
+		},
+		{
+			name:    "failed summary reports the provider error class and HTTP status",
+			payload: ContextDiagnosticsEvent{CompactionResult: CompactionResultFailed, SummaryFailureReason: "no_text", ProviderErrorClass: "http_4xx", HTTPStatus: 429},
+			want:    []string{"compaction_result=failed", "summary_failure_reason=no_text", "provider_error_class=http_4xx", "http_status=429"},
 		},
 		{
 			name:    "zero fields are omitted",
