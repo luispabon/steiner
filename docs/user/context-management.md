@@ -52,7 +52,7 @@ The summary request carries the tool definitions a normal turn would send. After
 
 Interactive sessions and oneshot phases save the messages each compaction removes to `history.md` in `~/.config/steiner/sessions/<session-id>/`. It holds user and assistant text and short tool-call summaries, not tool output or model reasoning. The summary tells the model where the archive is so it can `grep` and `read` it for a missing detail. The summary's latest-request section is written inside a code block, fenced longer than any backtick run in the request, so markdown in it is not interpreted. The compaction result in the transcript renders it the same way.
 
-Use `/recall` to view the current session's archive. `--exec` runs and sub-agents do not keep an archive. Deleting a session deletes its archive; a forked session starts its own archive.
+Use `/recall` to view the current session's archive. `--exec` runs and sub-agents do not keep an archive. Deleting a session deletes its archive and recall files. A fork copies the parent's archive and recall files, then rewrites the inherited summary note and recall markers to the copies, so the fork's references keep resolving after the parent is deleted or evicted. If that copy fails, Steiner warns and the fork keeps the parent's paths.
 
 ### Empty summaries
 
