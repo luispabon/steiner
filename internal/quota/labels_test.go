@@ -5,6 +5,32 @@ import (
 	"time"
 )
 
+func TestShortDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		want     string
+	}{
+		{"41h", 41 * time.Hour, "1d17h"},
+		{"96h", 96 * time.Hour, "4d00h"},
+		{"24h", 24 * time.Hour, "1d00h"},
+		{"47h59m truncates", 47*time.Hour + 59*time.Minute, "1d23h"},
+		{"2h05m", 2*time.Hour + 5*time.Minute, "2h05m"},
+		{"1h", time.Hour, "1h00m"},
+		{"15m", 15 * time.Minute, "15m"},
+		{"30s", 30 * time.Second, "<1m"},
+		{"zero", 0, "<1m"},
+		{"negative", -time.Hour, "<1m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ShortDuration(tt.duration); got != tt.want {
+				t.Errorf("ShortDuration(%s) = %q, want %q", tt.duration, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWindowLabel(t *testing.T) {
 	tests := []struct {
 		name     string

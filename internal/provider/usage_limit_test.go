@@ -135,9 +135,11 @@ func TestUsageLimitErrorString(t *testing.T) {
 		want string
 	}{
 		{"same day", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "codex", Model: "codex/luna/high", PlanType: "plus", Message: "The usage limit has been reached", ResetsAt: at(2026, 9, 21, 15, 34)},
-			"provider usage limit reached (codex/luna/high, plan: plus): The usage limit has been reached — resets at 15:34 local (in 8m42s)"},
+			"provider usage limit reached (codex/luna/high, plan: plus): The usage limit has been reached — resets at 15:34 local (in 8m)"},
 		{"other day", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "codex", Model: "codex/luna/high", Message: "msg", ResetsAt: at(2026, 9, 22, 9, 10)},
-			"provider usage limit reached (codex/luna/high): msg — resets Tue 22 Sep 09:10 local (in 17h44m42s)"},
+			"provider usage limit reached (codex/luna/high): msg — resets Tue 22 Sep 09:10 local (in 17h44m)"},
+		{"multi-day", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "codex", Message: "msg", ResetsAt: at(2026, 9, 23, 9, 0)},
+			"provider usage limit reached (codex): msg — resets Wed 23 Sep 09:00 local (in 1d17h)"},
 		{"past", &UsageLimitError{Kind: UsageLimitKindUsage, Provider: "codex", Message: "msg", ResetsAt: at(2026, 9, 21, 9, 0)},
 			"provider usage limit reached (codex): msg — resets now"},
 		{"quota no reset", &UsageLimitError{Kind: UsageLimitKindQuota, Provider: "openai", Model: "openai/gpt", Code: "insufficient_quota", Message: "You exceeded"},

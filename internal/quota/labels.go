@@ -23,6 +23,23 @@ var namedWindows = []struct {
 	{30 * 24 * time.Hour, "monthly"},
 }
 
+// ShortDuration formats d concisely for quota displays: 1d17h, 2h05m, 15m,
+// or <1m under a minute (including non-positive d). Each unit truncates, so a
+// countdown never overstates the time left.
+func ShortDuration(d time.Duration) string {
+	const day = 24 * time.Hour
+	switch {
+	case d >= day:
+		return fmt.Sprintf("%dd%02dh", d/day, d%day/time.Hour)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh%02dm", d/time.Hour, d%time.Hour/time.Minute)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm", d/time.Minute)
+	default:
+		return "<1m"
+	}
+}
+
 // WindowLabel returns a short label for a rate-limit window of length d.
 // Durations within 5% of 5h, 24h, 7d, or 30d return "5h", "daily", "weekly",
 // or "monthly". Other durations are humanised, for example "2h" or "3d". A

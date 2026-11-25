@@ -1,6 +1,6 @@
 package provider
 
-import "time"
+import "github.com/luispabon/steiner/internal/quota"
 
 // Error renders the readable, single-line message shown to users.
 func (e *UsageLimitError) Error() string {
@@ -47,13 +47,13 @@ func (e *UsageLimitError) resetTail() string {
 	now := usageLimitNow()
 	loc := usageLimitLocation()
 	r, n := e.ResetsAt.In(loc), now.In(loc)
-	d := r.Sub(now).Round(time.Second)
+	d := r.Sub(now)
 	switch {
 	case d <= 0:
 		return " — resets now"
 	case r.Year() == n.Year() && r.YearDay() == n.YearDay():
-		return " — resets at " + r.Format("15:04") + " local (in " + d.String() + ")"
+		return " — resets at " + r.Format("15:04") + " local (in " + quota.ShortDuration(d) + ")"
 	default:
-		return " — resets " + r.Format("Mon 2 Jan 15:04") + " local (in " + d.String() + ")"
+		return " — resets " + r.Format("Mon 2 Jan 15:04") + " local (in " + quota.ShortDuration(d) + ")"
 	}
 }
