@@ -19,9 +19,6 @@ type summarizeCompactionStageParams struct {
 	mode             prompt.CompactionMode
 	maxTokens        int
 	steering         string
-	// fullMessages is the conversation this stage replaces. It is scanned for
-	// the immutable segment chain.
-	fullMessages []Message
 	// segment is the decided segmented shape of the stage. Nil with the
 	// segmented policy off.
 	segment *segmentStage
@@ -116,7 +113,6 @@ func (s summarizeCompactionStages) run(
 		retainedMessages: emergencyRetained,
 		mode:             prompt.CompactionModeEmergency,
 		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
-		fullMessages:     postNormalMessages,
 		summaryReq:       s.summaryReq,
 	})
 	outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
@@ -187,7 +183,6 @@ func (s summarizeCompactionStages) emergencyAfterNormal(
 		retainedMessages: emergencyRetained,
 		mode:             prompt.CompactionModeEmergency,
 		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeEmergency),
-		fullMessages:     full,
 		summaryReq:       s.summaryReq,
 	})
 	outcome, err = compactionCarryCleared(outcome, normalOutcome.BackendStateCleared, err)
@@ -216,7 +211,6 @@ func (s summarizeCompactionStages) normalStage(ctx context.Context, req RunReque
 		retainedMessages: retained,
 		mode:             prompt.CompactionModeNormal,
 		maxTokens:        compactionSummaryMaxTokensForMode(summaryBudget, prompt.CompactionModeNormal),
-		fullMessages:     full,
 		summaryReq:       s.summaryReq,
 	})
 }
@@ -370,11 +364,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	var segment *segmentStage
 	if req.SegmentedCompaction.Enabled {
 		var err error
-		segment, err = segmentStageFor(ctx, req, state, retainedFit, params, requestBlock)
+		segment, err = segmentStageFor(ctx, req, state, candidate, retainedFit, params, requestBlock)
 		if err != nil {
 			return CompactionOutcome{}, err
 		}
-		params.segment = segment
+		requestBlock, requestBlockStatus = applySegmentStage(req, &params, segment, requestBlock)
 	}
 
 	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, params)
@@ -405,12 +399,9 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
 	summaryText := strings.TrimSpace(calls.response.Message.Content)
-	marker := ""
-	if calls.truncated {
-		marker = "\n\n" + summaryTruncatedMarker
-	}
+	marker := stageTruncationMarker(calls.truncated)
 
-	retained, stageRetainedFit, err := compactionStageRetention(ctx, req, state, retainedFit, plan.retainedMessages)
+	retained, stageRetainedFit, err := compactionStageRetention(ctx, req, state, segment != nil && segment.ClampRetained, retainedFit, plan.retainedMessages)
 	if err != nil {
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
@@ -457,10 +448,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 // compactionStageRetention strips skill blocks and elides old tool output in the
 // retained messages a stage stores, keeping the comments' intent: the emitted
 // RetainedMessages are the retained source messages that were actually persisted,
-// and elision markers are what the new generation freezes.
-func compactionStageRetention(ctx context.Context, req RunRequest, state RunState, fit prompt.RequestTokenBudget, retained []Message) ([]Message, prompt.RequestTokenBudget, error) {
+// and elision markers are what the new generation freezes. recomputeFit refits the
+// tail when it is not the one the stage already fit.
+func compactionStageRetention(ctx context.Context, req RunRequest, state RunState, recomputeFit bool, fit prompt.RequestTokenBudget, retained []Message) ([]Message, prompt.RequestTokenBudget, error) {
 	retained, elided := buildCompactedRetention(ctx, req, state, cloneMessages(retained))
-	if !elided {
+	if !elided && !recomputeFit {
 		return retained, fit, nil
 	}
 	// The stage's token attribution measures the tail the generation keeps.
@@ -471,18 +463,49 @@ func compactionStageRetention(ctx context.Context, req RunRequest, state RunStat
 	return retained, refit, nil
 }
 
+// stageTruncationMarker returns the marker a truncated summary carries. It
+// follows the history note and precedes the request block.
+func stageTruncationMarker(truncated bool) string {
+	if !truncated {
+		return ""
+	}
+	return "\n\n" + summaryTruncatedMarker
+}
+
+// applySegmentStage makes the decided stage the one the request and note use: a
+// clamped retained tail replaces the selected one, and a rebase summarizes
+// exactly the source it stores. It returns the request block of the final source.
+func applySegmentStage(req RunRequest, params *summarizeCompactionStageParams, segment *segmentStage, requestBlock string) (string, string) {
+	params.segment = segment
+	if segment.ClampRetained {
+		params.retainedMessages = segment.Retained
+	}
+	if !segment.Decision.Rebase {
+		return requestBlock, ""
+	}
+	params.sourceMessages = segment.Source
+	return latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
+}
+
 // segmentStageFor returns the decided segmented shape of a stage, or nil when
-// the segmented policy is off. It is split out of summarizeCompactionStage to
-// keep that stage's branching bounded.
-func segmentStageFor(ctx context.Context, req RunRequest, state RunState, retainedFit prompt.RequestTokenBudget, params summarizeCompactionStageParams, requestBlock string) (*segmentStage, error) {
+// the segmented policy is off. The chain is scanned from the latest generation's
+// FullMessages, never from the candidate view, so a stripped view cannot hide an
+// existing chain. It is split out of summarizeCompactionStage to keep that
+// stage's branching bounded.
+func segmentStageFor(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, retainedFit prompt.RequestTokenBudget, params summarizeCompactionStageParams, requestBlock string) (*segmentStage, error) {
 	if !req.SegmentedCompaction.Enabled {
 		return nil, nil
 	}
+	full := state.Lineage.FullMessages()
+	if len(full) == 0 {
+		full = state.Conversation
+	}
 	decided, err := newSegmentStage(ctx, req, state, segmentStageInput{
 		Policy:       req.SegmentedCompaction,
-		Full:         params.fullMessages,
+		Full:         full,
 		Source:       params.sourceMessages,
 		Retained:     params.retainedMessages,
+		StrippedView: candidate.View == ConversationViewSummaryPrefixStripped,
 		Mode:         params.mode,
 		Model:        req.ResolvedModel.BackendModelID,
 		Budget:       retainedFit,
@@ -507,47 +530,47 @@ func stageRecallCount(state RunState, segment *segmentStage, removedSource, sour
 }
 
 // buildCompactionStageState stores the state a successful stage produces and
-// returns the summary text reported for it. With no segment stage it is today's
-// plain summary with the history note and request block inline. A segmented
-// stage stores the summarizer body as the immutable segment and moves the note
-// and request block to the mutable tail; a plain segmented decision keeps the
-// flag-off shape with no segment metadata. marker is the truncation marker, which
-// follows the history note and precedes the request block.
+// returns the summary text reported for it. It runs only after the summarizer
+// succeeded, so a failed call writes no history note. With no segment stage it is
+// today's plain summary with the history note and request block inline. A
+// segmented stage stores the summarizer body as the immutable segment and moves
+// the note and request block to the mutable tail; a plain segmented decision keeps
+// the flag-off shape with no segment metadata. marker is the truncation marker,
+// which follows the history note and precedes the request block.
 func buildCompactionStageState(req RunRequest, state RunState, segment *segmentStage, removedSource []Message, body, marker, requestBlock string, retained []Message) (RunState, string, [][]Message, error) {
-	if segment == nil {
-		var pendingArchive [][]Message
-		if req.HistoryArchive != nil {
-			// The archive note must not re-quote the verbatim request. The summary
-			// request itself keeps the block, because it replays this conversation
-			// exactly as a main request projects it, so the shared prefix stays cached.
-			body, pendingArchive = withHistoryNote(req, body, removedSource)
-		}
-		text := withRequestBlock(body+marker, requestBlock)
-		return buildSummarizedCompactionState(state, text, retained), text, pendingArchive, nil
+	if segment != nil {
+		// A segmented stage notes and archives only the span it replaces, never
+		// the segments and tail it keeps.
+		removedSource = segment.Recall
 	}
-	if segment.Plain {
-		// The plain fallback copies withHistoryNote exactly, so the stored bytes
-		// match the flag-off path for the same source.
-		if req.HistoryArchive != nil {
-			body = StripHistoryNotes(body) + "\n\n" + segment.Note
-		}
-		text := withRequestBlock(body+marker, requestBlock)
-		return buildSummarizedCompactionState(state, text, retained), text, segment.pendingArchive, nil
+	note := ""
+	text := body
+	var pendingArchive [][]Message
+	if req.HistoryArchive != nil {
+		// The archive note must not re-quote the verbatim request. The summary
+		// request itself keeps the block, because it replays this conversation
+		// exactly as a main request projects it, so the shared prefix stays cached.
+		text, pendingArchive = withHistoryNote(req, body, removedSource)
+		note = strings.TrimPrefix(strings.TrimPrefix(text, StripHistoryNotes(body)), "\n\n")
 	}
-	text := withRequestBlock(segmentNoteText(StripHistoryNotes(body+marker), segment.Note), requestBlock)
+	if segment == nil || segment.Plain {
+		stored := withRequestBlock(text+marker, requestBlock)
+		return buildSummarizedCompactionState(state, stored, retained), stored, pendingArchive, nil
+	}
+	display := withRequestBlock(segmentNoteText(StripHistoryNotes(body+marker), note), requestBlock)
 	next, err := buildSegmentCompactionState(state, segmentStateInput{
 		Scan:         segment.Scan,
 		Rebase:       segment.Decision.Rebase,
 		Source:       segment.Source,
 		Summary:      body + marker,
-		HistoryNote:  segment.Note,
+		HistoryNote:  note,
 		RequestBlock: requestBlock,
 		Retained:     retained,
 	})
 	if err != nil {
 		return RunState{}, "", nil, err
 	}
-	return next, text, segment.pendingArchive, nil
+	return next, display, pendingArchive, nil
 }
 
 // segmentDecisionOf returns the decision an adopted stage reports, or nil with

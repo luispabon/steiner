@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -826,33 +827,51 @@ func TestSegmentedCompactionEmergencyRebases(t *testing.T) {
 	}
 }
 
-func TestNewSegmentStageUnmappedRetentionFallsBackToPlain(t *testing.T) {
+func TestNewSegmentStageUnmappedRetentionRebases(t *testing.T) {
 	full := segmentStageConversation()
 	req := segmentedCompactionRequest(oneSummaryProvider(), segmentedCompactionPolicy())
-	stage, err := newSegmentStage(context.Background(), req, stateFromMessages(full), segmentStageInput{
-		Policy:    req.SegmentedCompaction,
-		Full:      full,
-		Source:    full[:5],
-		Retained:  []Message{{Role: MessageRoleUser, Content: "not the retained suffix"}},
-		Mode:      prompt.CompactionModeNormal,
-		Model:     "test-model",
-		Budget:    prompt.RequestTokenBudget{ContextSize: 100000, CompactionThresholdTokens: 70000},
-		MaxTokens: 128,
-	})
-	if err != nil {
-		t.Fatalf("newSegmentStage() error = %v", err)
+	retained := []Message{{Role: MessageRoleUser, Content: "not the retained suffix"}}
+	tests := []struct {
+		name       string
+		source     []Message
+		wantPlain  bool
+		wantReason string
+		wantSeq    int
+	}{
+		{name: "countable source rebases defensively", source: full[:5], wantReason: segmentReasonRetentionUnmapped, wantSeq: 1},
+		{name: "summary-only source falls back to plain", source: full[:3], wantPlain: true, wantReason: segmentReasonEmptySource, wantSeq: 0},
 	}
-	if !stage.Plain {
-		t.Fatalf("stage = %+v, want the plain fallback", stage)
-	}
-	if got, want := stage.Decision.Reason, segmentReasonRetentionUnmapped; got != want {
-		t.Fatalf("reason = %q, want %q", got, want)
-	}
-	if got, want := stage.Decision.Sequence, 0; got != want {
-		t.Fatalf("sequence = %d, want %d for a plain fallback", got, want)
-	}
-	if !sameMessages(stage.Source, full[:5]) {
-		t.Fatalf("fallback source = %#v, want the whole stage source", stage.Source)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stage, err := newSegmentStage(context.Background(), req, stateFromMessages(full), segmentStageInput{
+				Policy:    req.SegmentedCompaction,
+				Full:      full,
+				Source:    tt.source,
+				Retained:  retained,
+				Mode:      prompt.CompactionModeNormal,
+				Model:     "test-model",
+				Budget:    prompt.RequestTokenBudget{ContextSize: 100000, CompactionThresholdTokens: 70000},
+				MaxTokens: 128,
+			})
+			if err != nil {
+				t.Fatalf("newSegmentStage() error = %v", err)
+			}
+			if stage.Plain != tt.wantPlain {
+				t.Fatalf("plain = %t, want %t", stage.Plain, tt.wantPlain)
+			}
+			if got := stage.Decision.Reason; got != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", got, tt.wantReason)
+			}
+			if got, want := stage.Decision.Sequence, tt.wantSeq; got != want {
+				t.Fatalf("sequence = %d, want %d", got, want)
+			}
+			if !stage.Decision.Rebase {
+				t.Fatalf("decision = %+v, want a rebase", stage.Decision)
+			}
+			if !sameMessages(stage.Source, tt.source) {
+				t.Fatalf("source = %#v, want the selected source", stage.Source)
+			}
+		})
 	}
 }
 
@@ -936,5 +955,199 @@ func TestSegmentEmptySpanImpliesEmptySource(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSegmentedCompactionSplitInChainClampsPlain covers retention starting at
+// the chain: the rebase source must be the whole leading chain and the retained
+// tail must start after it, so no chain message follows the plain summary.
+func TestSegmentedCompactionSplitInChainClampsPlain(t *testing.T) {
+	full := []Message{
+		{Role: MessageRoleSummary, Content: segmentHeader(1) + "first facts", Segment: testSegment(1, 2)},
+		{Role: MessageRoleSummary, Content: segmentHeader(2) + "second facts", Segment: testSegment(2, 3)},
+		{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived to sessions/old.jsonl", "old request")},
+		{Role: MessageRoleUser, Content: "leftover request"},
+		{Role: MessageRoleAssistant, Content: "leftover reply"},
+	}
+	scan := scanSegmentChain(full)
+	if scan.End != 3 {
+		t.Fatalf("scan end = %d, want 3", scan.End)
+	}
+	providerStub := oneSummaryProvider("clamped plain facts")
+	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
+	state := stateFromMessages(full)
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 2, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatal("Applied = false, want true")
+	}
+	if outcome.segmentDecision == nil || outcome.segmentDecision.Reason != segmentReasonEmptySource {
+		t.Fatalf("decision = %+v, want the plain empty-source fallback", outcome.segmentDecision)
+	}
+	latest := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1]
+	if got, want := len(latest.SummaryPrefix), 1; got != want {
+		t.Fatalf("summary prefix len = %d, want %d plain summary", got, want)
+	}
+	if latest.SummaryPrefix[0].Segment != nil {
+		t.Fatalf("plain summary carries segment metadata: %+v", latest.SummaryPrefix[0].Segment)
+	}
+	for i, message := range latest.Messages {
+		if message.Role == MessageRoleSummary || message.Segment != nil {
+			t.Fatalf("retained message %d is a chain message: %#v", i, message)
+		}
+	}
+	wantRetained := full[scan.End:]
+	if !sameMessages(latest.Messages, wantRetained) {
+		t.Fatalf("retained = %#v, want everything after the chain %#v", latest.Messages, wantRetained)
+	}
+	request := providerStub.requests[0]
+	for _, needle := range []string{"first facts", "second facts"} {
+		if !messageContentsContain(request.Messages, needle) {
+			t.Fatalf("summarizer request missing the whole chain, want %q", needle)
+		}
+	}
+	if messageContentsContain(request.Messages, "leftover request") {
+		t.Fatal("clamped source summarized the retained tail")
+	}
+}
+
+// TestSegmentedCompactionStrippedViewRebases covers the in-run fallback where the
+// full view was already skipped and the stripped view is compacted: an existing
+// chain must force an ordinary rebase over the stripped source.
+func TestSegmentedCompactionStrippedViewRebases(t *testing.T) {
+	full := segmentStageConversation()
+	providerStub := oneSummaryProvider("stripped view facts")
+	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
+	req.CompactionLogPath = filepath.Join(t.TempDir(), "compaction.log")
+	state := stateFromMessages(full)
+	latest := state.Lineage.Generations[0]
+	state.Lineage = ConversationLineage{
+		Generations: []ConversationGeneration{newConversationGeneration(latest.ID, cloneMessages(full[:3]), cloneMessages(full[3:]))},
+	}
+	state.Conversation = state.Lineage.FullMessages()
+	skipped := map[string]bool{fmt.Sprintf("%d:%s", latest.ID, ConversationViewFull): true}
+
+	applied, ok, _, err := (&Runner{}).compactConversationForBudgetWithSteering(context.Background(), req, &state, 1, nil, skipped, new(int), "")
+	if err != nil || !applied || !ok {
+		t.Fatalf("compaction applied=%t ok=%t err=%v, want an applied compaction", applied, ok, err)
+	}
+	if got, want := len(providerStub.requests), 1; got != want {
+		t.Fatalf("compaction calls = %d, want %d", got, want)
+	}
+	instruction := providerStub.requests[0].Messages[len(providerStub.requests[0].Messages)-1]
+	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal); instruction.Content != want {
+		t.Fatalf("instruction = %q, want the ordinary instruction", instruction.Content)
+	}
+	if messageContentsContain(providerStub.requests[0].Messages, "first facts") {
+		t.Fatal("stripped view summarizer request replayed the chain")
+	}
+	lines := segmentDecisionLines(t, req.CompactionLogPath)
+	want := "segment_decision action=rebase reason=" + segmentReasonStrippedView + " sequence=1"
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], want) {
+		t.Fatalf("decision lines = %v, want one line with prefix %q", lines, want)
+	}
+	newest := state.Lineage.Generations[len(state.Lineage.Generations)-1]
+	if newest.SummaryPrefix[0].Segment == nil || newest.SummaryPrefix[0].Segment.Sequence != 1 {
+		t.Fatalf("stripped view segment = %+v, want sequence 1", newest.SummaryPrefix[0].Segment)
+	}
+}
+
+// plainFallbackState is the empty-span fixture: retention starts at the end of
+// the chain and the source holds only summaries.
+func plainFallbackState() RunState {
+	return stateFromMessages([]Message{
+		{Role: MessageRoleSummary, Content: segmentHeader(1) + "first facts", Segment: testSegment(1, 2)},
+		{Role: MessageRoleSummary, Content: segmentHeader(2) + "second facts", Segment: testSegment(2, 3)},
+		{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived to sessions/old.jsonl", "old request")},
+		{Role: MessageRoleUser, Content: "recent one"},
+		{Role: MessageRoleAssistant, Content: "recent one reply"},
+		{Role: MessageRoleUser, Content: "recent two"},
+		{Role: MessageRoleAssistant, Content: "recent two reply"},
+		{Role: MessageRoleUser, Content: "recent three"},
+		{Role: MessageRoleAssistant, Content: "recent three reply"},
+	})
+}
+
+// TestSegmentedCompactionHistoryNoteTiming checks that the archive note is
+// rendered once, after the summarizer succeeded, and that the plain fallback
+// stores the same bytes as the flag-off path for a present, empty and failed
+// note.
+func TestSegmentedCompactionHistoryNoteTiming(t *testing.T) {
+	tests := []struct {
+		name    string
+		note    string
+		noteErr error
+	}{
+		{name: "note present", note: "[steiner:history] archived to sessions/new.jsonl"},
+		{name: "note empty"},
+		{name: "note error", noteErr: errors.New("archive unavailable")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stored := map[bool]string{}
+			for _, enabled := range []bool{false, true} {
+				archive := &fakeHistoryArchive{note: tt.note, noteErr: tt.noteErr}
+				policy := SegmentedCompactionPolicy{}
+				if enabled {
+					policy = segmentedCompactionPolicy()
+				}
+				req := segmentedCompactionRequest(oneSummaryProvider("plain fallback facts"), policy)
+				req.HistoryArchive = archive
+				state := plainFallbackState()
+				candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+				if !ok {
+					t.Fatal("selectCompactionCandidate() ok = false, want true")
+				}
+				outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
+				if err != nil {
+					t.Fatalf("enabled=%t Compact() error = %v", enabled, err)
+				}
+				if got, want := len(archive.notes), 1; got != want {
+					t.Fatalf("enabled=%t history notes = %d, want %d", enabled, got, want)
+				}
+				wantPending := 0
+				if tt.noteErr == nil && tt.note != "" {
+					wantPending = 1
+				}
+				if got := len(outcome.pendingArchive); got != wantPending {
+					t.Fatalf("enabled=%t pending archive = %d, want %d", enabled, got, wantPending)
+				}
+				if len(outcome.pendingArchive) == 1 && !sameMessages(outcome.pendingArchive[0], stripRequestBlocks(outcome.pendingRecall)) {
+					t.Fatalf("enabled=%t archive source = %#v, want the summarized source", enabled, outcome.pendingArchive[0])
+				}
+				newest := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1]
+				stored[enabled] = newest.SummaryPrefix[0].Content
+			}
+			if stored[false] != stored[true] {
+				t.Fatalf("flag-off summary = %q, flag-on = %q, want identical bytes", stored[false], stored[true])
+			}
+		})
+	}
+}
+
+func TestSegmentedCompactionFailedSummaryWritesNoNote(t *testing.T) {
+	archive := &fakeHistoryArchive{note: "[steiner:history] archived to sessions/new.jsonl"}
+	providerStub := &fakeProvider{chatFn: func(context.Context, provider.ChatRequest) (provider.ChatResponse, error) {
+		return provider.ChatResponse{}, errors.New("summarizer failed")
+	}}
+	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
+	req.HistoryArchive = archive
+	state := plainFallbackState()
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	if _, err := (summarizeCompactor{}).Compact(context.Background(), req, state, 1, candidate, ""); err == nil {
+		t.Fatal("Compact() error = nil, want the summarizer failure")
+	}
+	if got := len(archive.notes); got != 0 {
+		t.Fatalf("history notes = %d, want none after a failed summary", got)
 	}
 }

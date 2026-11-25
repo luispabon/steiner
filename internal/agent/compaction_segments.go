@@ -129,8 +129,8 @@ func segmentBody(summary string) string {
 	return strings.TrimSpace(StripHistoryNotes(body))
 }
 
-// Reasons that select the plain summary fallback instead of a segment. The
-// decision log prints both with action plain.
+// Reasons for a defensive rebase and for the plain summary fallback. The
+// decision log prints only the plain reason with action plain.
 const (
 	// segmentReasonEmptySource marks a rebase whose selected source holds only
 	// summary messages.
@@ -138,20 +138,25 @@ const (
 	// segmentReasonRetentionUnmapped marks a stage whose retained boundary could
 	// not be proved against the scanned conversation.
 	segmentReasonRetentionUnmapped = "retention-unmapped"
+	// segmentReasonStrippedView marks a stage whose candidate view omits an
+	// existing chain, so its source cannot be split for an append.
+	segmentReasonStrippedView = "stripped-view"
 )
 
 // segmentStageInput carries what one compaction stage needs to decide and
 // describe its segmented shape.
 type segmentStageInput struct {
 	Policy SegmentedCompactionPolicy
-	// Full is the conversation this compaction replaces. The chain is scanned
-	// from its leading summary messages.
+	// Full is the latest generation's FullMessages. The chain is scanned from
+	// its leading summary messages, never from a candidate view.
 	Full []Message
-	// Source is the stage's selected source, a prefix of Full.
+	// Source is the stage's selected source from the candidate view.
 	Source []Message
 	// Retained is the selected retained tail, a suffix of Full.
 	Retained []Message
-	Mode     prompt.CompactionMode
+	// StrippedView reports a candidate view without the summary prefix.
+	StrippedView bool
+	Mode         prompt.CompactionMode
 	// Model estimates chain tokens.
 	Model string
 	// Budget is the fit that drives compaction, so ContextSize and
@@ -173,25 +178,23 @@ type segmentStage struct {
 	// Plain reports the plain summary fallback: no segment metadata is stored.
 	Plain bool
 	// Source is the span the new segment covers: the append span, or the whole
-	// stage source for a rebase and a plain fallback.
+	// source a rebase summarizes and stores.
 	Source []Message
-	// Note is the history note for Source, stored in the tail only.
-	Note string
-	// Tail is the mutable tail text: Note plus the request block.
-	Tail string
+	// Retained overrides the selected tail when the chain forces the split, so no
+	// chain message is left after the new summary.
+	Retained []Message
+	// ClampRetained reports that Retained replaces the selected tail.
+	ClampRetained bool
 	// Recall is Source without its latest-request trailers, for the history
 	// archive and recall markers.
 	Recall []Message
-	// pendingArchive holds the sources to archive once the outcome is adopted.
-	pendingArchive [][]Message
 }
 
-// newSegmentStage decides the segmented shape of one stage. It scans the
-// conversation the stage replaces, maps the retained boundary, estimates chain
-// tokens and the conservative post-append prompt, and turns that into a
-// decision. A rebase whose source has no non-summary coverage becomes the plain
-// summary fallback, so no segment is ever stored with SourceMessageCount 0 and
-// no append is split at a guessed index.
+// newSegmentStage decides the segmented shape of one stage. It scans the latest
+// generation's conversation, maps the retained boundary, estimates chain tokens
+// and the conservative post-append prompt, and turns that into a decision. A
+// rebase whose source has no non-summary coverage becomes the plain summary
+// fallback, so no segment is ever stored with SourceMessageCount 0.
 func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in segmentStageInput) (segmentStage, error) {
 	scan := scanSegmentChain(in.Full)
 	chainTokens, err := segmentChainTokens(ctx, in.Model, scan.Segments)
@@ -222,29 +225,38 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 		AppendSourceMessages: appendCount,
 		Retry:                in.Retry,
 	})
-	if !mapped {
-		decision = segmentPlainDecision(segmentReasonRetentionUnmapped, decision)
-	}
 
 	stage := segmentStage{Scan: scan, Decision: decision}
-	if segmentPlainReason(decision.Reason) {
-		stage.Plain = true
+	switch {
+	case in.StrippedView && scan.Status != chainNone:
+		// The view omits the chain, so its source cannot be split for an append
+		// and no segment may extend a chain it does not show. Rebase over the
+		// stripped source, the projection the fallback already uses.
+		stage.Decision = segmentRebaseDecision(segmentReasonStrippedView, decision)
 		stage.Source = cloneMessages(in.Source)
-	} else {
-		if decision.Rebase {
-			stage.Source = cloneMessages(in.Source)
-		} else {
-			stage.Source = cloneMessages(in.Full[scan.End:retentionStart])
-		}
-		if decision.Rebase && countSummarizedMessages(stage.Source, activeSkillBlocks(state)) == 0 {
-			stage.Decision = segmentPlainDecision(segmentReasonEmptySource, decision)
-			stage.Plain = true
+	case !mapped:
+		// The retained boundary cannot be proved. Rebase defensively over the
+		// selected source; the empty-source check below still decides whether a
+		// segment is stored.
+		stage.Decision = segmentRebaseDecision(segmentReasonRetentionUnmapped, decision)
+		stage.Source = cloneMessages(in.Source)
+	case !decision.Rebase:
+		stage.Source = cloneMessages(in.Full[scan.End:retentionStart])
+	default:
+		stage.Source = cloneMessages(in.Source)
+		if retentionStart < scan.End {
+			// Retention starts inside the chain, so the new summary must cover the
+			// whole chain and everything after it stays retained.
+			stage.Source = cloneMessages(in.Full[:scan.End])
+			stage.Retained = cloneMessages(in.Full[scan.End:])
+			stage.ClampRetained = true
 		}
 	}
-
+	if stage.Decision.Rebase && countSummarizedMessages(stage.Source, activeSkillBlocks(state)) == 0 {
+		stage.Decision = segmentPlainDecision(segmentReasonEmptySource, decision)
+		stage.Plain = true
+	}
 	stage.Recall = stripRequestBlocks(stage.Source)
-	stage.Note, stage.pendingArchive = segmentHistoryNote(req, stage.Recall)
-	stage.Tail = withRequestBlock(stage.Note, in.RequestBlock)
 	return stage, nil
 }
 
@@ -258,10 +270,19 @@ func segmentPlainDecision(reason string, decision segmentDecision) segmentDecisi
 	return decision
 }
 
+// segmentRebaseDecision turns decision into a defensive rebase that replaces the
+// chain with a fresh segment 1.
+func segmentRebaseDecision(reason string, decision segmentDecision) segmentDecision {
+	decision.Rebase = true
+	decision.Reason = reason
+	decision.Sequence = 1
+	return decision
+}
+
 // segmentPlainReason reports whether a decision reason selects the plain
 // summary fallback rather than a segment chain.
 func segmentPlainReason(reason string) bool {
-	return reason == segmentReasonEmptySource || reason == segmentReasonRetentionUnmapped
+	return reason == segmentReasonEmptySource
 }
 
 // segmentChainTokens sums the projected tokens of the immutable segments, so a
@@ -307,17 +328,6 @@ func segmentTailPlaceholder(scan segmentChainScan, requestBlock string) string {
 		note = strings.TrimSpace(body)
 	}
 	return withRequestBlock(note, requestBlock)
-}
-
-// segmentHistoryNote returns the history note for source and the sources to
-// archive once the outcome is adopted. It shares withHistoryNote's rendering and
-// warning, so a stage stores one note for one archive write.
-func segmentHistoryNote(req RunRequest, source []Message) (string, [][]Message) {
-	if req.HistoryArchive == nil {
-		return "", nil
-	}
-	noted, pending := withHistoryNote(req, "", source)
-	return strings.TrimPrefix(noted, "\n\n"), pending
 }
 
 // segmentNoteText joins a summary body and its history note, omitting either

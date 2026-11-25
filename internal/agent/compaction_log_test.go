@@ -233,9 +233,14 @@ func TestCompactionLogger_LogSegmentDecision(t *testing.T) {
 			want:     "segment_decision action=plain reason=empty-source sequence=0 chain_tokens=700 projected_post_tokens=2000 budget=8000\n",
 		},
 		{
-			name:     "plain unmapped retention",
-			decision: segmentDecision{Rebase: true, Reason: segmentReasonRetentionUnmapped, Sequence: 0},
-			want:     "segment_decision action=plain reason=retention-unmapped sequence=0 chain_tokens=0 projected_post_tokens=0 budget=0\n",
+			name:     "rebase unmapped retention",
+			decision: segmentDecision{Rebase: true, Reason: segmentReasonRetentionUnmapped, Sequence: 1},
+			want:     "segment_decision action=rebase reason=retention-unmapped sequence=1 chain_tokens=0 projected_post_tokens=0 budget=0\n",
+		},
+		{
+			name:     "rebase stripped view",
+			decision: segmentDecision{Rebase: true, Reason: segmentReasonStrippedView, Sequence: 1},
+			want:     "segment_decision action=rebase reason=stripped-view sequence=1 chain_tokens=0 projected_post_tokens=0 budget=0\n",
 		},
 	}
 	for _, tt := range tests {
