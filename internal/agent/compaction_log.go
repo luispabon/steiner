@@ -96,6 +96,21 @@ func (l *CompactionLogger) LogSizes(stage output.ContextCompactionStage) error {
 	return err
 }
 
+// LogSegmentDecision writes one line with the append-or-rebase decision of a
+// segmented compaction. It holds counts only, never prompt or summary text.
+func (l *CompactionLogger) LogSegmentDecision(d segmentDecision) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	action := "append"
+	if d.Rebase {
+		action = "rebase"
+	}
+	_, err := fmt.Fprintf(l.file, "segment_decision action=%s reason=%s sequence=%d chain_tokens=%d projected_post_tokens=%d budget=%d\n",
+		action, d.Reason, d.Sequence, d.ChainTokens, d.ProjectedPostTokens, d.Budget)
+	return err
+}
+
 // logCompactionStageSizes appends the sizes of an applied stage to the compaction
 // log at path. An empty path logs nothing.
 func logCompactionStageSizes(path string, stage output.ContextCompactionStage) {

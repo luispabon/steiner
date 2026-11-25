@@ -211,6 +211,47 @@ func TestCompactionLogger_LogSizes(t *testing.T) {
 	}
 }
 
+func TestCompactionLogger_LogSegmentDecision(t *testing.T) {
+	tests := []struct {
+		name     string
+		decision segmentDecision
+		want     string
+	}{
+		{
+			name:     "append",
+			decision: segmentDecision{Reason: "append", Sequence: 3, ChainTokens: 900, ProjectedPostTokens: 3000, Budget: 8000},
+			want:     "segment_decision action=append reason=append sequence=3 chain_tokens=900 projected_post_tokens=3000 budget=8000\n",
+		},
+		{
+			name:     "rebase",
+			decision: segmentDecision{Rebase: true, Reason: "chain-tokens", Sequence: 1, ChainTokens: 1001, ProjectedPostTokens: 9000, Budget: 8000},
+			want:     "segment_decision action=rebase reason=chain-tokens sequence=1 chain_tokens=1001 projected_post_tokens=9000 budget=8000\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "compaction.log")
+			logger, err := NewCompactionLogger(logPath)
+			if err != nil {
+				t.Fatalf("NewCompactionLogger: %v", err)
+			}
+			if err := logger.LogSegmentDecision(tt.decision); err != nil {
+				t.Fatalf("LogSegmentDecision: %v", err)
+			}
+			if err := logger.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+			data, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			if got := string(data); got != tt.want {
+				t.Errorf("log = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestLogCompactionStageSizes(t *testing.T) {
 	stage := output.ContextCompactionStage{Stage: "normal", RetainedUnits: 1}
 	tests := []struct {
