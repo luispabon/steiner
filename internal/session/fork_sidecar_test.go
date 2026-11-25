@@ -18,13 +18,6 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
-// forkMarker renders the elision marker compaction writes for an elided result
-// body. The literal format is shared with internal/agent and deliberately
-// duplicated here so these tests do not depend on the compaction package.
-func forkMarker(name, path string) string {
-	return "[Tool output omitted from active context: recall " + name + ", read " + path + "; for long lines use bash head -c/tail -c]"
-}
-
 // rawResultEnvelope renders a sub-agent result envelope whose inner is exactly
 // inner: the form compaction leaves behind when it elides a whole result body.
 func rawResultEnvelope(inner string) string {
@@ -63,13 +56,13 @@ func forkSidecarParent(t *testing.T, store *Store) (Session, agent.RecallEntry, 
 		t.Fatalf("render history note: %v", err)
 	}
 	name := agent.RecallName(entry)
-	envelope := rawResultEnvelope(forkMarker(name, parentRecall))
+	envelope := rawResultEnvelope(agent.RecallMarker(name, parentRecall))
 	parent.Lineage = agent.ConversationLineage{
 		Generations: []agent.ConversationGeneration{{
 			ID:            1,
 			SummaryPrefix: []agent.Message{{Role: agent.MessageRoleSummary, Content: "Earlier work summary.\n\n" + note}},
 			Messages: []agent.Message{
-				{Role: agent.MessageRoleTool, Name: entry.Tool, ToolCallID: entry.CallID, Content: forkMarker(name, parentRecall)},
+				{Role: agent.MessageRoleTool, Name: entry.Tool, ToolCallID: entry.CallID, Content: agent.RecallMarker(name, parentRecall)},
 				{Role: agent.MessageRoleUser, Content: "keep " + parentHistory + " and " + parentRecall + " as typed"},
 				{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: envelope},
 			},
@@ -162,7 +155,7 @@ func TestForkSidecarsCopiesAndRewritesInheritedReferences(t *testing.T) {
 		t.Errorf("summary note still names the parent recall directory %q: %q", parentRecallDir, summary)
 	}
 
-	if want := forkMarker(agent.RecallName(entry), forkRecall); latest.Messages[0].Content != want {
+	if want := agent.RecallMarker(agent.RecallName(entry), forkRecall); latest.Messages[0].Content != want {
 		t.Errorf("tool marker = %q, want %q", latest.Messages[0].Content, want)
 	}
 	if want := parent.Lineage.Generations[0].Messages[1].Content; latest.Messages[1].Content != want {
@@ -220,16 +213,51 @@ func TestForkSidecarsCopiesAndRewritesInheritedReferences(t *testing.T) {
 
 func TestParseWholeMarkerRejectsBarePrefixBeforeMarker(t *testing.T) {
 	name := "tool-call-1-" + strings.Repeat("a", 64)
-	marker := forkMarker(name, filepath.Join("/tmp/session/recall", name+recallFileExt))
+	marker := agent.RecallMarker(name, filepath.Join("/tmp/session/recall", name+recallFileExt))
 	if _, _, _, _, ok := parseWholeMarker(marker); !ok {
 		t.Fatalf("parseWholeMarker rejected a marker: %q", marker)
 	}
-	text := elisionMarkerPrefix + "not a recall name\n\n" + marker
+	text := agent.RecallMarkerPrefix + "not a recall name\n\n" + marker
 	if _, _, _, _, ok := parseWholeMarker(text); ok {
 		t.Errorf("parseWholeMarker accepted a bare prefix and a later marker as one marker: %q", text)
 	}
-	if _, _, _, _, ok := parseWholeMarker(elisionMarkerPrefix + "no delimiters"); ok {
+	if _, _, _, _, ok := parseWholeMarker(agent.RecallMarkerPrefix + "no delimiters"); ok {
 		t.Error("parseWholeMarker accepted a bare marker prefix")
+	}
+}
+
+// TestRecallMarkerFormatRoundTripsThroughForkParser proves the marker the
+// compaction producer emits parses as one whole marker, and that a fork rewrite
+// emits a marker the same parser accepts.
+func TestRecallMarkerFormatRoundTripsThroughForkParser(t *testing.T) {
+	name := "tool-call-1-" + strings.Repeat("a", 64)
+	parentDir := "/tmp/session/recall"
+	forkDir := "/tmp/session-fork/recall"
+	parentPath := filepath.Join(parentDir, name+recallFileExt)
+	marker := agent.RecallMarker(name, parentPath)
+
+	gotName, gotPath, _, _, ok := parseWholeMarker(marker)
+	if !ok {
+		t.Fatalf("parseWholeMarker rejected the production marker: %q", marker)
+	}
+	if gotName != name || gotPath != parentPath {
+		t.Errorf("parseWholeMarker = (%q, %q), want (%q, %q)", gotName, gotPath, name, parentPath)
+	}
+
+	rw := forkReferenceRewrite{
+		copiedRecall:    map[string]bool{name: true},
+		parentRecallDir: parentDir,
+		forkRecallDir:   forkDir,
+	}
+	rewritten, ok := rw.rewriteMarkerText(marker)
+	if !ok {
+		t.Fatalf("rewriteMarkerText rejected the production marker: %q", marker)
+	}
+	if want := agent.RecallMarker(name, filepath.Join(forkDir, name+recallFileExt)); rewritten != want {
+		t.Errorf("rewritten marker = %q, want %q", rewritten, want)
+	}
+	if _, _, _, _, ok := parseWholeMarker(rewritten); !ok {
+		t.Errorf("parseWholeMarker rejected the rewritten marker: %q", rewritten)
 	}
 }
 
@@ -245,39 +273,39 @@ func TestForkSidecarsRewritesOnlyWholeMarkers(t *testing.T) {
 		{
 			name: "tool message that is one marker",
 			build: func(name, parentRecall string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: forkMarker(name, parentRecall)}
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: agent.RecallMarker(name, parentRecall)}
 			},
 			wantRewritten: true,
 		},
 		{
 			name: "tool message with a marker and trailing text",
 			build: func(name, parentRecall string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: forkMarker(name, parentRecall) + "\nmore text"}
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: agent.RecallMarker(name, parentRecall) + "\nmore text"}
 			},
 		},
 		{
 			name: "tool message with a bare prefix before a marker",
 			build: func(name, parentRecall string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: elisionMarkerPrefix + "not a recall name\n\n" + forkMarker(name, parentRecall)}
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: agent.RecallMarkerPrefix + "not a recall name\n\n" + agent.RecallMarker(name, parentRecall)}
 			},
 		},
 		{
 			name: "tool message with a bare marker prefix",
 			build: func(_, _ string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: elisionMarkerPrefix}
+				return agent.Message{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: agent.RecallMarkerPrefix}
 			},
 			noParentPath: true,
 		},
 		{
 			name: "user message that is one marker",
 			build: func(name, parentRecall string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleUser, Content: forkMarker(name, parentRecall)}
+				return agent.Message{Role: agent.MessageRoleUser, Content: agent.RecallMarker(name, parentRecall)}
 			},
 		},
 		{
 			name: "sub-agent envelope whose inner is one marker",
 			build: func(name, parentRecall string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: rawResultEnvelope(forkMarker(name, parentRecall))}
+				return agent.Message{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: rawResultEnvelope(agent.RecallMarker(name, parentRecall))}
 			},
 			envelope:      true,
 			wantRewritten: true,
@@ -285,7 +313,7 @@ func TestForkSidecarsRewritesOnlyWholeMarkers(t *testing.T) {
 		{
 			name: "sub-agent envelope whose inner wraps a marker",
 			build: func(name, parentRecall string) agent.Message {
-				return agent.Message{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: rawResultEnvelope("result:\n" + forkMarker(name, parentRecall))}
+				return agent.Message{Role: agent.MessageRoleUser, Source: agent.MessageSourceSubAgentResult, Content: rawResultEnvelope("result:\n" + agent.RecallMarker(name, parentRecall))}
 			},
 			envelope: true,
 		},
@@ -326,8 +354,8 @@ func TestForkSidecarsRewritesOnlyWholeMarkers(t *testing.T) {
 				if strings.Contains(content, parentRecall) {
 					t.Errorf("content still names the parent recall path: %q", content)
 				}
-				if !tt.envelope && content != forkMarker(name, forkRecall) {
-					t.Errorf("tool content = %q, want %q", content, forkMarker(name, forkRecall))
+				if !tt.envelope && content != agent.RecallMarker(name, forkRecall) {
+					t.Errorf("tool content = %q, want %q", content, agent.RecallMarker(name, forkRecall))
 				}
 				return
 			}
@@ -472,7 +500,7 @@ func TestForkSidecarsAbsentSidecarFilesRewriteNothing(t *testing.T) {
 			ID:            1,
 			SummaryPrefix: []agent.Message{{Role: agent.MessageRoleSummary, Content: "Earlier work summary.\n\n" + note}},
 			Messages: []agent.Message{
-				{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: forkMarker(name, filepath.Join(parentRecallDir, name+recallFileExt))},
+				{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "call-1", Content: agent.RecallMarker(name, filepath.Join(parentRecallDir, name+recallFileExt))},
 			},
 		}},
 		NextGenerationID: 2,

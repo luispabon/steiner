@@ -15,8 +15,6 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-const elisionMarkerPrefix = "[Tool output omitted from active context: recall "
-
 // elisionTestArchive is a fakeRecallArchive whose returned paths can be made
 // long enough to exercise the marker-size threshold.
 type elisionTestArchive struct {
@@ -121,7 +119,7 @@ func TestElisionRetainedToolOutputsKeepsNewest(t *testing.T) {
 	if !elided {
 		t.Fatal("elided = false, want true")
 	}
-	if got := out[2].Content; !strings.HasPrefix(got, elisionMarkerPrefix) {
+	if got := out[2].Content; !strings.HasPrefix(got, RecallMarkerPrefix) {
 		t.Errorf("oldest result content = %q, want a marker", got)
 	}
 	if got := out[3].Content; got != bodies[1] {
@@ -165,7 +163,7 @@ func TestElisionRetainedToolOutputsCountsUnconsumed(t *testing.T) {
 	if !elided {
 		t.Fatal("elided = false, want true")
 	}
-	if got := out[2].Content; !strings.HasPrefix(got, elisionMarkerPrefix) {
+	if got := out[2].Content; !strings.HasPrefix(got, RecallMarkerPrefix) {
 		t.Errorf("consumed oldest result = %q, want a marker", got)
 	}
 	if out[6].Content != bodies[1] || out[7].Content != bodies[2] {
@@ -206,7 +204,7 @@ func TestElisionRetainedToolOutputsThresholds(t *testing.T) {
 			if elided != tc.wantEl {
 				t.Fatalf("elided = %v, want %v", elided, tc.wantEl)
 			}
-			if tc.wantEl && !strings.HasPrefix(out[2].Content, elisionMarkerPrefix) {
+			if tc.wantEl && !strings.HasPrefix(out[2].Content, RecallMarkerPrefix) {
 				t.Errorf("eligible body content = %q, want a marker", out[2].Content)
 			}
 			if !tc.wantEl && out[2].Content != tc.body {
@@ -237,7 +235,7 @@ func TestElisionRetainedToolOutputsWriteFailurePreservesCandidate(t *testing.T) 
 	if out[3].Content != bodies[1] {
 		t.Errorf("candidate with a failed write = %q, want its body verbatim", out[3].Content)
 	}
-	if !strings.HasPrefix(out[2].Content, elisionMarkerPrefix) {
+	if !strings.HasPrefix(out[2].Content, RecallMarkerPrefix) {
 		t.Errorf("older candidate = %q, want a marker", out[2].Content)
 	}
 	warnings := conversationWarnings(t, &rec)
@@ -286,7 +284,7 @@ func TestElisionRetainedToolOutputsMixedEnvelopeMessage(t *testing.T) {
 	if !ok {
 		t.Fatalf("rewritten envelope does not parse: %q", blocks.ResultEnvelopes[0])
 	}
-	if !strings.HasPrefix(first.Inner, elisionMarkerPrefix) {
+	if !strings.HasPrefix(first.Inner, RecallMarkerPrefix) {
 		t.Errorf("older envelope inner = %q, want a marker", first.Inner)
 	}
 	want := fmt.Sprintf(`bytes="%d"`, len(first.Inner))
@@ -297,7 +295,7 @@ func TestElisionRetainedToolOutputsMixedEnvelopeMessage(t *testing.T) {
 		t.Errorf("attributes changed: %+v", first)
 	}
 	second, ok := ParseSubAgentResultEnvelope(blocks.ResultEnvelopes[1])
-	if !ok || second.AgentID != "code-2" || second.Inner == "" || strings.HasPrefix(second.Inner, elisionMarkerPrefix) {
+	if !ok || second.AgentID != "code-2" || second.Inner == "" || strings.HasPrefix(second.Inner, RecallMarkerPrefix) {
 		t.Errorf("newer envelope changed: %+v", second)
 	}
 }
@@ -307,7 +305,7 @@ func TestElisionRetainedToolOutputsMixedEnvelopeMessage(t *testing.T) {
 // and the markers it writes are too small to be elided again.
 func TestElisionRetainedToolOutputsArchivesMarkerShapedBody(t *testing.T) {
 	t.Parallel()
-	markerShaped := recallMarker("existing-name", "/recall/existing-name") + elisionTestBody(" old body")
+	markerShaped := RecallMarker("existing-name", "/recall/existing-name") + elisionTestBody(" old body")
 	bodies := []string{markerShaped, elisionTestBody("newest")}
 	msgs := elisionTestConversation(bodies)
 	archive := &fakeRecallArchive{}
@@ -322,7 +320,7 @@ func TestElisionRetainedToolOutputsArchivesMarkerShapedBody(t *testing.T) {
 	if len(archive.written) != 1 || archive.written[0].Body != markerShaped {
 		t.Fatalf("archived entries = %+v, want the marker-shaped body verbatim", archive.written)
 	}
-	if out[2].Content == markerShaped || !strings.HasPrefix(out[2].Content, elisionMarkerPrefix) {
+	if out[2].Content == markerShaped || !strings.HasPrefix(out[2].Content, RecallMarkerPrefix) {
 		t.Errorf("marker-shaped body content = %q, want a fresh marker", out[2].Content)
 	}
 
@@ -406,7 +404,7 @@ func TestElisionRetainedToolOutputsSkipsExhaustedEstimates(t *testing.T) {
 		t.Errorf("fit calls = %d, want the baseline and the budget-crossing body only", calls)
 	}
 	for _, index := range []int{2, 3} {
-		if !strings.HasPrefix(out[index].Content, elisionMarkerPrefix) {
+		if !strings.HasPrefix(out[index].Content, RecallMarkerPrefix) {
 			t.Errorf("older consumed result %d = %q, want a marker", index, out[index].Content)
 		}
 	}
@@ -512,7 +510,7 @@ func TestElisionRetainedToolOutputsFrozenRequests(t *testing.T) {
 	}
 	found := false
 	for _, msg := range first.Messages {
-		if strings.Contains(msg.Content, elisionMarkerPrefix) {
+		if strings.Contains(msg.Content, RecallMarkerPrefix) {
 			found = true
 		}
 	}
@@ -556,7 +554,7 @@ func elisionCompactionConversation(resultCount int) (msgs []Message, sourceBody 
 
 func hasMarker(messages []Message) bool {
 	for _, msg := range messages {
-		if strings.Contains(msg.Content, elisionMarkerPrefix) {
+		if strings.Contains(msg.Content, RecallMarkerPrefix) {
 			return true
 		}
 	}
@@ -680,7 +678,7 @@ func TestBuildCompactedRetentionSkillStripThenElision(t *testing.T) {
 	if strings.Contains(out[0].Content, "steiner-skill") {
 		t.Errorf("skill block survived into the retained tail: %q", out[0].Content)
 	}
-	if !strings.Contains(out[0].Content, elisionMarkerPrefix) {
+	if !strings.Contains(out[0].Content, RecallMarkerPrefix) {
 		t.Errorf("envelope inner was not elided: %q", out[0].Content)
 	}
 	if out[2].Content != msgs[2].Content {

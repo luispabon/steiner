@@ -8,16 +8,6 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
-// The elision marker compaction writes in place of a result body it dropped from
-// the active context: the recall file name and its absolute path between fixed
-// text. Fork rewriting matches this shape textually rather than through the
-// compaction code that writes it.
-const (
-	elisionMarkerPrefix = "[Tool output omitted from active context: recall "
-	elisionMarkerRead   = ", read "
-	elisionMarkerSuffix = "; for long lines use bash head -c/tail -c]"
-)
-
 // forkReferenceRewrite maps the parent sidecar paths a fork inherited to the
 // fork's copies.
 type forkReferenceRewrite struct {
@@ -177,10 +167,10 @@ func (rw forkReferenceRewrite) rewriteEnvelope(raw string) (string, bool) {
 // at offset 0 and the suffix at the end of text. A marker-shaped fragment, such
 // as a bare marker prefix followed by other text, does not parse.
 func parseWholeMarker(text string) (name, path string, pathStart, pathEnd int, ok bool) {
-	if !strings.HasPrefix(text, elisionMarkerPrefix) {
+	if !strings.HasPrefix(text, agent.RecallMarkerPrefix) {
 		return "", "", 0, 0, false
 	}
-	name, path, pathStart, end, ok := parseElisionMarker(text, len(elisionMarkerPrefix))
+	name, path, pathStart, end, ok := parseElisionMarker(text, len(agent.RecallMarkerPrefix))
 	if !ok || end != len(text) {
 		return "", "", 0, 0, false
 	}
@@ -193,7 +183,7 @@ func parseWholeMarker(text string) (name, path string, pathStart, pathEnd int, o
 // produces; rejecting anything else stops a bare marker prefix earlier in the
 // text from pairing with a later marker's delimiters and hiding that marker.
 func parseElisionMarker(text string, nameStart int) (name, path string, pathStart, end int, ok bool) {
-	readRel := strings.Index(text[nameStart:], elisionMarkerRead)
+	readRel := strings.Index(text[nameStart:], agent.RecallMarkerRead)
 	if readRel < 0 {
 		return "", "", 0, 0, false
 	}
@@ -201,15 +191,15 @@ func parseElisionMarker(text string, nameStart int) (name, path string, pathStar
 	// A real recall name never contains a newline or a nested marker prefix.
 	// Rejecting both stops a bare marker prefix earlier in the text from
 	// pairing with a later marker's delimiters and hiding that marker.
-	if safeRecallName(name) != nil || strings.Contains(name, elisionMarkerPrefix) || strings.ContainsAny(name, "\r\n") {
+	if safeRecallName(name) != nil || strings.Contains(name, agent.RecallMarkerPrefix) || strings.ContainsAny(name, "\r\n") {
 		return "", "", 0, 0, false
 	}
-	pathStart = nameStart + readRel + len(elisionMarkerRead)
-	suffixRel := strings.Index(text[pathStart:], elisionMarkerSuffix)
+	pathStart = nameStart + readRel + len(agent.RecallMarkerRead)
+	suffixRel := strings.Index(text[pathStart:], agent.RecallMarkerSuffix)
 	if suffixRel < 0 {
 		return "", "", 0, 0, false
 	}
-	return name, text[pathStart : pathStart+suffixRel], pathStart, pathStart + suffixRel + len(elisionMarkerSuffix), true
+	return name, text[pathStart : pathStart+suffixRel], pathStart, pathStart + suffixRel + len(agent.RecallMarkerSuffix), true
 }
 
 // recallReplacement returns the fork path for a marker that names the parent's

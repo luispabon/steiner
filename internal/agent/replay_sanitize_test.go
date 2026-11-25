@@ -162,7 +162,7 @@ func TestReplaySafeConversation_PreservesPairedToolResults(t *testing.T) {
 // keeps a tool call paired with the recall marker that replaced its result,
 // while a verbatim result on the same assistant message stays untouched.
 func TestReplaySafeConversation_PreservesElidedToolResultPairing(t *testing.T) {
-	marker := recallMarker("tool-call-1-0123456789abcdef", "/recall/tool-call-1-0123456789abcdef")
+	marker := RecallMarker("tool-call-1-0123456789abcdef", "/recall/tool-call-1-0123456789abcdef")
 	conversation := []Message{
 		{Role: MessageRoleUser, Content: "investigate"},
 		{
@@ -208,7 +208,7 @@ func TestElidedSubAgentResultEnvelopeKeepsMarkerInner(t *testing.T) {
 		TokenCount:       120,
 		Body:             `{"output":"found it"}`,
 	})
-	marker := recallMarker("agent-call-1-0123456789abcdef", "/recall/agent-call-1-0123456789abcdef")
+	marker := RecallMarker("agent-call-1-0123456789abcdef", "/recall/agent-call-1-0123456789abcdef")
 	elided, ok := ReplaceSubAgentResultInner(raw, marker)
 	if !ok {
 		t.Fatalf("ReplaceSubAgentResultInner failed for the rendered envelope")

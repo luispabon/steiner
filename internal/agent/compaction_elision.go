@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -170,7 +169,7 @@ func estimateRetainedResultTokens(ctx context.Context, req RunRequest, state Run
 // not, is archived verbatim and elided on its size alone.
 func elideRetainedResult(ctx context.Context, req RunRequest, out []Message, target retainedResultTarget) bool {
 	name := RecallName(target.entry)
-	planned := recallMarker(name, req.RecallArchive.Path(name))
+	planned := RecallMarker(name, req.RecallArchive.Path(name))
 	if len(target.entry.Body) < retainedResultMinBytes || len(target.entry.Body) < retainedResultMarkerFactor*len(planned) {
 		return false
 	}
@@ -179,7 +178,7 @@ func elideRetainedResult(ctx context.Context, req RunRequest, out []Message, tar
 		emitEvent(req.Events, recallArchiveWarning(err))
 		return false
 	}
-	marker := recallMarker(name, path)
+	marker := RecallMarker(name, path)
 	if target.span == nil {
 		out[target.msgIndex].Content = marker
 		return true
@@ -196,11 +195,22 @@ func elideRetainedResult(ctx context.Context, req RunRequest, out []Message, tar
 	return true
 }
 
-// recallMarker returns the text that replaces one elided result body. It names
-// the recall file, its absolute path, and the bash byte-range commands for text
-// that read truncates.
-func recallMarker(name, path string) string {
-	return fmt.Sprintf("[Tool output omitted from active context: recall %s, read %s; for long lines use bash head -c/tail -c]", name, path)
+// The recall marker compaction writes in place of an elided result body. It
+// names the recall file, its absolute path, and the bash byte-range commands for
+// text that read truncates. internal/session parses this shape when it rewrites
+// inherited recall paths, so the format lives here as the one source of truth.
+const (
+	// RecallMarkerPrefix starts a marker, before the recall file name.
+	RecallMarkerPrefix = "[Tool output omitted from active context: recall "
+	// RecallMarkerRead separates the recall file name from its read path.
+	RecallMarkerRead = ", read "
+	// RecallMarkerSuffix ends a marker, after the read path.
+	RecallMarkerSuffix = "; for long lines use bash head -c/tail -c]"
+)
+
+// RecallMarker returns the text that replaces one elided result body.
+func RecallMarker(name, path string) string {
+	return RecallMarkerPrefix + name + RecallMarkerRead + path + RecallMarkerSuffix
 }
 
 // resultElisionWarning reports a failed result-size estimate as a compact
