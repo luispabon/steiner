@@ -237,7 +237,7 @@ func TestCondenseTruncatedSummaryCallFailure(t *testing.T) {
 
 func TestCondenseTargetWords(t *testing.T) {
 	t.Parallel()
-	zero, fourThousand, one := 0, 4000, 1
+	zero, fourThousand, one, negative := 0, 4000, 1, -5
 	tests := []struct {
 		name      string
 		maxTokens *int
@@ -245,6 +245,7 @@ func TestCondenseTargetWords(t *testing.T) {
 	}{
 		{name: "nil has no target", maxTokens: nil, want: 0},
 		{name: "zero has no target", maxTokens: &zero, want: 0},
+		{name: "negative has no target", maxTokens: &negative, want: 0},
 		{name: "4000 tokens gives 2400 words", maxTokens: &fourThousand, want: 2400},
 		{name: "one token gives one word", maxTokens: &one, want: 1},
 	}

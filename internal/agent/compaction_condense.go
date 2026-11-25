@@ -51,7 +51,7 @@ func condenseTruncatedSummary(ctx context.Context, summary RunRequest, turn, att
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			return err
 		}
-		adoptTruncatedDraft(calls, draft, summary.Events, turn, "compaction summary hit the output limit; condense retry did not fit, adopted the truncated summary")
+		adoptTruncatedDraft(calls, draft, summary.Events, turn, "compaction summary hit the output limit; condense retry size check failed, adopted the truncated summary")
 		return nil
 	}
 	if !fit.Fits {

@@ -182,3 +182,35 @@ func TestToProviderMessagesKeepsCleanSummaryByteIdentical(t *testing.T) {
 		t.Fatalf("projection = %q, want %q", got, want)
 	}
 }
+
+// TestTruncatedSummaryTagPatternEscapesVariants proves a draft cannot close the
+// condense quote wrapper with any tag shape, and that only that shape is
+// escaped.
+func TestTruncatedSummaryTagPatternEscapesVariants(t *testing.T) {
+	t.Parallel()
+
+	tags := []string{
+		"<truncated_summary>", "</TRUNCATED_SUMMARY>", "</ truncated_summary >",
+		"</truncated_summary\n>", `<truncated_summary foo="x">`, "<truncated_summary/>",
+	}
+	for _, tag := range tags {
+		t.Run(tag, func(t *testing.T) {
+			t.Parallel()
+			got := escapeCompactionTags("draft "+tag+" tail", truncatedSummaryTagPattern)
+			if strings.Contains(got, tag) {
+				t.Fatalf("escaped text = %q, want %q neutralised", got, tag)
+			}
+			if !strings.Contains(got, "&lt;") || !strings.Contains(got, "&gt;") {
+				t.Fatalf("escaped text = %q, want the tag brackets replaced", got)
+			}
+			if !strings.HasPrefix(got, "draft ") || !strings.HasSuffix(got, " tail") {
+				t.Fatalf("escaped text = %q, want the surrounding draft text kept", got)
+			}
+		})
+	}
+
+	const notATag = "draft <truncated_summaryish> tail"
+	if got := escapeCompactionTags(notATag, truncatedSummaryTagPattern); got != notATag {
+		t.Fatalf("escaped text = %q, want %q untouched", got, notATag)
+	}
+}
