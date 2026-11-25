@@ -54,7 +54,13 @@ type CompactionOutcome struct {
 	SummarizedMessages int
 	RetainedMessages   []Message
 	SummaryText        string
-	PromptText         string
+	// SummaryTruncated reports that the adopted summary hit the output limit
+	// and carries the truncation marker.
+	SummaryTruncated bool
+	// SummaryCondensed reports that the adopted summary came from the condense
+	// retry.
+	SummaryCondensed bool
+	PromptText       string
 	// RequestBlock is the output.RequestBlock* status of the verbatim latest
 	// user request the summary carries, and RequestBlockBytes its size.
 	RequestBlock      string
@@ -293,6 +299,8 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 			requestBlockBytes:        outcome.RequestBlockBytes,
 			candidate:                outcome.Candidate,
 			summaryText:              outcome.SummaryText,
+			summaryTruncated:         outcome.SummaryTruncated,
+			summaryCondensed:         outcome.SummaryCondensed,
 			promptText:               outcome.PromptText,
 			usage:                    outcome.Usage,
 			cacheReportedInputTokens: outcome.CacheReportedInputTokens,

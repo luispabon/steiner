@@ -80,6 +80,37 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 	}
 }
 
+// TestContextDiagnosticFailureEventJSONCarriesInstrumentationFields proves a failed
+// compaction built through NewContextDiagnosticsEvent keeps its provider class, HTTP
+// status and summary shaping flags on the wire.
+func TestContextDiagnosticFailureEventJSONCarriesInstrumentationFields(t *testing.T) {
+	event := NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:               "compaction",
+		Severity:           "skipped",
+		CompactionResult:   CompactionResultFailed,
+		ProviderErrorClass: "http_5xx",
+		HTTPStatus:         503,
+		SummaryTruncated:   true,
+		SummaryCondensed:   true,
+	})
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`"kind":"compaction"`,
+		`"provider_error_class":"http_5xx"`,
+		`"http_status":503`,
+		`"summary_truncated":true`,
+		`"summary_condensed":true`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("event JSON = %s, missing %s", text, want)
+		}
+	}
+}
+
 func TestContextCompactionFallbackFieldsJSON(t *testing.T) {
 	typed := ContextCompactionEvent{
 		CompactionModel:      "claude-haiku-5-5",
@@ -128,6 +159,61 @@ func TestContextCompactionFallbackFieldsOmittedJSON(t *testing.T) {
 	}
 	text := string(data)
 	for _, key := range []string{"compaction_model", "compaction_model_alias", "fallback_status", "fallback_reason"} {
+		if strings.Contains(text, key) {
+			t.Fatalf("event JSON = %s, must not contain %s when unset", text, key)
+		}
+	}
+}
+
+func TestContextCompactionInstrumentationFieldsJSON(t *testing.T) {
+	typed := ContextCompactionEvent{
+		Severity:           "done",
+		SummaryTruncated:   true,
+		SummaryCondensed:   true,
+		ProviderErrorClass: "rate_limited",
+		HTTPStatus:         429,
+	}
+	data, err := json.Marshal(Event{
+		Type:      EventTypeContextDiagnostics,
+		Timestamp: time.Unix(0, 0).UTC(),
+		Payload:   typed,
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{`"summary_truncated":true`, `"summary_condensed":true`, `"provider_error_class":"rate_limited"`, `"http_status":429`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("event JSON = %s, missing %s", text, want)
+		}
+	}
+
+	var decoded struct {
+		Payload ContextDiagnosticsEvent `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	got, ok := AsContextCompactionEvent(decoded.Payload)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if !reflect.DeepEqual(got, typed) {
+		t.Fatalf("decoded compaction = %+v, want %+v", got, typed)
+	}
+}
+
+func TestContextCompactionInstrumentationFieldsOmittedJSON(t *testing.T) {
+	data, err := json.Marshal(Event{
+		Type:      EventTypeContextDiagnostics,
+		Timestamp: time.Unix(0, 0).UTC(),
+		Payload:   ContextCompactionEvent{Turn: 2, SummarizedMessages: 1},
+	})
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, key := range []string{"summary_truncated", "summary_condensed", "provider_error_class", "http_status"} {
 		if strings.Contains(text, key) {
 			t.Fatalf("event JSON = %s, must not contain %s when unset", text, key)
 		}

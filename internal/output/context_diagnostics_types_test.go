@@ -128,6 +128,48 @@ func TestAsContextCompactionEventFailureFields(t *testing.T) {
 	}
 }
 
+func TestAsContextCompactionEventInstrumentationFields(t *testing.T) {
+	typed := ContextCompactionEvent{
+		Severity:           "done",
+		SummaryTruncated:   true,
+		SummaryCondensed:   true,
+		ProviderErrorClass: "http_4xx",
+		HTTPStatus:         429,
+	}
+
+	legacy := typed.toLegacyContextDiagnostics()
+	if legacy.SummaryTruncated != typed.SummaryTruncated || legacy.SummaryCondensed != typed.SummaryCondensed || legacy.ProviderErrorClass != typed.ProviderErrorClass || legacy.HTTPStatus != typed.HTTPStatus {
+		t.Fatalf("legacy conversion = %+v, want instrumentation fields from %+v", legacy, typed)
+	}
+
+	back, ok := AsContextCompactionEvent(legacy)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if got := back.toLegacyContextDiagnostics(); !reflect.DeepEqual(got, legacy) {
+		t.Fatalf("legacy round trip = %+v, want %+v", got, legacy)
+	}
+
+	legacyIn := ContextDiagnosticsEvent{
+		Kind:               "compaction",
+		Severity:           "failed",
+		SummaryTruncated:   true,
+		SummaryCondensed:   true,
+		ProviderErrorClass: "timeout",
+		HTTPStatus:         504,
+	}
+	event, ok := AsContextCompactionEvent(legacyIn)
+	if !ok {
+		t.Fatal("AsContextCompactionEvent() ok = false, want true")
+	}
+	if event.SummaryTruncated != legacyIn.SummaryTruncated || event.SummaryCondensed != legacyIn.SummaryCondensed || event.ProviderErrorClass != legacyIn.ProviderErrorClass || event.HTTPStatus != legacyIn.HTTPStatus {
+		t.Fatalf("AsContextCompactionEvent() = %+v, want instrumentation fields from %+v", event, legacyIn)
+	}
+	if got := event.toLegacyContextDiagnostics(); !reflect.DeepEqual(got, legacyIn) {
+		t.Fatalf("legacy round trip = %+v, want %+v", got, legacyIn)
+	}
+}
+
 func TestAsContextBudgetEventSessionLoaded(t *testing.T) {
 	payload := ContextDiagnosticsEvent{
 		Kind:                "session_loaded",

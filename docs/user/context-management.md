@@ -44,7 +44,7 @@ Everything else is reduced to the summary, so details can be lost. Each compacti
 /compact focus on the auth refactor
 ```
 
-The focus text is added to the summarisation prompt alongside any `models.<name>.prompts.compaction` override. Automatic compaction is never steered. `/compact` is refused while the agent is generating. Manual and automatic compaction share the empty-summary retries and failure rules under [Empty summaries](#empty-summaries).
+The focus text is added to the summarisation prompt alongside any `models.<name>.prompts.compaction` override. Automatic compaction is never steered. `/compact` is refused while the agent is generating. Manual and automatic compaction share the empty-summary retries and failure rules under [Empty summaries](#empty-summaries) and the truncated-summary handling under [Truncated summaries](#truncated-summaries).
 
 The summary request carries the tool definitions a normal turn would send. After `/resume` there is no in-memory copy of the parent request, so Steiner rebuilds the tool set from the current configuration and waits for MCP servers to finish connecting first. The rebuild follows the live configuration, not the saved session: a tool from a server that failed to connect, or one you changed since the save, can differ from what the parent request used.
 
@@ -60,24 +60,44 @@ A fork copies available history and recall files and rewrites the history note a
 
 ### Empty summaries
 
-If the summary model replies with no text (an empty reply, or tool calls only), Steiner asks again up to two more times, so a stage makes at most 3 summary calls. The retries repeat the same request with a short extra instruction: reply with plain text and do not call tools. The last retry also names up to 3 of the tool calls the model tried, with their arguments cut to 120 characters (the ellipsis included), and asks it to start directly with the summary. A reply that has text is used as the summary even when it also carries tool calls. The tool calls are ignored and a note says so. When a retry recovers, the note also lists each failed attempt's finish reason, the completion tokens the provider reported, its tool-call count, whether it had reasoning content, and why it was empty. A reply that stopped at the output limit (`length`) fails at once, because a retry would hit the same limit.
+If the summary model replies with no text (an empty reply, or tool calls only), Steiner asks again up to two more times, so a stage makes at most 3 summary calls for empty replies. The retries repeat the same request with a short extra instruction: reply with plain text and do not call tools. The last retry also names up to 3 of the tool calls the model tried, with their arguments cut to 120 characters (the ellipsis included), and asks it to start directly with the summary. A reply that has text is used as the summary even when it also carries tool calls. The tool calls are ignored and a note says so. When a retry recovers, the note also lists each failed attempt's finish reason, the completion tokens the provider reported, its tool-call count, whether it had reasoning content, and why it was empty. An empty reply that stopped at the output limit (`length`) fails at once, because a retry would hit the same limit.
 
-A fallback model gets one call. If it replies with no text, the compaction reruns on the main model as described below.
+A fallback model gets one call, plus at most one condense retry. If it replies with no text, the compaction reruns on the main model as described below.
 
-Each compaction operation makes at most 6 summary calls on the main model: up to 3 for the normal stage and up to 3 for the emergency stage. With a fallback model selected the worst case is 8 calls: up to 2 on the fallback model, then the main-model rerun of up to 6. An empty normal stage fails the operation without running the emergency stage.
+Each compaction operation makes at most 8 summary calls on the main model: up to 4 for the normal stage and up to 4 for the emergency stage, including at most one condense retry per stage. With a fallback model selected the worst case is 12 calls: up to 4 on the fallback model, then the main-model rerun of up to 8. An empty normal stage fails the operation without running the emergency stage.
 
 If every attempt is empty, the compaction fails with an error and a single failed diagnostic that gives the attempts, the reason (`tool_calls`, `no_text`, `length` or `retry_does_not_fit`) and the tool-call count. It also lists each attempt with the same fields as the recovery note, and omits completion tokens the provider did not report. Completion tokens are shown as reported. Steiner does not use them to decide the outcome, because some providers leave reasoning tokens out of them. The conversation is left unchanged. Steiner does not continue uncompacted and does not build a placeholder summary. The next step depends on the reason:
 
 - `no_text` or `tool_calls`: run `/compact` again, or switch to a model that writes text summaries.
 - `length`: the reply used the whole output cap on reasoning or tool calls before writing any text. The summary output cap is the smaller of the model's `max_output_tokens` and a share of its context window. Use a model with a larger output limit, or raise `advanced.limits.max_output_tokens` for that model if the provider allows more. Running `/compact` again will likely hit the same limit.
 - `retry_does_not_fit`: the retry request, with its extra instruction, is larger than the model's context budget, so it was not sent. The conversation is unchanged. Run `/compact` again, since the first reply may differ. If it repeats, switch to a model with a larger context window or start a new session.
-- Provider errors are not empty summaries and have no reason. Fix the cause the error names, such as authentication, rate limits or the network, then run `/compact` again.
+- Provider errors are not empty summaries and have no empty-summary reason. Except for the condense retry described under [Truncated summaries](#truncated-summaries), they fail the stage. The provider client retries eligible HTTP and transport errors; the run loop retries only eligible HTTP errors, running compaction again. A fallback summary error outside the condense retry reruns the operation once on the main model, unless cancelled, the turn times out, or the retained tail is too large. For errors such as a bad request or an authentication or policy failure, fix the cause and run `/compact` again.
+
+### Truncated summaries
+
+A reply that has text but stopped at the output limit (`length`) is a draft, not a failure. Steiner sends it back once, asking for the same summary shorter. The draft is quoted inside `<truncated_summary>` tags as data, never replayed as an assistant message, and the request keeps the same messages with the instruction appended to the last one, so the messages before the last one, the system prompt and the tools stay cacheable. The retry asks for about 60% of the summary output cap in words; the cap itself is not lowered. This is separate from the empty-summary retries: a stage makes at most one such condense call.
+
+- If the retry returns text that does not hit the limit, its rewrite is used.
+- If the retry is cut off again, its text is used and still carries the marker.
+- If the retry request does not fit, its size check fails, it returns no text, or it fails with a non-cancellation provider error, Steiner keeps the draft as the summary and adds a note. The note reports a fit problem, the empty reply's reason, or the provider error class.
+
+A summary built from a truncated reply or draft ends with this line on its own, before the latest request block:
+
+```text
+[Summary truncated at the output token limit; later sections may be missing.]
+```
+
+The marker is plain summary text added at compaction. A later compaction re-summarizes the stored body, so the marker carries forward only if the summarizer keeps it.
+
+A cancellation stops the compaction and uses no summary.
+
+Truncated handling applies to the normal and emergency stages and to a fallback model. A truncated summary from the fallback model is accepted as it is: the compaction does not rerun on the main model.
 
 ### Compaction fallback
 
 When the main model's prompt cache has probably expired, a compaction can run its summary on a second model instead. This needs both `models.profiles.<profile>.compaction_fallback` and a positive cold-cache threshold on the main model's provider. The threshold is `compaction_fallback_after`; when that key is unset it uses the provider's `prompt_cache_ttl` (defaults: 5 minutes for `anthropic`, 60 for `claude_subscription`, 30 for `openai` and `codex`, off for other types). The fallback stays off when the resulting threshold is `0`; negative values are invalid. See [Configuration](configuration.md#providers-block).
 
-If the fallback fails, the compaction reruns once on the main model. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, the number of messages summarized, the retained messages and compaction units, how many retained user messages are real user input versus sub-agent results, summary size and budget, and cache components. The summary row ends with `latest request kept verbatim (new)` or `latest request kept verbatim (carried)` when the summary carries your latest request, or `latest request dropped to fit` when it was dropped to keep the compaction within the context window. When the fallback is skipped the header reads `fallback skipped · <model used>`, where the model is the main model that ran the compaction, shown with the same alias rule; the reason stays in the expanded details and in plain and JSON output.
+If the fallback fails, the compaction reruns once on the main model, except on cancellation, when the turn times out, or when the retained tail is too large. The compaction banner names the fallback model in its header as soon as the fallback is selected, before the summary finishes. A configured model alias is shown instead of `provider/model`. Click the banner to expand the model, the fallback reason, prompt tokens before and after, the compaction threshold, the number of messages summarized, the retained messages and compaction units, how many retained user messages are real user input versus sub-agent results, summary size and budget, and cache components. The summary row ends with `latest request kept verbatim (new)` or `latest request kept verbatim (carried)` when the summary carries your latest request, or `latest request dropped to fit` when it was dropped to keep the compaction within the context window. When the fallback is skipped the header reads `fallback skipped · <model used>`, where the model is the main model that ran the compaction, shown with the same alias rule; the reason stays in the expanded details and in plain and JSON output.
 
 A resumed or forked session keeps the last main request it saved, so the cold-cache decision uses the real idle time rather than assuming no request. A request recorded for another model is ignored when the session resumes on the current model; the stored record is replaced by the next successful main request. A record whose prompt cache key no longer matches the session is discarded.
 

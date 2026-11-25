@@ -78,6 +78,16 @@ func classifyErrorClass(ctx context.Context, err error) errorClass {
 	return errorClassOther
 }
 
+// ErrorClass returns the provider error class for err as a string, or "" when
+// err is nil. It exposes errorClass for callers outside the provider package
+// that record the class, such as compaction failure diagnostics.
+func ErrorClass(ctx context.Context, err error) string {
+	if err == nil {
+		return ""
+	}
+	return string(classifyErrorClass(ctx, err))
+}
+
 func isDecodeError(err error) bool {
 	return errors.Is(err, errDecodeChatCompletionResponse) ||
 		errors.Is(err, errDecodeStreamChunk) ||

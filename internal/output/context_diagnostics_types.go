@@ -94,6 +94,10 @@ type ContextDiagnosticsEvent struct {
 	CompactionResult          string   `json:"compaction_result,omitempty"`
 	SummaryAttempts           int      `json:"summary_attempts,omitempty"`
 	SummaryFailureReason      string   `json:"summary_failure_reason,omitempty"`
+	SummaryTruncated          bool     `json:"summary_truncated,omitempty"`
+	SummaryCondensed          bool     `json:"summary_condensed,omitempty"`
+	ProviderErrorClass        string   `json:"provider_error_class,omitempty"`
+	HTTPStatus                int      `json:"http_status,omitempty"`
 	SummaryToolCalls          int      `json:"summary_tool_calls,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
 
@@ -155,6 +159,10 @@ type ContextCompactionEvent struct {
 	CompactionResult          string   `json:"compaction_result,omitempty"`
 	SummaryAttempts           int      `json:"summary_attempts,omitempty"`
 	SummaryFailureReason      string   `json:"summary_failure_reason,omitempty"`
+	SummaryTruncated          bool     `json:"summary_truncated,omitempty"`
+	SummaryCondensed          bool     `json:"summary_condensed,omitempty"`
+	ProviderErrorClass        string   `json:"provider_error_class,omitempty"`
+	HTTPStatus                int      `json:"http_status,omitempty"`
 	SummaryToolCalls          int      `json:"summary_tool_calls,omitempty"`
 	Notes                     []string `json:"notes,omitempty"`
 
@@ -348,6 +356,10 @@ func (payload ContextCompactionEvent) toLegacyContextDiagnostics() ContextDiagno
 		CompactionResult:          payload.CompactionResult,
 		SummaryAttempts:           payload.SummaryAttempts,
 		SummaryFailureReason:      payload.SummaryFailureReason,
+		SummaryTruncated:          payload.SummaryTruncated,
+		SummaryCondensed:          payload.SummaryCondensed,
+		ProviderErrorClass:        payload.ProviderErrorClass,
+		HTTPStatus:                payload.HTTPStatus,
 		SummaryToolCalls:          payload.SummaryToolCalls,
 		SummaryAttemptDetails:     append([]CompactionSummaryAttempt(nil), payload.SummaryAttemptDetails...),
 		Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),
@@ -476,6 +488,10 @@ func contextDiagnosticFromLegacy(payload ContextDiagnosticsEvent) contextDiagnos
 			CompactionResult:          payload.CompactionResult,
 			SummaryAttempts:           payload.SummaryAttempts,
 			SummaryFailureReason:      payload.SummaryFailureReason,
+			SummaryTruncated:          payload.SummaryTruncated,
+			SummaryCondensed:          payload.SummaryCondensed,
+			ProviderErrorClass:        payload.ProviderErrorClass,
+			HTTPStatus:                payload.HTTPStatus,
 			SummaryToolCalls:          payload.SummaryToolCalls,
 			SummaryAttemptDetails:     append([]CompactionSummaryAttempt(nil), payload.SummaryAttemptDetails...),
 			Stages:                    append([]ContextCompactionStage(nil), payload.Stages...),

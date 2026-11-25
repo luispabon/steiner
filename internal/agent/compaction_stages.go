@@ -395,6 +395,11 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		// exactly as a main request projects it, so the shared prefix stays cached.
 		summaryText, pendingArchive = withHistoryNote(req, summaryText, removedSource)
 	}
+	if calls.truncated {
+		// The marker ends the body, before the request block, so a later drop of
+		// the block keeps it.
+		summaryText += "\n\n" + summaryTruncatedMarker
+	}
 	summaryText = withRequestBlock(summaryText, requestBlock)
 
 	retained := cloneMessages(plan.retainedMessages)
@@ -430,6 +435,8 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		SummarizedMessages:       countSummarizedMessages(params.sourceMessages, activeSkillBlocks(state)),
 		RetainedMessages:         retained,
 		SummaryText:              summaryText,
+		SummaryTruncated:         calls.truncated,
+		SummaryCondensed:         calls.condensed,
 		PromptText:               plan.promptText,
 		RequestBlock:             requestBlockStatus,
 		RequestBlockBytes:        len(requestBlock),

@@ -159,6 +159,75 @@ func TestClassifyErrorClass(t *testing.T) {
 	}
 }
 
+func TestErrorClass(t *testing.T) {
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want string
+	}{
+		{
+			name: "nil error",
+			ctx:  context.Background(),
+			err:  nil,
+			want: "",
+		},
+		{
+			name: "http 429 rate limited",
+			ctx:  context.Background(),
+			err:  &HTTPError{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			want: "rate_limited",
+		},
+		{
+			name: "http 503",
+			ctx:  context.Background(),
+			err:  &HTTPError{StatusCode: http.StatusServiceUnavailable, Status: "503"},
+			want: "http_5xx",
+		},
+		{
+			name: "http 400",
+			ctx:  context.Background(),
+			err:  &HTTPError{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			want: "http_4xx",
+		},
+		{
+			name: "cancelled context",
+			ctx:  cancelledCtx,
+			err:  context.Canceled,
+			want: "context_cancelled",
+		},
+		{
+			name: "deadline exceeded",
+			ctx:  context.Background(),
+			err:  context.DeadlineExceeded,
+			want: "timeout",
+		},
+		{
+			name: "wrapped deadline exceeded",
+			ctx:  context.Background(),
+			err:  fmt.Errorf("read response: %w", context.DeadlineExceeded),
+			want: "timeout",
+		},
+		{
+			name: "plain error",
+			ctx:  context.Background(),
+			err:  errors.New("x"),
+			want: "other",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ErrorClass(tt.ctx, tt.err); got != tt.want {
+				t.Errorf("ErrorClass() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBoundedError(t *testing.T) {
 	t.Run("nil error", func(t *testing.T) {
 		if got := boundedError(nil); got != "" {

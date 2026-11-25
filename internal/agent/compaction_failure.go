@@ -7,6 +7,7 @@ import (
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // Summary failure reasons. The first three classify a reply with no summary text.
@@ -87,6 +88,7 @@ func emitCompactionFailedDiagnostics(sink output.EventSink, turn int, stages []o
 		CompactionResult: output.CompactionResultFailed,
 		Notes:            []string{"compaction failed: " + err.Error()},
 	}
+	payload.ProviderErrorClass, payload.HTTPStatus = compactionProviderErrorFields(err)
 	var tooLarge *compactionTailTooLargeError
 	if errors.As(err, &tooLarge) {
 		stages = append(stages, output.ContextCompactionStage{
@@ -107,4 +109,25 @@ func emitCompactionFailedDiagnostics(sink output.EventSink, turn int, stages []o
 	}
 	payload.Stages = stages
 	emitEvent(sink, output.NewContextDiagnosticsEvent(payload))
+}
+
+// compactionProviderErrorFields returns the provider error class and HTTP status
+// to record on a compaction failure. The synthesized compaction errors carry no
+// class: they report a budget or summary outcome and never wrap a provider error.
+func compactionProviderErrorFields(err error) (class string, status int) {
+	if err == nil {
+		return "", 0
+	}
+	var summaryErr *compactionSummaryError
+	var tooLarge *compactionTailTooLargeError
+	var budgetMiss *compactionBudgetMissError
+	if errors.As(err, &summaryErr) || errors.As(err, &tooLarge) || errors.As(err, &budgetMiss) || errors.Is(err, errCompactionFallbackNotFit) {
+		return "", 0
+	}
+	var httpErr *provider.HTTPError
+	if errors.As(err, &httpErr) {
+		status = httpErr.StatusCode
+	}
+	// Background takes the class from err alone: reportCompactionFailure filters cancellation before emitting, and a deadline error classifies as timeout.
+	return provider.ErrorClass(context.Background(), err), status
 }

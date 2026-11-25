@@ -11,13 +11,16 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-// maxSummaryAttempts is the summary calls one main-model stage makes at most: the
-// first call plus two tail-only retries. A fallback target makes one call per
-// stage and never retries. Worst case per operation with a fallback selected: up
-// to 2 fallback calls (normal, then emergency after an applied normal stage), then
-// a main rerun of up to 6 calls (3 normal, then 3 emergency), so 8 in total.
-// Without a fallback, an operation makes up to 6 main calls. An empty normal stage
-// returns its error before the emergency stage runs.
+// maxSummaryAttempts is the empty-summary ladder's call count per main-model
+// stage: the first call plus two tail-only retries. A fallback target makes one
+// ladder call per stage and never retries it. A reply with text that hit the
+// output limit adds at most one condense call per stage (condenseTruncatedSummary),
+// outside this budget, on main or a fallback target. Worst case per operation with
+// a fallback selected: up to 4 fallback calls (the normal stage, then the emergency
+// stage after an applied normal stage), then a main rerun of up to 8 calls (4
+// normal, then 4 emergency), so 12 in total. Without a fallback, an operation makes
+// up to 8 main calls. An empty normal stage returns its error before the emergency
+// stage runs.
 const maxSummaryAttempts = 3
 
 // Caps on the tool calls quoted into a final retry. Arguments can be large or
@@ -34,6 +37,10 @@ type summaryCalls struct {
 	// usage and cacheReported sum every call of the stage, empty replies included.
 	usage         *provider.UsageStats
 	cacheReported int
+	// truncated reports that the adopted summary may be incomplete (hit the output limit).
+	truncated bool
+	// condensed reports that the adopted summary came from the condense retry.
+	condensed bool
 	// cleared reports that a call retired the main generation's backend state.
 	cleared bool
 	// attempts records every reply of the stage in order, with its classification.
@@ -73,8 +80,16 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 		reason := emptySummaryReason(response)
 		calls.attempts = append(calls.attempts, summaryAttemptRecord(attempt, response, reason))
 		if reason == "" {
-			calls.response = response
-			noteSummaryReply(summary.Events, turn, calls.attempts, response)
+			draftIndex := len(calls.attempts) - 1
+			if response.FinishReason == "length" {
+				if err := condenseTruncatedSummary(ctx, summary, turn, attempt, plan, onFallback, &calls, response); err != nil {
+					return calls, err
+				}
+			} else {
+				calls.response = response
+			}
+			// Only the ladder attempts belong in the note: the condense call is not one.
+			noteSummaryReply(summary.Events, turn, calls.attempts[:draftIndex+1], calls.response)
 			return calls, nil
 		}
 		// Retrying a reply that hit the output limit repeats the same limit, so it fails at once.
