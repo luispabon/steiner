@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -387,5 +388,156 @@ x
 	// The malformed envelope should be in Rest
 	if !strings.Contains(mb.Rest, "steiner-sub-agent-result") {
 		t.Error("malformed envelope not in Rest")
+	}
+}
+
+// testResultEnvelope builds a valid result envelope whose bytes header is the
+// byte length of inner, without importing internal/agent from this package.
+func testResultEnvelope(agentID, inner string) string {
+	open := fmt.Sprintf(`<steiner-sub-agent-result agent_id=%q type="code" status="ok" call_id=%q bytes="%d">`+"\n",
+		agentID, "call-"+agentID, len(inner))
+	return open + inner + "\n</steiner-sub-agent-result>"
+}
+
+func TestResultEnvelopeSpansMixedMessage(t *testing.T) {
+	t.Parallel()
+
+	// Byte-identical envelope text inside a skill body and inside trailing user
+	// text must not produce spans; only envelopes the parser consumed count.
+	decoy := testResultEnvelope("decoy", "decoy body")
+	env1 := testResultEnvelope("code-1", "This is a test result")
+	env2 := testResultEnvelope("code-2", "r\u00e9ponse \U0001F389")
+
+	skill, _ := RenderSkillActivation("plan", "plan body with decoy:\n"+decoy)
+	modePrefix := ModeNotice(config.ExecutionModePlan) + "\n\n"
+	pending := "<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>"
+	user := "user text\n\n" + decoy
+
+	full := modePrefix + skill + "\n\n" + pending + "\n\n" + env1 + "\n\n" + env2 + "\n\n" + user
+
+	spans := ResultEnvelopeSpans(full)
+	mb := SplitMessageBlocks(full)
+	want := []string{env1, env2}
+	if len(spans) != len(want) {
+		t.Fatalf("len(spans) = %d, want %d", len(spans), len(want))
+	}
+	if len(mb.ResultEnvelopes) != len(spans) {
+		t.Fatalf("len(ResultEnvelopes) = %d, want %d", len(mb.ResultEnvelopes), len(spans))
+	}
+
+	prevEnd := 0
+	for i, span := range spans {
+		if got := full[span.Start:span.End]; got != want[i] {
+			t.Fatalf("span %d bytes = %q, want %q", i, got, want[i])
+		}
+		if mb.ResultEnvelopes[i] != want[i] {
+			t.Fatalf("envelope %d = %q, want %q", i, mb.ResultEnvelopes[i], want[i])
+		}
+		if span.Start < prevEnd {
+			t.Fatalf("span %d start = %d, want at or after %d", i, span.Start, prevEnd)
+		}
+		if strings.Contains(full[span.Start:span.End], `agent_id="decoy"`) {
+			t.Fatalf("span %d covers a decoy envelope", i)
+		}
+		prevEnd = span.End
+	}
+
+	// Each real envelope has a unique position; the decoy copies sit before the
+	// first span (skill body) and after the last span (user text).
+	for i, raw := range want {
+		if got := strings.Index(full, raw); got != spans[i].Start {
+			t.Fatalf("envelope %d index = %d, span start = %d", i, got, spans[i].Start)
+		}
+	}
+	firstDecoy := strings.Index(full, decoy)
+	if firstDecoy < 0 || firstDecoy >= spans[0].Start {
+		t.Fatalf("skill-body decoy index = %d, want before first span start %d", firstDecoy, spans[0].Start)
+	}
+	lastDecoy := strings.LastIndex(full, decoy)
+	if lastDecoy <= spans[len(spans)-1].End {
+		t.Fatalf("user-text decoy index = %d, want after last span end %d", lastDecoy, spans[len(spans)-1].End)
+	}
+
+	if mb.ModePrefix != modePrefix {
+		t.Fatalf("ModePrefix = %q, want %q", mb.ModePrefix, modePrefix)
+	}
+	if len(mb.SkillBlocks) != 1 || mb.SkillBlocks[0].Name != "plan" {
+		t.Fatalf("SkillBlocks = %+v, want the plan block", mb.SkillBlocks)
+	}
+	if mb.PendingLine != pending {
+		t.Fatalf("PendingLine = %q, want %q", mb.PendingLine, pending)
+	}
+	if mb.Rest != user {
+		t.Fatalf("Rest = %q, want %q", mb.Rest, user)
+	}
+	if !utf8.ValidString(full[spans[1].Start:spans[1].End]) {
+		t.Fatal("unicode envelope span is not valid UTF-8")
+	}
+}
+
+func TestResultEnvelopeSpansNone(t *testing.T) {
+	t.Parallel()
+
+	skill, _ := RenderSkillActivation("plan", "plan body")
+	pending := "<steiner-sub-agents-pending>code-1 (code, running)</steiner-sub-agents-pending>"
+	envelopeText := testResultEnvelope("code-1", "body")
+	oversized := `<steiner-sub-agent-result agent_id="a" type="code" status="ok" call_id="c" bytes="9999">
+x
+</steiner-sub-agent-result>`
+
+	cases := []struct {
+		label string
+		input string
+	}{
+		{label: "empty", input: ""},
+		{label: "plain text", input: "just text"},
+		{label: "skill only", input: skill},
+		{label: "pending only", input: pending},
+		{label: "envelope text after user text", input: "user text\n\n" + envelopeText},
+		{label: "oversized bytes", input: oversized},
+		{label: "envelope text after malformed envelope", input: oversized + "\n\n" + envelopeText},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+
+			if spans := ResultEnvelopeSpans(tc.input); len(spans) != 0 {
+				t.Fatalf("spans = %+v, want none", spans)
+			}
+		})
+	}
+}
+
+func TestResultEnvelopeSpansUnicodeOffsets(t *testing.T) {
+	t.Parallel()
+
+	inner := "r\u00e9ponse \U0001F389 done"
+	if len(inner) == utf8.RuneCountInString(inner) {
+		t.Fatal("test inner must mix rune and byte lengths")
+	}
+	envelope := testResultEnvelope("code-1", inner)
+	prefix := ModeNotice(config.ExecutionModePlan) + "\n\n"
+	content := prefix + envelope
+
+	spans := ResultEnvelopeSpans(content)
+	if len(spans) != 1 {
+		t.Fatalf("len(spans) = %d, want 1", len(spans))
+	}
+	span := spans[0]
+	if span.Start != len(prefix) {
+		t.Fatalf("span start = %d, want %d", span.Start, len(prefix))
+	}
+	if span.End != len(content) {
+		t.Fatalf("span end = %d, want %d", span.End, len(content))
+	}
+	if got := content[span.Start:span.End]; got != envelope {
+		t.Fatalf("span bytes = %q, want %q", got, envelope)
+	}
+	// The bytes attribute counts bytes, so the span offsets stay correct even
+	// when the inner rune count differs from its byte length.
+	if want := fmt.Sprintf(`bytes="%d"`, len(inner)); !strings.Contains(envelope, want) {
+		t.Fatalf("envelope %q missing byte length attribute %s", envelope, want)
 	}
 }
