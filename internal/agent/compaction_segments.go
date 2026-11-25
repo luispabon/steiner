@@ -55,21 +55,16 @@ func segmentRetentionStart(fullMessages, retained []Message) (int, bool) {
 	return start, true
 }
 
-// segmentAppendSourceCount returns the number of non-summary messages in the
-// append span messages[scan.End:retentionStart]. Zero means the next segment
-// would cover no new message, which the decision rebases as empty-span. It
+// segmentAppendSourceCount returns the number of messages the next segment
+// would summarize in the append span messages[scan.End:retentionStart]. It
+// counts the way buildSegmentCompactionState does, so a span holding only the
+// active skill replay counts zero and the decision rebases as empty-span. It
 // reports false when the boundary does not line up with the scanned slice.
-func segmentAppendSourceCount(messages []Message, scan segmentChainScan, retentionStart int) (int, bool) {
+func segmentAppendSourceCount(state RunState, messages []Message, scan segmentChainScan, retentionStart int) (int, bool) {
 	if retentionStart < scan.End || retentionStart > len(messages) {
 		return 0, false
 	}
-	count := 0
-	for _, message := range messages[scan.End:retentionStart] {
-		if message.Role != MessageRoleSummary {
-			count++
-		}
-	}
-	return count, true
+	return countSummarizedMessages(messages[scan.End:retentionStart], activeSkillBlocks(state)), true
 }
 
 // buildSegmentCompactionState returns the state of a segmented compaction: a

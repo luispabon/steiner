@@ -23,9 +23,9 @@ type segmentDecisionInput struct {
 	ChainTokens         int // sum of provider.EstimateMessageTokens over the projected segment messages
 	ProjectedPostTokens int
 	RetentionStart      int // index into the scanned slice where retained messages begin
-	// AppendSourceMessages counts the non-summary messages in the append span
-	// FullMessages()[Chain.End:RetentionStart]. Zero means the next segment
-	// would summarize no new message.
+	// AppendSourceMessages counts the messages the next segment would summarize
+	// in the append span FullMessages()[Chain.End:RetentionStart], so a span
+	// holding only the active skill replay counts zero.
 	AppendSourceMessages int
 	Retry                bool
 }
@@ -34,8 +34,8 @@ type segmentDecisionInput struct {
 // retry always rebase, and a broken or missing chain rebases before any budget
 // rule can append. The append source never starts inside the chain: a retention
 // start before the end of the leading summary run rebases. An append span with
-// no non-summary message also rebases, before any budget rule can append an
-// empty segment. Percent rules are
+// nothing to summarize, such as a span holding only the replayed skill, also
+// rebases before any budget rule can append an empty segment. Percent rules are
 // strict (equal to a limit still appends); no-progress fires at equality because
 // a summary as large as the threshold cannot buy progress.
 func decideSegmentAction(in segmentDecisionInput) segmentDecision {

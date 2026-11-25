@@ -344,7 +344,7 @@ func TestSegmentRetentionStartFromStrippedCandidate(t *testing.T) {
 	if !sameMessages(fullMessages[start:], retained) {
 		t.Fatal("mapped suffix does not match the retained messages")
 	}
-	if count, ok := segmentAppendSourceCount(fullMessages, scan, start); !ok || count == 0 {
+	if count, ok := segmentAppendSourceCount(stateFromMessages(fullMessages), fullMessages, scan, start); !ok || count == 0 {
 		t.Fatalf("append source count = %d, %t, want a counted non-empty span", count, ok)
 	}
 
@@ -381,6 +381,7 @@ func TestSegmentAppendSourceCount(t *testing.T) {
 	if scan.End != 2 {
 		t.Fatalf("scan end = %d, want 2", scan.End)
 	}
+	state := stateFromMessages(full)
 	tests := []struct {
 		name           string
 		retentionStart int
@@ -395,11 +396,47 @@ func TestSegmentAppendSourceCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := segmentAppendSourceCount(full, scan, tt.retentionStart)
+			got, ok := segmentAppendSourceCount(state, full, scan, tt.retentionStart)
 			if ok != tt.wantOK || got != tt.want {
 				t.Fatalf("segmentAppendSourceCount() = %d, %t, want %d, %t", got, ok, tt.want, tt.wantOK)
 			}
 		})
+	}
+}
+
+func TestSegmentAppendSourceCountSkipsReplayOnlySpan(t *testing.T) {
+	activation := mustSkillActivation(t, "alpha", "alpha body")
+	full := []Message{
+		{Role: MessageRoleSummary, Content: segmentHeader(1) + "facts", Segment: testSegment(1, 2)},
+		{Role: MessageRoleUser, Source: MessageSourceSkillReplay, Content: activation},
+		{Role: MessageRoleUser, Content: "current request"},
+	}
+	state := stateFromMessages(full)
+	scan := scanSegmentChain(full)
+	if scan.End != 1 {
+		t.Fatalf("scan end = %d, want 1", scan.End)
+	}
+
+	count, ok := segmentAppendSourceCount(state, full, scan, 2)
+	if !ok || count != 0 {
+		t.Fatalf("replay-only span count = %d, %t, want 0, true", count, ok)
+	}
+	decision := decideSegmentAction(segmentDecisionInput{
+		Policy:               SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50},
+		Chain:                scan,
+		Mode:                 prompt.CompactionModeNormal,
+		ContextSize:          20000,
+		CompactionThreshold:  8000,
+		RetentionStart:       2,
+		AppendSourceMessages: count,
+	})
+	if !decision.Rebase || decision.Reason != "empty-span" {
+		t.Fatalf("decision = %+v, want a rebase with reason empty-span", decision)
+	}
+
+	count, ok = segmentAppendSourceCount(state, full, scan, len(full))
+	if !ok || count != 1 {
+		t.Fatalf("span with the request count = %d, %t, want 1, true", count, ok)
 	}
 }
 
