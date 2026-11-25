@@ -21,10 +21,15 @@ const (
 // forkReferenceRewrite maps the parent sidecar paths a fork inherited to the
 // fork's copies.
 type forkReferenceRewrite struct {
+	// copyHistory reports that the fork holds its own history archive, so a
+	// summary note can name it instead of the parent's.
+	copyHistory   bool
 	parentHistory string
 	forkHistory   string
 	// copiedRecall holds the recall names whose files the fork copied, so a
-	// marker naming a parent file the fork does not have keeps its path.
+	// marker naming a parent file the fork does not have keeps its path. A
+	// summary note naming the recall directory is rewritten only when at least
+	// one file was copied, because that is when the fork's directory exists.
 	copiedRecall    map[string]bool
 	parentRecallDir string
 	forkRecallDir   string
@@ -59,10 +64,11 @@ func (rw forkReferenceRewrite) rewriteContent(msg agent.Message) string {
 	return rw.rewriteMarkersInMessage(content)
 }
 
-// rewriteHistoryNote replaces the parent history path in history note lines and
-// leaves every other line, and every other path in a note, alone.
+// rewriteHistoryNote replaces the parent history path and recall directory in
+// history note lines, and leaves every other line, and every other path in a
+// note, alone.
 func (rw forkReferenceRewrite) rewriteHistoryNote(content string) string {
-	if rw.parentHistory == rw.forkHistory || !strings.Contains(content, rw.parentHistory) {
+	if len(rw.copiedRecall) == 0 && (!rw.copyHistory || rw.parentHistory == rw.forkHistory) {
 		return content
 	}
 	lines := strings.Split(content, "\n")
@@ -71,10 +77,17 @@ func (rw forkReferenceRewrite) rewriteHistoryNote(content string) string {
 		if !strings.HasPrefix(strings.TrimSpace(line), agent.HistoryNoteMarker) {
 			continue
 		}
-		if !strings.Contains(line, rw.parentHistory) {
+		rewritten := line
+		if rw.copyHistory {
+			rewritten = strings.ReplaceAll(rewritten, rw.parentHistory, rw.forkHistory)
+		}
+		if len(rw.copiedRecall) > 0 {
+			rewritten = strings.ReplaceAll(rewritten, rw.parentRecallDir, rw.forkRecallDir)
+		}
+		if rewritten == line {
 			continue
 		}
-		lines[i] = strings.ReplaceAll(line, rw.parentHistory, rw.forkHistory)
+		lines[i] = rewritten
 		changed = true
 	}
 	if !changed {

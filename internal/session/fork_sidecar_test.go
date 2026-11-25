@@ -145,6 +145,20 @@ func TestForkSidecarsCopiesAndRewritesInheritedReferences(t *testing.T) {
 	if strings.Contains(summary, parentHistory) {
 		t.Errorf("summary note still names the parent history %q: %q", parentHistory, summary)
 	}
+	forkRecallDir, err := store.RecallDir(forked.ID)
+	if err != nil {
+		t.Fatalf("fork RecallDir failed: %v", err)
+	}
+	parentRecallDir, err := store.RecallDir(parent.ID)
+	if err != nil {
+		t.Fatalf("parent RecallDir failed: %v", err)
+	}
+	if !strings.Contains(summary, forkRecallDir) {
+		t.Errorf("summary note does not name the fork recall directory %q: %q", forkRecallDir, summary)
+	}
+	if strings.Contains(summary, parentRecallDir) {
+		t.Errorf("summary note still names the parent recall directory %q: %q", parentRecallDir, summary)
+	}
 
 	if want := forkMarker(agent.RecallName(entry), forkRecall); latest.Messages[0].Content != want {
 		t.Errorf("tool marker = %q, want %q", latest.Messages[0].Content, want)
@@ -182,6 +196,9 @@ func TestForkSidecarsCopiesAndRewritesInheritedReferences(t *testing.T) {
 	if !strings.Contains(loadedLatest.SummaryPrefix[0].Content, forkHistory) {
 		t.Errorf("reloaded summary note lost the fork history path: %q", loadedLatest.SummaryPrefix[0].Content)
 	}
+	if !strings.Contains(loadedLatest.SummaryPrefix[0].Content, forkRecallDir) {
+		t.Errorf("reloaded summary note lost the fork recall directory: %q", loadedLatest.SummaryPrefix[0].Content)
+	}
 	if !strings.Contains(loadedLatest.Messages[0].Content, forkRecall) {
 		t.Errorf("reloaded tool marker lost the fork recall path: %q", loadedLatest.Messages[0].Content)
 	}
@@ -189,10 +206,13 @@ func TestForkSidecarsCopiesAndRewritesInheritedReferences(t *testing.T) {
 	if err := store.Delete(parent.ID); err != nil {
 		t.Fatalf("delete parent: %v", err)
 	}
-	for _, path := range []string{forkHistory, forkRecall} {
+	for _, path := range []string{forkHistory, forkRecall, forkRecallDir} {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("fork path %s does not resolve after the parent is deleted: %v", path, err)
 		}
+	}
+	if _, err := os.Stat(parentRecallDir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("parent recall directory survived deletion: %v", err)
 	}
 }
 

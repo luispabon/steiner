@@ -56,6 +56,7 @@ func (s *Store) ForkSidecars(parentID string, forked Session) (Session, error) {
 		return forked, nil
 	}
 	return rewriteForkReferences(forked, forkReferenceRewrite{
+		copyHistory:     historyCopied,
 		parentHistory:   parentHistory,
 		forkHistory:     forkHistory,
 		parentRecallDir: parentRecallDir,
