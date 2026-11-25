@@ -34,6 +34,14 @@ func seedRecallFileFor(t *testing.T, store *Store, id string, entry agent.Recall
 	return path
 }
 
+// flipOneByte corrupts content in place at its middle byte and keeps its length,
+// so only the byte comparison in acceptExistingRecall can reject it.
+func flipOneByte(content string) []byte {
+	corrupt := []byte(content)
+	corrupt[len(corrupt)/2] ^= 0xff
+	return corrupt
+}
+
 func TestRecallFileCurrentMissingFileCreatesNothing(t *testing.T) {
 	store := newRecallTestStore(t)
 	if store.recallFileCurrent("sess", recallTestEntry()) {
@@ -397,8 +405,34 @@ func TestWriteRecallRejectsExistingPath(t *testing.T) {
 				if err != nil {
 					t.Fatalf("read existing file: %v", err)
 				}
-				if got, wantSize := string(data), len(want)-5; len(got) != wantSize {
-					t.Errorf("existing file size = %d, want it untouched at %d", len(got), wantSize)
+				if got, want := string(data), want[:len(want)-5]; got != want {
+					t.Errorf("existing file = %q, want it untouched at %q", got, want)
+				}
+			},
+		},
+		{
+			// Same length as want, so the size check passes and only the byte
+			// comparison can reject the file.
+			name: "same length flipped byte",
+			prepare: func(t *testing.T, path string, want string) {
+				t.Helper()
+				corrupt := flipOneByte(want)
+				if len(corrupt) != len(want) {
+					t.Fatalf("seed file length = %d, want %d", len(corrupt), len(want))
+				}
+				if err := os.WriteFile(path, corrupt, 0o600); err != nil {
+					t.Fatalf("seed file: %v", err)
+				}
+			},
+			wantErr: "different content",
+			check: func(t *testing.T, path string, want string) {
+				t.Helper()
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read existing file: %v", err)
+				}
+				if got, want := string(data), string(flipOneByte(want)); got != want {
+					t.Errorf("existing file = %q, want it untouched at %q", got, want)
 				}
 			},
 		},
@@ -473,6 +507,38 @@ func TestWriteRecallRejectsExistingPath(t *testing.T) {
 			}
 			tt.check(t, path, want)
 		})
+	}
+}
+
+// TestRecallFileCurrentRejectsSameLengthCorruption pins the byte comparison: a
+// recall file with the expected length and mode but one flipped byte is not
+// current, so the history archive falls back to the plain omitted marker
+// instead of pointing at it.
+func TestRecallFileCurrentRejectsSameLengthCorruption(t *testing.T) {
+	store := newRecallTestStore(t)
+	const id = "sess"
+	entry := recallTestEntry()
+	corrupt := flipOneByte(recallTestContent(entry))
+	path := seedRecallFileFor(t, store, id, entry, corrupt, 0o600)
+
+	if store.recallFileCurrent(id, entry) {
+		t.Error("recallFileCurrent accepted a same-length corrupted file, want false")
+	}
+	rendered := renderHistory([]agent.Message{{
+		Role:       agent.MessageRoleTool,
+		Name:       entry.Tool,
+		ToolCallID: entry.CallID,
+		Content:    entry.Body,
+	}}, NewHistoryArchive(store, func() string { return id }).recallPresence(id))
+	if want := historyToolOmitted; rendered != want {
+		t.Errorf("rendered history = %q, want the plain %q marker", rendered, want)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read recall file: %v", err)
+	}
+	if string(data) != string(corrupt) {
+		t.Errorf("recall file = %q after the checks, want it untouched", data)
 	}
 }
 
