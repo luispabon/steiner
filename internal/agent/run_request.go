@@ -171,6 +171,12 @@ type RunRequest struct {
 	// target by compactionFallbackRequest.
 	compactionFallbackTarget bool
 
+	// compactionElision fixes the elision decisions of a compaction operation
+	// to the request that entered it. compactionFallbackRequest copies the whole
+	// request, so a fallback copy keeps the main provider and estimator and
+	// result elision never follows the fallback target.
+	compactionElision *compactionElisionSettings
+
 	// contextGeneration is the number of compaction stages applied within the
 	// current run when the current call is issued. It restarts at 0 for each
 	// run. Cache diagnostics stamp it so a cold cache can be correlated with
