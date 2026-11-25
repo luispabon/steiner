@@ -659,7 +659,7 @@ func TestForkSidecarsRejectsSymlinkedForkSessionDir(t *testing.T) {
 	}
 }
 
-func TestDiscardForkSidecarsRemovesUnindexedForkDir(t *testing.T) {
+func TestDiscardForkSidecarsRemovesUnindexedFork(t *testing.T) {
 	store := newRecallTestStore(t)
 	dir := filepath.Join(store.dir, "unsaved-fork")
 	if err := os.MkdirAll(filepath.Join(dir, recallDirName), dirMode); err != nil {
@@ -668,6 +668,13 @@ func TestDiscardForkSidecarsRemovesUnindexedForkDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, historyFile), []byte("archive"), fileMode); err != nil {
 		t.Fatalf("seed fork history: %v", err)
 	}
+	sessionPath, err := safeSessionPath(store.dir, "unsaved-fork")
+	if err != nil {
+		t.Fatalf("safeSessionPath failed: %v", err)
+	}
+	if err := os.WriteFile(sessionPath, []byte(`{"id":"unsaved-fork"}`), fileMode); err != nil {
+		t.Fatalf("seed fork session file: %v", err)
+	}
 
 	if err := store.DiscardForkSidecars("unsaved-fork"); err != nil {
 		t.Fatalf("DiscardForkSidecars failed: %v", err)
@@ -675,8 +682,40 @@ func TestDiscardForkSidecarsRemovesUnindexedForkDir(t *testing.T) {
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("fork session directory survived the discard: %v", err)
 	}
+	if _, err := os.Stat(sessionPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("fork session file survived the discard: %v", err)
+	}
 	if err := store.DiscardForkSidecars("unsaved-fork"); err != nil {
 		t.Errorf("DiscardForkSidecars failed for an already discarded fork: %v", err)
+	}
+}
+
+func TestDiscardForkSidecarsReportsIndexedFork(t *testing.T) {
+	store := newRecallTestStore(t)
+	now := time.Now().UTC()
+	if err := store.Save(Session{ID: "indexed-fork", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	dir := filepath.Join(store.dir, "indexed-fork")
+	if err := os.MkdirAll(dir, dirMode); err != nil {
+		t.Fatalf("create indexed fork session directory: %v", err)
+	}
+	history := filepath.Join(dir, historyFile)
+	if err := os.WriteFile(history, []byte("archive"), fileMode); err != nil {
+		t.Fatalf("seed indexed fork history: %v", err)
+	}
+	sessionPath, err := safeSessionPath(store.dir, "indexed-fork")
+	if err != nil {
+		t.Fatalf("safeSessionPath failed: %v", err)
+	}
+
+	if err := store.DiscardForkSidecars("indexed-fork"); !errors.Is(err, ErrForkIndexed) {
+		t.Fatalf("DiscardForkSidecars(indexed) = %v, want ErrForkIndexed", err)
+	}
+	for _, path := range []string{sessionPath, history} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("indexed fork removed %s: %v", path, err)
+		}
 	}
 }
 

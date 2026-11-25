@@ -73,12 +73,22 @@ func (s *Store) ForkSidecars(parentID string, forked Session) (Session, error) {
 	}), nil
 }
 
-// DiscardForkSidecars removes the session directory of an unindexed fork whose
-// Save failed, so a fork whose sidecars were copied before the save leaves no
-// session directory behind. It refuses an id in the index, which belongs to a
-// saved session, and validates the id like the rest of the store.
+// ErrForkIndexed reports that DiscardForkSidecars refused an id the store index
+// holds. A fork that Save indexed before a later step failed is saved and
+// loadable, so callers keep it instead of treating the fork as lost.
+var ErrForkIndexed = errors.New("fork session is indexed")
+
+// DiscardForkSidecars removes the session file and session directory of an
+// unindexed fork whose Save failed, so a fork whose sidecars were copied before
+// the save leaves nothing behind. It returns an error wrapping ErrForkIndexed
+// for an id in the index, which belongs to a saved session, and validates the id
+// like the rest of the store.
 func (s *Store) DiscardForkSidecars(forkID string) error {
 	dir, err := safeSessionDir(s.dir, forkID)
+	if err != nil {
+		return fmt.Errorf("discard fork sidecars: validate session id: %w", err)
+	}
+	sessionPath, err := safeSessionPath(s.dir, forkID)
 	if err != nil {
 		return fmt.Errorf("discard fork sidecars: validate session id: %w", err)
 	}
@@ -91,8 +101,13 @@ func (s *Store) DiscardForkSidecars(forkID string) error {
 
 	for _, entry := range s.index {
 		if entry.ID == forkID {
-			return fmt.Errorf("discard fork sidecars: session %q is in the index; delete it instead", forkID)
+			return fmt.Errorf("discard fork sidecars: session %q: %w; delete it instead", forkID, ErrForkIndexed)
 		}
+	}
+	// Remove the session file first: a leftover directory holds only sidecars,
+	// while a leftover session file would still load.
+	if err := os.Remove(sessionPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove fork session file: %w", err)
 	}
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("discard fork sidecars: remove %s: %w", dir, err)

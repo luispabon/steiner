@@ -435,8 +435,9 @@ type forkSidecarStore interface {
 	// ForkSidecars copies the parent's sidecar files and returns the fork with
 	// its inherited references rewritten to the copies.
 	ForkSidecars(parentID string, forked session.Session) (session.Session, error)
-	// DiscardForkSidecars removes the session directory of an unindexed fork
-	// whose Save failed.
+	// DiscardForkSidecars removes the session file and session directory of an
+	// unindexed fork whose Save failed, and reports an indexed fork as
+	// session.ErrForkIndexed.
 	DiscardForkSidecars(forkID string) error
 }
 
@@ -461,14 +462,37 @@ func (s *Session) copyForkSidecars(parentID string, forked session.Session) sess
 	return rewritten
 }
 
-// discardFailedForkSidecars removes the sidecar copies of a fork whose Save
-// failed, so the fork leaves no session directory that nothing indexes.
+// discardFailedForkSidecars removes the sidecar copies and session file of a
+// fork whose Save failed, so the fork leaves nothing behind that nothing
+// indexes.
 func (s *Session) discardFailedForkSidecars(forkID string) error {
 	store, ok := s.deps.SessionStore.(forkSidecarStore)
 	if !ok {
 		return nil
 	}
 	return store.DiscardForkSidecars(forkID)
+}
+
+// reportForkSaveFailure discards the fork's sidecar copies and reports the save
+// failure, appending a discard failure to message. It returns whether the fork
+// survives anyway: a fork the index already holds is loadable, so the report
+// becomes a session-health warning and the caller keeps the fork.
+func (s *Session) reportForkSaveFailure(forked session.Session, saveErr error, message string) bool {
+	discardErr := s.discardFailedForkSidecars(forked.ID)
+	if discardErr == nil {
+		s.events.Emit(output.NewOverlayReportEvent("Context Report", message))
+		return false
+	}
+	if errors.Is(discardErr, session.ErrForkIndexed) {
+		s.events.Emit(output.NewContextDiagnosticsEvent(output.ContextDiagnosticsEvent{
+			Kind:     "session_health",
+			Severity: "warning",
+			Notes:    []string{fmt.Sprintf("fork saved but the store update after saving failed: %v", saveErr)},
+		}))
+		return true
+	}
+	s.events.Emit(output.NewOverlayReportEvent("Context Report", fmt.Sprintf("%s; discard fork sidecars: %v", message, discardErr)))
+	return false
 }
 
 // handleForkSession forks the current live session after saving it, then switches to the fork.
@@ -519,12 +543,9 @@ func (s *Session) handleForkSession(ctx context.Context) error {
 	// Copy sidecars before Save: saving the fork can evict the parent.
 	forked = s.copyForkSidecars(currentSession.ID, forked)
 	if err := s.deps.SessionStore.Save(forked); err != nil {
-		message := fmt.Sprintf("fork session: save fork failed: %v", err)
-		if discardErr := s.discardFailedForkSidecars(forked.ID); discardErr != nil {
-			message += fmt.Sprintf("; discard fork sidecars: %v", discardErr)
+		if !s.reportForkSaveFailure(forked, err, fmt.Sprintf("fork session: save fork failed: %v", err)) {
+			return err
 		}
-		s.events.Emit(output.NewOverlayReportEvent("Context Report", message))
-		return err
 	}
 
 	s.copySessionImages(currentSession.ID, forked.ID)
@@ -568,12 +589,9 @@ func (s *Session) handleForkSavedSession(ctx context.Context, sessionID string) 
 	// Copy sidecars before Save: saving the fork can evict the parent.
 	forked = s.copyForkSidecars(loadedSession.ID, forked)
 	if err := s.deps.SessionStore.Save(forked); err != nil {
-		message := fmt.Sprintf("fork saved session: save failed: %v", err)
-		if discardErr := s.discardFailedForkSidecars(forked.ID); discardErr != nil {
-			message += fmt.Sprintf("; discard fork sidecars: %v", discardErr)
+		if !s.reportForkSaveFailure(forked, err, fmt.Sprintf("fork saved session: save failed: %v", err)) {
+			return err
 		}
-		s.events.Emit(output.NewOverlayReportEvent("Context Report", message))
-		return err
 	}
 
 	s.copySessionImages(loadedSession.ID, forked.ID)
