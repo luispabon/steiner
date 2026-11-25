@@ -107,36 +107,37 @@ func BuildChildRun(ctx context.Context, deps SubAgentHandlerDeps, override Child
 		traceRoot = deps.WorkDir
 	}
 	req := buildChildRunRequest(childRunRequestParams{
-		WorkDir:            deps.WorkDir,
-		TraceRoot:          traceRoot,
-		AgentID:            spec.AgentID,
-		SessionID:          deps.SessionID,
-		Provider:           override.Provider,
-		VisibleReg:         visibleReg,
-		ExecReg:            execReg,
-		BaseLimits:         agentLimits,
-		Events:             deps.Events,
-		PromptOpts:         promptOpts,
-		ResolvedModel:      override.ResolvedModel,
-		ModelBudget:        modelBudget,
-		MaxTokens:          deps.MaxTokens,
-		StreamingPreferred: deps.StreamingPreferred,
-		UsageRecorder:      deps.UsageRecorder,
-		ModeGetter:         deps.ModeGetter,
-		AgentType:          override.AgentType,
-		CacheKeyStore:      deps.CacheKeyStore,
-		CacheBaseline:      deps.CacheBaseline,
-		SandboxTmpDir:      deps.SandboxTmpDir,
-		Diagnostics:        deps.Diagnostics,
-		Sandbox:            deps.Sandbox,
-		ReadOnlyBash:       readOnlyBash,
-		MaxParallelTools:   deps.MaxParallelTools,
-		ExecutorConfig:     deps.ExecutorConfig,
-		ContextManagement:  deps.ContextManagement,
-		Config:             childFallbackConfig(deps),
-		ResolveModel:       deps.ResolveModel,
-		ProviderFactory:    deps.ProviderFactory,
-		CompactionTargets:  deps.CompactionTargets,
+		WorkDir:             deps.WorkDir,
+		TraceRoot:           traceRoot,
+		AgentID:             spec.AgentID,
+		SessionID:           deps.SessionID,
+		Provider:            override.Provider,
+		VisibleReg:          visibleReg,
+		ExecReg:             execReg,
+		BaseLimits:          agentLimits,
+		Events:              deps.Events,
+		PromptOpts:          promptOpts,
+		ResolvedModel:       override.ResolvedModel,
+		ModelBudget:         modelBudget,
+		MaxTokens:           deps.MaxTokens,
+		StreamingPreferred:  deps.StreamingPreferred,
+		SegmentedCompaction: deps.SegmentedCompaction,
+		UsageRecorder:       deps.UsageRecorder,
+		ModeGetter:          deps.ModeGetter,
+		AgentType:           override.AgentType,
+		CacheKeyStore:       deps.CacheKeyStore,
+		CacheBaseline:       deps.CacheBaseline,
+		SandboxTmpDir:       deps.SandboxTmpDir,
+		Diagnostics:         deps.Diagnostics,
+		Sandbox:             deps.Sandbox,
+		ReadOnlyBash:        readOnlyBash,
+		MaxParallelTools:    deps.MaxParallelTools,
+		ExecutorConfig:      deps.ExecutorConfig,
+		ContextManagement:   deps.ContextManagement,
+		Config:              childFallbackConfig(deps),
+		ResolveModel:        deps.ResolveModel,
+		ProviderFactory:     deps.ProviderFactory,
+		CompactionTargets:   deps.CompactionTargets,
 	})
 	// Children own a fresh vision capability tracker rather than inheriting the
 	// parent's session tracker. SubAgentConfigured is false so a child that
@@ -273,13 +274,16 @@ type childRunRequestParams struct {
 	ModelBudget        prompt.ModelTokenBudget
 	MaxTokens          *int
 	StreamingPreferred bool
-	UsageRecorder      *usagestats.Recorder
-	ModeGetter         func() config.ExecutionMode
-	AgentType          AgentType
-	CacheKeyStore      *CacheKeyStore
-	CacheBaseline      *agent.CacheBaselineStore
-	SandboxTmpDir      string
-	Sandbox            tool.SandboxWrapper
+	// SegmentedCompaction is the parent's experimental immutable summary
+	// segment policy (#1042); see DelegateDeps.SegmentedCompaction.
+	SegmentedCompaction agent.SegmentedCompactionPolicy
+	UsageRecorder       *usagestats.Recorder
+	ModeGetter          func() config.ExecutionMode
+	AgentType           AgentType
+	CacheKeyStore       *CacheKeyStore
+	CacheBaseline       *agent.CacheBaselineStore
+	SandboxTmpDir       string
+	Sandbox             tool.SandboxWrapper
 	// Diagnostics is threaded onto the child run request and the child
 	// executor; see DelegateDeps.Diagnostics.
 	Diagnostics      *diagnostics.Writer
@@ -357,6 +361,7 @@ func buildChildRunRequest(p childRunRequestParams) agent.RunRequest {
 		PromptCacheKey:         childCacheKey,
 		CacheBaseline:          p.CacheBaseline,
 		UsageSource:            usagestats.SourceSubAgent,
+		SegmentedCompaction:    p.SegmentedCompaction,
 		ContextManager:         agent.NewContextStateManager(p.ContextManagement),
 		Diagnostics:            p.Diagnostics,
 		AgentID:                p.AgentID,

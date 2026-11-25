@@ -378,6 +378,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		ResolvedModel:         deps.ResolvedModel,
 		MaxTokens:             &mt,
 		StreamingPreferred:    deps.StreamingPreferred,
+		SegmentedCompaction:   deps.SegmentedCompaction,
 		TraceLogger:           deps.TraceLogger,
 		Diagnostics:           deps.Diagnostics,
 		SessionStore:          store,
