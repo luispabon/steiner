@@ -330,7 +330,16 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	if !outcome.Applied || outcome.RequestBlock == "" || outcome.RequestBlock == output.RequestBlockNone || outcome.RequestBlock == output.RequestBlockDropped {
 		return CompactionOutcome{}, false
 	}
-	state, summaryText, dropped := dropRequestBlockState(outcome.State)
+	// A segmented state must keep its immutable segments, so only its mutable tail
+	// loses the block. The display text keeps the summarizer body and note.
+	state, summaryText, dropped := dropTailRequestBlockState(outcome.State)
+	if outcome.segmentDecision != nil {
+		if body, _, ok := SplitRequestBlock(outcome.SummaryText); ok {
+			summaryText = body
+		}
+	} else {
+		state, summaryText, dropped = dropRequestBlockState(outcome.State)
+	}
 	if !dropped {
 		return CompactionOutcome{}, false
 	}
@@ -368,7 +377,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		if err != nil {
 			return CompactionOutcome{}, err
 		}
-		requestBlock, requestBlockStatus = applySegmentStage(req, &params, segment, requestBlock)
+		requestBlock, requestBlockStatus = applySegmentStage(req, &params, segment, requestBlock, requestBlockStatus)
 	}
 
 	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, params)
@@ -475,13 +484,13 @@ func stageTruncationMarker(truncated bool) string {
 // applySegmentStage makes the decided stage the one the request and note use: a
 // clamped retained tail replaces the selected one, and a rebase summarizes
 // exactly the source it stores. It returns the request block of the final source.
-func applySegmentStage(req RunRequest, params *summarizeCompactionStageParams, segment *segmentStage, requestBlock string) (string, string) {
+func applySegmentStage(req RunRequest, params *summarizeCompactionStageParams, segment *segmentStage, requestBlock, requestBlockStatus string) (string, string) {
 	params.segment = segment
 	if segment.ClampRetained {
 		params.retainedMessages = segment.Retained
 	}
 	if !segment.Decision.Rebase {
-		return requestBlock, ""
+		return requestBlock, requestBlockStatus
 	}
 	params.sourceMessages = segment.Source
 	return latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)

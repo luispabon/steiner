@@ -125,7 +125,11 @@ func buildSegmentCompactionState(state RunState, in segmentStateInput) (RunState
 // without its latest-request trailer and history notes, trimmed. Stale notes
 // and blocks belong to the regenerated tail, never to an immutable segment.
 func segmentBody(summary string) string {
-	body, _, _ := SplitRequestBlock(summary)
+	// Neutralize header-like text before parsing, so a summarizer reply that
+	// quotes a trailer-shaped block keeps every byte of its text and never stores
+	// a detectable request block.
+	body := strings.ReplaceAll(summary, requestBlockMarker, requestBlockSanitizedMarker)
+	body, _, _ = SplitRequestBlock(body)
 	return strings.TrimSpace(StripHistoryNotes(body))
 }
 
@@ -228,10 +232,12 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 
 	stage := segmentStage{Scan: scan, Decision: decision}
 	switch {
-	case in.StrippedView && scan.Status != chainNone:
-		// The view omits the chain, so its source cannot be split for an append
-		// and no segment may extend a chain it does not show. Rebase over the
-		// stripped source, the projection the fallback already uses.
+	case in.StrippedView && scan.Status != chainNone && !decision.Rebase:
+		// Only an append is refused: the view omits the chain, so its source
+		// cannot be split for an append and no segment may extend a chain it does
+		// not show. Rebase over the stripped source, the projection the fallback
+		// already uses. Emergency, retry and threshold rebases keep their own
+		// reason.
 		stage.Decision = segmentRebaseDecision(segmentReasonStrippedView, decision)
 		stage.Source = cloneMessages(in.Source)
 	case !mapped:
@@ -246,7 +252,8 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 		stage.Source = cloneMessages(in.Source)
 		if retentionStart < scan.End {
 			// Retention starts inside the chain, so the new summary must cover the
-			// whole chain and everything after it stays retained.
+			// whole chain and everything after it stays retained. The clamp keeps
+			// the state valid and the stage refits the larger retained tail.
 			stage.Source = cloneMessages(in.Full[:scan.End])
 			stage.Retained = cloneMessages(in.Full[scan.End:])
 			stage.ClampRetained = true

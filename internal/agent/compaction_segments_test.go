@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -71,7 +72,7 @@ func TestBuildSegmentCompactionStateAppend(t *testing.T) {
 	if segment.Segment == nil || *segment.Segment != (SummarySegment{Sequence: 3, SourceMessageCount: 2}) {
 		t.Fatalf("new segment metadata = %+v, want sequence 3 count 2", segment.Segment)
 	}
-	if got, want := segment.Content, segmentHeader(3)+"new facts"; got != want {
+	if got, want := segment.Content, segmentHeader(3)+"new facts\n\n\n[steiner latest-request bytes=34]\nsummarizer copy of the old request"; got != want {
 		t.Fatalf("new segment content = %q, want %q", got, want)
 	}
 	if strings.Contains(segment.Content, HistoryNoteMarker) {
@@ -122,7 +123,7 @@ func TestBuildSegmentCompactionStateRebase(t *testing.T) {
 	if segment.Segment == nil || *segment.Segment != (SummarySegment{Sequence: 1, SourceMessageCount: 2}) {
 		t.Fatalf("segment metadata = %+v, want sequence 1 count 2", segment.Segment)
 	}
-	if got, want := segment.Content, segmentHeader(1)+"rebased facts"; got != want {
+	if got, want := segment.Content, segmentHeader(1)+"rebased facts\n\n[steiner latest-request bytes=15]\nsummarizer copy"; got != want {
 		t.Fatalf("segment content = %q, want %q", got, want)
 	}
 	if len(scanSegmentChain(prefix).Segments) != 1 || scanSegmentChain(prefix).Status != chainValid {
@@ -662,6 +663,12 @@ func TestSegmentedCompactionAppendsSegment(t *testing.T) {
 		t.Fatalf("retained = %#v, want the last three turns", latest.Messages)
 	}
 
+	if outcome.RequestBlock != output.RequestBlockNew {
+		t.Fatalf("RequestBlock = %q, want %q", outcome.RequestBlock, output.RequestBlockNew)
+	}
+	if got, want := outcome.RequestBlockBytes, len("span request"); got != want {
+		t.Fatalf("RequestBlockBytes = %d, want %d", got, want)
+	}
 	if outcome.segmentDecision == nil {
 		t.Fatal("outcome carries no segment decision")
 	}
@@ -991,6 +998,22 @@ func TestSegmentedCompactionSplitInChainClampsPlain(t *testing.T) {
 	if outcome.segmentDecision == nil || outcome.segmentDecision.Reason != segmentReasonEmptySource {
 		t.Fatalf("decision = %+v, want the plain empty-source fallback", outcome.segmentDecision)
 	}
+	if outcome.RequestBlock != output.RequestBlockCarried {
+		t.Fatalf("RequestBlock = %q, want the carried block", outcome.RequestBlock)
+	}
+	if got, want := outcome.RequestBlockBytes, len("old request"); got != want {
+		t.Fatalf("RequestBlockBytes = %d, want %d", got, want)
+	}
+	wantFit, err := fitConversationState(context.Background(), req, outcome.State)
+	if err != nil {
+		t.Fatalf("fitConversationState() error = %v", err)
+	}
+	if got, want := outcome.Fit.EstimatedPromptTokens, wantFit.EstimatedPromptTokens; got != want {
+		t.Fatalf("fit tokens = %d, want the refit %d", got, want)
+	}
+	if !sameMessages(outcome.RetainedMessages, full[scan.End:]) {
+		t.Fatalf("retained = %#v, want the clamped retained tail", outcome.RetainedMessages)
+	}
 	latest := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1]
 	if got, want := len(latest.SummaryPrefix), 1; got != want {
 		t.Fatalf("summary prefix len = %d, want %d plain summary", got, want)
@@ -1149,5 +1172,134 @@ func TestSegmentedCompactionFailedSummaryWritesNoNote(t *testing.T) {
 	}
 	if got := len(archive.notes); got != 0 {
 		t.Fatalf("history notes = %d, want none after a failed summary", got)
+	}
+}
+
+// TestSegmentBodyKeepsTrailerShapedText checks that a summarizer reply quoting a
+// request block keeps every byte and stores no detectable block.
+func TestSegmentBodyKeepsTrailerShapedText(t *testing.T) {
+	body := "kept facts\n\n" + withRequestBlock("inner facts", "echoed request")
+	stored := segmentBody(body)
+	if strings.Contains(stored, requestBlockMarker) {
+		t.Fatalf("segment body kept the request marker: %q", stored)
+	}
+	if _, _, ok := SplitRequestBlock(stored); ok {
+		t.Fatalf("segment body parses as a request block: %q", stored)
+	}
+	for _, needle := range []string{"kept facts", "inner facts", "echoed request"} {
+		if !strings.Contains(stored, needle) {
+			t.Fatalf("segment body dropped %q: %q", needle, stored)
+		}
+	}
+}
+
+// TestSegmentedCompactionKeepsTrailerShapedSummary stores a summary that quotes a
+// request block, checking the segment keeps the model text and the tail keeps the
+// real block.
+func TestSegmentedCompactionKeepsTrailerShapedSummary(t *testing.T) {
+	full := segmentStageConversation()
+	summary := "new facts\n\n" + withRequestBlock("quoted facts", "quoted request")
+	providerStub := oneSummaryProvider(summary)
+	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
+	state := stateFromMessages(full)
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 4, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	prefix := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1].SummaryPrefix
+	segment := prefix[len(prefix)-2]
+	if strings.Contains(segment.Content, requestBlockMarker) {
+		t.Fatalf("segment kept the request marker: %q", segment.Content)
+	}
+	if _, _, ok := SplitRequestBlock(segment.Content); ok {
+		t.Fatalf("segment parses as a request block: %q", segment.Content)
+	}
+	for _, needle := range []string{"new facts", "quoted facts", "quoted request"} {
+		if !strings.Contains(segment.Content, needle) {
+			t.Fatalf("segment dropped %q: %q", needle, segment.Content)
+		}
+	}
+	tail := prefix[len(prefix)-1]
+	if body, block, ok := SplitRequestBlock(tail.Content); !ok || body != "" || block != "span request" {
+		t.Fatalf("tail = %q (body %q block %q ok %t), want the real request only", tail.Content, body, block, ok)
+	}
+}
+
+func TestNewSegmentStageStrippedViewKeepsEmergencyReason(t *testing.T) {
+	full := segmentStageConversation()
+	req := segmentedCompactionRequest(oneSummaryProvider(), segmentedCompactionPolicy())
+	stage, err := newSegmentStage(context.Background(), req, stateFromMessages(full), segmentStageInput{
+		Policy:       req.SegmentedCompaction,
+		Full:         full,
+		Source:       full[:5],
+		Retained:     full[5:],
+		StrippedView: true,
+		Mode:         prompt.CompactionModeEmergency,
+		Model:        "test-model",
+		Budget:       prompt.RequestTokenBudget{ContextSize: 100000, CompactionThresholdTokens: 70000},
+		MaxTokens:    64,
+	})
+	if err != nil {
+		t.Fatalf("newSegmentStage() error = %v", err)
+	}
+	if !stage.Decision.Rebase || stage.Decision.Reason != "emergency" {
+		t.Fatalf("decision = %+v, want the emergency rebase reason", stage.Decision)
+	}
+}
+
+// TestSegmentedAdoptWithoutRequestBlockRewritesOnlyTail covers the tail-only
+// adoption a failed emergency retention reaches: the immutable segments keep
+// their bytes, only the tail loses the block, and the displayed summary no longer
+// carries one.
+func TestSegmentedAdoptWithoutRequestBlockRewritesOnlyTail(t *testing.T) {
+	full := segmentStageConversation()
+	providerStub := oneSummaryProvider("fresh append facts")
+	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
+	state := stateFromMessages(full)
+	candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 4, candidate, "")
+	if err != nil {
+		t.Fatalf("Compact() error = %v", err)
+	}
+	if outcome.RequestBlock != output.RequestBlockNew {
+		t.Fatalf("RequestBlock = %q, want %q", outcome.RequestBlock, output.RequestBlockNew)
+	}
+	if _, _, ok := SplitRequestBlock(outcome.SummaryText); !ok {
+		t.Fatalf("SummaryText = %q, want the stored block", outcome.SummaryText)
+	}
+	before := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1].SummaryPrefix
+	stages := summarizeCompactionStages{fitRunner: func(context.Context, RunRequest, RunState) (prompt.RequestTokenBudget, error) {
+		return prompt.RequestTokenBudget{Fits: true}, nil
+	}}
+	adopted, ok := stages.adoptWithoutRequestBlock(context.Background(), req, outcome, &compactionBudgetMissError{err: errors.New("over budget")})
+	if !ok {
+		t.Fatal("adoptWithoutRequestBlock() ok = false, want the tail-only adoption")
+	}
+	prefix := adopted.State.Lineage.Generations[len(adopted.State.Lineage.Generations)-1].SummaryPrefix
+	if got, want := mustJSON(t, prefix[:3]), mustJSON(t, before[:3]); !bytes.Equal(got, want) {
+		t.Fatalf("segments changed:\n got %s\nwant %s", got, want)
+	}
+	if got, want := mustJSON(t, prefix[:2]), mustJSON(t, full[:2]); !bytes.Equal(got, want) {
+		t.Fatalf("old segments changed:\n got %s\nwant %s", got, want)
+	}
+	if _, _, ok := SplitRequestBlock(prefix[3].Content); ok {
+		t.Fatalf("tail kept the block: %q", prefix[3].Content)
+	}
+	if _, _, ok := SplitRequestBlock(adopted.SummaryText); ok {
+		t.Fatalf("SummaryText kept the block: %q", adopted.SummaryText)
+	}
+	wantSummary, _, _ := SplitRequestBlock(outcome.SummaryText)
+	if adopted.SummaryText != wantSummary {
+		t.Fatalf("SummaryText = %q, want the display text without the block %q", adopted.SummaryText, wantSummary)
+	}
+	if adopted.RequestBlock != output.RequestBlockDropped || adopted.RequestBlockBytes != 0 {
+		t.Fatalf("block status = %q bytes = %d, want the dropped marker", adopted.RequestBlock, adopted.RequestBlockBytes)
 	}
 }
