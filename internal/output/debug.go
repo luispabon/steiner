@@ -255,7 +255,7 @@ func formatCompactionBudget(payload ContextDiagnosticsEvent) []string {
 }
 
 func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 6)
 	if summary := compactionSummaryPreview(payload); summary != "" {
 		parts = append(parts, fmt.Sprintf("kept summary %q", TruncateWithEllipsis(summary, 160)))
 	}
@@ -270,6 +270,12 @@ func formatCompactionSummaryDetails(payload ContextDiagnosticsEvent) []string {
 	}
 	if payload.Truncated {
 		parts = append(parts, "summary truncated")
+	}
+	if payload.SummaryTruncated {
+		parts = append(parts, "summary_truncated=true")
+	}
+	if payload.SummaryCondensed {
+		parts = append(parts, "summary_condensed=true")
 	}
 	return parts
 }
@@ -294,7 +300,7 @@ func formatCompactionFallback(payload ContextDiagnosticsEvent) []string {
 // formatCompactionFailure renders the explicit result of a failed compaction and
 // the summary attempts behind it. Zero and empty fields are omitted.
 func formatCompactionFailure(payload ContextDiagnosticsEvent) []string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 6)
 	if result := strings.TrimSpace(payload.CompactionResult); result != "" {
 		parts = append(parts, fmt.Sprintf("compaction_result=%s", result))
 	}
@@ -303,6 +309,12 @@ func formatCompactionFailure(payload ContextDiagnosticsEvent) []string {
 	}
 	if reason := strings.TrimSpace(payload.SummaryFailureReason); reason != "" {
 		parts = append(parts, fmt.Sprintf("summary_failure_reason=%s", reason))
+	}
+	if class := strings.TrimSpace(payload.ProviderErrorClass); class != "" {
+		parts = append(parts, fmt.Sprintf("provider_error_class=%s", class))
+	}
+	if payload.HTTPStatus != 0 {
+		parts = append(parts, fmt.Sprintf("http_status=%d", payload.HTTPStatus))
 	}
 	if payload.SummaryToolCalls > 0 {
 		parts = append(parts, fmt.Sprintf("summary_tool_calls=%d", payload.SummaryToolCalls))
