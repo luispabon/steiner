@@ -48,7 +48,7 @@ func elisionTestBody(label string) string {
 	var b strings.Builder
 	b.WriteString(label)
 	for i := 0; b.Len() < 4800; i++ {
-		b.WriteString(fmt.Sprintf(" %d-%s", i, words[i%len(words)]))
+		fmt.Fprintf(&b, " %d-%s", i, words[i%len(words)])
 	}
 	return b.String()
 }
