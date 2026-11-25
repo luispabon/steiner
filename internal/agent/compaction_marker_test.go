@@ -176,10 +176,12 @@ func TestCompactionSuccessEventReportsSummaryFlags(t *testing.T) {
 func TestCompactionEmergencyStageSummaryFlagsWin(t *testing.T) {
 	t.Parallel()
 	denseNormalSummary := strings.Repeat("normal summary detail ", 1200)
+	denseCondensedSummary := strings.Repeat("condensed normal detail ", 1200)
 	tests := []struct {
 		name          string
 		responses     []provider.ChatResponse
 		wantTruncated bool
+		wantCondensed bool
 		wantRequests  int
 		// wantCondenseRequest is the index of the request carrying the condense
 		// steering, or -1 when the truncated stage's condense retry did not fit
@@ -209,6 +211,18 @@ func TestCompactionEmergencyStageSummaryFlagsWin(t *testing.T) {
 			wantRequests:        2,
 			wantCondenseRequest: -1,
 		},
+		{
+			// The normal stage is rewritten clear of truncation but stays dense,
+			// so the plain emergency summary wins and reports neither flag.
+			name: "condensed normal stage, plain emergency stage",
+			responses: []provider.ChatResponse{
+				condenseDraftResponse(denseNormalSummary),
+				summaryResponse(denseCondensedSummary),
+				summaryResponse("emergency handoff summary"),
+			},
+			wantRequests:        3,
+			wantCondenseRequest: 1,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -228,8 +242,14 @@ func TestCompactionEmergencyStageSummaryFlagsWin(t *testing.T) {
 			if outcome.SummaryTruncated != tt.wantTruncated {
 				t.Errorf("outcome SummaryTruncated = %t, want %t", outcome.SummaryTruncated, tt.wantTruncated)
 			}
+			if outcome.SummaryCondensed != tt.wantCondensed {
+				t.Errorf("outcome SummaryCondensed = %t, want %t", outcome.SummaryCondensed, tt.wantCondensed)
+			}
 			if event.SummaryTruncated != tt.wantTruncated {
 				t.Errorf("event SummaryTruncated = %t, want %t", event.SummaryTruncated, tt.wantTruncated)
+			}
+			if event.SummaryCondensed != tt.wantCondensed {
+				t.Errorf("event SummaryCondensed = %t, want %t", event.SummaryCondensed, tt.wantCondensed)
 			}
 			body, _, _ := SplitRequestBlock(outcome.State.Conversation[0].Content)
 			if !strings.Contains(body, "emergency handoff summary") {
