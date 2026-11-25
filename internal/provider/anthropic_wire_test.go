@@ -664,6 +664,52 @@ func TestAnthropicMessage_ToolResultNoImages_Regression(t *testing.T) {
 	}
 }
 
+// TestAnthropicMessage_RecallMarkerToolResult checks that a tool result replaced
+// by a compaction recall marker reaches the wire verbatim and paired with its
+// original tool_use id.
+func TestAnthropicMessage_RecallMarkerToolResult(t *testing.T) {
+	marker := "[Tool output omitted from active context: recall tool-call-012345, read /tmp/session/recall/tool-call-012345.txt; for long lines use bash head -c/tail -c]"
+	toolMessage := Message{Role: MessageRoleTool, ToolCallID: "tool-call-012345", Content: marker}
+
+	block := toolMessageToAnthropicBlock(toolMessage)
+	if got, want := block.Type, "tool_result"; got != want {
+		t.Fatalf("block.type = %q, want %q", got, want)
+	}
+	if got, want := block.ToolUseID, toolMessage.ToolCallID; got != want {
+		t.Fatalf("block.ToolUseID = %q, want %q", got, want)
+	}
+	if got, want := block.Content, marker; got != want {
+		t.Fatalf("block.Content = %q, want %q", got, want)
+	}
+
+	wire := anthropicRequestWire(ChatRequest{
+		Model: "claude-3-7-sonnet",
+		Messages: []Message{
+			{
+				Role: MessageRoleAssistant,
+				ToolCalls: []ToolCall{
+					{ID: "tool-call-012345", Name: "read", Arguments: map[string]any{"path": "/tmp/session/recall/tool-call-012345.txt"}},
+				},
+			},
+			toolMessage,
+		},
+	}, "claude-3-7-sonnet", false)
+
+	if got, want := len(wire.Messages), 2; got != want {
+		t.Fatalf("messages = %d, want %d", got, want)
+	}
+	use, result := wire.Messages[0].Content[0], wire.Messages[1].Content[0]
+	if got, want := use.Type, "tool_use"; got != want {
+		t.Fatalf("tool_use block.type = %q, want %q", got, want)
+	}
+	if got, want := result.ToolUseID, use.ID; got != want {
+		t.Fatalf("tool_result ToolUseID = %q, want tool_use id %q", got, want)
+	}
+	if got, want := result.Content, marker; got != want {
+		t.Fatalf("tool_result content = %q, want %q", got, want)
+	}
+}
+
 func TestAnthropicRequestWire_ImageToolResultsKeepToolResultFirst(t *testing.T) {
 	request := ChatRequest{
 		Model: "claude-3-7-sonnet",
