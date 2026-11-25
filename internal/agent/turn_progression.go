@@ -473,7 +473,7 @@ func (p *turnProgressor) prepareTurn(ctx context.Context, state RunState) (promp
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, fmt.Errorf("pre assembly: %w", err)
 	}
 
-	assembly, err := prompt.Assemble(ctx, assemblyOptions(p.basePrompt, state))
+	assembly, err := prompt.Assemble(ctx, requestAssemblyOptions(p.basePrompt, state))
 	if err != nil {
 		return prompt.Assembly{}, provider.ChatRequest{}, prompt.RequestTokenBudget{}, err
 	}
