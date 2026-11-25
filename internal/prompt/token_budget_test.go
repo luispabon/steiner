@@ -218,6 +218,47 @@ func TestModelTokenBudgetFitRequestUsesAbsoluteCompactionThreshold(t *testing.T)
 	}
 }
 
+// TestFitRequestExposesCompactionThresholdTokens pins the effective soft trigger
+// the fit result exposes: a configured token threshold wins, otherwise it is
+// ceil(context size * threshold ratio) with the default ratio at 0.70.
+func TestFitRequestExposesCompactionThresholdTokens(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	request := provider.ChatRequest{
+		Model:    "gpt-4o",
+		Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "review the request"}},
+	}
+
+	tests := []struct {
+		name   string
+		budget ModelTokenBudget
+		want   int
+	}{
+		{name: "default ratio", budget: ModelTokenBudget{ContextSize: 1000}, want: 700},
+		{name: "default ratio rounds up", budget: ModelTokenBudget{ContextSize: 1001}, want: 701},
+		{name: "configured ratio", budget: ModelTokenBudget{ContextSize: 1000, CompactionThreshold: 0.125}, want: 125},
+		{name: "configured ratio rounds up", budget: ModelTokenBudget{ContextSize: 1001, CompactionThreshold: 0.125}, want: 126},
+		{name: "configured tokens win over ratio", budget: ModelTokenBudget{ContextSize: 1000, CompactionThreshold: 0.125, CompactionThresholdTokens: 300}, want: 300},
+		{name: "unknown context size", budget: ModelTokenBudget{}, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fit, err := tt.budget.FitRequest(ctx, request)
+			if err != nil {
+				t.Fatalf("FitRequest() error = %v", err)
+			}
+			if got := fit.CompactionThresholdTokens; got != tt.want {
+				t.Fatalf("CompactionThresholdTokens = %d, want %d (fit=%+v)", got, tt.want, fit)
+			}
+			if wantCompact := tt.want > 0 && fit.EstimatedPromptTokens >= tt.want; fit.ShouldCompact != wantCompact {
+				t.Fatalf("ShouldCompact = %v, want %v at exposed threshold %d (fit=%+v)", fit.ShouldCompact, wantCompact, tt.want, fit)
+			}
+		})
+	}
+}
+
 func TestModelTokenBudgetFitRequestRequestsCompactionAtSeventyPercentUsage(t *testing.T) {
 	t.Parallel()
 
