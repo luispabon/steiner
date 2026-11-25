@@ -374,6 +374,53 @@ func TestElisionRetainedToolOutputsEstimationErrorWarnsOnce(t *testing.T) {
 	}
 }
 
+// TestElisionRetainedToolOutputsSkipsExhaustedEstimates proves that once the
+// budget is spent, older consumed candidates are elided without estimating
+// them: an estimator that would fail for them never runs and elision continues.
+func TestElisionRetainedToolOutputsSkipsExhaustedEstimates(t *testing.T) {
+	t.Parallel()
+	bodies := []string{elisionTestBody("oldest"), elisionTestBody("middle"), elisionTestBody("newest")}
+	msgs := elisionTestConversation(bodies)
+	archive := &fakeRecallArchive{}
+	var rec eventRecorder
+	req := elisionTestRequest(archive)
+	req.Events = rec.sink()
+	state := elisionTestState(msgs)
+	// The newest body alone fills the budget, so every older body is decided
+	// without a token count.
+	budget := elisionTestTokens(t, req, bodies[2])
+	calls := 0
+	failingFit := func(ctx context.Context, fitReq RunRequest, fitState RunState) (prompt.RequestTokenBudget, error) {
+		calls++
+		if calls > 2 {
+			return prompt.RequestTokenBudget{}, errors.New("estimate after exhaustion")
+		}
+		return fitConversationState(ctx, fitReq, fitState)
+	}
+
+	out, elided := elideRetainedToolOutputs(context.Background(), req, state, msgs, budget, failingFit)
+	if !elided {
+		t.Fatal("elided = false, want true")
+	}
+	if calls != 2 {
+		t.Errorf("fit calls = %d, want the baseline and the budget-crossing body only", calls)
+	}
+	for _, index := range []int{2, 3} {
+		if !strings.HasPrefix(out[index].Content, elisionMarkerPrefix) {
+			t.Errorf("older consumed result %d = %q, want a marker", index, out[index].Content)
+		}
+	}
+	if out[4].Content != bodies[2] {
+		t.Errorf("budget-crossing result = %q, want its body verbatim", out[4].Content)
+	}
+	if len(archive.written) != 2 {
+		t.Errorf("archived entries = %d, want the two older bodies", len(archive.written))
+	}
+	if warnings := conversationWarnings(t, &rec); len(warnings) != 0 {
+		t.Errorf("warnings = %+v, want none", warnings)
+	}
+}
+
 // TestElisionRetainedToolOutputsSkips proves nil archives and stateful consuming
 // providers leave the retained messages untouched.
 func TestElisionRetainedToolOutputsSkips(t *testing.T) {

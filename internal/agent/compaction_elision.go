@@ -48,10 +48,11 @@ func withCompactionElision(req RunRequest) RunRequest {
 // stateful consuming provider leaves retained as it is.
 //
 // Targets are walked newest first. Every body kept verbatim counts against
-// budget, unconsumed and below-threshold ones included. Once the budget is
-// spent, each older consumed body with at least retainedResultMinBytes and at
-// least retainedResultMarkerFactor markers' worth of text is replaced, so
-// elision is monotonic from newest to oldest.
+// budget, unconsumed and below-threshold ones included, until the budget is
+// spent. From then on the count cannot change another decision, so older
+// bodies are no longer estimated: each consumed body with at least
+// retainedResultMinBytes and at least retainedResultMarkerFactor markers' worth
+// of text is replaced, and elision is monotonic from newest to oldest.
 func elideRetainedToolOutputs(ctx context.Context, req RunRequest, state RunState, retained []Message, budget int, fit compactionFitRunner) ([]Message, bool) {
 	settings := req.compactionElision
 	if req.RecallArchive == nil || settings == nil || settings.skip {
@@ -71,21 +72,23 @@ func elideRetainedToolOutputs(ctx context.Context, req RunRequest, state RunStat
 	elided := false
 	for i := len(targets) - 1; i >= 0; i-- {
 		target := targets[i]
+		if keptTokens >= budget {
+			// The budget is spent, so no later decision depends on this body's
+			// size. Skip its estimate: a failure here must not stop elision of
+			// the remaining older consumed bodies.
+			if target.consumed && elideRetainedResult(ctx, req, out, target) {
+				elided = true
+			}
+			continue
+		}
 		tokens, err := estimateRetainedResultTokens(ctx, settings.main, state, baseline, target, fit)
 		if err != nil {
 			emitEvent(req.Events, resultElisionWarning(err))
 			return out, elided
 		}
-		if keptTokens < budget || !target.consumed {
-			keptTokens += tokens
-			continue
-		}
-		if !elideRetainedResult(ctx, req, out, target) {
-			// A failed write or an ineligible body keeps this one verbatim.
-			keptTokens += tokens
-			continue
-		}
-		elided = true
+		// Under budget the body is kept verbatim and its size can still decide
+		// where the budget is spent.
+		keptTokens += tokens
 	}
 	return out, elided
 }
