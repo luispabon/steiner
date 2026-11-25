@@ -351,28 +351,11 @@ func segmentNoteText(body, note string) string {
 	}
 }
 
-// stripTailRequestBlocks returns a copy of messages with the latest-request
-// trailer removed from summary messages that carry no Segment metadata. Segment
-// text is immutable, so it is never rewritten. It reports whether any tail
-// carried a trailer.
-func stripTailRequestBlocks(messages []Message) ([]Message, bool) {
-	out := cloneMessages(messages)
-	stripped := false
-	for i := range out {
-		if out[i].Role != MessageRoleSummary || out[i].Segment != nil {
-			continue
-		}
-		if body, _, ok := SplitRequestBlock(out[i].Content); ok {
-			out[i].Content = body
-			stripped = true
-		}
-	}
-	return out, stripped
-}
-
 // dropTailRequestBlockState rewrites the latest generation's mutable tail to
 // its body without the latest-request trailer, reporting the rewritten text.
 // Segments keep their bytes; only a summary with no Segment metadata changes.
+// A tail that held nothing but the block is removed, the way
+// buildSegmentCompactionState omits an empty tail instead of storing one.
 func dropTailRequestBlockState(state RunState) (RunState, string, bool) {
 	next := state.Clone()
 	if len(next.Lineage.Generations) == 0 {
@@ -381,20 +364,28 @@ func dropTailRequestBlockState(state RunState) (RunState, string, bool) {
 	latest := &next.Lineage.Generations[len(next.Lineage.Generations)-1]
 	summaryText := ""
 	dropped := false
-	for i := range latest.SummaryPrefix {
-		message := &latest.SummaryPrefix[i]
+	prefix := make([]Message, 0, len(latest.SummaryPrefix))
+	for _, message := range latest.SummaryPrefix {
 		if message.Role != MessageRoleSummary || message.Segment != nil {
+			prefix = append(prefix, message)
 			continue
 		}
 		if body, _, ok := SplitRequestBlock(message.Content); ok {
 			message.Content = body
-			summaryText = body
 			dropped = true
+			if body != "" {
+				summaryText = body
+			}
 		}
+		if message.Content == "" {
+			continue
+		}
+		prefix = append(prefix, message)
 	}
 	if !dropped {
 		return state, "", false
 	}
+	latest.SummaryPrefix = prefix
 	next.Conversation = next.Lineage.FullMessages()
 	return next, summaryText, true
 }

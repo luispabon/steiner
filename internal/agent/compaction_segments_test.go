@@ -446,63 +446,65 @@ func TestSegmentAppendSourceCountSkipsReplayOnlySpan(t *testing.T) {
 	}
 }
 
-func TestStripTailRequestBlocks(t *testing.T) {
-	source := []Message{
-		{Role: MessageRoleSummary, Content: withRequestBlock("Segment 1. facts", "segment request"), Segment: testSegment(1, 2)},
-		{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived", "tail request")},
-		{Role: MessageRoleUser, Content: "current request"},
-	}
-	out, stripped := stripTailRequestBlocks(source)
-	if !stripped {
-		t.Fatal("stripTailRequestBlocks() reported no drop")
-	}
-	if out[0].Content != source[0].Content {
-		t.Fatalf("segment rewritten to %q, want %q", out[0].Content, source[0].Content)
-	}
-	body, request, ok := SplitRequestBlock(out[1].Content)
-	if ok || body != "[steiner:history] archived" || request != "" {
-		t.Fatalf("tail = %q, want the note without a block", out[1].Content)
-	}
-	if out[2].Content != source[2].Content {
-		t.Fatal("non-summary message rewritten")
-	}
-	if source[1].Content == out[1].Content {
-		t.Fatal("source slice mutated")
-	}
-}
-
 func TestDropTailRequestBlockState(t *testing.T) {
-	segment := Message{Role: MessageRoleSummary, Content: withRequestBlock("Segment 1. facts", "segment request"), Segment: testSegment(1, 2)}
-	tail := Message{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived", "tail request")}
-	state := RunState{Lineage: ConversationLineage{
-		Generations:      []ConversationGeneration{{ID: 2, SummaryPrefix: []Message{segment, tail}, Messages: []Message{{Role: MessageRoleUser, Content: "current request"}}}},
-		NextGenerationID: 3,
-	}}
-	state.Conversation = state.Lineage.FullMessages()
-	segmentJSON := mustJSON(t, []Message{segment})
+	t.Parallel()
 
-	next, summaryText, dropped := dropTailRequestBlockState(state)
-	if !dropped {
-		t.Fatal("dropTailRequestBlockState() reported no drop")
+	segment := Message{Role: MessageRoleSummary, Content: withRequestBlock("Segment 1. facts", "segment request"), Segment: testSegment(1, 2)}
+	tests := []struct {
+		name        string
+		tail        Message
+		wantSummary string
+		wantPrefix  []Message
+	}{
+		{
+			name:        "history note tail keeps its body",
+			tail:        Message{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived", "tail request")},
+			wantSummary: "[steiner:history] archived",
+			wantPrefix: []Message{
+				segment,
+				{Role: MessageRoleSummary, Content: "[steiner:history] archived"},
+			},
+		},
+		{
+			name:        "block-only tail is removed",
+			tail:        Message{Role: MessageRoleSummary, Content: withRequestBlock("", "tail request")},
+			wantSummary: "",
+			wantPrefix:  []Message{segment},
+		},
 	}
-	if summaryText != "[steiner:history] archived" {
-		t.Fatalf("summary text = %q, want the tail body", summaryText)
-	}
-	prefix := next.Lineage.Generations[0].SummaryPrefix
-	if got := mustJSON(t, prefix[:1]); !bytes.Equal(got, segmentJSON) {
-		t.Fatalf("segment changed:\n got %s\nwant %s", got, segmentJSON)
-	}
-	if _, _, ok := SplitRequestBlock(prefix[1].Content); ok || prefix[1].Content != "[steiner:history] archived" {
-		t.Fatalf("tail = %q, want the note without a block", prefix[1].Content)
-	}
-	if !sameMessages(next.Conversation, next.Lineage.FullMessages()) {
-		t.Fatal("conversation does not match the new lineage")
-	}
-	if state.Lineage.Generations[0].SummaryPrefix[0].Content != segment.Content {
-		t.Fatal("source state segment mutated")
-	}
-	if state.Lineage.Generations[0].SummaryPrefix[1].Content != tail.Content {
-		t.Fatal("source state tail mutated")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			state := RunState{Lineage: ConversationLineage{
+				Generations:      []ConversationGeneration{{ID: 2, SummaryPrefix: []Message{segment, tt.tail}, Messages: []Message{{Role: MessageRoleUser, Content: "current request"}}}},
+				NextGenerationID: 3,
+			}}
+			state.Conversation = state.Lineage.FullMessages()
+			segmentJSON := mustJSON(t, []Message{segment})
+			sourceJSON := mustJSON(t, state.Lineage.Generations[0].SummaryPrefix)
+
+			next, summaryText, dropped := dropTailRequestBlockState(state)
+			if !dropped {
+				t.Fatal("dropTailRequestBlockState() reported no drop")
+			}
+			if summaryText != tt.wantSummary {
+				t.Errorf("summary text = %q, want %q", summaryText, tt.wantSummary)
+			}
+			prefix := next.Lineage.Generations[0].SummaryPrefix
+			if got := mustJSON(t, prefix[:1]); !bytes.Equal(got, segmentJSON) {
+				t.Fatalf("segment changed:\n got %s\nwant %s", got, segmentJSON)
+			}
+			if got, want := mustJSON(t, prefix), mustJSON(t, tt.wantPrefix); !bytes.Equal(got, want) {
+				t.Fatalf("summary prefix = %s, want %s", got, want)
+			}
+			if !sameMessages(next.Conversation, next.Lineage.FullMessages()) {
+				t.Fatal("conversation does not match the new lineage")
+			}
+			if got := mustJSON(t, state.Lineage.Generations[0].SummaryPrefix); !bytes.Equal(got, sourceJSON) {
+				t.Fatalf("source state summary prefix mutated:\n got %s\nwant %s", got, sourceJSON)
+			}
+		})
 	}
 }
 
@@ -1253,8 +1255,8 @@ func TestNewSegmentStageStrippedViewKeepsEmergencyReason(t *testing.T) {
 
 // TestSegmentedAdoptWithoutRequestBlockRewritesOnlyTail covers the tail-only
 // adoption a failed emergency retention reaches: the immutable segments keep
-// their bytes, only the tail loses the block, and the displayed summary no longer
-// carries one.
+// their bytes, a tail that held only the block is removed, and the displayed
+// summary no longer carries one.
 func TestSegmentedAdoptWithoutRequestBlockRewritesOnlyTail(t *testing.T) {
 	full := segmentStageConversation()
 	providerStub := oneSummaryProvider("fresh append facts")
@@ -1289,8 +1291,13 @@ func TestSegmentedAdoptWithoutRequestBlockRewritesOnlyTail(t *testing.T) {
 	if got, want := mustJSON(t, prefix[:2]), mustJSON(t, full[:2]); !bytes.Equal(got, want) {
 		t.Fatalf("old segments changed:\n got %s\nwant %s", got, want)
 	}
-	if _, _, ok := SplitRequestBlock(prefix[3].Content); ok {
-		t.Fatalf("tail kept the block: %q", prefix[3].Content)
+	if got := len(prefix); got != 3 {
+		t.Fatalf("prefix length = %d, want only the 3 immutable segments once the block-only tail is removed", got)
+	}
+	for i, message := range prefix {
+		if message.Segment == nil {
+			t.Fatalf("prefix[%d] = %q, want no mutable tail left after its block was dropped", i, message.Content)
+		}
 	}
 	if _, _, ok := SplitRequestBlock(adopted.SummaryText); ok {
 		t.Fatalf("SummaryText kept the block: %q", adopted.SummaryText)
