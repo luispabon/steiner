@@ -31,12 +31,12 @@ func segmentedLineage() agent.ConversationLineage {
 					{
 						Role:    agent.MessageRoleSummary,
 						Content: "Segment 1.\n\nfirst span",
-						Segment: &agent.SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2},
+						Segment: &agent.SummarySegment{Sequence: 1, SourceMessageCount: 2},
 					},
 					{
 						Role:    agent.MessageRoleSummary,
 						Content: "Segment 2.\n\nsecond span",
-						Segment: &agent.SummarySegment{Sequence: 2, SourceGenerationID: 1, SourceMessageCount: 9},
+						Segment: &agent.SummarySegment{Sequence: 2, SourceMessageCount: 9},
 					},
 					{Role: agent.MessageRoleSummary, Content: "Segment 3. mutable tail"},
 				},
@@ -79,8 +79,8 @@ func TestStoreRoundTripsSummarySegments(t *testing.T) {
 		t.Fatalf("loaded summary prefix length = %d, want 3", len(prefix))
 	}
 	wantSegments := []agent.SummarySegment{
-		{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2},
-		{Sequence: 2, SourceGenerationID: 1, SourceMessageCount: 9},
+		{Sequence: 1, SourceMessageCount: 2},
+		{Sequence: 2, SourceMessageCount: 9},
 	}
 	for i, want := range wantSegments {
 		got := prefix[i].Segment
@@ -103,8 +103,8 @@ func TestStoreRoundTripsSummarySegments(t *testing.T) {
 		t.Errorf("session file holds %d segment keys, want 2: %s", got, data)
 	}
 	for _, want := range []string{
-		`"segment":{"sequence":1,"source_generation_id":1,"source_message_count":2}`,
-		`"segment":{"sequence":2,"source_generation_id":1,"source_message_count":9}`,
+		`"segment":{"sequence":1,"source_message_count":2}`,
+		`"segment":{"sequence":2,"source_message_count":9}`,
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("session file does not hold %s: %s", want, data)
@@ -177,8 +177,8 @@ func TestForkRewritePreservesSummarySegments(t *testing.T) {
 	noteContent := func(seq int) string {
 		return fmt.Sprintf("Segment %d body.\n%s Conversation before this summary is archived at %s\n", seq, agent.HistoryNoteMarker, parentHistory)
 	}
-	segmentOne := &agent.SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2}
-	segmentTwo := &agent.SummarySegment{Sequence: 2, SourceGenerationID: 1, SourceMessageCount: 5}
+	segmentOne := &agent.SummarySegment{Sequence: 1, SourceMessageCount: 2}
+	segmentTwo := &agent.SummarySegment{Sequence: 2, SourceMessageCount: 5}
 	forked := Session{
 		ID:    "fork-session",
 		Title: "Fork",
@@ -237,8 +237,8 @@ func TestForkRewritePreservesSummarySegments(t *testing.T) {
 	}
 	loadedPrefix := loaded.Lineage.Generations[0].SummaryPrefix
 	wantSegments := []agent.SummarySegment{
-		{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2},
-		{Sequence: 2, SourceGenerationID: 1, SourceMessageCount: 5},
+		{Sequence: 1, SourceMessageCount: 2},
+		{Sequence: 2, SourceMessageCount: 5},
 	}
 	for i, want := range wantSegments {
 		gotSegment := loadedPrefix[i].Segment

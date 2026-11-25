@@ -5,7 +5,7 @@ import "github.com/luispabon/steiner/internal/prompt"
 // segmentDecision is the append-or-rebase choice for one segmented compaction.
 type segmentDecision struct {
 	Rebase              bool
-	Reason              string // append | chain-start | invalid-chain | emergency | max-segments | chain-tokens | post-compaction-tokens | no-progress | retry
+	Reason              string // append | chain-start | invalid-chain | split-in-chain | emergency | max-segments | chain-tokens | post-compaction-tokens | no-progress | retry
 	Sequence            int    // sequence of the segment this compaction will write
 	ChainTokens         int
 	ProjectedPostTokens int
@@ -16,20 +16,22 @@ type segmentDecision struct {
 // between appending an immutable segment and rebasing the chain.
 type segmentDecisionInput struct {
 	Policy              SegmentedCompactionPolicy
-	Generation          ConversationGeneration
+	Chain               segmentChainScan
 	Mode                prompt.CompactionMode
 	ContextSize         int
 	CompactionThreshold int // 0 means unknown, so ContextSize alone bounds the decision
 	ChainTokens         int // sum of provider.EstimateMessageTokens over the projected segment messages
 	ProjectedPostTokens int
+	RetentionStart      int // index into the scanned slice where retained messages begin
 	Retry               bool
 }
 
 // decideSegmentAction returns the first matching decision rule, so emergency and
 // retry always rebase, and a broken or missing chain rebases before any budget
-// rule can append. Percent rules are strict (equal to a limit still appends);
-// no-progress fires at equality because a summary as large as the threshold
-// cannot buy progress.
+// rule can append. The append source never starts inside the chain: a retention
+// start before the end of the leading summary run rebases. Percent rules are
+// strict (equal to a limit still appends); no-progress fires at equality because
+// a summary as large as the threshold cannot buy progress.
 func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 	budget := in.ContextSize
 	if in.CompactionThreshold > 0 {
@@ -54,15 +56,15 @@ func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 		return rebase("emergency")
 	case in.Retry:
 		return rebase("retry")
-	case segmentChainStart(in.Generation.SummaryPrefix):
+	case in.Chain.Status == chainNone:
 		return rebase("chain-start")
-	}
-
-	segments, _, ok := segmentChain(in.Generation)
-	if !ok {
+	case in.Chain.Status == chainInvalid:
 		return rebase("invalid-chain")
+	case in.RetentionStart < in.Chain.End:
+		return rebase("split-in-chain")
 	}
 
+	segments := in.Chain.Segments
 	switch {
 	case len(segments)+1 > in.Policy.MaxSegments:
 		return rebase("max-segments")
@@ -76,16 +78,4 @@ func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 
 	decision.Sequence = len(segments) + 1
 	return decision
-}
-
-// segmentChainStart reports whether the prefix carries no segment chain yet: it
-// is empty, or it holds only legacy plain summaries. segmentChain rejects both,
-// so they are classified apart from a malformed chain.
-func segmentChainStart(prefix []Message) bool {
-	for _, message := range prefix {
-		if message.Role != MessageRoleSummary || message.Segment != nil {
-			return false
-		}
-	}
-	return true
 }

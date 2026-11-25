@@ -1,11 +1,13 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // SummarySegment records which source span an immutable summary segment covers.
 type SummarySegment struct {
 	Sequence           int `json:"sequence"`             // 1-based; 1 starts a chain
-	SourceGenerationID int `json:"source_generation_id"` // generation whose messages this segment summarized
 	SourceMessageCount int `json:"source_message_count"` // non-summary messages summarized
 }
 
@@ -14,40 +16,57 @@ func segmentHeader(seq int) string {
 	return fmt.Sprintf("Segment %d. Later segments override earlier conflicting state.\n\n", seq)
 }
 
-// segmentChain splits a summary prefix into immutable segments and an optional
-// mutable tail. A chain is valid when every prefix message is a summary, the
-// first k >= 1 carry segments with sequences 1..k and strictly increasing source
-// generations below gen.ID, and at most one segment-free tail follows. Anything
-// else fails closed so callers rebase instead of trusting the prefix.
-func segmentChain(gen ConversationGeneration) (segments []Message, tail *Message, ok bool) {
-	prefix := gen.SummaryPrefix
-	for _, message := range prefix {
-		if message.Role != MessageRoleSummary {
-			return nil, nil, false
+type segmentChainStatus int
+
+const (
+	chainNone segmentChainStatus = iota
+	chainValid
+	chainInvalid
+)
+
+// segmentChainScan is the immutable segment chain read from the leading summary
+// messages of a conversation slice, plus the mutable tail that follows it.
+type segmentChainScan struct {
+	Segments []Message // cloned leading segment messages, in order
+	Tail     *Message  // cloned summary with Segment == nil directly after the segments, or nil
+	End      int       // index of the first message after the leading summary run
+	Status   segmentChainStatus
+}
+
+// scanSegmentChain reads the segment chain from the leading run of summary
+// messages in messages. Callers pass ConversationGeneration.FullMessages, so the
+// scan is identical whether the summaries sit in SummaryPrefix (persisted state)
+// or in Messages (inside a run, after seeding flattened them). A chain is valid
+// when sequences run 1..k with a positive SourceMessageCount and non-empty
+// content, and at most one segment-free tail follows. Anything else fails closed
+// so callers rebase instead of trusting the chain.
+func scanSegmentChain(messages []Message) segmentChainScan {
+	end := 0
+	for end < len(messages) && messages[end].Role == MessageRoleSummary {
+		end++
+	}
+	if end == 0 {
+		return segmentChainScan{Status: chainNone}
+	}
+	segmentCount := end
+	if messages[end-1].Segment == nil {
+		segmentCount--
+	}
+	if segmentCount == 0 {
+		tail := cloneMessage(messages[0])
+		return segmentChainScan{Tail: &tail, End: end, Status: chainNone}
+	}
+	for i, message := range messages[:segmentCount] {
+		segment := message.Segment
+		if segment == nil || segment.Sequence != i+1 ||
+			segment.SourceMessageCount <= 0 || strings.TrimSpace(message.Content) == "" {
+			return segmentChainScan{End: end, Status: chainInvalid}
 		}
 	}
-	k := len(prefix)
-	if k > 0 && prefix[k-1].Segment == nil {
-		k--
+	scan := segmentChainScan{Segments: cloneMessages(messages[:segmentCount]), End: end, Status: chainValid}
+	if segmentCount < end {
+		tail := cloneMessage(messages[segmentCount])
+		scan.Tail = &tail
 	}
-	if k == 0 {
-		return nil, nil, false
-	}
-	previousSource := 0
-	for i := 0; i < k; i++ {
-		segment := prefix[i].Segment
-		if segment == nil || segment.Sequence != i+1 {
-			return nil, nil, false
-		}
-		if segment.SourceGenerationID <= previousSource || segment.SourceGenerationID >= gen.ID {
-			return nil, nil, false
-		}
-		previousSource = segment.SourceGenerationID
-	}
-	segments = cloneMessages(prefix[:k])
-	if k < len(prefix) {
-		cloned := cloneMessage(prefix[k])
-		tail = &cloned
-	}
-	return segments, tail, true
+	return scan
 }

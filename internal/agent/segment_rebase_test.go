@@ -7,33 +7,39 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
-// segmentChainGeneration builds a valid chain of segments with source
-// generations 1..count, valid for a generation ID above count.
-func segmentChainGeneration(id, count int) ConversationGeneration {
-	prefix := make([]Message, 0, count)
+// segmentChainMessages builds count valid segments followed by an optional
+// segment-free tail and one live turn.
+func segmentChainMessages(count int, tail bool) []Message {
+	messages := make([]Message, 0, count+2)
 	for i := 1; i <= count; i++ {
-		prefix = append(prefix, Message{
+		messages = append(messages, Message{
 			Role:    MessageRoleSummary,
 			Content: segmentHeader(i),
-			Segment: &SummarySegment{Sequence: i, SourceGenerationID: i, SourceMessageCount: 2},
+			Segment: &SummarySegment{Sequence: i, SourceMessageCount: 2},
 		})
 	}
-	return ConversationGeneration{ID: id, SummaryPrefix: prefix}
+	if tail {
+		messages = append(messages, Message{Role: MessageRoleSummary, Content: "mutable tail"})
+	}
+	messages = append(messages, Message{Role: MessageRoleUser, Content: "current request"})
+	return messages
 }
 
 func TestDecideSegmentAction(t *testing.T) {
 	policy := SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50}
 	// Default input: budget 8000 (min of 20000 and the 8000 threshold), chain
-	// limit 1000, post-compaction limit 4000.
+	// limit 1000, post-compaction limit 4000, retention starting after the chain.
 	base := func() segmentDecisionInput {
+		messages := segmentChainMessages(2, true)
 		return segmentDecisionInput{
 			Policy:              policy,
-			Generation:          segmentChainGeneration(3, 2),
+			Chain:               scanSegmentChain(messages),
 			Mode:                prompt.CompactionModeNormal,
 			ContextSize:         20000,
 			CompactionThreshold: 8000,
 			ChainTokens:         900,
 			ProjectedPostTokens: 3000,
+			RetentionStart:      len(messages) - 1,
 		}
 	}
 	noProgressInput := func() segmentDecisionInput {
@@ -48,6 +54,11 @@ func TestDecideSegmentAction(t *testing.T) {
 	}
 	rebaseDecision := func(reason string, chain, post, budget int) segmentDecision {
 		return segmentDecision{Rebase: true, Reason: reason, Sequence: 1, ChainTokens: chain, ProjectedPostTokens: post, Budget: budget}
+	}
+	invalidChain := func(messages []Message) segmentDecisionInput {
+		in := base()
+		in.Chain = scanSegmentChain(messages)
+		return in
 	}
 
 	tests := []struct {
@@ -93,16 +104,26 @@ func TestDecideSegmentAction(t *testing.T) {
 			input: func() segmentDecisionInput {
 				in := base()
 				in.Retry = true
-				in.Generation = ConversationGeneration{ID: 2}
+				in.Chain = scanSegmentChain(nil)
 				return in
 			}(),
 			want: rebaseDecision("retry", 900, 3000, 8000),
 		},
 		{
-			name: "empty prefix starts a chain",
+			name: "retry wins over a retention split inside the chain",
 			input: func() segmentDecisionInput {
 				in := base()
-				in.Generation = ConversationGeneration{ID: 2}
+				in.Retry = true
+				in.RetentionStart = 1
+				return in
+			}(),
+			want: rebaseDecision("retry", 900, 3000, 8000),
+		},
+		{
+			name: "empty conversation starts a chain",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.Chain = scanSegmentChain(nil)
 				return in
 			}(),
 			want: rebaseDecision("chain-start", 900, 3000, 8000),
@@ -111,7 +132,7 @@ func TestDecideSegmentAction(t *testing.T) {
 			name: "legacy plain summary starts a chain",
 			input: func() segmentDecisionInput {
 				in := base()
-				in.Generation = ConversationGeneration{ID: 2, SummaryPrefix: []Message{{Role: MessageRoleSummary, Content: "plain"}}}
+				in.Chain = scanSegmentChain([]Message{{Role: MessageRoleSummary, Content: "plain"}})
 				return in
 			}(),
 			want: rebaseDecision("chain-start", 900, 3000, 8000),
@@ -120,55 +141,103 @@ func TestDecideSegmentAction(t *testing.T) {
 			name: "chain start wins over max segments",
 			input: func() segmentDecisionInput {
 				in := base()
-				in.Generation = ConversationGeneration{ID: 2}
+				in.Chain = scanSegmentChain(nil)
 				in.Policy.MaxSegments = 1
 				return in
 			}(),
 			want: rebaseDecision("chain-start", 900, 3000, 8000),
 		},
 		{
+			name: "chain start wins over a retention split inside the chain",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.Chain = scanSegmentChain(nil)
+				in.RetentionStart = 0
+				return in
+			}(),
+			want: rebaseDecision("chain-start", 900, 3000, 8000),
+		},
+		{
 			name: "sequence gap is an invalid chain",
-			input: func() segmentDecisionInput {
-				in := base()
-				in.Generation = ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-					{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1}},
-					{Role: MessageRoleSummary, Content: "three", Segment: &SummarySegment{Sequence: 3, SourceGenerationID: 2}},
-				}}
-				return in
-			}(),
+			input: invalidChain([]Message{
+				{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 2}},
+				{Role: MessageRoleSummary, Content: "three", Segment: &SummarySegment{Sequence: 3, SourceMessageCount: 2}},
+			}),
 			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
 		},
 		{
-			name: "non-summary prefix message is an invalid chain",
-			input: func() segmentDecisionInput {
-				in := base()
-				in.Generation = ConversationGeneration{ID: 3, SummaryPrefix: []Message{{Role: MessageRoleUser, Content: "user"}}}
-				return in
-			}(),
+			name: "segment after a plain summary is an invalid chain",
+			input: invalidChain([]Message{
+				{Role: MessageRoleSummary, Content: "plain"},
+				{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 2}},
+			}),
 			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
 		},
 		{
-			name: "tail before a segment is an invalid chain",
-			input: func() segmentDecisionInput {
-				in := base()
-				in.Generation = ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-					{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1}},
-					{Role: MessageRoleSummary, Content: "tail"},
-					{Role: MessageRoleSummary, Content: "two", Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 2}},
-				}}
-				return in
-			}(),
+			name: "zero source message count is an invalid chain",
+			input: invalidChain([]Message{
+				{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 0}},
+			}),
 			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
 		},
 		{
 			name: "invalid chain wins over max segments",
 			input: func() segmentDecisionInput {
-				in := base()
-				in.Generation = ConversationGeneration{ID: 3, SummaryPrefix: []Message{{Role: MessageRoleUser, Content: "user"}}}
+				in := invalidChain([]Message{
+					{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 3, SourceMessageCount: 2}},
+				})
 				in.Policy.MaxSegments = 1
 				return in
 			}(),
 			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+		},
+		{
+			name: "invalid chain wins over a retention split inside the chain",
+			input: func() segmentDecisionInput {
+				in := invalidChain([]Message{
+					{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 2, SourceMessageCount: 2}},
+				})
+				in.RetentionStart = 0
+				return in
+			}(),
+			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+		},
+		{
+			name: "retention inside the chain rebases with split-in-chain",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.RetentionStart = 1
+				return in
+			}(),
+			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
+		},
+		{
+			name: "retention inside the tail rebases with split-in-chain",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.RetentionStart = 2
+				return in
+			}(),
+			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
+		},
+		{
+			name: "retention at the chain end appends",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.RetentionStart = 3
+				return in
+			}(),
+			want: appendDecision(3, 900, 3000, 8000),
+		},
+		{
+			name: "split-in-chain wins over max segments",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.RetentionStart = 1
+				in.Policy.MaxSegments = 2
+				return in
+			}(),
+			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
 		},
 		{
 			name: "max segments boundary still appends",

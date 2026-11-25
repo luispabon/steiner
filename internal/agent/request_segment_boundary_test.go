@@ -25,8 +25,8 @@ func cacheBoundaryIndexes(messages []provider.Message) []int {
 // summary and one live turn.
 func segmentBoundaryConversation() []Message {
 	return []Message{
-		{Role: MessageRoleSummary, Content: "Segment 1. first", Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 4}},
-		{Role: MessageRoleSummary, Content: "Segment 2. second", Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 2, SourceMessageCount: 3}},
+		{Role: MessageRoleSummary, Content: "Segment 1. first", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 4}},
+		{Role: MessageRoleSummary, Content: "Segment 2. second", Segment: &SummarySegment{Sequence: 2, SourceMessageCount: 3}},
 		{Role: MessageRoleSummary, Content: "Segment 3. tail"},
 		{Role: MessageRoleUser, Content: "current request"},
 	}

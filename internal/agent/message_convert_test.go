@@ -239,7 +239,7 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 
 func TestToRequestProviderMessagesSegmentBoundary(t *testing.T) {
 	segment := func(sequence int) *SummarySegment {
-		return &SummarySegment{Sequence: sequence, SourceGenerationID: sequence, SourceMessageCount: sequence}
+		return &SummarySegment{Sequence: sequence, SourceMessageCount: sequence}
 	}
 	tailSummary := Message{Role: MessageRoleSummary, Content: "mutable tail summary"}
 	tests := []struct {
@@ -317,7 +317,7 @@ func TestToRequestProviderMessagesPreservesSummaryWrapper(t *testing.T) {
 		tailText = "mutable tail summary"
 	)
 	messages := []Message{
-		{Role: MessageRoleSummary, Content: withRequestBlock(body, request), Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 2, SourceMessageCount: 3}},
+		{Role: MessageRoleSummary, Content: withRequestBlock(body, request), Segment: &SummarySegment{Sequence: 2, SourceMessageCount: 3}},
 		{Role: MessageRoleSummary, Content: tailText},
 		{Role: MessageRoleUser, Content: "current request"},
 	}
@@ -343,8 +343,8 @@ func TestToRequestProviderMessagesPreservesSummaryWrapper(t *testing.T) {
 
 func TestAssemblyOptionsSegmentMarkerOnlyOnRequestPath(t *testing.T) {
 	state := RunState{Conversation: []Message{
-		{Role: MessageRoleSummary, Content: "first segment", Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2}},
-		{Role: MessageRoleSummary, Content: "second segment", Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 2, SourceMessageCount: 2}},
+		{Role: MessageRoleSummary, Content: "first segment", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 2}},
+		{Role: MessageRoleSummary, Content: "second segment", Segment: &SummarySegment{Sequence: 2, SourceMessageCount: 2}},
 		{Role: MessageRoleSummary, Content: "mutable tail summary"},
 		{Role: MessageRoleUser, Content: "current request"},
 	}}

@@ -7,7 +7,7 @@ func segmentTestMessage() Message {
 		Role:    MessageRoleSummary,
 		Content: withRequestBlock("Segment 1. summary", "the latest request"),
 		Images:  []ImageBlock{{ID: "img-1", FilePath: "/tmp/img.png", MediaType: "image/png", Data: "aGk="}},
-		Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 3},
+		Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 3},
 	}
 }
 

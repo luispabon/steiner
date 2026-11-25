@@ -6,186 +6,233 @@ import (
 	"testing"
 )
 
-func TestSegmentChain(t *testing.T) {
-	segment := func(sequence, source int) *SummarySegment {
-		return &SummarySegment{Sequence: sequence, SourceGenerationID: source, SourceMessageCount: 4}
-	}
-	summary := func(content string, seg *SummarySegment) Message {
-		return Message{Role: MessageRoleSummary, Content: content, Segment: seg}
-	}
+func testSegment(sequence, count int) *SummarySegment {
+	return &SummarySegment{Sequence: sequence, SourceMessageCount: count}
+}
+
+func summaryMessage(content string, segment *SummarySegment) Message {
+	return Message{Role: MessageRoleSummary, Content: content, Segment: segment}
+}
+
+func TestScanSegmentChain(t *testing.T) {
+	userTurn := Message{Role: MessageRoleUser, Content: "current request"}
 	tests := []struct {
-		name           string
-		generation     ConversationGeneration
-		wantOK         bool
-		wantSequences  []int
-		wantSourceGens []int
-		wantTail       bool
+		name         string
+		messages     []Message
+		wantStatus   segmentChainStatus
+		wantSegments []int
+		wantCounts   []int
+		wantTail     string
+		wantEnd      int
 	}{
 		{
-			name:           "single segment",
-			generation:     ConversationGeneration{ID: 2, SummaryPrefix: []Message{summary("one", segment(1, 1))}},
-			wantOK:         true,
-			wantSequences:  []int{1},
-			wantSourceGens: []int{1},
+			name:       "no messages",
+			wantStatus: chainNone,
 		},
 		{
-			name: "chain with tail",
-			generation: ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("two", segment(2, 3)),
-				summary("tail", nil),
-			}},
-			wantOK:         true,
-			wantSequences:  []int{1, 2},
-			wantSourceGens: []int{1, 3},
-			wantTail:       true,
+			name:       "no leading summary",
+			messages:   []Message{{Role: MessageRoleAssistant, Content: "hi"}, userTurn},
+			wantStatus: chainNone,
 		},
 		{
-			name: "chain without tail",
-			generation: ConversationGeneration{ID: 5, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("two", segment(2, 4)),
-			}},
-			wantOK:         true,
-			wantSequences:  []int{1, 2},
-			wantSourceGens: []int{1, 4},
+			name:       "legacy or tail-only plain summary",
+			messages:   []Message{summaryMessage("plain summary", nil), userTurn},
+			wantStatus: chainNone,
+			wantTail:   "plain summary",
+			wantEnd:    1,
 		},
 		{
-			name:       "empty prefix",
-			generation: ConversationGeneration{ID: 2},
+			name:         "single segment without tail",
+			messages:     []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), userTurn},
+			wantStatus:   chainValid,
+			wantSegments: []int{1},
+			wantCounts:   []int{2},
+			wantEnd:      1,
 		},
 		{
-			name:       "legacy plain summary",
-			generation: ConversationGeneration{ID: 2, SummaryPrefix: []Message{summary("plain", nil)}},
+			name:         "two segments without tail",
+			messages:     []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage(segmentHeader(2), testSegment(2, 3)), userTurn},
+			wantStatus:   chainValid,
+			wantSegments: []int{1, 2},
+			wantCounts:   []int{2, 3},
+			wantEnd:      2,
 		},
 		{
-			name: "sequence gap",
-			generation: ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("three", segment(3, 2)),
-			}},
+			name:         "three segments without tail",
+			messages:     []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage(segmentHeader(2), testSegment(2, 3)), summaryMessage(segmentHeader(3), testSegment(3, 4)), userTurn},
+			wantStatus:   chainValid,
+			wantSegments: []int{1, 2, 3},
+			wantCounts:   []int{2, 3, 4},
+			wantEnd:      3,
+		},
+		{
+			name:         "two segments with tail",
+			messages:     []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage(segmentHeader(2), testSegment(2, 3)), summaryMessage("mutable tail", nil), userTurn},
+			wantStatus:   chainValid,
+			wantSegments: []int{1, 2},
+			wantCounts:   []int{2, 3},
+			wantTail:     "mutable tail",
+			wantEnd:      3,
+		},
+		{
+			name:       "sequence gap",
+			messages:   []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage(segmentHeader(3), testSegment(3, 2))},
+			wantStatus: chainInvalid,
+			wantEnd:    2,
 		},
 		{
 			name:       "sequence starts at two",
-			generation: ConversationGeneration{ID: 3, SummaryPrefix: []Message{summary("two", segment(2, 1))}},
+			messages:   []Message{summaryMessage(segmentHeader(2), testSegment(2, 2))},
+			wantStatus: chainInvalid,
+			wantEnd:    1,
 		},
 		{
-			name: "repeated sequence",
-			generation: ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("one again", segment(1, 2)),
-			}},
+			name:       "repeated sequence",
+			messages:   []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage(segmentHeader(1), testSegment(1, 3))},
+			wantStatus: chainInvalid,
+			wantEnd:    2,
 		},
 		{
-			name: "non-increasing source generation",
-			generation: ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-				summary("one", segment(1, 2)),
-				summary("two", segment(2, 2)),
-			}},
+			name:       "zero source message count",
+			messages:   []Message{summaryMessage(segmentHeader(1), testSegment(1, 0))},
+			wantStatus: chainInvalid,
+			wantEnd:    1,
 		},
 		{
-			name: "decreasing source generation",
-			generation: ConversationGeneration{ID: 5, SummaryPrefix: []Message{
-				summary("one", segment(1, 3)),
-				summary("two", segment(2, 2)),
-			}},
+			name:       "negative source message count",
+			messages:   []Message{summaryMessage(segmentHeader(1), testSegment(1, -1))},
+			wantStatus: chainInvalid,
+			wantEnd:    1,
 		},
 		{
-			name:       "source generation equals current generation",
-			generation: ConversationGeneration{ID: 2, SummaryPrefix: []Message{summary("one", segment(1, 2))}},
+			name:       "empty segment content",
+			messages:   []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage("", testSegment(2, 3))},
+			wantStatus: chainInvalid,
+			wantEnd:    2,
 		},
 		{
-			name: "source generation above current generation",
-			generation: ConversationGeneration{ID: 3, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("two", segment(2, 5)),
-			}},
+			name:       "whitespace segment content",
+			messages:   []Message{summaryMessage(" \n\t ", testSegment(1, 2))},
+			wantStatus: chainInvalid,
+			wantEnd:    1,
 		},
 		{
-			name: "tail before a segment",
-			generation: ConversationGeneration{ID: 4, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("tail", nil),
-				summary("two", segment(2, 2)),
-			}},
+			name:       "segment after a plain summary",
+			messages:   []Message{summaryMessage("plain", nil), summaryMessage(segmentHeader(1), testSegment(1, 2))},
+			wantStatus: chainInvalid,
+			wantEnd:    2,
 		},
 		{
-			name: "two tails",
-			generation: ConversationGeneration{ID: 3, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				summary("tail", nil),
-				summary("tail again", nil),
-			}},
+			name:       "two plain summaries",
+			messages:   []Message{summaryMessage("plain", nil), summaryMessage("plain again", nil)},
+			wantStatus: chainInvalid,
+			wantEnd:    2,
 		},
 		{
-			name: "non-summary prefix message",
-			generation: ConversationGeneration{ID: 3, SummaryPrefix: []Message{
-				summary("one", segment(1, 1)),
-				{Role: MessageRoleUser, Content: "user"},
-			}},
+			name:       "two tails",
+			messages:   []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage("tail", nil), summaryMessage("tail again", nil)},
+			wantStatus: chainInvalid,
+			wantEnd:    3,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			segments, tail, ok := segmentChain(tt.generation)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %t, want %t", ok, tt.wantOK)
+			scan := scanSegmentChain(tt.messages)
+			if scan.Status != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", scan.Status, tt.wantStatus)
 			}
-			if !tt.wantOK {
-				if segments != nil || tail != nil {
-					t.Fatalf("invalid chain returned segments=%v tail=%v, want nil", segments, tail)
-				}
-				return
+			if scan.End != tt.wantEnd {
+				t.Fatalf("End = %d, want %d", scan.End, tt.wantEnd)
 			}
-			if len(segments) != len(tt.wantSequences) {
-				t.Fatalf("segment count = %d, want %d", len(segments), len(tt.wantSequences))
+			if len(scan.Segments) != len(tt.wantSegments) {
+				t.Fatalf("segment count = %d, want %d", len(scan.Segments), len(tt.wantSegments))
 			}
-			for i, message := range segments {
+			for i, message := range scan.Segments {
 				if message.Role != MessageRoleSummary {
-					t.Fatalf("segment %d role = %q, want %q", i, message.Role, MessageRoleSummary)
+					t.Errorf("segment %d role = %q, want %q", i, message.Role, MessageRoleSummary)
 				}
 				if message.Segment == nil {
 					t.Fatalf("segment %d lost its metadata", i)
 				}
-				if message.Segment.Sequence != tt.wantSequences[i] || message.Segment.SourceGenerationID != tt.wantSourceGens[i] {
-					t.Fatalf("segment %d = %+v, want sequence %d source %d", i, *message.Segment, tt.wantSequences[i], tt.wantSourceGens[i])
+				if message.Segment.Sequence != tt.wantSegments[i] || message.Segment.SourceMessageCount != tt.wantCounts[i] {
+					t.Errorf("segment %d = %+v, want sequence %d count %d", i, *message.Segment, tt.wantSegments[i], tt.wantCounts[i])
 				}
 			}
-			if tt.wantTail != (tail != nil) {
-				t.Fatalf("tail present = %t, want %t", tail != nil, tt.wantTail)
+			switch {
+			case tt.wantTail == "" && scan.Tail != nil:
+				t.Fatalf("tail = %q, want none", scan.Tail.Content)
+			case tt.wantTail != "" && scan.Tail == nil:
+				t.Fatalf("tail = nil, want %q", tt.wantTail)
+			case tt.wantTail != "" && scan.Tail.Content != tt.wantTail:
+				t.Fatalf("tail = %q, want %q", scan.Tail.Content, tt.wantTail)
 			}
 		})
 	}
 }
 
-func TestSegmentChainReturnsClones(t *testing.T) {
-	prefix := []Message{
-		{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2}},
-		{Role: MessageRoleSummary, Content: "two", Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 3, SourceMessageCount: 4}},
-		{Role: MessageRoleSummary, Content: "tail"},
+func TestScanSegmentChainReturnsClones(t *testing.T) {
+	messages := []Message{
+		summaryMessage(segmentHeader(1), testSegment(1, 2)),
+		summaryMessage(segmentHeader(2), testSegment(2, 3)),
+		summaryMessage("tail", nil),
+		{Role: MessageRoleUser, Content: "current request"},
 	}
-	generation := ConversationGeneration{ID: 4, SummaryPrefix: prefix}
-	segments, tail, ok := segmentChain(generation)
-	if !ok {
-		t.Fatal("chain rejected, want valid")
+	scan := scanSegmentChain(messages)
+	if scan.Status != chainValid || len(scan.Segments) != 2 || scan.Tail == nil {
+		t.Fatalf("scan = %+v, want a valid two-segment chain with a tail", scan)
 	}
-	if len(segments) != 2 || tail == nil {
-		t.Fatalf("got %d segments and tail=%v, want 2 segments and a tail", len(segments), tail)
+	if scan.Segments[0].Segment == messages[0].Segment {
+		t.Fatal("segment metadata is shared with the source messages")
 	}
-	if segments[0].Segment == prefix[0].Segment {
-		t.Fatal("segment metadata is shared with the source generation")
-	}
-	if tail == &generation.SummaryPrefix[2] {
+	if scan.Tail == &messages[2] {
 		t.Fatal("tail aliases the source summary message")
 	}
-	segments[0].Content = "mutated"
-	segments[0].Segment.Sequence = 9
-	tail.Content = "mutated tail"
-	if generation.SummaryPrefix[0].Content != "one" || generation.SummaryPrefix[0].Segment.Sequence != 1 {
-		t.Fatalf("source segment mutated: %+v", generation.SummaryPrefix[0])
+	scan.Segments[0].Content = "mutated"
+	scan.Segments[0].Segment.Sequence = 9
+	scan.Tail.Content = "mutated tail"
+	if messages[0].Content != segmentHeader(1) || messages[0].Segment.Sequence != 1 {
+		t.Fatalf("source segment mutated: %+v", messages[0])
 	}
-	if generation.SummaryPrefix[2].Content != "tail" {
-		t.Fatalf("source tail mutated: %q", generation.SummaryPrefix[2].Content)
+	if messages[2].Content != "tail" {
+		t.Fatalf("source tail mutated: %q", messages[2].Content)
+	}
+}
+
+func TestScanSegmentChainIgnoresGenerationLayout(t *testing.T) {
+	chain := []Message{
+		summaryMessage(segmentHeader(1), testSegment(1, 2)),
+		summaryMessage(segmentHeader(2), testSegment(2, 3)),
+		summaryMessage("mutable tail", nil),
+	}
+	// Persisted shape: the chain lives in SummaryPrefix.
+	persisted := ConversationGeneration{
+		ID:            7,
+		SummaryPrefix: chain,
+		Messages:      []Message{{Role: MessageRoleUser, Content: "current request"}},
+	}
+	// In-run shape: seeding and manual compaction flatten the chain into Messages.
+	flattened := ConversationGeneration{
+		ID: 1,
+		Messages: []Message{
+			chain[0], chain[1], chain[2],
+			{Role: MessageRoleUser, Content: "current request"},
+		},
+	}
+
+	gotPersisted := scanSegmentChain(persisted.FullMessages())
+	gotFlattened := scanSegmentChain(flattened.FullMessages())
+	if !reflect.DeepEqual(gotPersisted, gotFlattened) {
+		t.Fatalf("scan of persisted chain = %+v, want the flattened scan %+v", gotPersisted, gotFlattened)
+	}
+	if gotPersisted.Status != chainValid || len(gotPersisted.Segments) != 2 || gotPersisted.Tail == nil {
+		t.Fatalf("scan = %+v, want a valid two-segment chain with a tail", gotPersisted)
+	}
+	if gotPersisted.End != 3 {
+		t.Fatalf("End = %d, want 3", gotPersisted.End)
+	}
+	tailOnly := ConversationGeneration{ID: 1, Messages: []Message{summaryMessage("legacy summary", nil)}}
+	if scan := scanSegmentChain(tailOnly.FullMessages()); scan.Status != chainNone || scan.Tail == nil {
+		t.Fatalf("scan of flattened legacy summary = %+v, want chainNone with a tail", scan)
 	}
 }
 
@@ -208,7 +255,14 @@ func TestMessageSegmentJSON(t *testing.T) {
 	segmented := Message{
 		Role:    MessageRoleSummary,
 		Content: segmentHeader(1) + "summary",
-		Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 2, SourceMessageCount: 7},
+		Segment: testSegment(1, 7),
+	}
+	segmentJSON, err := json.Marshal(segmented.Segment)
+	if err != nil {
+		t.Fatalf("marshal segment: %v", err)
+	}
+	if got, want := string(segmentJSON), `{"sequence":1,"source_message_count":7}`; got != want {
+		t.Fatalf("segment JSON = %s, want %s", got, want)
 	}
 	encoded, err = json.Marshal(segmented)
 	if err != nil {
