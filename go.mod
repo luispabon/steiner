@@ -5,7 +5,7 @@ go 1.26.11
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.10
-	charm.land/glamour/v2 v2.0.1
+	charm.land/glamour/v2 v2.0.2-0.20261015065741-010543cac1a0
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/aymanbagabas/go-nativeclipboard v0.1.3

@@ -381,3 +381,48 @@ func TestAssistantMarkdownWrapsLongProseLines(t *testing.T) {
 		t.Errorf("rendered output missing part of text: %q", plain)
 	}
 }
+
+func TestAssistantMarkdownLinkTargetRendering(t *testing.T) {
+	t.Parallel()
+	useTrueColor(t)
+
+	tests := []struct {
+		name        string
+		markdown    string
+		wantVisible string
+		notVisible  string
+	}{
+		{
+			name:        "relative path keeps its form",
+			markdown:    "Full overview: [overview.md](.steiner/plans/example/overview.md)",
+			wantVisible: "overview.md .steiner/plans/example/overview.md",
+			notVisible:  "/.steiner/plans/example/overview.md",
+		},
+		{
+			name:        "dot-relative path keeps its prefix",
+			markdown:    "Full overview: [overview.md](./overview.md)",
+			wantVisible: "overview.md ./overview.md",
+			notVisible:  "overview.md /overview.md",
+		},
+		{
+			name:        "absolute path keeps its root",
+			markdown:    "Full overview: [overview.md](/tmp/overview.md)",
+			wantVisible: "overview.md /tmp/overview.md",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newTestBuffer(t)
+			b.appendMarkdownBlock(tt.markdown)
+
+			plain := stripANSI(b.String(80))
+			if !strings.Contains(plain, tt.wantVisible) {
+				t.Errorf("rendered output missing %q: %q", tt.wantVisible, plain)
+			}
+			if tt.notVisible != "" && strings.Contains(plain, tt.notVisible) {
+				t.Errorf("rendered output contains %q: %q", tt.notVisible, plain)
+			}
+		})
+	}
+}

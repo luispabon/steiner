@@ -142,7 +142,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## charm.land/glamour/v2 v2.0.1
+## charm.land/glamour/v2 v2.0.2-0.20261015065741-010543cac1a0
 
 Licenses detected: MIT
 
