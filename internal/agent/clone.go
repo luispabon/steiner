@@ -36,6 +36,7 @@ func cloneMessage(message Message) Message {
 	// Unlike the old provider round-trip, this preserves images with empty Data.
 	cloned.Images = append([]ImageBlock(nil), message.Images...)
 	cloned.Retention = cloneMessageRetention(message.Retention)
+	cloned.Segment = cloneSummarySegment(message.Segment)
 	cloned.DelegationAdmission = message.DelegationAdmission.Clone()
 	cloned.ProviderMetadata = cloneMessageProviderMetadata(message.ProviderMetadata)
 	return cloned
@@ -87,6 +88,14 @@ func cloneMessageRetention(retention *MessageRetention) *MessageRetention {
 		return nil
 	}
 	cloned := *retention
+	return &cloned
+}
+
+func cloneSummarySegment(segment *SummarySegment) *SummarySegment {
+	if segment == nil {
+		return nil
+	}
+	cloned := *segment
 	return &cloned
 }
 

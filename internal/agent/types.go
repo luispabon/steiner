@@ -120,7 +120,9 @@ type Message struct {
 	Timestamp time.Time `json:"timestamp,omitzero"`
 	// Incomplete marks an assistant message whose model call failed before the
 	// message finished. Its content is what streamed before the failure.
-	Incomplete          bool                      `json:"incomplete,omitempty"`
+	Incomplete bool `json:"incomplete,omitempty"`
+	// Segment marks a summary message as an immutable compaction segment.
+	Segment             *SummarySegment           `json:"segment,omitempty"`
 	Retention           *MessageRetention         `json:"retention,omitempty"`
 	DelegationAdmission *tool.DelegationAdmission `json:"delegation_admission,omitempty"`
 	ProviderMetadata    *MessageProviderMetadata  `json:"provider_metadata,omitempty"`
