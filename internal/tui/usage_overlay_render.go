@@ -240,7 +240,7 @@ func usageFreshness(f usageFrame, v quota.AccountView) string {
 		spinner := spinnerFrames[f.spinnerFrame%len(spinnerFrames)]
 		parts = append(parts, f.styles.Accent.Render(spinner)+" refreshing…")
 	case v.Latest != nil:
-		parts = append(parts, "updated "+usageRelative(f.now.Sub(v.Latest.FetchedAt))+" ago")
+		parts = append(parts, "updated "+quota.ShortDuration(f.now.Sub(v.Latest.FetchedAt))+" ago")
 	}
 	if v.Err != "" {
 		parts = append(parts, f.styles.ErrorStyle.Render("unavailable: "+v.Err))
@@ -250,7 +250,7 @@ func usageFreshness(f usageFrame, v quota.AccountView) string {
 
 // usageResetText renders a reset time with the time left until it.
 func usageResetText(f usageFrame, t time.Time) string {
-	return usageResetTime(t, f.now) + " (" + usageRelative(t.Sub(f.now)) + ")"
+	return usageResetTime(t, f.now) + " (" + quota.ShortDuration(t.Sub(f.now)) + ")"
 }
 
 // usageResetTime formats t in now's location: 15:04 on the same day, Mon 15:04
@@ -266,20 +266,6 @@ func usageResetTime(t, now time.Time) string {
 		return t.Format("Mon 15:04")
 	default:
 		return t.Format("2 Jan")
-	}
-}
-
-// usageRelative formats d concisely: 4d, 2h05m, 15m, or <1m under a minute.
-func usageRelative(d time.Duration) string {
-	switch {
-	case d >= usageDay:
-		return fmt.Sprintf("%dd", d/usageDay)
-	case d >= time.Hour:
-		return fmt.Sprintf("%dh%02dm", d/time.Hour, d%time.Hour/time.Minute)
-	case d >= time.Minute:
-		return fmt.Sprintf("%dm", d/time.Minute)
-	default:
-		return "<1m"
 	}
 }
 

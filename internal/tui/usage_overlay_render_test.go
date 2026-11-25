@@ -239,25 +239,6 @@ func TestUsageResetTime(t *testing.T) {
 	}
 }
 
-func TestUsageRelative(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		d    time.Duration
-		want string
-	}{
-		{2*time.Hour + 5*time.Minute, "2h05m"},
-		{time.Hour, "1h00m"},
-		{96 * time.Hour, "4d"},
-		{15 * time.Minute, "15m"},
-		{30 * time.Second, "<1m"},
-	}
-	for _, tt := range tests {
-		if got := usageRelative(tt.d); got != tt.want {
-			t.Errorf("usageRelative(%v) = %q, want %q", tt.d, got, tt.want)
-		}
-	}
-}
-
 func TestUsageWindowLineMeterAndReset(t *testing.T) {
 	t.Parallel()
 	f := usageTestFrame(t, quota.AccountView{
@@ -279,6 +260,21 @@ func TestUsageWindowLineMeterAndReset(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Errorf("window line %q missing %q", line, want)
 		}
+	}
+}
+
+func TestUsageWindowLineMultiDayReset(t *testing.T) {
+	t.Parallel()
+	f := usageTestFrame(t, quota.AccountView{
+		ProviderType: "claude_subscription",
+		DisplayAlias: "work",
+		Latest: &quota.Snapshot{Windows: []quota.Window{
+			{Label: "weekly", UsedPercent: 46, ResetsAt: usageTestNow.Add(41 * time.Hour)},
+		}},
+	})
+	line := usageStrippedLines(f)[1]
+	if !strings.Contains(line, "(1d17h)") {
+		t.Errorf("window line %q missing the days and hours countdown", line)
 	}
 }
 
@@ -402,7 +398,7 @@ func TestUsageBudgetLine(t *testing.T) {
 	})
 	lines := usageStrippedLines(f)
 	line := lines[1]
-	for _, want := range []string{strings.Repeat("█", 19) + strings.Repeat("░", 5), "$40.00 / $50.00", "monthly", "31 Oct (16d)"} {
+	for _, want := range []string{strings.Repeat("█", 19) + strings.Repeat("░", 5), "$40.00 / $50.00", "monthly", "31 Oct (16d12h)"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("budget line %q missing %q", line, want)
 		}
@@ -582,7 +578,7 @@ func TestUsageBudgetLineExactRow(t *testing.T) {
 		}},
 	})
 	got := usageStrippedLines(f)[1]
-	want := "  month        " + strings.Repeat("█", 19) + strings.Repeat("░", 5) + " $40.00 / $50.00  monthly  31 Oct (16d)"
+	want := "  month        " + strings.Repeat("█", 19) + strings.Repeat("░", 5) + " $40.00 / $50.00  monthly  31 Oct (16d12h)"
 	if got != want {
 		t.Errorf("budget row = %q, want %q", got, want)
 	}
