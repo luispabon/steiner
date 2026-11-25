@@ -24,17 +24,18 @@ const (
 	historyStatusError         = "error"
 )
 
-// recallPresence reports whether the recall file named name exists as a
-// regular file that is not a symlink. A nil recallPresence treats every name as
-// missing, which renders the plain omitted markers.
-type recallPresence func(name string) bool
+// recallPresence reports whether the session already holds the exact recall file
+// for entry: the expected bytes with mode 0o600 in a regular, non-symlink file.
+// A nil recallPresence treats every entry as missing, which renders the plain
+// omitted markers.
+type recallPresence func(entry agent.RecallEntry) bool
 
 // renderHistory renders the source messages of one compaction as archive
 // markdown, oldest first. Each rendered message is a block, and blocks are
 // separated by one blank line. Tool result bodies, sub-agent result bodies, and
-// reasoning are omitted: a body whose recall file recall reports present is
-// replaced by a pointer naming that file, and a body without one keeps a plain
-// omitted marker. It returns "" when nothing renders. The output is
+// reasoning are omitted: a body whose exact recall file recall reports present
+// is replaced by a pointer naming that file, and a body without one keeps a
+// plain omitted marker. It returns "" when nothing renders. The output is
 // deterministic for identical input and recall files.
 func renderHistory(source []agent.Message, recall recallPresence) string {
 	statuses := toolCallStatuses(source)
@@ -197,14 +198,13 @@ func toolResultMarker(msg agent.Message, recall recallPresence) string {
 	return fmt.Sprintf(historyToolRecallPointer, name)
 }
 
-// recallFileName returns the recall file name of entry when recall reports it
-// present.
+// recallFileName returns the recall file name of entry when recall reports the
+// exact file present.
 func recallFileName(entry agent.RecallEntry, recall recallPresence) (string, bool) {
-	if recall == nil {
+	if recall == nil || !recall(entry) {
 		return "", false
 	}
-	name := agent.RecallName(entry)
-	return name, recall(name)
+	return agent.RecallName(entry), true
 }
 
 // historyHasResultBodies reports whether source holds a body compaction

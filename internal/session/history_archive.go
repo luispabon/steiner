@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"strings"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -38,22 +36,11 @@ func blankHistory(rendered string) bool {
 	return strings.TrimSpace(rendered) == ""
 }
 
-// recallPresence returns the renderer's file check for session id: a recall
-// file counts only when Lstat finds a regular file that is not a symlink.
+// recallPresence returns the renderer's file check for session id: only the
+// exact recall file WriteRecall would accept earns a pointer. It reads only.
 func (a *HistoryArchive) recallPresence(id string) recallPresence {
-	return func(name string) bool {
-		path, err := a.store.RecallPath(id, name)
-		if err != nil {
-			return false
-		}
-		info, err := os.Lstat(path)
-		if err != nil {
-			return false
-		}
-		if info.Mode()&fs.ModeSymlink != 0 {
-			return false
-		}
-		return info.Mode().IsRegular()
+	return func(entry agent.RecallEntry) bool {
+		return a.store.recallFileCurrent(id, entry)
 	}
 }
 

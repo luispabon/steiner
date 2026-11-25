@@ -167,6 +167,51 @@ func acceptExistingRecall(path string, info fs.FileInfo, data []byte) error {
 	return nil
 }
 
+// recallFileCurrent reports whether the recall file WriteRecall would use for
+// entry is already the exact expected file: a regular file that is not a
+// symlink, with the expected bytes and mode 0o600. It reads only. It never
+// creates the session or recall directory and never changes permissions or
+// modes; a symlinked or non-directory session or recall path reports false, so
+// a caller cannot be pointed outside the session directory.
+func (s *Store) recallFileCurrent(id string, entry agent.RecallEntry) bool {
+	name := agent.RecallName(entry)
+	path, err := s.RecallPath(id, name)
+	if err != nil {
+		return false
+	}
+	if err := s.checkRecallDirs(id); err != nil {
+		return false
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return acceptExistingRecall(path, info, recallFileContent(name, entry)) == nil
+}
+
+// checkRecallDirs reports whether the session and recall directories exist as
+// real directories, rejecting symlinks and non-directories. It creates and
+// chmods nothing.
+func (s *Store) checkRecallDirs(id string) error {
+	recallDir, err := s.RecallDir(id)
+	if err != nil {
+		return err
+	}
+	for _, dir := range []string{filepath.Dir(recallDir), recallDir} {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", dir, err)
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symlink; replace it with a real directory", dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s is not a directory", dir)
+		}
+	}
+	return nil
+}
+
 // recallFileContent renders the exact file for name and entry: a small header
 // naming the entry, then the body unmodified after a separator line. Header
 // values escape backslash and control characters so a tool name or call id

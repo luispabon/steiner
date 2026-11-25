@@ -14,6 +14,172 @@ import (
 	"github.com/luispabon/steiner/internal/agent"
 )
 
+// seedRecallFileFor writes content at the recall path of entry under id with
+// mode and returns the path.
+func seedRecallFileFor(t *testing.T, store *Store, id string, entry agent.RecallEntry, content []byte, mode os.FileMode) string {
+	t.Helper()
+	path, err := store.RecallPath(id, agent.RecallName(entry))
+	if err != nil {
+		t.Fatalf("RecallPath failed: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create recall directory: %v", err)
+	}
+	if err := os.WriteFile(path, content, mode); err != nil {
+		t.Fatalf("seed recall file: %v", err)
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatalf("chmod recall file: %v", err)
+	}
+	return path
+}
+
+func TestRecallFileCurrentMissingFileCreatesNothing(t *testing.T) {
+	store := newRecallTestStore(t)
+	if store.recallFileCurrent("sess", recallTestEntry()) {
+		t.Fatal("recallFileCurrent reported a missing file present")
+	}
+	entries, err := os.ReadDir(store.dir)
+	if err != nil {
+		t.Fatalf("ReadDir failed: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() != indexLockFile {
+			t.Errorf("store directory has unexpected entry %q after a read-only check", entry.Name())
+		}
+	}
+}
+
+func TestRecallFileCurrentRequiresExactFile(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, store *Store, id string, entry agent.RecallEntry)
+		want    bool
+	}{
+		{
+			name:    "missing file",
+			prepare: func(*testing.T, *Store, string, agent.RecallEntry) {},
+		},
+		{
+			name: "written file",
+			prepare: func(t *testing.T, store *Store, id string, entry agent.RecallEntry) {
+				t.Helper()
+				if _, err := store.WriteRecall(context.Background(), id, entry); err != nil {
+					t.Fatalf("WriteRecall failed: %v", err)
+				}
+			},
+			want: true,
+		},
+		{
+			name: "corrupt content",
+			prepare: func(t *testing.T, store *Store, id string, entry agent.RecallEntry) {
+				t.Helper()
+				seedRecallFileFor(t, store, id, entry, []byte("corrupt"), 0o600)
+			},
+		},
+		{
+			name: "wrong mode",
+			prepare: func(t *testing.T, store *Store, id string, entry agent.RecallEntry) {
+				t.Helper()
+				path := seedRecallFileFor(t, store, id, entry, recallFileContent(agent.RecallName(entry), entry), 0o644)
+				if got := store.recallFileCurrent(id, entry); got {
+					t.Fatalf("recallFileCurrent() = true for mode 644, want false")
+				}
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatalf("stat recall file: %v", err)
+				}
+				if mode := info.Mode().Perm(); mode != 0o644 {
+					t.Errorf("recall file mode = %o after the check, want the untouched 644", mode)
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read recall file: %v", err)
+				}
+				if want := recallFileContent(agent.RecallName(entry), entry); string(data) != string(want) {
+					t.Errorf("recall file content = %q after the check, want %q", data, want)
+				}
+			},
+		},
+		{
+			name: "symlinked file",
+			prepare: func(t *testing.T, store *Store, id string, entry agent.RecallEntry) {
+				t.Helper()
+				path, err := store.RecallPath(id, agent.RecallName(entry))
+				if err != nil {
+					t.Fatalf("RecallPath failed: %v", err)
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatalf("create recall directory: %v", err)
+				}
+				target := filepath.Join(t.TempDir(), "body.txt")
+				if err := os.WriteFile(target, recallFileContent(agent.RecallName(entry), entry), 0o600); err != nil {
+					t.Fatalf("seed symlink target: %v", err)
+				}
+				if err := os.Symlink(target, path); err != nil {
+					t.Fatalf("Symlink failed: %v", err)
+				}
+			},
+		},
+		{
+			name: "symlinked recall directory",
+			prepare: func(t *testing.T, store *Store, id string, entry agent.RecallEntry) {
+				t.Helper()
+				sessionDir := filepath.Join(store.dir, id)
+				if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+					t.Fatalf("create session directory: %v", err)
+				}
+				outside := t.TempDir()
+				body := filepath.Join(outside, agent.RecallName(entry)+recallFileExt)
+				if err := os.WriteFile(body, recallFileContent(agent.RecallName(entry), entry), 0o600); err != nil {
+					t.Fatalf("seed outside recall file: %v", err)
+				}
+				if err := os.Symlink(outside, filepath.Join(sessionDir, recallDirName)); err != nil {
+					t.Fatalf("Symlink failed: %v", err)
+				}
+			},
+		},
+		{
+			name: "symlinked session directory",
+			prepare: func(t *testing.T, store *Store, id string, entry agent.RecallEntry) {
+				t.Helper()
+				outside := t.TempDir()
+				recallDir := filepath.Join(outside, recallDirName)
+				if err := os.MkdirAll(recallDir, 0o700); err != nil {
+					t.Fatalf("create outside recall directory: %v", err)
+				}
+				body := filepath.Join(recallDir, agent.RecallName(entry)+recallFileExt)
+				if err := os.WriteFile(body, recallFileContent(agent.RecallName(entry), entry), 0o600); err != nil {
+					t.Fatalf("seed outside recall file: %v", err)
+				}
+				if err := os.Symlink(outside, filepath.Join(store.dir, id)); err != nil {
+					t.Fatalf("Symlink failed: %v", err)
+				}
+			},
+		},
+		{
+			name: "session path is a file",
+			prepare: func(t *testing.T, store *Store, id string, _ agent.RecallEntry) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(store.dir, id), []byte("not a directory"), 0o600); err != nil {
+					t.Fatalf("seed session file: %v", err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newRecallTestStore(t)
+			const id = "sess"
+			entry := recallTestEntry()
+			tt.prepare(t, store, id, entry)
+			if got := store.recallFileCurrent(id, entry); got != tt.want {
+				t.Errorf("recallFileCurrent() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func newRecallTestStore(t *testing.T) *Store {
 	t.Helper()
 	store, err := NewStore(t.TempDir())

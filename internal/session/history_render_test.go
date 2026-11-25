@@ -66,8 +66,8 @@ func recallSet(names ...string) recallPresence {
 	for _, name := range names {
 		set[name] = struct{}{}
 	}
-	return func(name string) bool {
-		_, ok := set[name]
+	return func(entry agent.RecallEntry) bool {
+		_, ok := set[agent.RecallName(entry)]
 		return ok
 	}
 }
