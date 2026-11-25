@@ -5,7 +5,7 @@ import "github.com/luispabon/steiner/internal/prompt"
 // segmentDecision is the append-or-rebase choice for one segmented compaction.
 type segmentDecision struct {
 	Rebase              bool
-	Reason              string // append | chain-start | invalid-chain | split-in-chain | emergency | max-segments | chain-tokens | post-compaction-tokens | no-progress | retry
+	Reason              string // append | chain-start | invalid-chain | split-in-chain | empty-span | emergency | max-segments | chain-tokens | post-compaction-tokens | no-progress | retry
 	Sequence            int    // sequence of the segment this compaction will write
 	ChainTokens         int
 	ProjectedPostTokens int
@@ -23,13 +23,19 @@ type segmentDecisionInput struct {
 	ChainTokens         int // sum of provider.EstimateMessageTokens over the projected segment messages
 	ProjectedPostTokens int
 	RetentionStart      int // index into the scanned slice where retained messages begin
-	Retry               bool
+	// AppendSourceMessages counts the messages the next segment would summarize
+	// in the append span FullMessages()[Chain.End:RetentionStart], so a span
+	// holding only the active skill replay counts zero.
+	AppendSourceMessages int
+	Retry                bool
 }
 
 // decideSegmentAction returns the first matching decision rule, so emergency and
 // retry always rebase, and a broken or missing chain rebases before any budget
 // rule can append. The append source never starts inside the chain: a retention
-// start before the end of the leading summary run rebases. Percent rules are
+// start before the end of the leading summary run rebases. An append span with
+// nothing to summarize, such as a span holding only the replayed skill, also
+// rebases before any budget rule can append an empty segment. Percent rules are
 // strict (equal to a limit still appends); no-progress fires at equality because
 // a summary as large as the threshold cannot buy progress.
 func decideSegmentAction(in segmentDecisionInput) segmentDecision {
@@ -62,6 +68,8 @@ func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 		return rebase("invalid-chain")
 	case in.RetentionStart < in.Chain.End:
 		return rebase("split-in-chain")
+	case in.AppendSourceMessages == 0:
+		return rebase("empty-span")
 	}
 
 	segments := in.Chain.Segments

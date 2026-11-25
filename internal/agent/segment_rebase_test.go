@@ -28,18 +28,20 @@ func segmentChainMessages(count int, tail bool) []Message {
 func TestDecideSegmentAction(t *testing.T) {
 	policy := SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50}
 	// Default input: budget 8000 (min of 20000 and the 8000 threshold), chain
-	// limit 1000, post-compaction limit 4000, retention starting after the chain.
+	// limit 1000, post-compaction limit 4000, retention starting after a
+	// one-message append span.
 	base := func() segmentDecisionInput {
-		messages := segmentChainMessages(2, true)
+		messages := append(segmentChainMessages(2, true), Message{Role: MessageRoleUser, Content: "compacted follow-up"})
 		return segmentDecisionInput{
-			Policy:              policy,
-			Chain:               scanSegmentChain(messages),
-			Mode:                prompt.CompactionModeNormal,
-			ContextSize:         20000,
-			CompactionThreshold: 8000,
-			ChainTokens:         900,
-			ProjectedPostTokens: 3000,
-			RetentionStart:      len(messages) - 1,
+			Policy:               policy,
+			Chain:                scanSegmentChain(messages),
+			Mode:                 prompt.CompactionModeNormal,
+			ContextSize:          20000,
+			CompactionThreshold:  8000,
+			ChainTokens:          900,
+			ProjectedPostTokens:  3000,
+			RetentionStart:       len(messages) - 1,
+			AppendSourceMessages: 1,
 		}
 	}
 	noProgressInput := func() segmentDecisionInput {
@@ -221,13 +223,84 @@ func TestDecideSegmentAction(t *testing.T) {
 			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
 		},
 		{
-			name: "retention at the chain end appends",
+			name: "retention at the chain end rebases with empty-span",
 			input: func() segmentDecisionInput {
 				in := base()
 				in.RetentionStart = 3
+				in.AppendSourceMessages = 0
+				return in
+			}(),
+			want: rebaseDecision("empty-span", 900, 3000, 8000),
+		},
+		{
+			name: "one message after the chain end appends",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.RetentionStart = 4
 				return in
 			}(),
 			want: appendDecision(3, 900, 3000, 8000),
+		},
+		{
+			name: "empty span wins over max segments",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.AppendSourceMessages = 0
+				in.Policy.MaxSegments = 2
+				return in
+			}(),
+			want: rebaseDecision("empty-span", 900, 3000, 8000),
+		},
+		{
+			name: "empty span wins over chain tokens",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.AppendSourceMessages = 0
+				in.ChainTokens = 5000
+				return in
+			}(),
+			want: rebaseDecision("empty-span", 5000, 3000, 8000),
+		},
+		{
+			name: "empty span wins over no-progress",
+			input: func() segmentDecisionInput {
+				in := noProgressInput()
+				in.AppendSourceMessages = 0
+				return in
+			}(),
+			want: rebaseDecision("empty-span", 500, 8000, 8000),
+		},
+		{
+			name: "chain start wins over an empty span",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.Chain = scanSegmentChain(nil)
+				in.AppendSourceMessages = 0
+				return in
+			}(),
+			want: rebaseDecision("chain-start", 900, 3000, 8000),
+		},
+		{
+			name: "invalid chain wins over an empty span",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.Chain = scanSegmentChain([]Message{
+					{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 2, SourceMessageCount: 2}},
+				})
+				in.AppendSourceMessages = 0
+				return in
+			}(),
+			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+		},
+		{
+			name: "split-in-chain wins over an empty span",
+			input: func() segmentDecisionInput {
+				in := base()
+				in.RetentionStart = 1
+				in.AppendSourceMessages = 0
+				return in
+			}(),
+			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
 		},
 		{
 			name: "split-in-chain wins over max segments",
