@@ -142,6 +142,23 @@ func TestAdvisorCacheDiagnosticsDistinctHandlersDoNotSharePrefix(t *testing.T) {
 	}
 }
 
+func TestAdvisorCanonicalMessageFallbackHidesCacheBoundary(t *testing.T) {
+	unmarked := provider.Message{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func() {}}}}}
+	marked := unmarked
+	marked.CacheBoundary = true
+
+	fallback := canonicalMessage(marked)
+	if !strings.HasPrefix(fallback, "json-marshal-error:") {
+		t.Fatalf("canonicalMessage() did not take the marshal-error fallback: %s", fallback)
+	}
+	if got := canonicalMessage(unmarked); fallback != got {
+		t.Fatalf("fallback canonical message changed with CacheBoundary:\n got %s\nwant %s", fallback, got)
+	}
+	if strings.Contains(fallback, "CacheBoundary:true") {
+		t.Fatalf("fallback canonical message leaked CacheBoundary: %s", fallback)
+	}
+}
+
 func TestAdvisorCachePrefixHashHandlesMarshalFailure(t *testing.T) {
 	first := []provider.Message{{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func() {}}}}}}
 	second := []provider.Message{{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func(int) {}}}}}}

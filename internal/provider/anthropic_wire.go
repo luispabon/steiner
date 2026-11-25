@@ -17,12 +17,16 @@ type anthropicRequest struct {
 	Params      map[string]any          `json:"-"`
 	ExtraParams map[string]any          `json:"-"`
 
-	// segmentBoundaryMsg is the wire message index of the last input message
-	// carrying Message.CacheBoundary; hasSegmentBoundary distinguishes "none"
-	// from message index 0. Neither field is marshalled: MarshalJSON builds the
-	// payload explicitly.
-	segmentBoundaryMsg int
-	hasSegmentBoundary bool
+	// segmentBoundaryMsg and segmentBoundaryBlock locate the content block of
+	// the last input message carrying Message.CacheBoundary;
+	// hasSegmentBoundary distinguishes "none" from index 0. A coalesced
+	// tool-result batch packs several input messages into one wire message, so
+	// the block index is tracked exactly rather than assumed to be the last
+	// block. None of these fields is marshalled: MarshalJSON builds the payload
+	// explicitly.
+	segmentBoundaryMsg   int
+	segmentBoundaryBlock int
+	hasSegmentBoundary   bool
 }
 
 func (r anthropicRequest) MarshalJSON() ([]byte, error) {
@@ -231,7 +235,9 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 				inToolBatch = true
 			}
 			if msg.CacheBoundary {
-				wire.segmentBoundaryMsg = len(wire.Messages) - 1
+				msgIndex := len(wire.Messages) - 1
+				wire.segmentBoundaryMsg = msgIndex
+				wire.segmentBoundaryBlock = len(wire.Messages[msgIndex].Content) - 1
 				wire.hasSegmentBoundary = true
 			}
 		case MessageRoleSystem:
@@ -249,6 +255,7 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 				inToolBatch = false
 				if msg.CacheBoundary {
 					wire.segmentBoundaryMsg = len(wire.Messages) - 1
+					wire.segmentBoundaryBlock = len(wireMsg.Content) - 1
 					wire.hasSegmentBoundary = true
 				}
 			}
@@ -304,10 +311,11 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 		}
 	}
 
-	// SEGMENT BOUNDARY: the remaining slot goes on the last block of the
-	// immutable segment prefix. It never displaces a rolling breakpoint.
+	// SEGMENT BOUNDARY: the remaining slot goes on the block that ends the
+	// immutable segment prefix, tracked during wire construction. It never
+	// displaces a rolling breakpoint.
 	if wire.hasSegmentBoundary {
-		markSegmentBoundaryBreakpoint(wire, wire.segmentBoundaryMsg, numBreakpoints, cacheControl)
+		markSegmentBoundaryBreakpoint(wire, wire.segmentBoundaryMsg, wire.segmentBoundaryBlock, numBreakpoints, cacheControl)
 	}
 }
 
