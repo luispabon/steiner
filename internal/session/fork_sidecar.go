@@ -176,12 +176,7 @@ func copyForkRecallFiles(fromDir, toDir string) (map[string]bool, error) {
 			return nil, fmt.Errorf("read %s: %w", from, err)
 		}
 		if !dirReady {
-			// ensureForkDir checks only toDir, so a symlinked fork session
-			// directory would be followed here when no history is copied.
-			if err := ensureForkDir(filepath.Dir(toDir)); err != nil {
-				return nil, err
-			}
-			if err := ensureForkDir(toDir); err != nil {
+			if err := ensureForkRecallDir(toDir); err != nil {
 				return nil, err
 			}
 			dirReady = true
@@ -192,6 +187,17 @@ func copyForkRecallFiles(fromDir, toDir string) (map[string]bool, error) {
 		copied[name] = true
 	}
 	return copied, nil
+}
+
+// ensureForkRecallDir prepares the fork session directory and then the recall
+// directory inside it. ensureForkDir checks only the directory it is given, so
+// checking both keeps a symlinked session directory from being followed when no
+// history is copied.
+func ensureForkRecallDir(toDir string) error {
+	if err := ensureForkDir(filepath.Dir(toDir)); err != nil {
+		return err
+	}
+	return ensureForkDir(toDir)
 }
 
 // ensureForkDir creates dir with dirMode when missing, rejects a symlinked or
