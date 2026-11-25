@@ -71,6 +71,77 @@ func TestAnthropicSegmentBoundary_MarksLastBoundaryMessageLastBlock(t *testing.T
 	}
 }
 
+// A coalesced tool-result batch packs several input messages into one wire
+// message, so the boundary breakpoint must land on the tracked marked block
+// rather than on the batch's last block.
+func TestAnthropicSegmentBoundary_MarksExactToolResultInCoalescedBatch(t *testing.T) {
+	toolCalls := []ToolCall{{ID: "toolu_a", Name: "read"}, {ID: "toolu_b", Name: "read"}}
+	tests := []struct {
+		name         string
+		messages     []Message
+		wantBaseline []string
+		wantMarked   []string
+	}{
+		{
+			name: "batch is the final message",
+			messages: []Message{
+				{Role: MessageRoleSystem, Content: "sys"},
+				{Role: MessageRoleUser, Content: "Segment 1."},
+				{Role: MessageRoleAssistant, Content: "calling", ToolCalls: toolCalls},
+				{Role: MessageRoleTool, ToolCallID: "toolu_a", Content: "result a", CacheBoundary: true},
+				{Role: MessageRoleTool, ToolCallID: "toolu_b", Content: "result b"},
+			},
+			wantBaseline: []string{"system", "0.0", "2.1"},
+			wantMarked:   []string{"system", "0.0", "2.0", "2.1"},
+		},
+		{
+			name: "batch is mid-conversation",
+			messages: []Message{
+				{Role: MessageRoleSystem, Content: "sys"},
+				{Role: MessageRoleUser, Content: "Segment 1."},
+				{Role: MessageRoleAssistant, Content: "calling", ToolCalls: toolCalls},
+				{Role: MessageRoleTool, ToolCallID: "toolu_a", Content: "result a", CacheBoundary: true},
+				{Role: MessageRoleTool, ToolCallID: "toolu_b", Content: "result b"},
+				{Role: MessageRoleUser, Content: "tail"},
+				{Role: MessageRoleAssistant, Content: "ok"},
+				{Role: MessageRoleUser, Content: "question"},
+			},
+			wantBaseline: []string{"system", "3.0", "5.0"},
+			wantMarked:   []string{"system", "2.0", "3.0", "5.0"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			baseline := anthropicRequestWire(segmentBoundaryRequest(withoutCacheBoundary(tt.messages)...), "default-model", false)
+			marked := anthropicRequestWire(segmentBoundaryRequest(tt.messages...), "default-model", false)
+
+			if got := markedBlocks(baseline); !slices.Equal(got, tt.wantBaseline) {
+				t.Fatalf("baseline cache_control on %v, want existing placements %v", got, tt.wantBaseline)
+			}
+			if got := markedBlocks(marked); !slices.Equal(got, tt.wantMarked) {
+				t.Fatalf("marked cache_control on %v, want %v", got, tt.wantMarked)
+			}
+			if marked.Messages[2].Content[0].ToolUseID != "toolu_a" || marked.Messages[2].Content[0].CacheControl == nil {
+				t.Fatalf("boundary breakpoint not on the marked tool_result for toolu_a: %#v", marked.Messages[2].Content[0])
+			}
+
+			marked.Messages[2].Content[0].CacheControl = nil
+			baselineData, err := json.Marshal(baseline)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			markedData, err := json.Marshal(marked)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			if string(markedData) != string(baselineData) {
+				t.Fatalf("payload with marker differs beyond the one added cache_control:\n got %s\nwant %s", markedData, baselineData)
+			}
+		})
+	}
+}
+
 func TestAnthropicSegmentBoundary_DedupesWithSecondToLastUserBreakpoint(t *testing.T) {
 	messages := []Message{
 		{Role: MessageRoleSystem, Content: "sys"},
