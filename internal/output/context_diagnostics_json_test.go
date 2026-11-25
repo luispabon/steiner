@@ -80,6 +80,37 @@ func TestContextDiagnosticEventJSONPreservesLegacyKindAndFields(t *testing.T) {
 	}
 }
 
+// TestContextDiagnosticFailureEventJSONCarriesInstrumentationFields proves a failed
+// compaction built through NewContextDiagnosticsEvent keeps its provider class, HTTP
+// status and summary shaping flags on the wire.
+func TestContextDiagnosticFailureEventJSONCarriesInstrumentationFields(t *testing.T) {
+	event := NewContextDiagnosticsEvent(ContextDiagnosticsEvent{
+		Kind:               "compaction",
+		Severity:           "skipped",
+		CompactionResult:   CompactionResultFailed,
+		ProviderErrorClass: "http_5xx",
+		HTTPStatus:         503,
+		SummaryTruncated:   true,
+		SummaryCondensed:   true,
+	})
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		`"kind":"compaction"`,
+		`"provider_error_class":"http_5xx"`,
+		`"http_status":503`,
+		`"summary_truncated":true`,
+		`"summary_condensed":true`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("event JSON = %s, missing %s", text, want)
+		}
+	}
+}
+
 func TestContextCompactionFallbackFieldsJSON(t *testing.T) {
 	typed := ContextCompactionEvent{
 		CompactionModel:      "claude-haiku-5-5",

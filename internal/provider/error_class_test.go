@@ -200,6 +200,18 @@ func TestErrorClass(t *testing.T) {
 			want: "context_cancelled",
 		},
 		{
+			name: "deadline exceeded",
+			ctx:  context.Background(),
+			err:  context.DeadlineExceeded,
+			want: "timeout",
+		},
+		{
+			name: "wrapped deadline exceeded",
+			ctx:  context.Background(),
+			err:  fmt.Errorf("read response: %w", context.DeadlineExceeded),
+			want: "timeout",
+		},
+		{
 			name: "plain error",
 			ctx:  context.Background(),
 			err:  errors.New("x"),
