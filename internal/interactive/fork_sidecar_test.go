@@ -26,6 +26,7 @@ type failingForkStore struct {
 	*session.Store
 	mu            sync.Mutex
 	allowID       string
+	failAfterSave bool
 	savedIDs      []string
 	forkDirAtSave bool
 	discards      []string
@@ -36,16 +37,25 @@ func (s *failingForkStore) Save(ses session.Session) error {
 	s.mu.Lock()
 	s.savedIDs = append(s.savedIDs, ses.ID)
 	allow := ses.ID == s.allowID
+	// A session saved through the store and then reported as failed simulates a
+	// store update that fails after indexing, such as an eviction failure.
+	failAfterSave := s.failAfterSave && !allow
 	s.mu.Unlock()
-	if allow {
-		return s.Store.Save(ses)
-	}
 	if history, err := s.HistoryPath(ses.ID); err == nil {
 		if info, err := os.Stat(filepath.Dir(history)); err == nil && info.IsDir() {
 			s.mu.Lock()
 			s.forkDirAtSave = true
 			s.mu.Unlock()
 		}
+	}
+	if allow || failAfterSave {
+		if err := s.Store.Save(ses); err != nil {
+			return err
+		}
+		if failAfterSave {
+			return errForkTestSave
+		}
+		return nil
 	}
 	return errForkTestSave
 }
@@ -374,6 +384,98 @@ func TestHandleForkSavedSessionSaveFailureRemovesForkSidecars(t *testing.T) {
 			}
 		})
 	}
+}
+
+// assertForkKeptAfterIndexedSaveFailure checks that a handler kept a fork whose
+// Save failed after indexing it: the session switched to the fork, the fork is
+// still loadable with its sidecars, and a session-health warning names the save
+// failure.
+func assertForkKeptAfterIndexedSaveFailure(t *testing.T, store *failingForkStore, events []output.Event, s *Session, parentID string) {
+	t.Helper()
+	forkedID := s.SessionID()
+	if forkedID == parentID {
+		t.Fatalf("session kept the parent id %q after the fork save", parentID)
+	}
+	if _, err := store.Load(forkedID); err != nil {
+		t.Errorf("fork is not loadable after the failed store update: %v", err)
+	}
+	history, err := store.HistoryPath(forkedID)
+	if err != nil {
+		t.Fatalf("fork HistoryPath failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(history)); err != nil {
+		t.Errorf("fork session directory removed although the fork was saved: %v", err)
+	}
+
+	found := false
+	for _, event := range events {
+		health, ok := event.Payload.(output.ContextSessionHealthEvent)
+		if !ok || health.Severity != "warning" {
+			continue
+		}
+		for _, note := range health.Notes {
+			if strings.Contains(note, errForkTestSave.Error()) {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no session_health warning naming the save failure: %+v", events)
+	}
+	if reports := forkTestReports(events); strings.Contains(reports, "save fork failed") || strings.Contains(reports, "save failed") {
+		t.Errorf("reports still report the fork as failed: %q", reports)
+	}
+}
+
+func TestHandleForkSessionKeepsForkWhenSaveFailsAfterIndexing(t *testing.T) {
+	store := &failingForkStore{Store: newForkTestStore(t), failAfterSave: true}
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		SessionStore: store,
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		Config:       guardTestConfig(),
+	})
+	parentID := s.SessionID()
+	store.mu.Lock()
+	store.allowID = parentID
+	store.mu.Unlock()
+	lineage, _, _, _ := forkTestSidecars(t, store.Store, parentID)
+	s.mu.Lock()
+	s.sessionTitle = "Parent Session"
+	s.lineage = lineage
+	s.mu.Unlock()
+
+	if err := s.handleForkSession(context.Background()); err != nil {
+		t.Fatalf("handleForkSession() = %v, want nil for an indexed fork", err)
+	}
+	assertForkKeptAfterIndexedSaveFailure(t, store, events, s, parentID)
+}
+
+func TestHandleForkSavedSessionKeepsForkWhenSaveFailsAfterIndexing(t *testing.T) {
+	base := newForkTestStore(t)
+	parentID := "saved-parent"
+	lineage, _, _, _ := forkTestSidecars(t, base, parentID)
+	now := time.Now().UTC()
+	parent := session.Session{ID: parentID, Title: "Saved Parent", Model: "test-model", CreatedAt: now, UpdatedAt: now, Lineage: lineage}
+	if err := base.Save(parent); err != nil {
+		t.Fatalf("save parent: %v", err)
+	}
+	store := &failingForkStore{Store: base, failAfterSave: true}
+	var events []output.Event
+	s := testNewSession(t, Dependencies{
+		SessionStore: store,
+		BaseEvents:   output.SinkFunc(func(event output.Event) { events = append(events, event) }),
+		Config:       guardTestConfig(),
+	})
+	originalID := s.SessionID()
+
+	if err := s.handleForkSavedSession(context.Background(), parentID); err != nil {
+		t.Fatalf("handleForkSavedSession() = %v, want nil for an indexed fork", err)
+	}
+	if s.SessionID() == originalID {
+		t.Fatalf("session kept the pre-fork id %q", originalID)
+	}
+	assertForkKeptAfterIndexedSaveFailure(t, store, events, s, parentID)
 }
 
 func TestHandleForkSessionSaveFailureRemovesForkSidecars(t *testing.T) {
