@@ -26,32 +26,26 @@ func ToReplaySafeProviderMessages(messages []Message) []provider.Message {
 }
 
 // toRequestProviderMessages is the replay-safe conversion for a provider
-// request. It additionally marks the last immutable summary segment, so the
-// wire can place a cache breakpoint on the prefix that no longer changes.
-// Estimation, diagnostics and snapshot callers stay on
-// ToReplaySafeProviderMessages and never see the marker.
-func toRequestProviderMessages(messages []Message) []provider.Message {
+// request. With segmented compaction enabled it additionally marks the last
+// immutable summary segment, so the wire can place a cache breakpoint on the
+// prefix that no longer changes. Estimation, diagnostics and snapshot callers
+// stay on ToReplaySafeProviderMessages and never see the marker. With the flag
+// off the projection is byte-identical to that unmarked conversion, even for a
+// conversation that still carries segment metadata.
+func toRequestProviderMessages(messages []Message, segmentedCompaction bool) []provider.Message {
 	replay := ReplaySafeConversation(messages)
 	out := ToProviderMessages(replay)
-	if i := lastSegmentIndex(replay); i >= 0 {
-		out[i].CacheBoundary = true
+	if !segmentedCompaction {
+		return out
 	}
+	scan := scanSegmentChain(replay)
+	// Only a validated chain earns the boundary: a legacy or malformed chain
+	// leaves the request unmarked.
+	if scan.Status != chainValid {
+		return out
+	}
+	out[len(scan.Segments)-1].CacheBoundary = true
 	return out
-}
-
-// lastSegmentIndex returns the position of the final message in the leading
-// run of summary segments, or -1 when the conversation does not start with a
-// segment. A segment anywhere else is not a valid chain, so it fails closed
-// and the request goes out unmarked.
-func lastSegmentIndex(messages []Message) int {
-	last := -1
-	for i, message := range messages {
-		if message.Segment == nil {
-			break
-		}
-		last = i
-	}
-	return last
 }
 
 // ImageBlocksFromProvider converts provider image blocks to agent image blocks.
@@ -253,9 +247,12 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 }
 
 // requestAssemblyOptions builds prompt assembly options for a provider request,
-// so the projection marks the immutable segment boundary.
-func requestAssemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.AssemblyOptions {
-	return assemblyOptionsWith(base, state, toRequestProviderMessages)
+// so the projection marks the immutable segment boundary when segmented
+// compaction is enabled for that request.
+func requestAssemblyOptions(base prompt.AssemblyOptions, state RunState, segmentedCompaction bool) prompt.AssemblyOptions {
+	return assemblyOptionsWith(base, state, func(messages []Message) []provider.Message {
+		return toRequestProviderMessages(messages, segmentedCompaction)
+	})
 }
 
 func assemblyOptionsWith(base prompt.AssemblyOptions, state RunState, convert func([]Message) []provider.Message) prompt.AssemblyOptions {

@@ -173,7 +173,7 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 	}
 	basePrompt := prepareBasePrompt(req)
 	sourceState := state.WithConversation(candidate.Messages)
-	assembly, err := prompt.Assemble(ctx, requestAssemblyOptions(basePrompt, sourceState))
+	assembly, err := prompt.Assemble(ctx, requestAssemblyOptions(basePrompt, sourceState, req.SegmentedCompaction.Enabled))
 	if err != nil {
 		return provider.ChatRequest{}, nil, "", err
 	}
