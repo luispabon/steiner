@@ -237,6 +237,126 @@ func TestMessageConvert_ToProviderMessages(t *testing.T) {
 	})
 }
 
+func TestToRequestProviderMessagesSegmentBoundary(t *testing.T) {
+	segment := func(sequence int) *SummarySegment {
+		return &SummarySegment{Sequence: sequence, SourceGenerationID: sequence, SourceMessageCount: sequence}
+	}
+	tailSummary := Message{Role: MessageRoleSummary, Content: "mutable tail summary"}
+	tests := []struct {
+		name     string
+		messages []Message
+		wantMark []int
+	}{
+		{
+			name: "marks only the last of several segments before the tail",
+			messages: []Message{
+				{Role: MessageRoleSummary, Content: "first segment", Segment: segment(1)},
+				{Role: MessageRoleSummary, Content: "second segment", Segment: segment(2)},
+				tailSummary,
+				{Role: MessageRoleUser, Content: "current request"},
+			},
+			wantMark: []int{1},
+		},
+		{
+			name: "marks a single segment followed by turns",
+			messages: []Message{
+				{Role: MessageRoleSummary, Content: "only segment", Segment: segment(1)},
+				{Role: MessageRoleUser, Content: "current request"},
+			},
+			wantMark: []int{0},
+		},
+		{
+			name: "marks the final segment of a chain with no tail",
+			messages: []Message{
+				{Role: MessageRoleSummary, Content: "first segment", Segment: segment(1)},
+				{Role: MessageRoleSummary, Content: "second segment", Segment: segment(2)},
+			},
+			wantMark: []int{1},
+		},
+		{
+			name: "leaves a legacy summary unmarked",
+			messages: []Message{
+				{Role: MessageRoleSummary, Content: "legacy summary"},
+				{Role: MessageRoleUser, Content: "current request"},
+			},
+		},
+		{
+			name: "leaves a conversation without summaries unmarked",
+			messages: []Message{
+				{Role: MessageRoleUser, Content: "one"},
+				{Role: MessageRoleAssistant, Content: "two"},
+			},
+		},
+		{
+			name: "fails closed when a segment is not at the start",
+			messages: []Message{
+				{Role: MessageRoleUser, Content: "one"},
+				{Role: MessageRoleSummary, Content: "stray segment", Segment: segment(1)},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := cacheBoundaryIndexes(toRequestProviderMessages(tc.messages))
+			if !reflect.DeepEqual(got, tc.wantMark) {
+				t.Fatalf("marked indexes = %v, want %v", got, tc.wantMark)
+			}
+			for _, message := range ToReplaySafeProviderMessages(tc.messages) {
+				if message.CacheBoundary {
+					t.Fatalf("ToReplaySafeProviderMessages marked a message: %+v", message)
+				}
+			}
+		})
+	}
+}
+
+func TestToRequestProviderMessagesPreservesSummaryWrapper(t *testing.T) {
+	const (
+		body     = "second segment body"
+		request  = "the latest request"
+		tailText = "mutable tail summary"
+	)
+	messages := []Message{
+		{Role: MessageRoleSummary, Content: withRequestBlock(body, request), Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 2, SourceMessageCount: 3}},
+		{Role: MessageRoleSummary, Content: tailText},
+		{Role: MessageRoleUser, Content: "current request"},
+	}
+
+	wantContent := summaryContextPrefix + body + summaryContextSuffix + "\n\n" + requestContextPrefix + request + requestContextSuffix
+	marked := toRequestProviderMessages(messages)
+	if got := cacheBoundaryIndexes(marked); !reflect.DeepEqual(got, []int{0}) {
+		t.Fatalf("marked indexes = %v, want [0]", got)
+	}
+	if got := marked[0].Role; got != provider.MessageRoleUser {
+		t.Fatalf("marked message role = %q, want %q", got, provider.MessageRoleUser)
+	}
+	if got := marked[0].Content; got != wantContent {
+		t.Fatalf("marked message content = %q, want %q", got, wantContent)
+	}
+
+	unmarked := ToReplaySafeProviderMessages(messages)
+	marked[0].CacheBoundary = false
+	if !reflect.DeepEqual(marked, unmarked) {
+		t.Fatalf("marked projection differs from the unmarked projection beyond CacheBoundary:\n got %#v\nwant %#v", marked, unmarked)
+	}
+}
+
+func TestAssemblyOptionsSegmentMarkerOnlyOnRequestPath(t *testing.T) {
+	state := RunState{Conversation: []Message{
+		{Role: MessageRoleSummary, Content: "first segment", Segment: &SummarySegment{Sequence: 1, SourceGenerationID: 1, SourceMessageCount: 2}},
+		{Role: MessageRoleSummary, Content: "second segment", Segment: &SummarySegment{Sequence: 2, SourceGenerationID: 2, SourceMessageCount: 2}},
+		{Role: MessageRoleSummary, Content: "mutable tail summary"},
+		{Role: MessageRoleUser, Content: "current request"},
+	}}
+
+	if got := cacheBoundaryIndexes(assemblyOptions(prompt.AssemblyOptions{}, state).Conversation); len(got) != 0 {
+		t.Fatalf("assemblyOptions marked indexes = %v, want none", got)
+	}
+	if got := cacheBoundaryIndexes(requestAssemblyOptions(prompt.AssemblyOptions{}, state).Conversation); !reflect.DeepEqual(got, []int{1}) {
+		t.Fatalf("requestAssemblyOptions marked indexes = %v, want [1]", got)
+	}
+}
+
 func TestMessageConvert_CodexMetadataFromProvider(t *testing.T) {
 	want := []CodexMessageBlock{
 		{Kind: "message", Phase: "analysis", Text: "thinking"},
