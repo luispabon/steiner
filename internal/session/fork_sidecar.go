@@ -19,8 +19,8 @@ import (
 //
 // Absent parent files copy nothing. Only a complete copy rewrites anything, so a
 // fork whose sidecars could not all be copied is returned unchanged and keeps
-// pointing at the parent, which still exists. Call it before Save, because
-// saving the fork can evict the parent.
+// pointing at the parent, which still exists. Call it before saving the fork,
+// because the saved record must name the copied sidecars.
 func (s *Store) ForkSidecars(parentID string, forked Session) (Session, error) {
 	if parentID == forked.ID {
 		return forked, fmt.Errorf("fork sidecars: parent and fork share session id %q", parentID)

@@ -159,9 +159,8 @@ func (s *Store) Save(session Session) error {
 // SaveFork writes a forked session to disk atomically and updates the index
 // like Save, but eviction never removes parentID or the session being saved.
 // When the store holds more than maxSessions entries, the next-oldest eligible
-// session is evicted instead; if no eligible session exists, nothing is evicted
-// and the store temporarily exceeds maxSessions. An empty or unknown parentID
-// makes SaveFork behave exactly like Save.
+// session is evicted instead. An empty or unknown parentID makes SaveFork
+// behave exactly like Save.
 func (s *Store) SaveFork(forked Session, parentID string) error {
 	protectedIDs := []string{forked.ID}
 	if parentID != "" {
@@ -505,6 +504,7 @@ func (s *Store) evictOldestLocked(protectedIDs []string) error {
 			break
 		}
 	}
+	// Defensive: SaveFork protects at most two IDs, so an over-cap store has a candidate.
 	if idx < 0 {
 		return nil
 	}

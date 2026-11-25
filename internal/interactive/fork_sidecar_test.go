@@ -511,8 +511,12 @@ func assertForkKeptAfterIndexedSaveFailure(t *testing.T, store *failingForkStore
 	if !found {
 		t.Errorf("no session_health warning naming the save failure: %+v", events)
 	}
-	if reports := forkTestReports(events); strings.Contains(reports, "save fork failed") || strings.Contains(reports, "save failed") {
+	reports := forkTestReports(events)
+	if strings.Contains(reports, "save fork failed") || strings.Contains(reports, "save failed") {
 		t.Errorf("reports still report the fork as failed: %q", reports)
+	}
+	if got := strings.Count(reports, "Forked from:"); got != 1 {
+		t.Errorf("reports carry %d Forked from: lines, want 1: %q", got, reports)
 	}
 }
 
