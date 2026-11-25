@@ -15,20 +15,33 @@ import (
 const (
 	historyDivider       = "── compacted here ──"
 	historyResultOmitted = "[sub-agent result omitted]"
-	historyStatusOK      = "✓"
-	historyStatusError   = "error"
+	historyToolOmitted   = "[tool result omitted]"
+	// historyToolRecallPointer and historyResultRecallPointer name the recall
+	// file that holds an omitted body, so a later reader can fetch it.
+	historyToolRecallPointer   = "[tool result omitted: recall %s]"
+	historyResultRecallPointer = "[sub-agent result omitted: recall %s]"
+	historyStatusOK            = "✓"
+	historyStatusError         = "error"
 )
+
+// recallPresence reports whether the session already holds the exact recall file
+// for entry: the expected bytes with mode 0o600 in a regular, non-symlink file.
+// A nil recallPresence treats every entry as missing, which renders the plain
+// omitted markers.
+type recallPresence func(entry agent.RecallEntry) bool
 
 // renderHistory renders the source messages of one compaction as archive
 // markdown, oldest first. Each rendered message is a block, and blocks are
-// separated by one blank line. Tool result bodies, sub-agent result bodies,
-// and reasoning are omitted. It returns "" when nothing renders. The output
-// is deterministic for identical input.
-func renderHistory(source []agent.Message) string {
+// separated by one blank line. Tool result bodies, sub-agent result bodies, and
+// reasoning are omitted: a body whose exact recall file recall reports present
+// is replaced by a pointer naming that file, and a body without one keeps a
+// plain omitted marker. It returns "" when nothing renders. The output is
+// deterministic for identical input and recall files.
+func renderHistory(source []agent.Message, recall recallPresence) string {
 	statuses := toolCallStatuses(source)
 	var blocks []string
 	for messageIndex, msg := range source {
-		if block := renderHistoryMessage(msg, statuses, messageIndex); block != "" {
+		if block := renderHistoryMessage(msg, statuses, messageIndex, recall); block != "" {
 			blocks = append(blocks, block)
 		}
 	}
@@ -42,7 +55,7 @@ type toolCallPosition struct {
 
 // renderHistoryMessage renders one message as a markdown block. It returns ""
 // when the message contributes no body text, so a bare heading is never emitted.
-func renderHistoryMessage(msg agent.Message, statuses map[toolCallPosition]string, messageIndex int) string {
+func renderHistoryMessage(msg agent.Message, statuses map[toolCallPosition]string, messageIndex int, recall recallPresence) string {
 	var heading string
 	var body []string
 	switch msg.Role {
@@ -50,12 +63,14 @@ func renderHistoryMessage(msg agent.Message, statuses map[toolCallPosition]strin
 		body = summaryParts(msg.Content)
 	case agent.MessageRoleUser:
 		heading = historyHeading(msg)
-		body = userParts(msg)
+		body = userParts(msg, recall)
 	case agent.MessageRoleAssistant:
 		heading = historyHeading(msg)
 		body = assistantParts(msg, statuses, messageIndex)
 	case agent.MessageRoleTool:
-		// Tool results are not rendered. Only their images are kept.
+		// Tool result bodies are not rendered. A pointer names the recall file
+		// that holds the body, or a plain marker stands in when it is missing.
+		body = append(body, toolResultMarker(msg, recall))
 	default:
 		heading = historyHeading(msg)
 		if text := strings.TrimSpace(msg.Content); text != "" {
@@ -125,10 +140,11 @@ func verbatimFenceLength(text string) int {
 }
 
 // userParts renders a user message. Active skill envelopes become one
-// "[skill: <name>]" line each, and sub-agent result envelopes become one
-// "[sub-agent result omitted]" line. Remaining user text is kept, except in a
-// sub-agent result batch, which shows only the marker.
-func userParts(msg agent.Message) []string {
+// "[skill: <name>]" line each. Each sub-agent result envelope becomes its own
+// recall pointer when its file exists and "[sub-agent result omitted]"
+// otherwise. Remaining user text is kept, except in a sub-agent result batch,
+// which shows only the markers.
+func userParts(msg agent.Message, recall recallPresence) []string {
 	blocks := prompt.SplitMessageBlocks(msg.Content)
 	var markers []string
 	for _, skill := range blocks.SkillBlocks {
@@ -137,7 +153,10 @@ func userParts(msg agent.Message) []string {
 		}
 	}
 	fromResult := msg.Source == agent.MessageSourceSubAgentResult
-	if fromResult || len(blocks.ResultEnvelopes) > 0 {
+	for _, raw := range blocks.ResultEnvelopes {
+		markers = append(markers, subAgentResultMarker(raw, recall))
+	}
+	if fromResult && len(blocks.ResultEnvelopes) == 0 {
 		markers = append(markers, historyResultOmitted)
 	}
 	var parts []string
@@ -148,6 +167,61 @@ func userParts(msg agent.Message) []string {
 		parts = append(parts, text)
 	}
 	return parts
+}
+
+// subAgentResultMarker returns the marker for one sub-agent result envelope: a
+// pointer to its recall file when that file exists, otherwise the omitted
+// marker. The entry must match the one agent.collectRecallEntries builds, or
+// the pointer names a file recall never wrote.
+func subAgentResultMarker(raw string, recall recallPresence) string {
+	parsed, ok := agent.ParseSubAgentResultEnvelope(raw)
+	if !ok {
+		return historyResultOmitted
+	}
+	entry := agent.RecallEntry{Kind: "agent", Tool: parsed.AgentType, CallID: parsed.CallID, Body: parsed.Inner}
+	name, ok := recallFileName(entry, recall)
+	if !ok {
+		return historyResultOmitted
+	}
+	return fmt.Sprintf(historyResultRecallPointer, name)
+}
+
+// toolResultMarker returns the pointer to a tool result body's recall file, or
+// the plain omitted marker when there is no recall file. The entry must match
+// the one agent.collectRecallEntries builds.
+func toolResultMarker(msg agent.Message, recall recallPresence) string {
+	entry := agent.RecallEntry{Kind: "tool", Tool: msg.Name, CallID: msg.ToolCallID, Body: msg.Content}
+	name, ok := recallFileName(entry, recall)
+	if !ok {
+		return historyToolOmitted
+	}
+	return fmt.Sprintf(historyToolRecallPointer, name)
+}
+
+// recallFileName returns the recall file name of entry when recall reports the
+// exact file present.
+func recallFileName(entry agent.RecallEntry, recall recallPresence) (string, bool) {
+	if recall == nil || !recall(entry) {
+		return "", false
+	}
+	return agent.RecallName(entry), true
+}
+
+// historyHasResultBodies reports whether source holds a body compaction
+// archives for recall: a tool message or a sub-agent result envelope. Note uses
+// it to mention the recall directory before those files exist.
+func historyHasResultBodies(source []agent.Message) bool {
+	for _, msg := range source {
+		switch msg.Role {
+		case agent.MessageRoleTool:
+			return true
+		case agent.MessageRoleUser:
+			if len(prompt.SplitMessageBlocks(msg.Content).ResultEnvelopes) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // assistantParts renders assistant text followed by one list line per tool

@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
@@ -17,6 +19,12 @@ func archiveSource(text string) []agent.Message {
 
 func archiveNoteText(path string) string {
 	return agent.HistoryNoteMarker + " Conversation before this summary is archived at " + path + " (markdown, oldest first, tool results omitted). If a detail you need is missing from this summary, grep that file and read the matching lines."
+}
+
+// archiveRecallNoteText returns the note Note produces when source holds result
+// bodies, naming the session recall directory dir.
+func archiveRecallNoteText(path, dir string) string {
+	return archiveNoteText(path) + " Result bodies may be stored under " + dir + "; an archived line that names a recall file points at the file that holds that body."
 }
 
 func newArchiveTestStore(t *testing.T) *Store {
@@ -95,7 +103,7 @@ func TestHistoryArchiveAppendWritesHeaderOnceInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadHistory failed: %v", err)
 	}
-	want := archiveTestHeader + renderHistory(first) + "\n\n" + renderHistory(second) + "\n\n"
+	want := archiveTestHeader + renderHistory(first, nil) + "\n\n" + renderHistory(second, nil) + "\n\n"
 	if got != want {
 		t.Errorf("archive = %q, want %q", got, want)
 	}
@@ -139,32 +147,74 @@ func TestHistoryArchiveRejectsEmptySessionID(t *testing.T) {
 	}
 }
 
-func TestHistoryArchiveNonEmptySourceRenderingBlank(t *testing.T) {
-	// A tool result is non-empty but renderHistory omits its body, so the
-	// source renders blank.
-	source := []agent.Message{{Role: agent.MessageRoleTool, Content: "large tool output"}}
-	if got := renderHistory(source); got != "" {
-		t.Fatalf("test source renders %q, want blank", got)
+// TestHistoryArchiveNoteThenMissingOrFailedRecallWritesFallback proves the note
+// and the archive do not depend on recall writes: whether a tool result has no
+// recall file or its write fails, Note still names the archive and Append writes
+// the plain omitted marker with no pointer.
+func TestHistoryArchiveNoteThenMissingOrFailedRecallWritesFallback(t *testing.T) {
+	tests := []struct {
+		name      string
+		failWrite bool
+	}{
+		{name: "missing recall file"},
+		{name: "failed recall write", failWrite: true},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source := []agent.Message{{Role: agent.MessageRoleTool, Name: "bash", ToolCallID: "c1", Content: "large tool output"}}
+			if got := renderHistory(source, nil); got != historyToolOmitted {
+				t.Fatalf("renderHistory() = %q, want %q", got, historyToolOmitted)
+			}
 
-	store := newArchiveTestStore(t)
-	archive := NewHistoryArchive(store, func() string { return "sess" })
-	note, err := archive.Note(source)
-	if err != nil {
-		t.Fatalf("Note failed: %v", err)
-	}
-	if note != "" {
-		t.Errorf("Note() = %q, want empty", note)
-	}
-	if err := archive.Append(context.Background(), source); err != nil {
-		t.Fatalf("Append failed: %v", err)
-	}
-	path, err := store.HistoryPath("sess")
-	if err != nil {
-		t.Fatalf("HistoryPath failed: %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("Append wrote the archive file for blank rendering: stat err = %v", err)
+			store := newArchiveTestStore(t)
+			const id = "sess"
+			archive := NewHistoryArchive(store, func() string { return id })
+			historyPath, err := store.HistoryPath(id)
+			if err != nil {
+				t.Fatalf("HistoryPath failed: %v", err)
+			}
+			recallDir, err := store.RecallDir(id)
+			if err != nil {
+				t.Fatalf("RecallDir failed: %v", err)
+			}
+			note, err := archive.Note(source)
+			if err != nil {
+				t.Fatalf("Note failed: %v", err)
+			}
+			if want := archiveRecallNoteText(historyPath, recallDir); note != want {
+				t.Errorf("Note() = %q, want %q", note, want)
+			}
+
+			if tt.failWrite {
+				entries := recallEntriesForSource(t, source)
+				if len(entries) != 1 {
+					t.Fatalf("recall entries = %d, want 1", len(entries))
+				}
+				if err := os.MkdirAll(filepath.Dir(recallDir), 0o700); err != nil {
+					t.Fatalf("MkdirAll failed: %v", err)
+				}
+				if err := os.WriteFile(recallDir, []byte("blocked"), 0o600); err != nil {
+					t.Fatalf("WriteFile failed: %v", err)
+				}
+				if _, err := store.WriteRecall(context.Background(), id, entries[0]); err == nil {
+					t.Fatal("WriteRecall succeeded with a file at the recall directory path, want a failure")
+				}
+			}
+
+			if err := archive.Append(context.Background(), source); err != nil {
+				t.Fatalf("Append failed: %v", err)
+			}
+			got, err := store.ReadHistory(id)
+			if err != nil {
+				t.Fatalf("ReadHistory failed: %v", err)
+			}
+			if want := archiveTestHeader + historyToolOmitted + "\n\n"; got != want {
+				t.Errorf("archive = %q, want %q", got, want)
+			}
+			if strings.Contains(got, "recall") {
+				t.Errorf("archive carries a recall pointer without a recall file:\n%s", got)
+			}
+		})
 	}
 }
 
@@ -199,14 +249,263 @@ func TestHistoryArchiveFollowsCurrentSessionID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadHistory(first) failed: %v", err)
 	}
-	if want := archiveTestHeader + renderHistory(firstSource) + "\n\n"; firstGot != want {
+	if want := archiveTestHeader + renderHistory(firstSource, nil) + "\n\n"; firstGot != want {
 		t.Errorf("first archive = %q, want %q", firstGot, want)
 	}
 	secondGot, err := store.ReadHistory("second")
 	if err != nil {
 		t.Fatalf("ReadHistory(second) failed: %v", err)
 	}
-	if want := archiveTestHeader + renderHistory(secondSource) + "\n\n"; secondGot != want {
+	if want := archiveTestHeader + renderHistory(secondSource, nil) + "\n\n"; secondGot != want {
 		t.Errorf("second archive = %q, want %q", secondGot, want)
+	}
+}
+
+// TestHistoryArchiveNoteMentionsRecallDirectory checks that a source with result
+// bodies names the session recall directory, while a plain exchange does not.
+func TestHistoryArchiveNoteMentionsRecallDirectory(t *testing.T) {
+	store := newArchiveTestStore(t)
+	archive := NewHistoryArchive(store, func() string { return "sess" })
+	historyPath, err := store.HistoryPath("sess")
+	if err != nil {
+		t.Fatalf("HistoryPath failed: %v", err)
+	}
+	recallDir, err := store.RecallDir("sess")
+	if err != nil {
+		t.Fatalf("RecallDir failed: %v", err)
+	}
+	tests := []struct {
+		name   string
+		source []agent.Message
+		want   string
+	}{
+		{name: "plain exchange", source: archiveSource("hello"), want: archiveNoteText(historyPath)},
+		{name: "tool result", source: []agent.Message{{Role: agent.MessageRoleTool, Name: "bash", Content: "output"}}, want: archiveRecallNoteText(historyPath, recallDir)},
+		{name: "sub-agent envelope", source: []agent.Message{{Role: agent.MessageRoleUser, Content: subAgentEnvelope()}}, want: archiveRecallNoteText(historyPath, recallDir)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			note, err := archive.Note(tt.source)
+			if err != nil {
+				t.Fatalf("Note failed: %v", err)
+			}
+			if note != tt.want {
+				t.Errorf("Note() = %q, want %q", note, tt.want)
+			}
+		})
+	}
+}
+
+// TestHistoryArchiveRoundTripPointersMatchRecallIdentity runs the real order of
+// a compaction: Note before any recall file exists, then the recall writes, then
+// Append. The archive must carry one pointer per result body, each naming the
+// file agent.RecallName derives from the body compaction archives, and the
+// envelope boundaries must stay separate.
+func TestHistoryArchiveRoundTripPointersMatchRecallIdentity(t *testing.T) {
+	store := newArchiveTestStore(t)
+	const id = "sess"
+	archive := NewHistoryArchive(store, func() string { return id })
+
+	firstEnvelope := subAgentEnvelope()
+	secondEnvelope := agent.RenderSubAgentResultEnvelope(agent.SubAgentCompletion{
+		AgentID:          "a2",
+		AgentType:        "explore",
+		Status:           "completed",
+		ParentCallID:     "s2",
+		ObjectivePreview: "Check the helpers",
+		TurnCount:        1,
+		Body:             "Found one more helper.",
+	})
+	toolBody := `{"ok":true,"result":{"note":"unique tool body"}}`
+	source := []agent.Message{
+		{Role: agent.MessageRoleAssistant, Turn: 7, ToolCalls: []agent.ToolCall{
+			{ID: "c9", Name: "bash", Arguments: map[string]any{"command": "go test ./..."}},
+		}},
+		{Role: agent.MessageRoleTool, Turn: 7, ToolCallID: "c9", Name: "bash", Content: toolBody},
+		{Role: agent.MessageRoleUser, Turn: 8, Content: firstEnvelope + "\n\n" + secondEnvelope + "\n\nCarry on.", Images: []agent.ImageBlock{{ID: "img-9"}}},
+	}
+
+	recallDir, err := store.RecallDir(id)
+	if err != nil {
+		t.Fatalf("RecallDir failed: %v", err)
+	}
+	note, err := archive.Note(source)
+	if err != nil {
+		t.Fatalf("Note failed: %v", err)
+	}
+	if !strings.Contains(note, recallDir) {
+		t.Fatalf("Note() = %q, want the recall directory %q", note, recallDir)
+	}
+	if _, err := os.Stat(recallDir); !os.IsNotExist(err) {
+		t.Fatalf("Note created the recall directory: stat err = %v", err)
+	}
+
+	entries := writeSourceRecallFiles(t, store, id, source)
+	if len(entries) != 3 {
+		t.Fatalf("recall entries = %d, want 3", len(entries))
+	}
+	if err := archive.Append(context.Background(), source); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+	got, err := store.ReadHistory(id)
+	if err != nil {
+		t.Fatalf("ReadHistory failed: %v", err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := agent.RecallName(entry)
+		names = append(names, name)
+		if !strings.Contains(got, name) {
+			t.Errorf("archive does not name recall file %q:\n%s", name, got)
+		}
+		path, err := store.RecallPath(id, name)
+		if err != nil {
+			t.Fatalf("RecallPath(%q) failed: %v", name, err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("recall file %q missing: %v", name, err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Errorf("recall file %q mode = %v, want a regular file", name, info.Mode())
+		}
+	}
+	if names[0] == names[1] || names[1] == names[2] || names[0] == names[2] {
+		t.Errorf("recall names collide: %q", names)
+	}
+
+	want := archiveTestHeader +
+		"### assistant · turn 7\n\n- **bash** go test ./... ✓\n\n" +
+		"[tool result omitted: recall " + names[0] + "]\n\n" +
+		"### user · turn 8\n\n" +
+		"[sub-agent result omitted: recall " + names[1] + "]\n" +
+		"[sub-agent result omitted: recall " + names[2] + "]\n\n" +
+		"Carry on.\n\n[image: img-9]\n\n"
+	if got != want {
+		t.Errorf("archive = %q, want %q", got, want)
+	}
+	for _, body := range []string{"unique tool body", "Found two more call sites.", "Found one more helper."} {
+		if strings.Contains(got, body) {
+			t.Errorf("archive carries result body %q:\n%s", body, got)
+		}
+	}
+}
+
+// TestHistoryArchiveAppendTreatsSymlinkedRecallFileAsMissing checks that only a
+// regular recall file earns a pointer; a symlink at that path keeps the omitted
+// fallback.
+func TestHistoryArchiveAppendTreatsSymlinkedRecallFileAsMissing(t *testing.T) {
+	store := newArchiveTestStore(t)
+	const id = "sess"
+	archive := NewHistoryArchive(store, func() string { return id })
+	source := []agent.Message{{Role: agent.MessageRoleUser, Turn: 2, Content: subAgentEnvelope()}}
+	entries := recallEntriesForSource(t, source)
+	if len(entries) != 1 {
+		t.Fatalf("recall entries = %d, want 1", len(entries))
+	}
+	path, err := store.RecallPath(id, agent.RecallName(entries[0]))
+	if err != nil {
+		t.Fatalf("RecallPath failed: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(target, recallFileContent(agent.RecallName(entries[0]), entries[0]), 0o600); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatalf("Symlink failed: %v", err)
+	}
+
+	if err := archive.Append(context.Background(), source); err != nil {
+		t.Fatalf("Append failed: %v", err)
+	}
+	got, err := store.ReadHistory(id)
+	if err != nil {
+		t.Fatalf("ReadHistory failed: %v", err)
+	}
+	want := archiveTestHeader + "### user · turn 2\n\n[sub-agent result omitted]\n\n"
+	if got != want {
+		t.Errorf("archive = %q, want %q", got, want)
+	}
+}
+
+// TestHistoryArchiveRecallPointerRequiresExactFile checks the archive earns a
+// pointer only for the exact file WriteRecall would accept. Corrupt content,
+// wrong mode, and a symlinked recall directory keep the plain omitted marker.
+func TestHistoryArchiveRecallPointerRequiresExactFile(t *testing.T) {
+	entry := agent.RecallEntry{Kind: "tool", Tool: "bash", CallID: "c1", Body: `{"ok":true}`}
+	name := agent.RecallName(entry)
+	source := []agent.Message{{Role: agent.MessageRoleTool, Turn: 1, ToolCallID: "c1", Name: "bash", Content: entry.Body}}
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, store *Store, id string)
+		want    string
+	}{
+		{
+			name: "valid file",
+			prepare: func(t *testing.T, store *Store, id string) {
+				t.Helper()
+				if _, err := store.WriteRecall(context.Background(), id, entry); err != nil {
+					t.Fatalf("WriteRecall failed: %v", err)
+				}
+			},
+			want: "[tool result omitted: recall " + name + "]",
+		},
+		{
+			name: "corrupt content",
+			prepare: func(t *testing.T, store *Store, id string) {
+				t.Helper()
+				seedRecallFileFor(t, store, id, entry, []byte("corrupt"), 0o600)
+			},
+			want: historyToolOmitted,
+		},
+		{
+			name: "wrong mode",
+			prepare: func(t *testing.T, store *Store, id string) {
+				t.Helper()
+				seedRecallFileFor(t, store, id, entry, recallFileContent(name, entry), 0o644)
+			},
+			want: historyToolOmitted,
+		},
+		{
+			name: "symlinked recall directory",
+			prepare: func(t *testing.T, store *Store, id string) {
+				t.Helper()
+				sessionDir := filepath.Join(store.dir, id)
+				if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+					t.Fatalf("create session directory: %v", err)
+				}
+				outside := t.TempDir()
+				body := filepath.Join(outside, name+recallFileExt)
+				if err := os.WriteFile(body, recallFileContent(name, entry), 0o600); err != nil {
+					t.Fatalf("seed outside recall file: %v", err)
+				}
+				if err := os.Symlink(outside, filepath.Join(sessionDir, recallDirName)); err != nil {
+					t.Fatalf("Symlink failed: %v", err)
+				}
+			},
+			want: historyToolOmitted,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newArchiveTestStore(t)
+			const id = "sess"
+			archive := NewHistoryArchive(store, func() string { return id })
+			tt.prepare(t, store, id)
+			if err := archive.Append(context.Background(), source); err != nil {
+				t.Fatalf("Append failed: %v", err)
+			}
+			got, err := store.ReadHistory(id)
+			if err != nil {
+				t.Fatalf("ReadHistory failed: %v", err)
+			}
+			if want := archiveTestHeader + tt.want + "\n\n"; got != want {
+				t.Errorf("archive = %q, want %q", got, want)
+			}
+		})
 	}
 }

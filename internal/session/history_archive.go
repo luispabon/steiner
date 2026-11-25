@@ -36,21 +36,42 @@ func blankHistory(rendered string) bool {
 	return strings.TrimSpace(rendered) == ""
 }
 
+// recallPresence returns the renderer's file check for session id: only the
+// exact recall file WriteRecall would accept earns a pointer. It reads only.
+func (a *HistoryArchive) recallPresence(id string) recallPresence {
+	return func(entry agent.RecallEntry) bool {
+		return a.store.recallFileCurrent(id, entry)
+	}
+}
+
 // Note returns the summary note that names the session's archive file, or ""
-// when source renders nothing. It writes nothing.
+// when source renders nothing. A source that holds result bodies also gets the
+// recall directory: it may hold the bodies those lines point at, though the note
+// does not promise every body is there. Note writes nothing.
 func (a *HistoryArchive) Note(source []agent.Message) (string, error) {
 	id := a.sessionID()
 	if id == "" {
 		return "", errNoSessionID
 	}
-	if blankHistory(renderHistory(source)) {
+	// Note runs before the compaction writes this source's recall files. The
+	// plain omitted fallback keeps a tool-only source non-blank either way, so
+	// the note never depends on those writes.
+	if blankHistory(renderHistory(source, nil)) {
 		return "", nil
 	}
 	path, err := a.store.HistoryPath(id)
 	if err != nil {
 		return "", fmt.Errorf("history archive: %w", err)
 	}
-	return agent.HistoryNoteMarker + " Conversation before this summary is archived at " + path + " (markdown, oldest first, tool results omitted). If a detail you need is missing from this summary, grep that file and read the matching lines.", nil
+	note := agent.HistoryNoteMarker + " Conversation before this summary is archived at " + path + " (markdown, oldest first, tool results omitted). If a detail you need is missing from this summary, grep that file and read the matching lines."
+	if !historyHasResultBodies(source) {
+		return note, nil
+	}
+	recallDir, err := a.store.RecallDir(id)
+	if err != nil {
+		return "", fmt.Errorf("history archive: %w", err)
+	}
+	return note + " Result bodies may be stored under " + recallDir + "; an archived line that names a recall file points at the file that holds that body.", nil
 }
 
 // Append renders source and appends it to the session's archive file. Source
@@ -60,7 +81,7 @@ func (a *HistoryArchive) Append(_ context.Context, source []agent.Message) error
 	if id == "" {
 		return errNoSessionID
 	}
-	rendered := renderHistory(source)
+	rendered := renderHistory(source, a.recallPresence(id))
 	if blankHistory(rendered) {
 		return nil
 	}
