@@ -570,7 +570,56 @@ func TestResponsesRequestWire_UserSummaryStaysUser(t *testing.T) {
 	if got, want := wire.Input[0].Role, "user"; got != want {
 		t.Fatalf("summary role = %q, want %q", got, want)
 	}
+	if got, want := wire.Input[0].Role, "user"; got != want {
+		t.Fatalf("summary role = %q, want %q", got, want)
+	}
 	if len(wire.Input[0].Content) == 0 || wire.Input[0].Content[0].Text != summaryWireText {
 		t.Fatalf("summary content = %+v, want exact text", wire.Input[0].Content)
+	}
+}
+
+// TestResponsesRequestWire_RecallMarkerToolOutput checks that a tool result
+// replaced by a compaction recall marker reaches the wire verbatim and paired
+// with its original function_call id.
+func TestResponsesRequestWire_RecallMarkerToolOutput(t *testing.T) {
+	marker := "[Tool output omitted from active context: recall tool-call-012345, read /tmp/session/recall/tool-call-012345.txt; for long lines use bash head -c/tail -c]"
+	wire, err := responsesRequestWire(ChatRequest{
+		Model: "gpt-5.5",
+		Messages: []Message{
+			{
+				Role: MessageRoleAssistant,
+				ToolCalls: []ToolCall{
+					{ID: "tool-call-012345", Name: "read", RawArguments: `{"path":"/tmp/session/recall/tool-call-012345.txt"}`},
+				},
+			},
+			{Role: MessageRoleTool, ToolCallID: "tool-call-012345", Content: marker},
+		},
+	}, "gpt-5.5", false)
+	if err != nil {
+		t.Fatalf("responsesRequestWire() error = %v", err)
+	}
+	if got, want := len(wire.Input), 2; got != want {
+		t.Fatalf("input items = %d, want %d", got, want)
+	}
+	call, output := wire.Input[0], wire.Input[1]
+	if got, want := call.Type, "function_call"; got != want {
+		t.Fatalf("input[0].type = %q, want %q", got, want)
+	}
+	if got, want := output.Type, "function_call_output"; got != want {
+		t.Fatalf("input[1].type = %q, want %q", got, want)
+	}
+	if got, want := output.CallID, call.CallID; got != want {
+		t.Fatalf("function_call_output call_id = %q, want function_call call_id %q", got, want)
+	}
+	if got, want := output.Output, marker; got != want {
+		t.Fatalf("function_call_output output = %q, want %q", got, want)
+	}
+
+	data, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), marker) {
+		t.Fatalf("serialized JSON does not contain the recall marker: %s", data)
 	}
 }
