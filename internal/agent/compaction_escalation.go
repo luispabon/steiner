@@ -144,6 +144,15 @@ func compactionBudgetIsFragile(fit prompt.RequestTokenBudget) bool {
 	return overage*100 >= limit*compactionFragilityOveragePercent
 }
 
+// buildCompactedRetention returns the retained messages the new generation
+// stores: skill blocks stripped, then older consumed result bodies replaced by
+// their recall markers. It reports whether any body was elided. Run it before
+// buildSummarizedCompactionState so the generation freezes the markers.
+func buildCompactedRetention(ctx context.Context, req RunRequest, state RunState, retained []Message) ([]Message, bool) {
+	retained = stripRetainedSkillBlocks(retained)
+	return elideRetainedToolOutputs(ctx, req, state, retained, retainedResultBudgetTokens, fitConversationState)
+}
+
 func buildSummarizedCompactionState(state RunState, summaryText string, retained []Message) RunState {
 	retained = stripRetainedSkillBlocks(retained)
 	if replay, ok := replayedSkillMessage(activeSkillBlocks(state)); ok {

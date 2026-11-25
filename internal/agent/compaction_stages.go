@@ -34,6 +34,10 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
+	// Stamp elision before any fallback copy exists: whichever target writes the
+	// summary, the retained tail is judged by the consuming provider and the
+	// main request's estimator.
+	req = withCompactionElision(req)
 	return compactWithFallback(ctx, req, state, turn, func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		return summarizeCompactionStages{
 			stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
@@ -399,7 +403,16 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	// so the emitted RetainedMessages reflects the retained source messages that
 	// were actually persisted; the synthetic active-skill re-injection that
 	// buildSummarizedCompactionState prepends is not a retained source message.
-	retained = stripRetainedSkillBlocks(retained)
+	// Elision runs on that stripped retention, so the markers it writes are what
+	// the new generation freezes until the next compaction.
+	retained, elided := buildCompactedRetention(ctx, req, state, retained)
+	if elided {
+		// The stage's token attribution measures the tail the generation keeps.
+		if retainedFit, err = fitConversationState(ctx, req, state.WithConversation(retained)); err != nil {
+			return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
+		}
+	}
+	params.retainedMessages = retained
 	nextState := buildSummarizedCompactionState(state, summaryText, retained)
 	latestFit, stage, err := fitAppliedStage(ctx, req, state, nextState, params, retainedFit, plan.fit.EstimatedPromptTokens, summaryText)
 	if err != nil {
