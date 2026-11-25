@@ -103,8 +103,9 @@ type retainedResultTarget struct {
 }
 
 // retainedResultTargets returns every result body of retained in message order,
-// with the consumption rule shared with the protected-output check: a result is
-// consumed once a later complete assistant message exists.
+// marking a result consumed once a later complete assistant message exists. This
+// is stricter than withoutProtectedOutputs: any assistant message ends that
+// window, and it then filters the window by role and source.
 func retainedResultTargets(retained []Message) []retainedResultTarget {
 	consumed := make([]bool, len(retained))
 	read := false

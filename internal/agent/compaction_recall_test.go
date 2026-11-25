@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -371,50 +372,164 @@ func TestCompactionRecallRequestBlockRetryArchivesOnlyAdoptedSources(t *testing.
 	}
 }
 
-// markerRecallArchive emits a marker warning from Write, so a test can place the
-// write on the event timeline.
-type markerRecallArchive struct {
+// adoptionWatchRecallArchive records the latest generation id its Write calls
+// observe, so a test can prove the archive runs before the outcome is adopted.
+type adoptionWatchRecallArchive struct {
 	*fakeRecallArchive
-	events *eventRecorder
+	state  *RunState
+	preGen int
+	seen   []int
 }
 
-func (a *markerRecallArchive) Write(ctx context.Context, entry RecallEntry) (string, error) {
-	emitEvent(a.events.sink(), output.NewConversationWarningEvent(output.ConversationWarningKindCompact, "recall write marker"))
+func (a *adoptionWatchRecallArchive) Write(ctx context.Context, entry RecallEntry) (string, error) {
+	a.seen = append(a.seen, a.state.Lineage.latestGenerationID())
 	return a.fakeRecallArchive.Write(ctx, entry)
 }
 
-// TestCompactionRecallArchivesBeforeAdoption proves the recall write happens
-// before the adopted state's diagnostics, which are emitted after "*state =
-// outcome.State".
+// assertWritesBeforeAdoption fails unless every archive write observed the
+// pre-compaction generation, which only the state before adoption still holds.
+func assertWritesBeforeAdoption(t *testing.T, archive *adoptionWatchRecallArchive) {
+	t.Helper()
+	if len(archive.seen) == 0 {
+		t.Fatal("archive receives no write, want at least one")
+	}
+	for i, generation := range archive.seen {
+		if generation != archive.preGen {
+			t.Errorf("write %d observed generation %d, want the pre-compaction generation %d", i+1, generation, archive.preGen)
+		}
+	}
+}
+
+// TestCompactionRecallArchivesBeforeAdoption proves the recall writes happen
+// while the state still holds the pre-compaction generation: the archive runs
+// before "*state = outcome.State".
 func TestCompactionRecallArchivesBeforeAdoption(t *testing.T) {
 	t.Parallel()
 	msgs, want := recallCompactionConversation(t)
 	state := historyArchiveState(msgs)
-	var rec eventRecorder
-	archive := &markerRecallArchive{fakeRecallArchive: &fakeRecallArchive{}, events: &rec}
+	archive := &adoptionWatchRecallArchive{fakeRecallArchive: &fakeRecallArchive{}, state: &state, preGen: state.Lineage.latestGenerationID()}
 	req := compactionTestBudget()
 	req.Provider = &fakeProvider{responses: []provider.ChatResponse{summaryResponse("recall summary handoff")}}
 	req.RecallArchive = archive
-	req.Events = rec.sink()
 
 	if !compactIntoState(t, req, &state) {
 		t.Fatal("applied = false, want true")
 	}
 	assertRecallEntries(t, archive.written, want)
+	assertWritesBeforeAdoption(t, archive)
+	if got, want := state.Conversation[0].Role, MessageRoleSummary; got != want {
+		t.Errorf("adopted first role = %q, want %q", got, want)
+	}
+}
 
-	marker, diagnostics := -1, -1
-	for i, event := range rec.snapshot() {
-		switch {
-		case marker < 0 && event.Type == output.EventTypeConversationWarning:
-			marker = i
-		case diagnostics < 0 && event.Type == output.EventTypeContextDiagnostics:
-			diagnostics = i
+// TestCompactionRecallEmergencyPathArchivesAndElides drives the emergency-only
+// path, where the normal stage applies nothing and the emergency retention is
+// the adopted one. It proves the removed tool result is archived before
+// adoption and that consumed retained envelopes over the elision budget are
+// replaced by markers whose files were written.
+func TestCompactionRecallEmergencyPathArchivesAndElides(t *testing.T) {
+	t.Parallel()
+	const (
+		sourceBody    = "emergency source tool body"
+		envelopeCount = 24
+	)
+	completions := make([]SubAgentCompletion, envelopeCount)
+	bodies := make([]string, envelopeCount)
+	for i := range envelopeCount {
+		bodies[i] = elisionTestBody(fmt.Sprintf("emergency-%d", i))
+		completions[i] = SubAgentCompletion{
+			Seq:              uint64(i + 1),
+			AgentID:          fmt.Sprintf("code-%d", i+1),
+			AgentType:        "code",
+			Status:           "completed",
+			ParentCallID:     fmt.Sprintf("call-agent-%d", i+1),
+			ObjectivePreview: "objective",
+			Body:             bodies[i],
 		}
 	}
-	if marker < 0 || diagnostics < 0 {
-		t.Fatalf("marker index = %d, diagnostics index = %d, want both present", marker, diagnostics)
+	delivery, ok := BuildDeliveryMessage(DeliveryParts{Completions: completions})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage() ok = false, want true")
 	}
-	if marker > diagnostics {
-		t.Errorf("recall write index = %d, diagnostics index = %d, want the write first", marker, diagnostics)
+	// Two units: the normal stage retains both and so applies nothing, the
+	// emergency stage summarizes the first and retains the delivery unit that
+	// its closing answer consumed.
+	msgs := []Message{
+		{Role: MessageRoleUser, Content: "source question"},
+		{Role: MessageRoleAssistant, ToolCalls: []ToolCall{{ID: "call-source", Name: "bash"}}},
+		{Role: MessageRoleTool, Name: "bash", ToolCallID: "call-source", Content: sourceBody},
+		delivery,
+		{Role: MessageRoleAssistant, Content: "read the results"},
+	}
+	req := compactionTestBudget()
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{summaryResponse("emergency handoff summary")}}
+	req.Provider = providerStub
+	stamped := withCompactionElision(req)
+	budgeted := 0
+	for _, body := range bodies {
+		budgeted += elisionTestTokens(t, stamped, body)
+	}
+	if budgeted <= retainedResultBudgetTokens {
+		t.Fatalf("retained envelope tokens = %d, want more than the %d elision budget", budgeted, retainedResultBudgetTokens)
+	}
+	state := historyArchiveState(msgs)
+	archive := &adoptionWatchRecallArchive{fakeRecallArchive: &fakeRecallArchive{}, state: &state, preGen: state.Lineage.latestGenerationID()}
+	req.RecallArchive = archive
+
+	if !compactIntoState(t, req, &state) {
+		t.Fatal("applied = false, want true")
+	}
+	assertWritesBeforeAdoption(t, archive)
+	if got, want := state.Conversation[0].Role, MessageRoleSummary; got != want {
+		t.Fatalf("adopted first role = %q, want %q", got, want)
+	}
+	if got := state.Conversation[0].Content; !strings.Contains(got, "emergency handoff summary") {
+		t.Errorf("adopted summary = %q, want the emergency stage's summary", got)
+	}
+	// The normal stage had no source to summarize, so only the emergency stage
+	// issued a summary call.
+	if got := len(providerStub.requests); got != 1 {
+		t.Fatalf("summary requests = %d, want only the emergency one", got)
+	}
+	instruction := providerStub.requests[0].Messages[len(providerStub.requests[0].Messages)-1]
+	if !strings.Contains(instruction.Content, "emergency handoff") {
+		t.Errorf("summary instruction = %q, want the emergency handoff instruction", instruction.Content)
+	}
+	adopted := strings.Join(historyArchiveContents(state.Conversation), "\n")
+	if strings.Contains(adopted, sourceBody) {
+		t.Error("the adopted generation kept the summarized-away tool result")
+	}
+	removed := RecallEntry{Kind: "tool", Tool: "bash", CallID: "call-source", Body: sourceBody}
+	removedWritten := false
+	var elided []RecallEntry
+	for _, entry := range archive.written {
+		switch {
+		case entry == removed:
+			removedWritten = true
+		case entry.Kind == "agent":
+			elided = append(elided, entry)
+		}
+	}
+	if !removedWritten {
+		t.Errorf("archived entries lack the removed tool result: %+v", archive.written)
+	}
+	if len(elided) == 0 || len(elided) == envelopeCount {
+		t.Fatalf("elided envelopes = %d, want between 1 and %d", len(elided), envelopeCount-1)
+	}
+	oldestElided := false
+	for _, entry := range elided {
+		if len(entry.Body) < retainedResultMinBytes {
+			t.Errorf("elided body length = %d, want at least %d bytes", len(entry.Body), retainedResultMinBytes)
+		}
+		marker := RecallMarker(RecallName(entry), archive.Path(RecallName(entry)))
+		if !strings.Contains(adopted, marker) {
+			t.Errorf("adopted generation lacks the marker written for %q", entry.CallID)
+		}
+		if strings.Contains(entry.Body, bodies[0]) {
+			oldestElided = true
+		}
+	}
+	if !oldestElided {
+		t.Error("the oldest consumed envelope stayed verbatim after the budget was spent")
 	}
 }
