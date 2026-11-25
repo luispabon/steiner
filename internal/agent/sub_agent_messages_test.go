@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/luispabon/steiner/internal/prompt"
 )
 
 func TestRenderSubAgentResultEnvelopeRoundTrip(t *testing.T) {
@@ -571,5 +574,185 @@ func TestParseSubAgentResultEnvelopeErrors(t *testing.T) {
 				t.Errorf("expected failure for %q", tc.label)
 			}
 		})
+	}
+}
+
+func TestReplaceSubAgentResultEnvelopeInner(t *testing.T) {
+	t.Parallel()
+
+	c := SubAgentCompletion{
+		AgentID:          `agent"id\test`,
+		AgentType:        `type"with\slash`,
+		Status:           "ok",
+		ParentCallID:     `call"id\slash`,
+		ObjectivePreview: "Objective",
+		TurnCount:        1,
+		TokenCount:       50,
+		Duration:         time.Second,
+		Body:             `{"status":"ok"}`,
+	}
+	raw := RenderSubAgentResultEnvelope(c)
+	parsed, ok := ParseSubAgentResultEnvelope(raw)
+	if !ok {
+		t.Fatalf("rendered envelope does not parse: %q", raw)
+	}
+
+	if same, ok := ReplaceSubAgentResultInner(raw, parsed.Inner); !ok || same != raw {
+		t.Fatalf("replacing with the same inner changed the envelope or failed: ok=%v", ok)
+	}
+
+	cases := []struct {
+		label string
+		inner string
+	}{
+		{label: "shorter", inner: "short"},
+		{label: "empty", inner: ""},
+		{label: "longer", inner: strings.Repeat("long inner ", 50)},
+		{label: "unicode", inner: "\u2713 r\u00e9sum\u00e9 \U0001F389"},
+		{label: "close tag inside inner", inner: "literal " + subAgentResultCloseTag + " inside"},
+		{label: "envelope inside inner", inner: RenderSubAgentResultEnvelope(SubAgentCompletion{AgentID: "nested", AgentType: "code", Status: "ok", ParentCallID: "n", Body: "n"})},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+
+			out, ok := ReplaceSubAgentResultInner(raw, tc.inner)
+			if !ok {
+				t.Fatalf("ReplaceSubAgentResultInner failed for inner %q", tc.inner)
+			}
+
+			openEnd := strings.Index(out, "\n") + 1
+			oldOpen := raw[:strings.Index(raw, "\n")+1]
+			wantOpen := strings.Replace(oldOpen, fmt.Sprintf(`bytes="%d"`, len(parsed.Inner)), fmt.Sprintf(`bytes="%d"`, len(tc.inner)), 1)
+			if got := out[:openEnd]; got != wantOpen {
+				t.Fatalf("open tag = %q, want %q", got, wantOpen)
+			}
+			if got, want := out[openEnd:], tc.inner+"\n</steiner-sub-agent-result>"; got != want {
+				t.Fatalf("inner and close tag = %q, want %q", got, want)
+			}
+
+			roundTrip, ok := ParseSubAgentResultEnvelope(out)
+			if !ok {
+				t.Fatalf("rewritten envelope does not parse: %q", out)
+			}
+			if roundTrip.Inner != tc.inner {
+				t.Fatalf("inner = %q, want %q", roundTrip.Inner, tc.inner)
+			}
+			if roundTrip.AgentID != parsed.AgentID || roundTrip.AgentType != parsed.AgentType ||
+				roundTrip.Status != parsed.Status || roundTrip.CallID != parsed.CallID {
+				t.Fatalf("attributes = %+v, want those of %+v", roundTrip, parsed)
+			}
+		})
+	}
+}
+
+func TestReplaceSubAgentResultEnvelopeInnerRejectsInvalid(t *testing.T) {
+	t.Parallel()
+
+	valid := RenderSubAgentResultEnvelope(SubAgentCompletion{
+		AgentID: "a", AgentType: "code", Status: "ok", ParentCallID: "c", Body: "body",
+	})
+	parsed, ok := ParseSubAgentResultEnvelope(valid)
+	if !ok {
+		t.Fatalf("rendered envelope does not parse: %q", valid)
+	}
+
+	cases := []struct {
+		label string
+		raw   string
+	}{
+		{label: "empty", raw: ""},
+		{label: "plain text", raw: "plain text"},
+		{label: "trailing text", raw: valid + " extra"},
+		{label: "missing close tag", raw: strings.TrimSuffix(valid, subAgentResultCloseTag)},
+		{label: "two envelopes", raw: valid + "\n\n" + valid},
+		{label: "bad size", raw: strings.Replace(valid, fmt.Sprintf(`bytes="%d"`, len(parsed.Inner)), `bytes="99999"`, 1)},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+
+			if out, ok := ReplaceSubAgentResultInner(tc.raw, "new"); ok {
+				t.Fatalf("ReplaceSubAgentResultInner(%q) = %q, ok; want failure", tc.raw, out)
+			}
+		})
+	}
+}
+
+func TestReplaceSubAgentResultEnvelopeInnerAcrossMessageSpans(t *testing.T) {
+	t.Parallel()
+
+	c1 := SubAgentCompletion{Seq: 1, AgentID: "code-1", AgentType: "code", Status: "ok", ParentCallID: "call-1", ObjectivePreview: "one", Body: `{"status":"ok"}`}
+	c2 := SubAgentCompletion{Seq: 2, AgentID: "code-2", AgentType: "code", Status: "ok", ParentCallID: "call-2", ObjectivePreview: "two", Body: `{"status":"ok"}`}
+	skill, _ := prompt.RenderSkillActivation("plan", "plan body")
+
+	msg, ok := BuildDeliveryMessage(DeliveryParts{
+		SkillBlocks: []string{skill},
+		Pending:     []PendingSubAgent{{AgentID: "code-3", AgentType: "code", State: SubAgentRunning}},
+		Completions: []SubAgentCompletion{c2, c1},
+		UserText:    "user text",
+	})
+	if !ok {
+		t.Fatal("BuildDeliveryMessage returned false")
+	}
+
+	spans := prompt.ResultEnvelopeSpans(msg.Content)
+	if len(spans) != 2 {
+		t.Fatalf("len(spans) = %d, want 2", len(spans))
+	}
+
+	var b strings.Builder
+	last := 0
+	for i, span := range spans {
+		raw := msg.Content[span.Start:span.End]
+		parsed, ok := ParseSubAgentResultEnvelope(raw)
+		if !ok {
+			t.Fatalf("span %d does not hold a valid envelope: %q", i, raw)
+		}
+		elided := fmt.Sprintf("elided: %s \u2713", parsed.AgentID)
+		replacement, ok := ReplaceSubAgentResultInner(raw, elided)
+		if !ok {
+			t.Fatalf("ReplaceSubAgentResultInner failed for %s", parsed.AgentID)
+		}
+		b.WriteString(msg.Content[last:span.Start])
+		b.WriteString(replacement)
+		last = span.End
+	}
+	b.WriteString(msg.Content[last:])
+
+	mb := prompt.SplitMessageBlocks(b.String())
+	if len(mb.ResultEnvelopes) != 2 {
+		t.Fatalf("len(ResultEnvelopes) = %d, want 2", len(mb.ResultEnvelopes))
+	}
+	if len(mb.SkillBlocks) != 1 || mb.SkillBlocks[0].Text != skill {
+		t.Fatalf("skill block not preserved: %+v", mb.SkillBlocks)
+	}
+	if want := "<steiner-sub-agents-pending>code-3 (code, running)</steiner-sub-agents-pending>"; mb.PendingLine != want {
+		t.Fatalf("PendingLine = %q, want %q", mb.PendingLine, want)
+	}
+	if mb.Rest != "user text" {
+		t.Fatalf("Rest = %q, want %q", mb.Rest, "user text")
+	}
+
+	wantIDs := []string{"code-1", "code-2"}
+	for i, raw := range mb.ResultEnvelopes {
+		parsed, ok := ParseSubAgentResultEnvelope(raw)
+		if !ok {
+			t.Fatalf("rewritten envelope %d does not parse: %q", i, raw)
+		}
+		wantInner := fmt.Sprintf("elided: %s \u2713", wantIDs[i])
+		if parsed.AgentID != wantIDs[i] {
+			t.Fatalf("envelope %d agent = %q, want %q", i, parsed.AgentID, wantIDs[i])
+		}
+		if parsed.Inner != wantInner {
+			t.Fatalf("envelope %d inner = %q, want %q", i, parsed.Inner, wantInner)
+		}
+		if want := fmt.Sprintf(`bytes="%d"`, len(wantInner)); !strings.Contains(raw, want) {
+			t.Fatalf("envelope %d missing rewritten byte length %s: %q", i, want, raw)
+		}
 	}
 }

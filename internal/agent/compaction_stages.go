@@ -34,6 +34,10 @@ func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state Run
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
+	// Stamp elision before any fallback copy exists: whichever target writes the
+	// summary, the retained tail is judged by the consuming provider and the
+	// main request's estimator.
+	req = withCompactionElision(req)
 	return compactWithFallback(ctx, req, state, turn, func(summaryReq *RunRequest, announce *compactionFallbackAnnouncement) (CompactionOutcome, error) {
 		return summarizeCompactionStages{
 			stageRunner: func(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
@@ -114,6 +118,7 @@ func (s summarizeCompactionStages) run(
 		outcome.Usage, outcome.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, outcome)
 		outcome.SummarizedMessages += normalOutcome.SummarizedMessages
 		outcome.pendingArchive = append(normalOutcome.pendingArchive, outcome.pendingArchive...)
+		outcome.pendingRecall = append(normalOutcome.pendingRecall, outcome.pendingRecall...)
 		outcome.StageSizes = append(normalOutcome.StageSizes, outcome.StageSizes...)
 		return outcome, nil
 	}
@@ -126,6 +131,7 @@ func (s summarizeCompactionStages) run(
 		dropped.Usage, dropped.CacheReportedInputTokens = sumCompactionUsage(normalOutcome, dropped)
 		dropped.SummarizedMessages += normalOutcome.SummarizedMessages
 		dropped.pendingArchive = append(normalOutcome.pendingArchive, dropped.pendingArchive...)
+		dropped.pendingRecall = append(normalOutcome.pendingRecall, dropped.pendingRecall...)
 		dropped.StageSizes = append(normalOutcome.StageSizes, dropped.StageSizes...)
 		return dropped, nil
 	}
@@ -381,12 +387,13 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 	summaryText := strings.TrimSpace(calls.response.Message.Content)
 
+	removedSource := stripRequestBlocks(params.sourceMessages)
 	var pendingArchive [][]Message
 	if req.HistoryArchive != nil {
 		// The archive note must not re-quote the verbatim request. The summary
 		// request itself keeps the block, because it replays this conversation
 		// exactly as a main request projects it, so the shared prefix stays cached.
-		summaryText, pendingArchive = withHistoryNote(req, summaryText, stripRequestBlocks(params.sourceMessages))
+		summaryText, pendingArchive = withHistoryNote(req, summaryText, removedSource)
 	}
 	summaryText = withRequestBlock(summaryText, requestBlock)
 
@@ -396,7 +403,16 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	// so the emitted RetainedMessages reflects the retained source messages that
 	// were actually persisted; the synthetic active-skill re-injection that
 	// buildSummarizedCompactionState prepends is not a retained source message.
-	retained = stripRetainedSkillBlocks(retained)
+	// Elision runs on that stripped retention, so the markers it writes are what
+	// the new generation freezes until the next compaction.
+	retained, elided := buildCompactedRetention(ctx, req, state, retained)
+	if elided {
+		// The stage's token attribution measures the tail the generation keeps.
+		if retainedFit, err = fitConversationState(ctx, req, state.WithConversation(retained)); err != nil {
+			return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
+		}
+	}
+	params.retainedMessages = retained
 	nextState := buildSummarizedCompactionState(state, summaryText, retained)
 	latestFit, stage, err := fitAppliedStage(ctx, req, state, nextState, params, retainedFit, plan.fit.EstimatedPromptTokens, summaryText)
 	if err != nil {
@@ -421,6 +437,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		CacheReportedInputTokens: calls.cacheReported,
 		BackendStateCleared:      cleared,
 		pendingArchive:           pendingArchive,
+		pendingRecall:            removedSource,
 		StageSizes:               []output.ContextCompactionStage{stage},
 	}, nil
 }

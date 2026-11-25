@@ -172,10 +172,35 @@ type MessageBlocks struct {
 // pendingLineRE matches a pending line anchored at the start.
 var pendingLineRE = regexp.MustCompile(`\A<steiner-sub-agents-pending>.*?</steiner-sub-agents-pending>`)
 
+// ResultEnvelopeSpan is the half-open byte range [Start, End) of one parsed
+// sub-agent result envelope inside a message content string.
+type ResultEnvelopeSpan struct {
+	Start int // offset of the envelope's opening '<'
+	End   int // offset just past its close tag
+}
+
 // SplitMessageBlocks splits content into mode prefix, skill blocks, pending line, sub-agent result envelopes, and rest.
 // This is a superset of SplitSkillBlocks; use this when you need to parse envelopes.
 // SplitSkillBlocks remains unchanged for backward compatibility and efficiency.
 func SplitMessageBlocks(content string) MessageBlocks {
+	mb, _ := splitMessageBlocks(content)
+	return mb
+}
+
+// ResultEnvelopeSpans returns the byte spans of the sub-agent result envelopes
+// that SplitMessageBlocks parses, in content order. Offsets index content, so
+// content[span.Start:span.End] is byte-identical to the matching
+// MessageBlocks.ResultEnvelopes entry. Envelope-like text elsewhere in the
+// message, such as inside a skill block body or trailing user text, yields no
+// span because a span only exists for an envelope the parser consumed.
+func ResultEnvelopeSpans(content string) []ResultEnvelopeSpan {
+	_, spans := splitMessageBlocks(content)
+	return spans
+}
+
+// splitMessageBlocks is the single parse behind SplitMessageBlocks and
+// ResultEnvelopeSpans, so spans always describe the envelopes actually parsed.
+func splitMessageBlocks(content string) (MessageBlocks, []ResultEnvelopeSpan) {
 	modePrefix := modeNoticePrefix(content)
 	pos := len(modePrefix)
 
@@ -208,12 +233,15 @@ func SplitMessageBlocks(content string) MessageBlocks {
 
 	// Parse result envelopes (zero or more)
 	var envelopes []string
+	var spans []ResultEnvelopeSpan
 	for pos < len(content) {
+		envelopeStart := pos
 		envelope, next, ok := parseSubAgentResultEnvelopeAt(content, pos)
 		if !ok {
 			break
 		}
 		envelopes = append(envelopes, envelope)
+		spans = append(spans, ResultEnvelopeSpan{Start: envelopeStart, End: next})
 		pos = next
 		if strings.HasPrefix(content[pos:], "\n\n") {
 			pos += 2
@@ -226,7 +254,7 @@ func SplitMessageBlocks(content string) MessageBlocks {
 		PendingLine:     pendingLine,
 		ResultEnvelopes: envelopes,
 		Rest:            content[pos:],
-	}
+	}, spans
 }
 
 // parseSubAgentResultEnvelopeAt parses one result envelope starting at pos.

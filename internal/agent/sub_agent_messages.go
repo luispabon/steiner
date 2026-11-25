@@ -218,3 +218,36 @@ func ParseSubAgentResultEnvelope(raw string) (ParsedSubAgentResult, bool) {
 		Inner:     raw[innerStart:innerEnd],
 	}, true
 }
+
+// ReplaceSubAgentResultInner returns raw, which must be exactly one valid
+// sub-agent result envelope, with its Inner replaced by inner. Only the open
+// tag's bytes numeric value changes; every other byte, all other attributes
+// included, is retained. It reports false when raw does not parse or the
+// rewritten envelope fails to re-parse with the same attributes and inner.
+func ReplaceSubAgentResultInner(raw, inner string) (string, bool) {
+	parsed, ok := ParseSubAgentResultEnvelope(raw)
+	if !ok {
+		return "", false
+	}
+	// ParseSubAgentResultEnvelope matched the same eager open tag, so the
+	// submatch indexes are valid against raw.
+	m := subAgentResultEnvelopeOpenRE.FindStringSubmatchIndex(raw)
+	if m == nil {
+		return "", false
+	}
+	bytesStart, bytesEnd, innerStart := m[10], m[11], m[1]
+	rewritten := raw[:bytesStart] + strconv.Itoa(len(inner)) + raw[bytesEnd:innerStart] +
+		inner + raw[innerStart+len(parsed.Inner):]
+
+	want := ParsedSubAgentResult{
+		AgentID:   parsed.AgentID,
+		AgentType: parsed.AgentType,
+		Status:    parsed.Status,
+		CallID:    parsed.CallID,
+		Inner:     inner,
+	}
+	if roundTrip, ok := ParseSubAgentResultEnvelope(rewritten); !ok || roundTrip != want {
+		return "", false
+	}
+	return rewritten, true
+}

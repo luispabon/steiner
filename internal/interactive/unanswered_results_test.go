@@ -208,3 +208,30 @@ func TestDriverRunNamesInterruptedResponseInUnansweredResults(t *testing.T) {
 		t.Fatalf("reason = %q, want %q", p.Reason, interruptedUnansweredReason)
 	}
 }
+
+// TestUnansweredElidedResultEnvelopeKeepsIdentity proves an unanswered result
+// whose body elision replaced with a recall marker is still recognised, with
+// its agent identity and status read from the envelope attributes instead of a
+// body that no longer decodes.
+func TestUnansweredElidedResultEnvelopeKeepsIdentity(t *testing.T) {
+	t.Parallel()
+	env := elidedResultEnvelope(t, "call-a", "a", "explore", "complete")
+	conv := []agent.Message{
+		{Role: agent.MessageRoleAssistant, Content: "ok"},
+		{Role: agent.MessageRoleUser, Content: env},
+	}
+	got := unansweredResultEnvelopes(conv)
+	if len(got) != 1 {
+		t.Fatalf("envelopes = %d, want 1", len(got))
+	}
+	want := agent.ParsedSubAgentResult{
+		AgentID:   "a",
+		AgentType: "explore",
+		Status:    "complete",
+		CallID:    "call-a",
+		Inner:     elidedResultInner("a"),
+	}
+	if got[0].result != want {
+		t.Fatalf("result = %+v, want %+v", got[0].result, want)
+	}
+}

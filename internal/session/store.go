@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -152,6 +153,25 @@ func safeSessionDir(dir, id string) (string, error) {
 
 // Save writes a session to disk atomically and updates the index.
 func (s *Store) Save(session Session) error {
+	return s.save(session, nil)
+}
+
+// SaveFork writes a forked session to disk atomically and updates the index
+// like Save, but eviction never removes parentID or the session being saved.
+// When the store holds more than maxSessions entries, the next-oldest eligible
+// session is evicted instead. An empty or unknown parentID makes SaveFork
+// behave exactly like Save.
+func (s *Store) SaveFork(forked Session, parentID string) error {
+	protectedIDs := []string{forked.ID}
+	if parentID != "" {
+		protectedIDs = append(protectedIDs, parentID)
+	}
+	return s.save(forked, protectedIDs)
+}
+
+// save is the shared body of Save and SaveFork. Sessions whose IDs appear in
+// protectedIDs are never evicted.
+func (s *Store) save(session Session, protectedIDs []string) error {
 	lock, err := s.acquireIndex(context.Background())
 	if err != nil {
 		return err
@@ -173,7 +193,7 @@ func (s *Store) Save(session Session) error {
 		return fmt.Errorf("update index: %w", err)
 	}
 
-	if err := s.evictOldestLocked(); err != nil {
+	if err := s.evictOldestLocked(protectedIDs); err != nil {
 		return fmt.Errorf("evict oldest: %w", err)
 	}
 
@@ -469,13 +489,27 @@ func (s *Store) updateIndexLocked(session Session) error {
 	return s.saveIndexLocked()
 }
 
-// evictOldestLocked removes the oldest session if more than maxSessions exist.
-func (s *Store) evictOldestLocked() error {
+// evictOldestLocked removes the oldest session whose ID is not in protectedIDs
+// if more than maxSessions exist. When every entry is protected, nothing is
+// removed and the store keeps the excess until a later save.
+func (s *Store) evictOldestLocked(protectedIDs []string) error {
 	if len(s.index) <= maxSessions {
 		return nil
 	}
 
-	toRemove := s.index[len(s.index)-1]
+	idx := -1
+	for i := len(s.index) - 1; i >= 0; i-- {
+		if !slices.Contains(protectedIDs, s.index[i].ID) {
+			idx = i
+			break
+		}
+	}
+	// Defensive: SaveFork protects at most two IDs, so an over-cap store has a candidate.
+	if idx < 0 {
+		return nil
+	}
+
+	toRemove := s.index[idx]
 
 	sessionPath, err := safeSessionPath(s.dir, toRemove.ID)
 	if err != nil {

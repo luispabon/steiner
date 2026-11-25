@@ -64,6 +64,11 @@ type RunRequest struct {
 	// (exec runs and sub-agents).
 	HistoryArchive HistoryArchive
 
+	// RecallArchive receives the tool and sub-agent result bodies compaction
+	// drops from the active context, so recall markers can point at them. Nil
+	// disables recall (exec runs and sub-agents).
+	RecallArchive RecallArchive
+
 	// DrainInbox returns the next boundary delivery. Nil for sub-agents.
 	DrainInbox func() InboxDrain
 
@@ -165,6 +170,12 @@ type RunRequest struct {
 	// compactionFallbackTarget marks a request cloned for a fallback compaction
 	// target by compactionFallbackRequest.
 	compactionFallbackTarget bool
+
+	// compactionElision fixes the elision decisions of a compaction operation
+	// to the request that entered it. compactionFallbackRequest copies the whole
+	// request, so a fallback copy keeps the main provider and estimator and
+	// result elision never follows the fallback target.
+	compactionElision *compactionElisionSettings
 
 	// contextGeneration is the number of compaction stages applied within the
 	// current run when the current call is issued. It restarts at 0 for each
