@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +155,79 @@ func TestReplaySafeConversation_PreservesPairedToolResults(t *testing.T) {
 	}
 	if got[2].Role != MessageRoleTool || got[2].ToolCallID != "call-1" {
 		t.Fatalf("got[2] = %#v, want paired tool result preserved", got[2])
+	}
+}
+
+// TestReplaySafeConversation_PreservesElidedToolResultPairing proves replay
+// keeps a tool call paired with the recall marker that replaced its result,
+// while a verbatim result on the same assistant message stays untouched.
+func TestReplaySafeConversation_PreservesElidedToolResultPairing(t *testing.T) {
+	marker := recallMarker("tool-call-1-0123456789abcdef", "/recall/tool-call-1-0123456789abcdef")
+	conversation := []Message{
+		{Role: MessageRoleUser, Content: "investigate"},
+		{
+			Role:    MessageRoleAssistant,
+			Content: "running searches",
+			ToolCalls: []ToolCall{
+				{ID: "call-1", Name: "grep", Arguments: map[string]any{"pattern": "foo"}},
+				{ID: "call-2", Name: "read", Arguments: map[string]any{"path": "bar.go"}},
+			},
+		},
+		{Role: MessageRoleTool, Content: marker, ToolCallID: "call-1", Name: "grep"},
+		{Role: MessageRoleTool, Content: "full result", ToolCallID: "call-2", Name: "read"},
+		{Role: MessageRoleAssistant, Content: "done"},
+	}
+
+	got := ReplaySafeConversation(conversation)
+	if len(got) != len(conversation) {
+		t.Fatalf("len(got) = %d, want %d", len(got), len(conversation))
+	}
+	if len(got[1].ToolCalls) != 2 {
+		t.Fatalf("got[1].ToolCalls = %#v, want both paired tool calls preserved", got[1].ToolCalls)
+	}
+	if got[2].Role != MessageRoleTool || got[2].ToolCallID != "call-1" || got[2].Content != marker {
+		t.Fatalf("got[2] = %#v, want the marker result still paired to call-1", got[2])
+	}
+	if got[3].Role != MessageRoleTool || got[3].ToolCallID != "call-2" || got[3].Content != "full result" {
+		t.Fatalf("got[3] = %#v, want the verbatim result still paired to call-2", got[3])
+	}
+}
+
+// TestElidedSubAgentResultEnvelopeKeepsMarkerInner proves the envelope that
+// elision writes still parses: every attribute survives, the byte length counts
+// the marker, and Inner is exactly the marker with no usage preamble.
+func TestElidedSubAgentResultEnvelopeKeepsMarkerInner(t *testing.T) {
+	raw := RenderSubAgentResultEnvelope(SubAgentCompletion{
+		Seq:              1,
+		ParentCallID:     "call-1",
+		AgentID:          "agent-a",
+		AgentType:        "explore",
+		Status:           "completed",
+		ObjectivePreview: "objective",
+		TurnCount:        3,
+		TokenCount:       120,
+		Body:             `{"output":"found it"}`,
+	})
+	marker := recallMarker("agent-call-1-0123456789abcdef", "/recall/agent-call-1-0123456789abcdef")
+	elided, ok := ReplaceSubAgentResultInner(raw, marker)
+	if !ok {
+		t.Fatalf("ReplaceSubAgentResultInner failed for the rendered envelope")
+	}
+	parsed, ok := ParseSubAgentResultEnvelope(elided)
+	if !ok {
+		t.Fatalf("elided envelope does not parse: %q", elided)
+	}
+	want := ParsedSubAgentResult{
+		AgentID:   "agent-a",
+		AgentType: "explore",
+		Status:    "completed",
+		CallID:    "call-1",
+		Inner:     marker,
+	}
+	if parsed != want {
+		t.Fatalf("parsed = %+v, want %+v", parsed, want)
+	}
+	if bytes := fmt.Sprintf(`bytes="%d"`, len(marker)); !strings.Contains(elided, bytes) {
+		t.Fatalf("elided envelope lacks rewritten %s: %q", bytes, elided)
 	}
 }

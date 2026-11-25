@@ -456,3 +456,86 @@ func TestReplayDeliveryEmitsDeliveredEventBeforeUserInput(t *testing.T) {
 		t.Fatalf("items = %+v, want %+v", items, want)
 	}
 }
+
+// elidedResultInner is the recall marker that replaces a sub-agent result body
+// once elision hides it from active context. It carries no usage preamble, so
+// consumers must read identity and status from the envelope attributes.
+func elidedResultInner(agentID string) string {
+	return "[Tool output omitted from active context: recall agent-" + agentID + "-0123456789abcdef, read /recall/agent-" + agentID + "-0123456789abcdef; for long lines use bash head -c/tail -c]"
+}
+
+func elidedResultEnvelope(t *testing.T, callID, agentID, agentType, status string) string {
+	t.Helper()
+	raw := agent.RenderSubAgentResultEnvelope(agent.SubAgentCompletion{
+		ParentCallID:     callID,
+		AgentID:          agentID,
+		AgentType:        agentType,
+		Status:           status,
+		ObjectivePreview: "objective",
+		TurnCount:        3,
+		TokenCount:       120,
+		Duration:         2 * time.Second,
+		Body:             `{"output":"found it"}`,
+	})
+	elided, ok := agent.ReplaceSubAgentResultInner(raw, elidedResultInner(agentID))
+	if !ok {
+		t.Fatalf("ReplaceSubAgentResultInner failed for %s", callID)
+	}
+	return elided
+}
+
+// TestReplayElidedSubAgentResultRecoversIdentityAndStatus proves replay reads
+// agent identity and status from the envelope attributes when the inner body is
+// only a recall marker, and reports no usage counters it cannot know.
+func TestReplayElidedSubAgentResultRecoversIdentityAndStatus(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"completed", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			marker := elidedResultInner("agent-a")
+			events := replayEvents(t, []agent.Message{
+				{Role: agent.MessageRoleUser, Content: elidedResultEnvelope(t, "call-1", "agent-a", "explore", status)},
+			})
+
+			delivered := eventsOfType(events, output.EventTypeSubAgentsDelivered)
+			if len(delivered) != 1 {
+				t.Fatalf("delivered events = %d, want 1", len(delivered))
+			}
+			items := delivered[0].Payload.(output.SubAgentsDeliveredEvent).Items
+			wantItem := output.DeliveredSubAgent{
+				AgentID:      "agent-a",
+				AgentType:    "explore",
+				Status:       status,
+				ParentCallID: "call-1",
+				BatchID:      "replay#0",
+			}
+			if !reflect.DeepEqual(items, []output.DeliveredSubAgent{wantItem}) {
+				t.Fatalf("delivered items = %+v, want %+v", items, wantItem)
+			}
+
+			if status == "failed" {
+				failed := eventsOfType(events, output.EventTypeDelegationFailed)
+				if len(failed) != 1 {
+					t.Fatalf("failed events = %d, want 1", len(failed))
+				}
+				p := failed[0].Payload.(output.DelegationFailedEvent)
+				if p.AgentID != "agent-a" || p.AgentType != "explore" || p.Error != marker || p.DurationMs != 0 {
+					t.Fatalf("failed = %+v, want agent-a/explore with the marker as the only error", p)
+				}
+				return
+			}
+
+			complete := eventsOfType(events, output.EventTypeDelegationComplete)
+			if len(complete) != 1 {
+				t.Fatalf("complete events = %d, want 1", len(complete))
+			}
+			p := complete[0].Payload.(output.DelegationCompleteEvent)
+			if p.AgentID != "agent-a" || p.AgentType != "explore" || p.Status != status {
+				t.Fatalf("complete identity = %+v, want agent-a/explore/%s", p, status)
+			}
+			if p.Output != marker || p.TurnCount != 0 || p.TokenCount != 0 || p.DurationMs != 0 {
+				t.Fatalf("complete body = %+v, want the marker with no usage counters", p)
+			}
+		})
+	}
+}
