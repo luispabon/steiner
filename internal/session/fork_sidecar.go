@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -44,6 +45,13 @@ func (s *Store) ForkSidecars(parentID string, forked Session) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// copyForkFile and copyForkRecallFiles inspect only their leaf, so the
+	// parent session directory is checked here before anything is read through
+	// it.
+	if err := checkForkDir(filepath.Dir(parentHistory)); err != nil {
+		return forked, fmt.Errorf("fork sidecars: %w", err)
+	}
+
 	historyCopied, err := copyForkFile(parentHistory, forkHistory)
 	if err != nil {
 		return forked, fmt.Errorf("fork sidecars: copy history: %w", err)
@@ -63,6 +71,33 @@ func (s *Store) ForkSidecars(parentID string, forked Session) (Session, error) {
 		forkRecallDir:   forkRecallDir,
 		copiedRecall:    copiedRecall,
 	}), nil
+}
+
+// DiscardForkSidecars removes the session directory of an unindexed fork whose
+// Save failed, so a fork whose sidecars were copied before the save leaves no
+// session directory behind. It refuses an id in the index, which belongs to a
+// saved session, and validates the id like the rest of the store.
+func (s *Store) DiscardForkSidecars(forkID string) error {
+	dir, err := safeSessionDir(s.dir, forkID)
+	if err != nil {
+		return fmt.Errorf("discard fork sidecars: validate session id: %w", err)
+	}
+
+	lock, err := s.acquireIndex(context.Background())
+	if err != nil {
+		return fmt.Errorf("discard fork sidecars: %w", err)
+	}
+	defer s.releaseIndex(lock)
+
+	for _, entry := range s.index {
+		if entry.ID == forkID {
+			return fmt.Errorf("discard fork sidecars: session %q is in the index; delete it instead", forkID)
+		}
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("discard fork sidecars: remove %s: %w", dir, err)
+	}
+	return nil
 }
 
 // copyForkFile copies from to to atomically and reports whether from exists. A
@@ -155,23 +190,41 @@ func copyForkRecallFiles(fromDir, toDir string) (map[string]bool, error) {
 }
 
 // ensureForkDir creates dir with dirMode when missing, rejects a symlinked or
-// non-directory existing path, and sets an existing directory to dirMode exactly.
+// non-directory path, and sets an existing directory to dirMode exactly.
 func ensureForkDir(dir string) error {
+	// Check before MkdirAll so a symlinked fork directory is never taken as the
+	// place to create files, and again after it so a swap in between is caught.
+	if err := checkForkDir(dir); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, dirMode); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return fmt.Errorf("inspect %s: %w", dir, err)
-	}
-	if info.Mode()&fs.ModeSymlink != 0 {
-		return fmt.Errorf("%s is a symlink; replace it with a real directory", dir)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory; move it aside so steiner can create it", dir)
+	if err := checkForkDir(dir); err != nil {
+		return err
 	}
 	if err := chmod(dir, dirMode); err != nil {
 		return fmt.Errorf("tighten %s permissions: %w", dir, err)
+	}
+	return nil
+}
+
+// checkForkDir rejects a symlinked or non-directory path without following it.
+// A missing path is not an error, so a parent with no sidecars and a fork
+// directory that does not exist yet both pass.
+func checkForkDir(path string) error {
+	info, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("inspect %s: %w", path, err)
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink; replace it with a real directory", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
 	}
 	return nil
 }

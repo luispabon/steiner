@@ -569,6 +569,109 @@ func TestForkSidecarsRewritesRecallDirectoryWithRecallOnlyCopy(t *testing.T) {
 	}
 }
 
+func TestForkSidecarsRejectsSymlinkedParentSessionDir(t *testing.T) {
+	store := newRecallTestStore(t)
+	parent, _, _, _ := forkSidecarParent(t, store)
+	parentDir := filepath.Join(store.dir, parent.ID)
+	aside := parentDir + ".aside"
+	if err := os.Rename(parentDir, aside); err != nil {
+		t.Fatalf("move parent session directory: %v", err)
+	}
+	if err := os.Symlink(aside, parentDir); err != nil {
+		t.Fatalf("symlink parent session directory: %v", err)
+	}
+	forked, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	before := forked.Lineage.FullMessages()
+
+	got, err := store.ForkSidecars(parent.ID, forked)
+	if err == nil {
+		t.Fatal("ForkSidecars followed a symlinked parent session directory")
+	}
+	if !reflect.DeepEqual(got.Lineage.FullMessages(), before) {
+		t.Errorf("fork content changed on copy failure: got %+v, want %+v", got.Lineage.FullMessages(), before)
+	}
+	if _, err := os.Stat(filepath.Join(store.dir, forked.ID)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("fork sidecars were copied through the symlink: %v", err)
+	}
+}
+
+func TestForkSidecarsRejectsSymlinkedForkSessionDir(t *testing.T) {
+	store := newRecallTestStore(t)
+	parent, _, _, _ := forkSidecarParent(t, store)
+	forked, err := Fork(parent)
+	if err != nil {
+		t.Fatalf("Fork failed: %v", err)
+	}
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(store.dir, forked.ID)); err != nil {
+		t.Fatalf("symlink fork session directory: %v", err)
+	}
+	before := forked.Lineage.FullMessages()
+
+	got, err := store.ForkSidecars(parent.ID, forked)
+	if err == nil {
+		t.Fatal("ForkSidecars wrote through a symlinked fork session directory")
+	}
+	if !reflect.DeepEqual(got.Lineage.FullMessages(), before) {
+		t.Errorf("fork content changed on copy failure: got %+v, want %+v", got.Lineage.FullMessages(), before)
+	}
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		t.Fatalf("list symlink target: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("sidecar files were written through the symlink: %v", entries)
+	}
+}
+
+func TestDiscardForkSidecarsRemovesUnindexedForkDir(t *testing.T) {
+	store := newRecallTestStore(t)
+	dir := filepath.Join(store.dir, "unsaved-fork")
+	if err := os.MkdirAll(filepath.Join(dir, recallDirName), dirMode); err != nil {
+		t.Fatalf("create fork session directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, historyFile), []byte("archive"), fileMode); err != nil {
+		t.Fatalf("seed fork history: %v", err)
+	}
+
+	if err := store.DiscardForkSidecars("unsaved-fork"); err != nil {
+		t.Fatalf("DiscardForkSidecars failed: %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("fork session directory survived the discard: %v", err)
+	}
+	if err := store.DiscardForkSidecars("unsaved-fork"); err != nil {
+		t.Errorf("DiscardForkSidecars failed for an already discarded fork: %v", err)
+	}
+}
+
+func TestDiscardForkSidecarsRefusesIndexedAndUnsafeIDs(t *testing.T) {
+	store := newRecallTestStore(t)
+	now := time.Now().UTC()
+	if err := store.Save(Session{ID: "saved-session", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	savedDir := filepath.Join(store.dir, "saved-session")
+	if err := os.MkdirAll(savedDir, dirMode); err != nil {
+		t.Fatalf("create saved session directory: %v", err)
+	}
+
+	for _, id := range []string{"saved-session", "", ".", "..", "a/b", "index.json", ".tmp-1"} {
+		if err := store.DiscardForkSidecars(id); err == nil {
+			t.Errorf("DiscardForkSidecars(%q) succeeded", id)
+		}
+	}
+	if _, err := os.Stat(savedDir); err != nil {
+		t.Errorf("saved session directory removed: %v", err)
+	}
+	if _, err := os.Stat(store.dir); err != nil {
+		t.Errorf("store directory removed: %v", err)
+	}
+}
+
 func TestStoreDeleteRemovesRecallFiles(t *testing.T) {
 	store := newRecallTestStore(t)
 	now := time.Now().UTC()
