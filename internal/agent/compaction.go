@@ -104,6 +104,10 @@ type CompactionOutcome struct {
 	// is independent of pendingArchive, which is conditional on the history
 	// archive reporting a note.
 	pendingRecall []Message
+	// segmentDecision is the append, rebase or plain decision of the segmented
+	// compaction this outcome adopted. It is nil with the policy off, and only
+	// the adopted outcome logs it.
+	segmentDecision *segmentDecision
 }
 
 // compactionBackendStateRetiredError marks an error that followed a summary
@@ -282,6 +286,9 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	// outcome drops, and a recall write failure must not abort the compaction.
 	archiveRecallEntries(ctx, req.RecallArchive, req.Events, outcome.pendingRecall)
 	*state = outcome.State
+	if req.SegmentedCompaction.Enabled {
+		logSegmentDecision(req.CompactionLogPath, outcome.segmentDecision)
+	}
 	commitHistoryArchive(ctx, req, outcome.pendingArchive)
 	appendPendingSubAgentsLine(req, state)
 	if compactionCount != nil {
@@ -394,7 +401,13 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
 	summary := compactionSummaryRequest(req, params.summaryReq)
-	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, params.steering)
+	buildRequest := buildCompactionRequestWithMode
+	if params.segment != nil && !params.segment.Decision.Rebase && !params.segment.Plain {
+		// An append keeps the same projected conversation and asks only for the
+		// span after the last segment.
+		buildRequest = buildSegmentAppendRequest
+	}
+	request, blocks, promptText, err := buildRequest(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, params.steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}

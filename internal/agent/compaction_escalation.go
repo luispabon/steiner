@@ -167,6 +167,22 @@ func buildSummarizedCompactionState(state RunState, summaryText string, retained
 }
 
 func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steerings ...string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
+	return buildCompactionRequest(ctx, req, state, candidate, mode, maxTokens, false, steerings)
+}
+
+// buildSegmentAppendRequest builds the summarizer request of an append. The
+// projected conversation is the same one a main request replays, so the shared
+// prefix keeps its cache hit, and only the final instruction asks for the span
+// after the last segment instead of a full handoff summary. mode is accepted so
+// it is interchangeable with buildCompactionRequestWithMode; an append is always
+// normal mode, because emergency, retry and fallback stages rebase.
+func buildSegmentAppendRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, _ prompt.CompactionMode, maxTokens int, steerings ...string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
+	return buildCompactionRequest(ctx, req, state, candidate, prompt.CompactionModeNormal, maxTokens, true, steerings)
+}
+
+// buildCompactionRequest builds a compaction request with either the ordinary
+// compaction instruction or the segment append instruction.
+func buildCompactionRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, appendInstruction bool, steerings []string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
 	steering := ""
 	if len(steerings) > 0 {
 		steering = steerings[0]
@@ -183,9 +199,13 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 			sourceMessages++
 		}
 	}
+	instruction := prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, steering)
+	if appendInstruction {
+		instruction = prompt.RenderSegmentAppendInstruction(basePrompt.PromptOverrides.Compaction, steering)
+	}
 	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
-		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, steering),
+		Content: instruction,
 	})
 	// Mirror the normal-turn request shape (same Tools and Params) so the
 	// compaction call replays the identical cached prefix (system + tools +

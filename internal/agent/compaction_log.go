@@ -103,12 +103,36 @@ func (l *CompactionLogger) LogSegmentDecision(d segmentDecision) error {
 	defer l.mu.Unlock()
 
 	action := "append"
-	if d.Rebase {
+	switch {
+	case segmentPlainReason(d.Reason):
+		action = "plain"
+	case d.Rebase:
 		action = "rebase"
 	}
 	_, err := fmt.Fprintf(l.file, "segment_decision action=%s reason=%s sequence=%d chain_tokens=%d projected_post_tokens=%d budget=%d\n",
 		action, d.Reason, d.Sequence, d.ChainTokens, d.ProjectedPostTokens, d.Budget)
 	return err
+}
+
+// logSegmentDecision appends one adopted segmented compaction decision to the
+// compaction log at path. An empty path or no decision logs nothing.
+func logSegmentDecision(path string, decision *segmentDecision) {
+	if path == "" || decision == nil {
+		return
+	}
+	logger, err := NewCompactionLogger(path)
+	if err != nil {
+		slog.Warn("compaction logger unavailable", "path", path, "error", err)
+		return
+	}
+	defer func() {
+		if err := logger.Close(); err != nil {
+			slog.Warn("compaction logger close failed", "path", path, "error", err)
+		}
+	}()
+	if err := logger.LogSegmentDecision(*decision); err != nil {
+		slog.Warn("compaction segment decision log failed", "path", path, "error", err)
+	}
 }
 
 // logCompactionStageSizes appends the sizes of an applied stage to the compaction

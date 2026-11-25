@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"strings"
+
+	"github.com/luispabon/steiner/internal/prompt"
+	"github.com/luispabon/steiner/internal/provider"
 )
 
 // errSegmentSourceEmpty reports a segmented compaction whose summarized source
@@ -122,6 +127,211 @@ func buildSegmentCompactionState(state RunState, in segmentStateInput) (RunState
 func segmentBody(summary string) string {
 	body, _, _ := SplitRequestBlock(summary)
 	return strings.TrimSpace(StripHistoryNotes(body))
+}
+
+// Reasons that select the plain summary fallback instead of a segment. The
+// decision log prints both with action plain.
+const (
+	// segmentReasonEmptySource marks a rebase whose selected source holds only
+	// summary messages.
+	segmentReasonEmptySource = "empty-source"
+	// segmentReasonRetentionUnmapped marks a stage whose retained boundary could
+	// not be proved against the scanned conversation.
+	segmentReasonRetentionUnmapped = "retention-unmapped"
+)
+
+// segmentStageInput carries what one compaction stage needs to decide and
+// describe its segmented shape.
+type segmentStageInput struct {
+	Policy SegmentedCompactionPolicy
+	// Full is the conversation this compaction replaces. The chain is scanned
+	// from its leading summary messages.
+	Full []Message
+	// Source is the stage's selected source, a prefix of Full.
+	Source []Message
+	// Retained is the selected retained tail, a suffix of Full.
+	Retained []Message
+	Mode     prompt.CompactionMode
+	// Model estimates chain tokens.
+	Model string
+	// Budget is the fit that drives compaction, so ContextSize and
+	// CompactionThresholdTokens match fit.ShouldCompact.
+	Budget prompt.RequestTokenBudget
+	// MaxTokens is the summary output budget the stage request sets.
+	MaxTokens int
+	// Retry reports a summarizer retry or a compaction fallback model, both of
+	// which force a rebase.
+	Retry bool
+	// RequestBlock is the verbatim latest request the new tail carries.
+	RequestBlock string
+}
+
+// segmentStage is the decided segmented shape of one compaction stage.
+type segmentStage struct {
+	Scan     segmentChainScan
+	Decision segmentDecision
+	// Plain reports the plain summary fallback: no segment metadata is stored.
+	Plain bool
+	// Source is the span the new segment covers: the append span, or the whole
+	// stage source for a rebase and a plain fallback.
+	Source []Message
+	// Note is the history note for Source, stored in the tail only.
+	Note string
+	// Tail is the mutable tail text: Note plus the request block.
+	Tail string
+	// Recall is Source without its latest-request trailers, for the history
+	// archive and recall markers.
+	Recall []Message
+	// pendingArchive holds the sources to archive once the outcome is adopted.
+	pendingArchive [][]Message
+}
+
+// newSegmentStage decides the segmented shape of one stage. It scans the
+// conversation the stage replaces, maps the retained boundary, estimates chain
+// tokens and the conservative post-append prompt, and turns that into a
+// decision. A rebase whose source has no non-summary coverage becomes the plain
+// summary fallback, so no segment is ever stored with SourceMessageCount 0 and
+// no append is split at a guessed index.
+func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in segmentStageInput) (segmentStage, error) {
+	scan := scanSegmentChain(in.Full)
+	chainTokens, err := segmentChainTokens(ctx, in.Model, scan.Segments)
+	if err != nil {
+		return segmentStage{}, err
+	}
+
+	retentionStart, mapped := segmentRetentionStart(in.Full, in.Retained)
+	appendCount := 0
+	projected := 0
+	if mapped {
+		appendCount, _ = segmentAppendSourceCount(state, in.Full, scan, retentionStart)
+		projected, err = segmentProjectedPostTokens(ctx, req, state, scan, in.Retained, in.RequestBlock, in.MaxTokens)
+		if err != nil {
+			return segmentStage{}, err
+		}
+	}
+
+	decision := decideSegmentAction(segmentDecisionInput{
+		Policy:               in.Policy,
+		Chain:                scan,
+		Mode:                 in.Mode,
+		ContextSize:          in.Budget.ContextSize,
+		CompactionThreshold:  in.Budget.CompactionThresholdTokens,
+		ChainTokens:          chainTokens,
+		ProjectedPostTokens:  projected,
+		RetentionStart:       retentionStart,
+		AppendSourceMessages: appendCount,
+		Retry:                in.Retry,
+	})
+	if !mapped {
+		decision = segmentPlainDecision(segmentReasonRetentionUnmapped, decision)
+	}
+
+	stage := segmentStage{Scan: scan, Decision: decision}
+	if segmentPlainReason(decision.Reason) {
+		stage.Plain = true
+		stage.Source = cloneMessages(in.Source)
+	} else {
+		if decision.Rebase {
+			stage.Source = cloneMessages(in.Source)
+		} else {
+			stage.Source = cloneMessages(in.Full[scan.End:retentionStart])
+		}
+		if decision.Rebase && countSummarizedMessages(stage.Source, activeSkillBlocks(state)) == 0 {
+			stage.Decision = segmentPlainDecision(segmentReasonEmptySource, decision)
+			stage.Plain = true
+		}
+	}
+
+	stage.Recall = stripRequestBlocks(stage.Source)
+	stage.Note, stage.pendingArchive = segmentHistoryNote(req, stage.Recall)
+	stage.Tail = withRequestBlock(stage.Note, in.RequestBlock)
+	return stage, nil
+}
+
+// segmentPlainDecision turns decision into the plain summary fallback: no chain
+// is written and the flag-off state builder stores one summary message. Rebase
+// stays set so no lookup treats the fallback as an append.
+func segmentPlainDecision(reason string, decision segmentDecision) segmentDecision {
+	decision.Rebase = true
+	decision.Reason = reason
+	decision.Sequence = 0
+	return decision
+}
+
+// segmentPlainReason reports whether a decision reason selects the plain
+// summary fallback rather than a segment chain.
+func segmentPlainReason(reason string) bool {
+	return reason == segmentReasonEmptySource || reason == segmentReasonRetentionUnmapped
+}
+
+// segmentChainTokens sums the projected tokens of the immutable segments, so a
+// budget rule measures what the chain costs a provider request.
+func segmentChainTokens(ctx context.Context, model string, segments []Message) (int, error) {
+	total := 0
+	for _, segment := range segments {
+		tokens, err := provider.EstimateMessageTokens(ctx, model, toProviderMessage(segment))
+		if err != nil {
+			return 0, fmt.Errorf("estimate segment tokens: %w", err)
+		}
+		total += tokens
+	}
+	return total, nil
+}
+
+// segmentProjectedPostTokens estimates the prompt after an append: the current
+// segments, a tail holding the current note and this compaction's request
+// block, and the retained messages, plus the summary output budget the stage
+// request sets. Using the maximum output budget is conservative and biases
+// toward a rebase on small budgets.
+func segmentProjectedPostTokens(ctx context.Context, req RunRequest, state RunState, scan segmentChainScan, retained []Message, requestBlock string, maxTokens int) (int, error) {
+	conversation := cloneMessages(scan.Segments)
+	if tail := segmentTailPlaceholder(scan, requestBlock); tail != "" {
+		conversation = append(conversation, Message{Role: MessageRoleSummary, Content: tail})
+	}
+	conversation = append(conversation, cloneMessages(retained)...)
+	fit, err := fitConversationState(ctx, req, state.WithConversation(conversation))
+	if err != nil {
+		return 0, err
+	}
+	return fit.EstimatedPromptTokens + maxTokens, nil
+}
+
+// segmentTailPlaceholder returns the tail text an append would store for the
+// projection: the note already on the current tail and this compaction's
+// request block. Reusing the existing note keeps the estimate free of an archive
+// call; the stage writes the note for the span it actually adopts.
+func segmentTailPlaceholder(scan segmentChainScan, requestBlock string) string {
+	note := ""
+	if scan.Tail != nil {
+		body, _, _ := SplitRequestBlock(scan.Tail.Content)
+		note = strings.TrimSpace(body)
+	}
+	return withRequestBlock(note, requestBlock)
+}
+
+// segmentHistoryNote returns the history note for source and the sources to
+// archive once the outcome is adopted. It shares withHistoryNote's rendering and
+// warning, so a stage stores one note for one archive write.
+func segmentHistoryNote(req RunRequest, source []Message) (string, [][]Message) {
+	if req.HistoryArchive == nil {
+		return "", nil
+	}
+	noted, pending := withHistoryNote(req, "", source)
+	return strings.TrimPrefix(noted, "\n\n"), pending
+}
+
+// segmentNoteText joins a summary body and its history note, omitting either
+// part when empty. The plain fallback copies withHistoryNote exactly instead, so
+// it keeps today's bytes.
+func segmentNoteText(body, note string) string {
+	switch {
+	case note == "":
+		return body
+	case body == "":
+		return note
+	default:
+		return body + "\n\n" + note
+	}
 }
 
 // stripTailRequestBlocks returns a copy of messages with the latest-request
