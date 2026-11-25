@@ -277,6 +277,8 @@ func TestCompactionProviderErrorFields(t *testing.T) {
 		{name: "empty summary", err: &compactionSummaryError{Reason: summaryFailNoText, Attempts: 1}, wantClass: "", wantStatus: 0},
 		{name: "budget miss", err: &compactionBudgetMissError{err: errors.New("budget")}, wantClass: "", wantStatus: 0},
 		{name: "fallback does not fit", err: errCompactionFallbackNotFit, wantClass: "", wantStatus: 0},
+		{name: "wrapped http 503", err: fmt.Errorf("wrap: %w", &provider.HTTPError{StatusCode: 503}), wantClass: "http_5xx", wantStatus: 503},
+		{name: "wrapped deadline exceeded", err: fmt.Errorf("summary: %w", context.DeadlineExceeded), wantClass: "timeout", wantStatus: 0},
 		{name: "plain error", err: errors.New("provider down"), wantClass: "other", wantStatus: 0},
 	}
 	for _, tt := range tests {
@@ -306,6 +308,29 @@ func TestEmitCompactionFailedDiagnosticsProviderErrorFields(t *testing.T) {
 	}
 	if payload.ProviderErrorClass != "http_4xx" || payload.HTTPStatus != 400 {
 		t.Errorf("ProviderErrorClass, HTTPStatus = %q, %d, want http_4xx, 400", payload.ProviderErrorClass, payload.HTTPStatus)
+	}
+}
+
+// TestReportCompactionFailureDeadlineIsTimeout proves a deadline error reaches the
+// failure event as timeout: only cancellation is filtered before emission.
+func TestReportCompactionFailureDeadlineIsTimeout(t *testing.T) {
+	t.Parallel()
+	var rec eventRecorder
+	deadlineErr := fmt.Errorf("summary: %w", context.DeadlineExceeded)
+	reported := reportCompactionFailure(rec.sink(), 4, nil, deadlineErr)
+	if !CompactionFailureReported(reported) {
+		t.Fatalf("CompactionFailureReported(%v) = false, want true", reported)
+	}
+	events := rec.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+	payload, ok := output.AsContextCompactionEvent(events[0].Payload)
+	if !ok {
+		t.Fatalf("payload type = %T, want output.ContextCompactionEvent", events[0].Payload)
+	}
+	if payload.ProviderErrorClass != "timeout" || payload.HTTPStatus != 0 {
+		t.Errorf("ProviderErrorClass, HTTPStatus = %q, %d, want timeout, 0", payload.ProviderErrorClass, payload.HTTPStatus)
 	}
 }
 

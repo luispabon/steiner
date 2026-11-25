@@ -128,6 +128,6 @@ func compactionProviderErrorFields(err error) (class string, status int) {
 	if errors.As(err, &httpErr) {
 		status = httpErr.StatusCode
 	}
-	// Background is safe: reportCompactionFailure returns early on context.Canceled before emitting, so a cancelled call never reaches this class.
+	// Background takes the class from err alone: reportCompactionFailure filters cancellation before emitting, and a deadline error classifies as timeout.
 	return provider.ErrorClass(context.Background(), err), status
 }
