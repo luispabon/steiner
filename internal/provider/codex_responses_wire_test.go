@@ -570,9 +570,6 @@ func TestResponsesRequestWire_UserSummaryStaysUser(t *testing.T) {
 	if got, want := wire.Input[0].Role, "user"; got != want {
 		t.Fatalf("summary role = %q, want %q", got, want)
 	}
-	if got, want := wire.Input[0].Role, "user"; got != want {
-		t.Fatalf("summary role = %q, want %q", got, want)
-	}
 	if len(wire.Input[0].Content) == 0 || wire.Input[0].Content[0].Text != summaryWireText {
 		t.Fatalf("summary content = %+v, want exact text", wire.Input[0].Content)
 	}
