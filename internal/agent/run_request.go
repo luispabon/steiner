@@ -59,6 +59,11 @@ type RunRequest struct {
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
 
+	// SegmentedCompaction is the experimental immutable summary segment policy
+	// (#1042). The zero value disables segmented compaction; the composition root
+	// fills it from the environment once per run.
+	SegmentedCompaction SegmentedCompactionPolicy
+
 	// HistoryArchive receives the messages each compaction removes from the
 	// conversation, once the compaction is adopted. Nil disables archiving
 	// (exec runs and sub-agents).
