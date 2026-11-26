@@ -909,13 +909,36 @@ function peakFiles(args) {
 	return { files };
 }
 
+// readPeakJsonl reads one peak input file and counts the lines that are not
+// JSONL records. Blank lines are neither records nor malformed: they separate
+// records. The malformed count is reported so a partly corrupt input stays
+// visible instead of quietly shrinking the sample.
+function readPeakJsonl(path) {
+	const records = [];
+	let malformed = 0;
+	for (const line of readFileSync(path, "utf8").split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		try {
+			records.push(JSON.parse(trimmed));
+		} catch {
+			malformed++;
+		}
+	}
+	return { records, malformed };
+}
+
 // peakInput checks every input is a readable file and reads its lines. Read
 // and stat failures become errors instead of stack traces: a bad path and an
 // unreadable one both mean the input was not usable. Only the read itself is
 // caught; iteration must not throw, and spreading a large file's records into
 // push would hit the engine's argument limit and masquerade as a read error.
+// An empty file is a valid input (a rotated generation can hold no records),
+// but a file with content and no JSONL record at all is a mistyped path, such
+// as a raw stream or a plain JSON file, and is rejected by name.
 function peakInput(files) {
 	const lines = [];
+	let malformed = 0;
 	for (const file of files) {
 		let stats;
 		try {
@@ -925,15 +948,19 @@ function peakInput(files) {
 		}
 		if (!stats) return { error: `no such file: ${file}` };
 		if (!stats.isFile()) return { error: `not a regular file: ${file}` };
-		let records;
+		let read;
 		try {
-			records = readJsonl(file);
+			read = readPeakJsonl(file);
 		} catch (err) {
 			return { error: `cannot read ${file}: ${err.code ?? err.message}` };
 		}
-		for (const record of records) lines.push(record);
+		if (read.records.length === 0 && stats.size > 0) {
+			return { error: `${file} has content but no JSONL records; peak reads session logs and telemetry files` };
+		}
+		malformed += read.malformed;
+		for (const record of read.records) lines.push(record);
 	}
-	return { lines };
+	return { lines, malformed };
 }
 
 // peakObservation converts one input line to {runID, agent, tokens}, or null
@@ -1001,7 +1028,7 @@ const PEAK_COLUMNS = [{ name: "peak_prompt_tokens", value: (r) => r.metrics.peak
 
 const PEAK_SHARE_COLUMNS = [{ name: "share", value: (r) => r.metrics.share, fmt: (v) => (v === null ? "-" : (v * 100).toFixed(1) + "%"), fmtDelta: (d) => (d * 100).toFixed(1) + "pp" }];
 
-function runPeak(files, lines) {
+function runPeak(files, lines, malformed) {
 	const observations = lines.map(peakObservation).filter(Boolean);
 	const groups = peakGroups(observations);
 	const summary = peakSummary(groups);
@@ -1010,13 +1037,22 @@ function runPeak(files, lines) {
 	if (AS_JSON) {
 		console.log(
 			JSON.stringify(
-				{ files: files.length, runs: summary.runs, main_peak_at_least: summary.atLeast, unattributed_observations: summary.unattributedObservations, by_run_agent: attributed, unattributed },
+				{
+					files: files.length,
+					runs: summary.runs,
+					main_peak_at_least: summary.atLeast,
+					unattributed_observations: summary.unattributedObservations,
+					skipped_malformed_lines: malformed,
+					by_run_agent: attributed,
+					unattributed,
+				},
 				null,
 				1,
 			),
 		);
 		return;
 	}
+	if (malformed > 0) console.log(`skipped ${malformed} malformed line${malformed === 1 ? "" : "s"} (not JSONL records)`);
 	printTable("peak main-agent threshold counts", summary.rows, PEAK_SHARE_COLUMNS);
 	printTable(`peak prompt tokens by run/agent (${files.length} file${files.length === 1 ? "" : "s"})`, attributed, PEAK_COLUMNS);
 	printTable("peak unattributed observations (no run_id)", unattributed, PEAK_COLUMNS);
@@ -1114,7 +1150,9 @@ function main() {
 			console.error("       STEINER_USAGE_TELEMETRY file; the format is detected per line, so");
 			console.error("       rotated generations and both formats may be passed together.");
 			console.error("       A session log exists only with --log-file or logging.enabled, and every");
-			console.error("       input file must exist. Telemetry lines carry no agent id (source stands");
+			console.error("       input file must exist, and a file with content but no JSONL record");
+			console.error("       at all is rejected rather than read as an empty experiment.");
+			console.error("       Telemetry lines carry no agent id (source stands");
 			console.error("       in) and, without STEINER_USAGE_TELEMETRY_RUN, no run id: those lines are");
 			console.error("       reported as unattributed observations, never as runs. Telemetry also");
 			console.error("       records compaction calls that session logs omit, so their peaks differ.");
@@ -1125,7 +1163,7 @@ function main() {
 			console.error(`peak mode: ${input.error}`);
 			process.exit(1);
 		}
-		runPeak(files, input.lines);
+		runPeak(files, input.lines, input.malformed);
 		return;
 	}
 

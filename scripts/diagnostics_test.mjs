@@ -687,6 +687,79 @@ test("peak: a nonexistent or non-file input is rejected, not read as empty", () 
 	);
 });
 
+// A mistyped path usually points at something readable instead of nothing: a
+// raw stream or a plain JSON file parses to zero records and would otherwise
+// report zero runs, exit 0, and look like an experiment with no peak calls.
+test("peak: a non-empty input with no JSONL records is rejected by name", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-nojsonl-"));
+	try {
+		const raw = join(dir, "raw.json");
+		writeFileSync(raw, JSON.stringify({ nodes: [{ kind: "tool_call" }], edges: [] }, null, 2));
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, raw], { encoding: "utf8", stdio: "pipe" }),
+			(err) =>
+				err.status === 1 &&
+				err.stderr.includes("peak mode: ") &&
+				err.stderr.includes("raw.json") &&
+				err.stderr.includes("no JSONL records") &&
+				!err.stderr.includes("    at "),
+		);
+		// Blank lines are not records either: whitespace-only content is not empty.
+		const blank = join(dir, "blank.jsonl");
+		writeFileSync(blank, "\n \n\n");
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", blank], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.status === 1 && err.stderr.includes("blank.jsonl") && err.stderr.includes("no JSONL records"),
+		);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: an empty input is accepted, as a rotated generation can be empty", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-empty-"));
+	try {
+		const empty = join(dir, "session.jsonl.2");
+		writeFileSync(empty, "");
+		const alone = peak([empty]);
+		assert.equal(alone.files, 1);
+		assert.equal(alone.runs, 0);
+		assert.equal(alone.skipped_malformed_lines, 0);
+		assert.deepEqual(alone.main_peak_at_least, { 200000: 0, 500000: 0, 1000000: 0 });
+		// The empty generation changes no count when combined with real inputs.
+		const combined = peak([...PEAK_FILES, empty]);
+		assert.equal(combined.files, 4);
+		assert.equal(combined.runs, 4);
+		assert.deepEqual(combined.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: malformed lines are skipped, counted, and never abort the run", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-malformed-"));
+	try {
+		const file = join(dir, "session.jsonl");
+		const lines = [
+			JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 250000 }, run_id: "run-1" }),
+			"not json at all",
+			"",
+			JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 300000 }, run_id: "run-1" }),
+			'{"type": "model_call_finished", "payload": {"prompt_tok',
+		];
+		writeFileSync(file, lines.join("\n") + "\n");
+		const out = peak([file]);
+		assert.equal(out.runs, 1);
+		assert.equal(out.skipped_malformed_lines, 2);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-1/main", n: 2, metrics: { peakPromptTokens: 300000 } }]);
+		assert.deepEqual(out.main_peak_at_least, { 200000: 1, 500000: 0, 1000000: 0 });
+		const text = execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8" });
+		assert.match(text, /skipped 2 malformed lines \(not JSONL records\)/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("peak: a large input is not mistaken for a read error", () => {
 	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-large-"));
 	try {
@@ -756,4 +829,6 @@ test("peak: the text tables print the summary and per-group peak", () => {
 	assert.match(out, /run-new\/main\s+2\s+1000000/);
 	assert.match(out, /peak unattributed observations \(no run_id\)/);
 	assert.match(out, /\(unattributed\)\/main\s+1\s+20000/);
+	// Clean fixtures skip nothing, so the malformed notice stays silent.
+	assert.doesNotMatch(out, /malformed/);
 });
