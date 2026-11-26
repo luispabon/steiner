@@ -1,0 +1,710 @@
+#!/usr/bin/env node
+// Live compaction bench: pure parsing, scoring and reporting helpers.
+//
+// The bench runs one `steiner --exec` per model alias, mode (off/on) and
+// repeat against a generated notes chain, with a low compaction threshold so
+// every run compacts many times. This module owns the functions that turn a
+// run's artefacts (session log JSONL, compaction log text, exec stdout) into
+// continuity and cache economics. Spawning steiner and writing results lands
+// in a later change: main() is a guard-and-usage stub for now.
+//
+// The only environment values ever surfaced are
+// STEINER_EXPERIMENT_SEGMENTED_COMPACTION and its three
+// STEINER_EXPERIMENT_SEGMENT_* limit passthroughs.
+//
+// Usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
+
+import { pathToFileURL } from "node:url";
+
+export const USAGE = `usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
+
+flags:
+  --model <a,b>                model aliases to bench (required, comma-separated)
+  --anthropic-alias <a,b>      aliases priced with Anthropic cache weights
+  --informational-alias <a,b>  aliases reported without a pass or fail verdict
+  --modes <a,b>                modes to run, subset of off,on (default: off,on)
+  --threshold <n>              compaction_threshold_tokens for every alias (default: 15000)
+  --files <n>                  notes chain length, 4 to 99 (default: 24)
+  --pad-tokens <n>             filler tokens per notes file (default: 3000)
+  --max-turns <n>              limits.max_turns for every run (default: 80)
+  --repeat <n>                 runs per alias and mode (default: 1)
+  --tolerance <n>              allowed percent change for continuity and cost (default: 5)
+  --steiner <path>             steiner binary (default: steiner)
+  --out <path>                 write results here instead of stdout
+  --help                       print this usage and exit
+
+The bench makes real provider calls and spends real tokens. It refuses to run
+unless STEINER_LIVE_BENCH=1 is set.
+`;
+
+const LIST_FLAGS = {
+	"--model": "models",
+	"--anthropic-alias": "anthropicAliases",
+	"--informational-alias": "informationalAliases",
+	"--modes": "modes",
+};
+
+const INT_FLAGS = {
+	"--threshold": "threshold",
+	"--files": "files",
+	"--pad-tokens": "padTokens",
+	"--max-turns": "maxTurns",
+	"--repeat": "repeat",
+};
+
+const STRING_FLAGS = {
+	"--steiner": "steiner",
+	"--out": "out",
+};
+
+const SEGMENT_PASSTHROUGH = [
+	"STEINER_EXPERIMENT_SEGMENT_MAX_COUNT",
+	"STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT",
+	"STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT",
+];
+
+function usageError(message) {
+	return new Error(`${message}\n\n${USAGE}`);
+}
+
+function parsePositiveInt(flag, value) {
+	if (!/^\d+$/.test(value)) {
+		throw usageError(`invalid value for ${flag}: ${JSON.stringify(value)} (expected a positive integer)`);
+	}
+	const n = Number(value);
+	if (!Number.isSafeInteger(n) || n <= 0) {
+		throw usageError(`invalid value for ${flag}: ${JSON.stringify(value)} (expected a positive integer)`);
+	}
+	return n;
+}
+
+function parseTolerance(flag, value) {
+	if (!/^\d+(\.\d+)?$/.test(value)) {
+		throw usageError(`invalid value for ${flag}: ${JSON.stringify(value)} (expected a non-negative number)`);
+	}
+	return Number(value);
+}
+
+/** Parse bench flags into run options; throws an Error carrying USAGE on bad input. */
+export function parseArgs(argv) {
+	const args = {
+		help: false,
+		models: [],
+		anthropicAliases: [],
+		informationalAliases: [],
+		modes: ["off", "on"],
+		threshold: 15000,
+		files: 24,
+		padTokens: 3000,
+		maxTurns: 80,
+		repeat: 1,
+		tolerance: 5,
+		steiner: "steiner",
+		out: null,
+	};
+	const seen = new Set();
+
+	for (let i = 0; i < argv.length; i++) {
+		const raw = argv[i];
+		let name = raw;
+		let value;
+		const eq = raw.startsWith("--") ? raw.indexOf("=") : -1;
+		if (eq > 2) {
+			name = raw.slice(0, eq);
+			value = raw.slice(eq + 1);
+		}
+		if (name === "--help") {
+			if (value !== undefined) throw usageError("--help takes no value");
+			args.help = true;
+			continue;
+		}
+		const listKey = LIST_FLAGS[name];
+		const intKey = INT_FLAGS[name];
+		const stringKey = STRING_FLAGS[name];
+		const isTolerance = name === "--tolerance";
+		if (!listKey && !intKey && !stringKey && !isTolerance) {
+			throw usageError(raw.startsWith("-") ? `unknown flag: ${name}` : `unexpected argument: ${raw}`);
+		}
+		if (value === undefined) {
+			const next = argv[i + 1];
+			if (next === undefined || (next.length > 2 && next.startsWith("--"))) {
+				throw usageError(`missing value for ${name}`);
+			}
+			value = next;
+			i++;
+		}
+		if (listKey) {
+			const values = value
+				.split(",")
+				.map((v) => v.trim())
+				.filter((v) => v !== "");
+			if (values.length === 0) throw usageError(`${name} needs at least one value`);
+			if (!seen.has(listKey)) {
+				args[listKey] = [];
+				seen.add(listKey);
+			}
+			args[listKey].push(...values);
+			continue;
+		}
+		if (intKey) {
+			args[intKey] = parsePositiveInt(name, value);
+			continue;
+		}
+		if (isTolerance) {
+			args.tolerance = parseTolerance(name, value);
+			continue;
+		}
+		args[stringKey] = value;
+	}
+
+	if (args.help) return args;
+	if (args.models.length === 0) {
+		throw usageError("--model is required (comma-separated model aliases)");
+	}
+	args.modes = [...new Set(args.modes)];
+	for (const mode of args.modes) {
+		if (mode !== "off" && mode !== "on") {
+			throw usageError(`invalid --modes value: ${JSON.stringify(mode)} (allowed: off,on)`);
+		}
+	}
+	return args;
+}
+
+/** Return null when the live-bench opt-in is set, else the refusal message. */
+export function checkGuard(env) {
+	if (env && env.STEINER_LIVE_BENCH === "1") return null;
+	return "refusing to run: the compaction bench makes real provider calls and spends real tokens; set STEINER_LIVE_BENCH=1 to confirm";
+}
+
+/** Build the child environment: the experiment flag plus only the three segment limit passthroughs. */
+export function experimentEnv(env, mode) {
+	const flag = mode === "on" ? "1" : mode === "off" ? "0" : null;
+	if (flag === null) throw new Error(`unknown mode: ${JSON.stringify(mode)} (allowed: off,on)`);
+	const out = { STEINER_EXPERIMENT_SEGMENTED_COMPACTION: flag };
+	for (const key of SEGMENT_PASSTHROUGH) {
+		if (env && env[key] !== undefined) out[key] = env[key];
+	}
+	return out;
+}
+
+const FILLER_WORDS = [
+	"haystack", "meadow", "lantern", "harbour", "tram", "copper", "saffron", "brisk",
+	"delta", "wobble", "pantry", "hollow", "gantry", "moss", "plume", "quartz",
+];
+
+const CODE_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const CODE_DIGITS = "0123456789";
+
+function mulberry32(seed) {
+	let state = seed >>> 0;
+	return function next() {
+		state = (state + 0x6d2b79f5) >>> 0;
+		let t = state;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+function pick(rand, alphabet) {
+	return alphabet[Math.floor(rand() * alphabet.length)];
+}
+
+function nextCode(rand, used) {
+	for (;;) {
+		const code = `${pick(rand, CODE_LETTERS)}${pick(rand, CODE_DIGITS)}-${pick(rand, CODE_LETTERS)}${pick(rand, CODE_LETTERS)}${pick(rand, CODE_DIGITS)}${pick(rand, CODE_DIGITS)}`;
+		if (!used.has(code)) {
+			used.add(code);
+			return code;
+		}
+	}
+}
+
+function fillerLines(rand, targetChars) {
+	const lines = [];
+	let total = 0;
+	while (total < targetChars) {
+		const words = [];
+		for (let i = 0; i < 12; i++) words.push(FILLER_WORDS[Math.floor(rand() * FILLER_WORDS.length)]);
+		const line = words.join(" ");
+		lines.push(line);
+		total += line.length + 1;
+	}
+	return lines;
+}
+
+/** Generate the deterministic notes chain, its codes and the seeded correction. */
+export function generateFixtures(seed, files, padTokens) {
+	if (!Number.isInteger(files) || files < 4 || files > 99) {
+		throw new Error(`files must be an integer from 4 to 99, got ${JSON.stringify(files)}`);
+	}
+	if (!Number.isInteger(padTokens) || padTokens < 0) {
+		throw new Error(`padTokens must be a non-negative integer, got ${JSON.stringify(padTokens)}`);
+	}
+	const rand = mulberry32(seed);
+	const names = Array.from({ length: files }, (_, i) => `f${String(i + 1).padStart(2, "0")}`);
+	const used = new Set();
+	const codes = {};
+	for (const name of names) codes[name] = nextCode(rand, used);
+
+	const secondHalfStart = Math.floor(files / 2);
+	const inFile = names[secondHalfStart + Math.floor(rand() * (files - secondHalfStart))];
+	const newCode = nextCode(rand, used);
+	const correction = { inFile, target: "f03", oldCode: codes.f03, newCode };
+
+	const outFiles = names.map((name, index) => {
+		const next = index + 1 < names.length ? `${names[index + 1]}.txt` : "END";
+		const lines = [`CODE: ${codes[name]}`, `NEXT: ${next}`];
+		if (name === inFile) {
+			lines.push(`CORRECTION: the code in ${correction.target} is now ${newCode}`);
+		}
+		lines.push(...fillerLines(rand, padTokens * 4));
+		return { name: `notes/${name}.txt`, content: `${lines.join("\n")}\n` };
+	});
+
+	return { files: outFiles, codes, correction };
+}
+
+/** Render the task prompt that walks the generated notes chain one file at a time. */
+export function taskPrompt(files) {
+	return [
+		`Read the notes in notes/ one file at a time. The chain has ${files.length} files.`,
+		"Start at notes/f01.txt. Each file starts with a CODE line and a NEXT line naming the next file.",
+		"Open only the file named by NEXT. Never read a file twice. Never list or search the notes directory.",
+		"Apply any CORRECTION line you find to the code it names.",
+		'When you reach NEXT: END, reply with one line per file in the form "fNN: CODE", using the corrected code where a correction applies.',
+		"Reply with those lines only.",
+	].join("\n");
+}
+
+const ALIAS_RE = /^[A-Za-z0-9._-]+$/;
+
+/** Render the per-alias YAML config with a low compaction threshold and the cache diagnostics stream. */
+export function buildBenchConfig({ alias, threshold, diagnosticsDir }) {
+	if (typeof alias !== "string" || !ALIAS_RE.test(alias)) {
+		throw new Error(`invalid model alias: ${JSON.stringify(alias)} (allowed: letters, digits, dot, underscore, dash)`);
+	}
+	if (!Number.isInteger(threshold) || threshold <= 0) {
+		throw new Error(`threshold must be a positive integer, got ${JSON.stringify(threshold)}`);
+	}
+	if (typeof diagnosticsDir !== "string" || diagnosticsDir === "") {
+		throw new Error("diagnosticsDir must be a non-empty string");
+	}
+	return [
+		"models:",
+		"  definitions:",
+		`    ${alias}:`,
+		"      advanced:",
+		"        limits:",
+		`          compaction_threshold_tokens: ${threshold}`,
+		"diagnostics:",
+		"  enabled: true",
+		`  dir: ${JSON.stringify(diagnosticsDir)}`,
+		"  streams:",
+		"    cache: true",
+		"",
+	].join("\n");
+}
+
+const SEGMENT_DECISION_RE = /^segment_decision action=(append|rebase|plain) reason=([a-z][a-z-]*) sequence=(\d+) chain_tokens=(\d+) projected_post_tokens=(\d+) budget=(\d+)$/;
+
+/** Parse whole-line segment_decision records from a compaction log, ignoring embedded text. */
+export function parseSegmentDecisions(text) {
+	const decisions = [];
+	for (const raw of String(text).split(/\r?\n/)) {
+		const match = SEGMENT_DECISION_RE.exec(raw.trim());
+		if (!match) continue;
+		decisions.push({
+			action: match[1],
+			reason: match[2],
+			sequence: Number(match[3]),
+			chainTokens: Number(match[4]),
+			projectedPostTokens: Number(match[5]),
+			budget: Number(match[6]),
+		});
+	}
+	return decisions;
+}
+
+/** Count decision kinds; plain counts as a rebase fallback and separately as a plain fallback. */
+export function summarizeDecisions(decisions) {
+	let appends = 0;
+	let rebases = 0;
+	let plainFallbacks = 0;
+	let chainStarts = 0;
+	let maxSegments = 0;
+	for (const decision of decisions) {
+		if (decision.action === "append") {
+			appends++;
+			maxSegments = Math.max(maxSegments, decision.sequence);
+		} else if (decision.action === "rebase") {
+			if (decision.reason !== "chain-start") rebases++;
+			maxSegments = Math.max(maxSegments, decision.sequence);
+		} else {
+			plainFallbacks++;
+			rebases++;
+		}
+		if (decision.reason === "chain-start") chainStarts++;
+	}
+	return { decisions: decisions.length, appends, rebases, plainFallbacks, chainStarts, maxSegments };
+}
+
+const READ_NOTES_RE = /(?:^|\/)notes\/(f\d+)\.txt$/;
+const READ_BASENAME_RE = /(?:^|\/)(f\d+)\.txt$/;
+const COMPACTION_START_SEVERITIES = new Set(["compacting", "skipped"]);
+
+function readFileName(path) {
+	const match = READ_NOTES_RE.exec(path) ?? READ_BASENAME_RE.exec(path);
+	return match ? match[1] : null;
+}
+
+function scopedToSubAgent(record) {
+	const scope = record.scope;
+	return Boolean(scope && typeof scope === "object" && scope.agent_type);
+}
+
+function parseModelCall(payload) {
+	const hasRead = payload.cache_read_tokens !== undefined;
+	const hasCreate = payload.cache_create_tokens !== undefined;
+	const cacheReported = payload.cache_reported_input_tokens !== undefined || hasRead || hasCreate;
+	return {
+		turn: payload.turn ?? 0,
+		promptTokens: payload.prompt_tokens ?? 0,
+		cacheReported,
+		cacheReadTokens: payload.cache_read_tokens ?? 0,
+		cacheCreateTokens: payload.cache_create_tokens ?? 0,
+	};
+}
+
+/** Parse a session log JSONL into ordered reads and applied compactions, with model-call cache usage. */
+export function parseRunLog(text) {
+	const events = [];
+	const modelCalls = [];
+	let compactions = 0;
+	let malformed = 0;
+
+	for (const raw of String(text).split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "") continue;
+		let record;
+		try {
+			record = JSON.parse(line);
+		} catch {
+			malformed++;
+			continue;
+		}
+		if (record === null || typeof record !== "object" || Array.isArray(record)) {
+			malformed++;
+			continue;
+		}
+		const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
+		if (record.type === "tool_call_started") {
+			if (scopedToSubAgent(record) || payload.tool !== "read") continue;
+			const path = payload.arguments && payload.arguments.path;
+			if (typeof path !== "string") continue;
+			const file = readFileName(path);
+			if (!file) continue;
+			events.push({ kind: "read", file, turn: payload.turn ?? 0 });
+			continue;
+		}
+		if (record.type === "model_call_finished") {
+			modelCalls.push(parseModelCall(payload));
+			continue;
+		}
+		if (record.type === "context_diagnostics") {
+			if (payload.kind !== "compaction") continue;
+			if (COMPACTION_START_SEVERITIES.has(payload.severity)) continue;
+			if (scopedToSubAgent(record)) continue;
+			compactions++;
+			events.push({ kind: "compaction", index: compactions });
+		}
+	}
+
+	return { events, modelCalls, compactions, malformed };
+}
+
+/** Return only the ordered read events from a session log. */
+export const parseToolReads = (text) => parseRunLog(text).events.filter((event) => event.kind === "read");
+
+const EVENT_LABEL_RE = /^[a-z_]+: /;
+const MAX_TURNS_RE = /^status: stopped after \d+ turns?: reached the max turn limit/;
+const ASSISTANT_ANSWER_RE = /^turn \d+ role \S+ content ([\s\S]*)$/;
+
+/** Parse exec stdout into the last assistant answer and whether the max-turn limit stopped the run. */
+export function parseStdout(text) {
+	const lines = String(text).split(/\r?\n/);
+	let maxTurnsHit = false;
+	for (const line of lines) {
+		if (MAX_TURNS_RE.test(line)) maxTurnsHit = true;
+	}
+
+	let finalAnswer = null;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.startsWith("assistant: ")) continue;
+		const match = ASSISTANT_ANSWER_RE.exec(line.slice("assistant: ".length));
+		if (!match) continue;
+		const parts = [match[1]];
+		let j = i + 1;
+		for (; j < lines.length; j++) {
+			const next = lines[j];
+			if (EVENT_LABEL_RE.test(next) || next.startsWith("assistant> ")) break;
+			parts.push(next);
+		}
+		finalAnswer = parts.join("\n").trimEnd();
+		i = j - 1;
+	}
+
+	return { finalAnswer, maxTurnsHit };
+}
+
+function lossPoint(events, file) {
+	const firstRead = events.findIndex((event) => event.kind === "read" && event.file === file);
+	if (firstRead === -1) return "unattributed";
+	const compaction = events.slice(firstRead + 1).find((event) => event.kind === "compaction");
+	return compaction ? compaction.index : "unattributed";
+}
+
+/** Score the final answer against the fixtures, attributing each miss and flagging re-reads. */
+export function scoreRecall({ answer, fixtures, events }) {
+	const answerLines = new Map();
+	const text = typeof answer === "string" ? answer : "";
+	const lineRe = /^\s*(f\d{2})\s*:\s*(\S+)\s*$/gim;
+	let match;
+	while ((match = lineRe.exec(text)) !== null) {
+		answerLines.set(match[1].toLowerCase(), match[2]);
+	}
+
+	const names = fixtures.files.map((file) => file.name.replace(/^notes\//, "").replace(/\.txt$/, ""));
+	const perFile = [];
+	let exact = 0;
+	for (const name of names) {
+		const isTarget = name === fixtures.correction.target;
+		const expected = isTarget ? fixtures.correction.newCode : fixtures.codes[name];
+		const got = answerLines.get(name.toLowerCase());
+		let ok = got !== undefined && got === expected;
+		if (isTarget) ok = ok && !text.includes(fixtures.correction.oldCode);
+		if (ok) {
+			exact++;
+			perFile.push({ file: name, status: "exact", lostAt: null });
+		} else {
+			perFile.push({ file: name, status: "lost", lostAt: lossPoint(events, name) });
+		}
+	}
+
+	const invalidReasons = [];
+	for (const name of names) {
+		const reads = [];
+		events.forEach((event, position) => {
+			if (event.kind === "read" && event.file === name) reads.push(position);
+		});
+		if (reads.length < 2) continue;
+		const between = events.slice(reads[0] + 1, reads[1]).find((event) => event.kind === "compaction");
+		if (between) invalidReasons.push(`${name} read again after compaction ${between.index}`);
+	}
+
+	return {
+		exact,
+		lost: perFile.length - exact,
+		total: perFile.length,
+		invalid: invalidReasons.length > 0,
+		invalidReason: invalidReasons.length > 0 ? invalidReasons.join("; ") : null,
+		perFile,
+	};
+}
+
+/** Sum model-call token usage and report only when every call reported cache counters. */
+export function aggregateCache(modelCalls) {
+	let reportingCalls = 0;
+	let promptTokens = 0;
+	let cacheReadTokens = 0;
+	let cacheCreateTokens = 0;
+	for (const call of modelCalls) {
+		if (call.cacheReported) reportingCalls++;
+		promptTokens += call.promptTokens ?? 0;
+		cacheReadTokens += call.cacheReadTokens ?? 0;
+		cacheCreateTokens += call.cacheCreateTokens ?? 0;
+	}
+	return {
+		calls: modelCalls.length,
+		reportingCalls,
+		reported: reportingCalls > 0 && reportingCalls === modelCalls.length,
+		promptTokens,
+		cacheReadTokens,
+		cacheCreateTokens,
+	};
+}
+
+/** Convert aggregate token usage into a weighted cost proxy, or null when cache was not reported. */
+export function costProxy(agg, family) {
+	if (!agg.reported) return null;
+	if (family === "anthropic") {
+		const uncached = Math.max(0, agg.promptTokens - agg.cacheReadTokens - agg.cacheCreateTokens);
+		return uncached + 1.25 * agg.cacheCreateTokens + 0.1 * agg.cacheReadTokens;
+	}
+	if (family === "openai") {
+		const uncached = Math.max(0, agg.promptTokens - agg.cacheReadTokens);
+		return uncached + 0.1 * agg.cacheReadTokens;
+	}
+	throw new Error(`unknown cost family: ${JSON.stringify(family)} (allowed: anthropic,openai)`);
+}
+
+/** Check that the first probe call wrote cache and the second read it back. */
+export function evaluateProbe(call1Calls, call2Calls) {
+	if (call1Calls.length === 0 || call2Calls.length === 0) {
+		return { ok: false, reason: "probe calls failed" };
+	}
+	const wrote = call1Calls.some((call) => call.cacheReported && call.cacheCreateTokens > 0);
+	const read = call2Calls.some((call) => call.cacheReported && call.cacheReadTokens > 0);
+	if (wrote && read) return { ok: true, reason: null };
+	return { ok: false, reason: "cache_control not honoured on this route" };
+}
+
+/** Return the median of the numbers, or null for an empty list. */
+export function median(nums) {
+	if (nums.length === 0) return null;
+	const sorted = [...nums].sort((a, b) => a - b);
+	const mid = Math.floor(sorted.length / 2);
+	return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** Judge a single run: flag-on runs need four compactions and at least one append decision. */
+export function runValidity({ mode, compactions, decisionSummary }) {
+	if (mode !== "on") return { valid: true, reason: null };
+	if (compactions < 4) return { valid: false, reason: "fewer than 4 compactions" };
+	if ((decisionSummary?.appends ?? 0) === 0) return { valid: false, reason: "no append decision" };
+	return { valid: true, reason: null };
+}
+
+function isNum(value) {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function numText(value) {
+	if (!isNum(value)) return "not reported";
+	return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function cacheNote(off, on, family, probeOk) {
+	if (!isNum(off.costPerTurn) || !isNum(on.costPerTurn)) return "cost proxy not judged: no cache reporting on one side";
+	if (family === "anthropic" && probeOk !== true) return "cost proxy not judged: anthropic probe did not confirm cache control";
+	return "cost proxy not judged";
+}
+
+/** Compare the two mode aggregates into a verdict label, cache state and reasons. */
+export function verdict({ off, on, tolerance, informational, probeOk, family }) {
+	const cacheChecked = isNum(off.costPerTurn) && isNum(on.costPerTurn) && !(family === "anthropic" && probeOk !== true);
+	const cache = cacheChecked ? "checked" : "no cache verdict";
+	const reasons = [];
+
+	if (!on.valid || off.recallInvalid || on.recallInvalid) {
+		if (!on.valid) reasons.push(`on run invalid: ${on.invalidReason ?? "unknown reason"}`);
+		if (off.recallInvalid) reasons.push("off run invalid: a fixture file was read again after a compaction");
+		if (on.recallInvalid) reasons.push("on run invalid: a fixture file was read again after a compaction");
+		return { label: "INVALID", cache, reasons };
+	}
+
+	if (Math.abs(off.compactions - on.compactions) > 1) {
+		reasons.push(`compaction counts differ: off ${off.compactions} vs on ${on.compactions}`);
+		return { label: "INCOMPARABLE", cache, reasons };
+	}
+
+	if (informational) {
+		reasons.push("informational alias: no pass or fail verdict");
+		return { label: "INFORMATIONAL", cache, reasons };
+	}
+
+	if (!cacheChecked) reasons.push(cacheNote(off, on, family, probeOk));
+
+	let failed = false;
+	if (on.exact < off.exact * (1 - tolerance / 100)) {
+		reasons.push(`continuity: on exact ${on.exact} below off ${off.exact} by more than ${tolerance}%`);
+		failed = true;
+	}
+	if (cacheChecked && on.costPerTurn > off.costPerTurn * (1 + tolerance / 100)) {
+		reasons.push(`cost proxy: on ${numText(on.costPerTurn)} above off ${numText(off.costPerTurn)} by more than ${tolerance}%`);
+		failed = true;
+	}
+	if (failed) return { label: "FAIL", cache, reasons };
+
+	if (cacheChecked) reasons.push("continuity and cost proxy within tolerance");
+	return { label: "PASS", cache, reasons };
+}
+
+const COST_LABELS = {
+	anthropic: "uncached + 1.25*write + 0.1*read",
+	openai: "uncached + 0.1*read",
+};
+
+function continuityCell(agg) {
+	if (agg.recallInvalid) return "invalid";
+	const base = `${agg.exact}/${agg.total}`;
+	const lostAt = Array.isArray(agg.lostAt) ? agg.lostAt : [];
+	return lostAt.length > 0 ? `${base} (lost: ${lostAt.join(", ")})` : base;
+}
+
+function probeLine(result) {
+	if (result.family !== "anthropic") return null;
+	if (!result.probe) return "Probe: not run";
+	if (result.probe.ok) return "Probe: ok";
+	return `Probe: failed (${result.probe.reason})`;
+}
+
+function renderAlias(result) {
+	const off = result.off;
+	const on = result.on;
+	const lines = [
+		`### ${result.alias} (${result.family})`,
+		"",
+		"| metric | off | on |",
+		"| --- | --- | --- |",
+		`| turns | ${numText(off.turns)} | ${numText(on.turns)} |`,
+		`| compactions | ${numText(off.compactions)} | ${numText(on.compactions)} |`,
+		`| rebases | ${numText(off.rebases)} | ${numText(on.rebases)} |`,
+		`| plain fallbacks | ${numText(off.plainFallbacks)} | ${numText(on.plainFallbacks)} |`,
+		`| max segments | ${numText(off.maxSegments)} | ${numText(on.maxSegments)} |`,
+		`| cached tokens | ${numText(off.cachedTokens)} | ${numText(on.cachedTokens)} |`,
+		`| cost proxy per turn (${COST_LABELS[result.family]}) | ${numText(off.costPerTurn)} | ${numText(on.costPerTurn)} |`,
+		`| continuity | ${continuityCell(off)} | ${continuityCell(on)} |`,
+		"",
+		`Verdict: ${result.verdict.label} (cache: ${result.verdict.cache})`,
+		...result.verdict.reasons.map((reason) => `- ${reason}`),
+	];
+	const probe = probeLine(result);
+	if (probe) lines.push(probe);
+	return lines.join("\n");
+}
+
+/** Render one Markdown table per alias with metric rows, verdict and probe lines. */
+export function renderTable(results) {
+	return results.map(renderAlias).join("\n\n");
+}
+
+function main(argv = process.argv.slice(2), env = process.env) {
+	let args;
+	try {
+		args = parseArgs(argv);
+	} catch (err) {
+		console.error(err.message);
+		process.exitCode = 2;
+		return;
+	}
+	if (args.help) {
+		process.stdout.write(USAGE);
+		return;
+	}
+	const blocked = checkGuard(env);
+	if (blocked) {
+		console.error(blocked);
+		process.exitCode = 1;
+		return;
+	}
+	// Orchestration (spawn steiner, probe calls, write results) lands in a later
+	// change; the pure API is already usable from the test suite.
+	console.error("compaction-bench: orchestration is not implemented yet");
+	process.exitCode = 1;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	main();
+}

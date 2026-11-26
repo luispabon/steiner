@@ -1,0 +1,23 @@
+=== Compaction Request ===
+Timestamp: 2026-11-25T10:00:04.123456Z
+Attempt: 1
+Model: test-alias
+MaxTokens: 4096
+Messages:
+--- system ---
+You compact history. The previous run logged: segment_decision action=append reason=append sequence=9 chain_tokens=1 projected_post_tokens=2 budget=3
+--- user ---
+segment_decision action=append reason=append sequence=9 chain_tokens=1 projected_post_tokens=2 budget=3 trailing words
+segment_decision action=bogus reason=append sequence=9 chain_tokens=1 projected_post_tokens=2 budget=3
+
+=== Compaction Response ===
+Timestamp: 2026-11-25T10:00:05.987654Z
+FinishReason: stop
+Usage: {"input_tokens":100,"output_tokens":20}
+Content:
+Summary of the conversation so far.
+segment_decision action=append reason=append sequence=1 chain_tokens=700 projected_post_tokens=2900 budget=8000
+segment_decision action=append reason=append sequence=2 chain_tokens=900 projected_post_tokens=3000 budget=8000
+segment_decision action=rebase reason=chain-start sequence=1 chain_tokens=1200 projected_post_tokens=9500 budget=8000
+segment_decision action=rebase reason=chain-tokens sequence=2 chain_tokens=1001 projected_post_tokens=9000 budget=8000
+  segment_decision action=plain reason=empty-source sequence=0 chain_tokens=700 projected_post_tokens=2000 budget=8000
