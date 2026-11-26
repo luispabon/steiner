@@ -187,7 +187,7 @@ test("renderCompare marks a run with no observed limit as configured-only", () =
 	assert.equal(rows[0].window, 200000, "the row falls back to the configured window");
 	const md = renderCompare(sortRows(rows), ["raw.json"]);
 	assert.match(md, /\| 140000 \| cfg \| off \| 1 \| 1 \|/);
-	assert.match(md, /1 run\(s\) reported no observed limit and fall back to the configured values/);
+	assert.match(md, /1 run\(s\) lack an observed window and\/or threshold and fall back to the configured values/);
 	assert.match(md, /0 run\(s\) reported an observed limit that differs/);
 	// A real mismatch still names its limit, and cfg stays visible for the limit
 	// the run did not report.
@@ -196,6 +196,14 @@ test("renderCompare marks a run with no observed limit as configured-only", () =
 		"raw.json",
 	);
 	assert.match(renderCompare(sortRows(mixed), ["raw.json"]), /\| 600000 \| cfg\+threshold \|/);
+	// The count covers a row missing only one limit, matching the cfg marker that
+	// limitsText sets for either.
+	for (const missing of [{ observedContextWindow: null }, { observedThresholdTokens: null }]) {
+		const partial = compareRows(rawFile({ aliases: [{ alias: "m", ref: "m", runs: { off: [run(missing)] } }] }), "raw.json");
+		const partialMd = renderCompare(sortRows(partial), ["raw.json"]);
+		assert.match(partialMd, /1 run\(s\) lack an observed window and\/or threshold/);
+		assert.match(partialMd, /\| 560000 \| cfg \| off \|/);
+	}
 });
 
 test("renderCompare escapes a raw.json path that would break the table", () => {
@@ -209,6 +217,23 @@ test("renderCompare escapes a raw.json path that would break the table", () => {
 	const pipes = header.split("|").length - 1;
 	for (const line of md.split("\n").filter((entry) => entry.startsWith("| "))) {
 		assert.equal(line.replace(/\\\|/g, "").split("|").length - 1, pipes, "an escaped pipe must not open a new cell");
+	}
+});
+
+test("renderCompare folds a line break in a raw.json path into one table cell", () => {
+	// A CR/LF in a source path must not end the Markdown row.
+	const withBreak = "/bench/line\r\nbreak/raw.json";
+	const md = renderCompare(sortRows(compareRows(rawFile(), withBreak)), [withBreak]);
+	const rows = md.split("\n").filter((line) => line.startsWith("| "));
+	const pipes = rows[0].split("|").length - 1;
+	for (const line of rows) {
+		assert.equal(line.split("|").length - 1, pipes, "a folded line break must not split the row");
+	}
+	const sourceRows = rows.filter((line) => line.includes("break/raw.json"));
+	assert.equal(sourceRows.length, 2, "each run keeps one row for its source cell");
+	for (const line of sourceRows) {
+		assert.equal(line.includes("\r") || line.includes("\n"), false, "the cell holds no line break");
+		assert.match(line, /\/bench\/line break\/raw\.json \|$/);
 	}
 });
 

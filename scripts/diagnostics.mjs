@@ -909,16 +909,20 @@ function peakFiles(args) {
 	return { files };
 }
 
-// isPeakRecord reports whether a parsed line has the shape peak reads: a JSON
-// object with a string top-level `type` (session log) or `kind` (telemetry).
-// Anything else parses but is not a record, so a minified raw.json, `null`, or
-// an array line cannot pass as a JSONL input.
+// isPeakRecord reports whether a parsed line has the shape peak reads: an event
+// envelope, a JSON object with a string top-level `type` (session log) or `kind`
+// (telemetry) plus a `timestamp`, a `ts`, or a `payload` object. A type alone is
+// too weak, as a package.json carries `"type": "module"`. Anything else parses
+// but is not a record, so a minified raw.json, `null`, or an array line cannot
+// pass as a JSONL input.
 function isPeakRecord(value) {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	if (typeof value.type !== "string" && typeof value.kind !== "string") return false;
+	const payload = value.payload;
 	return (
-		typeof value === "object" &&
-		value !== null &&
-		!Array.isArray(value) &&
-		(typeof value.type === "string" || typeof value.kind === "string")
+		typeof value.timestamp === "string" ||
+		typeof value.ts === "string" ||
+		(typeof payload === "object" && payload !== null && !Array.isArray(payload))
 	);
 }
 

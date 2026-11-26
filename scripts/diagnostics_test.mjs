@@ -749,6 +749,40 @@ test("peak: a parsed line without a record shape is malformed, not a record", ()
 	}
 });
 
+// A plain JSON file can hold a string `type` without being an event: a one-line
+// package.json carries `"type": "module"`. peak needs the envelope around the
+// event, a timestamp or ts, or a payload object, so such a file is rejected by
+// name instead of reading as an experiment with zero runs.
+test("peak: an object with a type but no event envelope is not a record", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-envelope-"));
+	try {
+		const pkg = join(dir, "package.json");
+		writeFileSync(pkg, '{"type":"module","name":"x","version":"1.0.0"}\n');
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", pkg], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.status === 1 && err.stderr.includes("package.json") && err.stderr.includes("no JSONL records"),
+		);
+		// The envelope forms peak reads still count: a session record carries type
+		// with a timestamp, and a telemetry record carries kind with ts.
+		const session = JSON.stringify({
+			type: "model_call_finished",
+			timestamp: "2026-09-05T09:00:00Z",
+			payload: { prompt_tokens: 250000 },
+			run_id: "run-envelope",
+		});
+		const telemetry = JSON.stringify({ kind: "usage", ts: "2026-09-05T10:00:00Z", prompt_tokens: 300000 });
+		const log = join(dir, "combined.jsonl");
+		writeFileSync(log, [session, telemetry, '{"type":"module","name":"x"}'].join("\n") + "\n");
+		const out = peak([log]);
+		assert.equal(out.runs, 1);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-envelope/main", n: 1, metrics: { peakPromptTokens: 250000 } }]);
+		assert.equal(out.unattributed_observations, 1);
+		assert.equal(out.skipped_malformed_lines, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("peak: an empty input is accepted, as a rotated generation can be empty", () => {
 	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-empty-"));
 	try {
