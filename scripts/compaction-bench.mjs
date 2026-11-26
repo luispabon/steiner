@@ -296,6 +296,7 @@ export function taskPrompt(files, runId = null) {
 		`Read the notes in notes/ one file at a time. The chain has ${files.length} files.`,
 		"Start at notes/f01.txt. Each file starts with a CODE line and a NEXT line naming the next file.",
 		"Open only the file named by NEXT. Never read a file twice. Never list or search the notes directory.",
+		"Use only the read tool on each file. Do not use bash, grep, cat, sed or any other command to inspect files.",
 		"Apply any CORRECTION line you find to the code it names.",
 		'When you reach NEXT: END, reply with one line per file in the form "fNN: CODE", using the corrected code where a correction applies.',
 		"Reply with those lines only.",
@@ -305,6 +306,19 @@ export function taskPrompt(files, runId = null) {
 
 const ALIAS_RE = /^[A-Za-z0-9._-]+$/;
 
+function diagnosticsLines(diagnosticsDir) {
+	if (typeof diagnosticsDir !== "string" || diagnosticsDir === "") {
+		throw new Error("diagnosticsDir must be a non-empty string");
+	}
+	return [
+		"diagnostics:",
+		"  enabled: true",
+		`  dir: ${JSON.stringify(diagnosticsDir)}`,
+		"  streams:",
+		"    cache: true",
+	];
+}
+
 /** Render the per-alias YAML config with a low compaction threshold and the cache diagnostics stream. */
 export function buildBenchConfig({ alias, threshold, diagnosticsDir }) {
 	if (typeof alias !== "string" || !ALIAS_RE.test(alias)) {
@@ -313,9 +327,6 @@ export function buildBenchConfig({ alias, threshold, diagnosticsDir }) {
 	if (!Number.isInteger(threshold) || threshold <= 0) {
 		throw new Error(`threshold must be a positive integer, got ${JSON.stringify(threshold)}`);
 	}
-	if (typeof diagnosticsDir !== "string" || diagnosticsDir === "") {
-		throw new Error("diagnosticsDir must be a non-empty string");
-	}
 	return [
 		"models:",
 		"  definitions:",
@@ -323,13 +334,14 @@ export function buildBenchConfig({ alias, threshold, diagnosticsDir }) {
 		"      advanced:",
 		"        limits:",
 		`          compaction_threshold_tokens: ${threshold}`,
-		"diagnostics:",
-		"  enabled: true",
-		`  dir: ${JSON.stringify(diagnosticsDir)}`,
-		"  streams:",
-		"    cache: true",
+		...diagnosticsLines(diagnosticsDir),
 		"",
 	].join("\n");
+}
+
+/** Render the probe's YAML config: cache diagnostics only, so no threshold can exceed the alias context window. */
+export function buildProbeConfig({ diagnosticsDir }) {
+	return [...diagnosticsLines(diagnosticsDir), ""].join("\n");
 }
 
 const SEGMENT_DECISION_RE = /^segment_decision action=(append|rebase|plain) reason=([a-z][a-z-]*) sequence=(\d+) chain_tokens=(\d+) projected_post_tokens=(\d+) budget=(\d+)$/;
@@ -477,7 +489,7 @@ export const parseToolReads = (text) => parseRunLog(text).events.filter((event) 
 
 const EVENT_LABEL_RE = /^[a-z_]+: /;
 const MAX_TURNS_RE = /^status: stopped after \d+ turns?: reached the max turn limit/;
-const ASSISTANT_ANSWER_RE = /^turn \d+ role \S+ content ([\s\S]*)$/;
+const ASSISTANT_ANSWER_RE = /^turn=\d+ role=\S+ content=([\s\S]*)$/;
 
 /** Parse exec stdout into the last assistant answer and whether the max-turn limit stopped the run. */
 export function parseStdout(text) {
@@ -1009,7 +1021,7 @@ async function runProbe({ opts, alias, env, spawnRun, newId }) {
 		const diagDir = join(privDir, "diag");
 		await mkdir(diagDir, { recursive: true });
 		const configPath = join(privDir, "probe.yaml");
-		await writeFile(configPath, buildBenchConfig({ alias, threshold: 1_000_000, diagnosticsDir: diagDir }));
+		await writeFile(configPath, buildProbeConfig({ diagnosticsDir: diagDir }));
 		const calls = [];
 		const exits = [];
 		for (const attempt of [1, 2]) {

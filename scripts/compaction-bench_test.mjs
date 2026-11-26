@@ -11,6 +11,7 @@ import {
 	aggregateCache,
 	aggregateMode,
 	buildBenchConfig,
+	buildProbeConfig,
 	checkGuard,
 	classifyProbeFailure,
 	costProxy,
@@ -296,6 +297,8 @@ test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN
 	assert.match(prompt, /NEXT/);
 	assert.match(prompt, /Never read a file twice/);
 	assert.match(prompt, /Never list or search the notes directory/);
+	assert.match(prompt, /Use only the read tool on each file/);
+	assert.match(prompt, /Do not use bash, grep, cat, sed or any other command to inspect files/);
 	assert.match(prompt, /CORRECTION/);
 	assert.match(prompt, /"fNN: CODE"/);
 	assert.match(prompt, /6 files/);
@@ -328,6 +331,23 @@ test("buildBenchConfig emits the threshold under the alias and the cache diagnos
 			"",
 		].join("\n"),
 	);
+});
+
+test("buildProbeConfig emits only the cache diagnostics stream, with no threshold", () => {
+	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/probe dir" });
+	assert.equal(
+		yaml,
+		[
+			"diagnostics:",
+			"  enabled: true",
+			'  dir: "/tmp/probe dir"',
+			"  streams:",
+			"    cache: true",
+			"",
+		].join("\n"),
+	);
+	assert.ok(!yaml.includes("compaction_threshold_tokens"), "a probe config must not override the threshold");
+	assert.throws(() => buildProbeConfig({ diagnosticsDir: "" }), /diagnosticsDir/);
 });
 
 test("buildBenchConfig rejects unsafe aliases, bad thresholds and empty dirs", () => {
@@ -466,9 +486,9 @@ test("parseStdout returns the final answer and detects the max-turn stop", () =>
 
 test("parseStdout prefers the last answer and stops at the next label", () => {
 	const text = [
-		"assistant: turn 1 role assistant content draft: wrong",
+		"assistant: turn=1 role=assistant content=draft: wrong",
 		"status: model call model=x turn=1",
-		"assistant: turn 2 role assistant content f01: A1-BC23",
+		"assistant: turn=2 role=assistant content=f01: A1-BC23",
 		"f02: C2-DE45",
 		"assistant> read notes/f04.txt",
 		"status: run finished",
@@ -478,6 +498,19 @@ test("parseStdout prefers the last answer and stops at the next label", () => {
 		maxTurnsHit: false,
 	});
 	assert.deepEqual(parseStdout(""), { finalAnswer: null, maxTurnsHit: false });
+});
+
+test("parseStdout reads the captured live exec format through the final status line", () => {
+	const text = [
+		"assistant: turn=25 role=assistant content=f01: Q0-NZ92",
+		"f02: P7-LZ44",
+		"f03: U3-GD83",
+		"status: run complete after 25 turns",
+	].join("\n");
+	assert.deepEqual(parseStdout(text), {
+		finalAnswer: "f01: Q0-NZ92\nf02: P7-LZ44\nf03: U3-GD83",
+		maxTurnsHit: false,
+	});
 });
 
 test("scoreRecall marks every answer line exact, including the correction", () => {
@@ -857,7 +890,7 @@ function fakeStdout() {
 		const name = file.name.replace(/^notes\//, "").replace(/\.txt$/, "");
 		return `${name}: ${codes[name]}`;
 	});
-	return [`assistant: turn 8 role assistant content ${lines[0]}`, ...lines.slice(1), "status: run finished", ""].join("\n");
+	return [`assistant: turn=8 role=assistant content=${lines[0]}`, ...lines.slice(1), "status: run finished", ""].join("\n");
 }
 
 function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, secret = "", sandbox = true } = {}) {
@@ -879,6 +912,8 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 			return { code: sandbox === "fail" ? 1 : 0, timedOut: false };
 		}
 		const flag = (name) => call.args[call.args.indexOf(name) + 1];
+		const configPath = flag("--config");
+		if (configPath) invocations.at(-1).configText = await readFile(configPath, "utf8");
 		if (call.args[call.args.length - 1].includes("Reply with OK only.")) {
 			const alias = flag("--model");
 			const attempt = (probeAttempts.get(alias) ?? 0) + 1;
@@ -895,7 +930,7 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 				? { turn: 1, prompt_tokens: 3000, cache_create_tokens: 2500, success: true }
 				: { turn: 1, prompt_tokens: 3000, cache_read_tokens: 2500, success: true };
 			await writeFile(flag("--log-file"), `${JSON.stringify({ type: "model_call_finished", payload })}\n`);
-			await writeFile(call.stdoutPath, "assistant: turn 1 role assistant content OK\nstatus: run finished\n");
+			await writeFile(call.stdoutPath, "assistant: turn=1 role=assistant content=OK\nstatus: run finished\n");
 			await writeFile(call.stderrPath, "");
 			return { code: 0, timedOut: false };
 		}
@@ -973,6 +1008,8 @@ test("main writes results.md and raw.json through a fake runner without leaking 
 		assert.equal(probeCalls.length, 2, "the probe runs twice for one anthropic alias");
 		for (const call of probeCalls) {
 			assert.equal(call.args[call.args.indexOf("--model") + 1], "claude-test");
+			assert.ok(!call.configText.includes("compaction_threshold_tokens"), "a probe config must not set a threshold");
+			assert.match(call.configText, /    cache: true/);
 		}
 		assert.equal(probeCalls[0].args.at(-1), probeCalls[1].args.at(-1), "both calls of one probe share the prompt");
 		assert.match(probeCalls[0].args.at(-1), /^Probe id: \S+\n/);
