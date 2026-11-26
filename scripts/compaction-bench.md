@@ -4,6 +4,8 @@
 
 `scripts/compaction-bench.mjs` compares continuity and cache token costs with immutable summary segments off and on (#1042). It uses Node's standard library and makes live model calls.
 
+The entry file holds `main` and the direct-run guard; the work is split across sibling `compaction-bench-*.mjs` modules for flags, fixtures, parsing, scoring, reporting and run execution. The entry re-exports their names, so `scripts/compaction-bench_test.mjs` imports a single path.
+
 ## Safety and cost
 
 The bench refuses to run without `STEINER_LIVE_BENCH=1`. Provider calls spend real tokens, including two extra probe calls per Anthropic alias. Runs use fresh scratch git repositories and never pass `--unsafe`. `--trust-project-config` applies to the run; it does not persist trust or disable the sandbox. The report shows the sandbox setting from `steiner config`, or `not verified` if it could not be read.

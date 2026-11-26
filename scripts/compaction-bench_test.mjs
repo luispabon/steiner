@@ -33,6 +33,7 @@ import {
 	renderTable,
 	runValidity,
 	scoreRecall,
+	SEGMENT_PASSTHROUGH,
 	summarizeDecisions,
 	taskPrompt,
 	verdict,
@@ -313,6 +314,22 @@ test("experimentEnv sets the flag and passes through only the three limit vars",
 		STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT: "55",
 	});
 	assert.throws(() => experimentEnv({}, "sideways"), /unknown mode/);
+});
+
+test(".env.dist segment limit variables match the passthrough list", () => {
+	const envDist = readFileSync(join(here, "..", ".env.dist"), "utf8");
+	const names = envDist
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line !== "" && !line.startsWith("#"))
+		.map((line) => line.split("=")[0].trim());
+	const limits = names.filter((name) => name.startsWith("STEINER_EXPERIMENT_SEGMENT_"));
+	assert.ok(limits.length > 0, ".env.dist documents the segment limits");
+	assert.deepEqual([...SEGMENT_PASSTHROUGH].sort(), [...limits].sort());
+	// The bench sets the enable flag per mode itself, so .env.dist documents it
+	// but it is not one of the passthroughs.
+	assert.ok(names.includes("STEINER_EXPERIMENT_SEGMENTED_COMPACTION"));
+	assert.ok(!SEGMENT_PASSTHROUGH.includes("STEINER_EXPERIMENT_SEGMENTED_COMPACTION"));
 });
 
 test("generateFixtures is deterministic per seed and changes with the seed", () => {
