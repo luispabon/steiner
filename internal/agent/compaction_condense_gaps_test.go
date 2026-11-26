@@ -156,9 +156,9 @@ func TestCondenseSummaryCallsAccounting(t *testing.T) {
 			prov := &fakeProvider{chatFn: condenseResponder(draft, reply, tt.replyErr)}
 			rec := &eventRecorder{}
 			summary := RunRequest{Provider: prov, ModelBudget: budget, Events: rec.sink()}
-			calls, err := summarizeCompactionCalls(context.Background(), summary, 1, plan, tt.onFallback)
+			calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, plan, tt.onFallback, nil)
 			if err != nil {
-				t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+				t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 			}
 			if got := calls.response.Message.Content; got != tt.wantContent {
 				t.Errorf("response content = %q, want %q", got, tt.wantContent)
@@ -248,9 +248,9 @@ func TestCondenseSummaryCallsCleared(t *testing.T) {
 			}
 			rec := &eventRecorder{}
 			summary := RunRequest{Provider: prov, ModelBudget: condenseStageBudget(), Events: rec.sink()}
-			calls, err := summarizeCompactionCalls(context.Background(), summary, 1, condensePlan(), tt.onFallback)
+			calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, condensePlan(), tt.onFallback, nil)
 			if err != nil {
-				t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+				t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 			}
 			if calls.cleared != tt.wantCleared {
 				t.Errorf("cleared = %t, want %t", calls.cleared, tt.wantCleared)
@@ -281,9 +281,9 @@ func TestCondenseSummaryCallsCancelledBeforeCall(t *testing.T) {
 		return summaryResponse("never sent"), nil
 	}
 	summary := RunRequest{Provider: prov, ModelBudget: condenseStageBudget(), Events: (&eventRecorder{}).sink()}
-	calls, err := summarizeCompactionCalls(ctx, summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(ctx, summary, 1, condensePlan(), false, nil)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want context.Canceled", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want context.Canceled", err)
 	}
 	if got := len(prov.requests); got != 1 {
 		t.Errorf("provider requests = %d, want 1: the condense call must not be sent", got)
@@ -305,9 +305,9 @@ func TestCondenseSummaryCallsCondenseDeadlineExceeded(t *testing.T) {
 	prov := &fakeProvider{chatFn: condenseResponder(draft, provider.ChatResponse{}, context.DeadlineExceeded)}
 	rec := &eventRecorder{}
 	summary := RunRequest{Provider: prov, ModelBudget: condenseStageBudget(), Events: rec.sink()}
-	calls, err := summarizeCompactionCalls(context.Background(), summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, condensePlan(), false, nil)
 	if err != nil {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 	}
 	if got := calls.response.Message.Content; got != condenseDraftText {
 		t.Errorf("response content = %q, want the adopted draft", got)
@@ -349,9 +349,9 @@ func TestCondenseSummaryCallsFitError(t *testing.T) {
 	prov := &fakeProvider{responses: []provider.ChatResponse{draft, summaryResponse("never sent")}}
 	rec := &eventRecorder{}
 	summary := RunRequest{Provider: prov, ModelBudget: condenseStageBudget(), Events: rec.sink()}
-	calls, err := summarizeCompactionCalls(context.Background(), summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, condensePlan(), false, nil)
 	if err != nil {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 	}
 	if got := len(prov.requests); got != 1 {
 		t.Errorf("provider requests = %d, want 1: the condense call must not be sent", got)
@@ -403,9 +403,9 @@ func TestCondenseSummaryCallsTargetWordsFromMaxTokens(t *testing.T) {
 			draft := condenseDraftResponse(condenseDraftText)
 			prov := &fakeProvider{chatFn: condenseResponder(draft, summaryResponse("short handoff summary"), nil)}
 			summary := RunRequest{Provider: prov, ModelBudget: budget, Events: (&eventRecorder{}).sink()}
-			calls, err := summarizeCompactionCalls(context.Background(), summary, 1, plan, false)
+			calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, plan, false, nil)
 			if err != nil {
-				t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+				t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 			}
 			if !calls.condensed {
 				t.Fatal("condensed = false, want the rewrite adopted")

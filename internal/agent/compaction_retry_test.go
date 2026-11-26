@@ -304,7 +304,7 @@ func TestCompactionSummaryRetryDoesNotFit(t *testing.T) {
 	}
 	prov := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply(), summaryResponse("never sent")}}
 	summary := RunRequest{Provider: prov, ModelBudget: budget(lo), Events: output.NoopSink{}}
-	_, err := summarizeCompactionCalls(ctx, summary, 1, compactionExecutionPlan{request: req}, false)
+	_, err := summarizeCompactionCallsWithRetryPlan(ctx, summary, 1, compactionExecutionPlan{request: req}, false, nil)
 	var summaryErr *compactionSummaryError
 	if !errors.As(err, &summaryErr) || summaryErr.Reason != summaryFailRetryNoFit || summaryErr.Attempts != 1 {
 		t.Fatalf("error = %v, want retry_does_not_fit after 1 attempt", err)

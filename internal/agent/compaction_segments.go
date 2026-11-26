@@ -142,6 +142,10 @@ const (
 	// segmentReasonRetentionUnmapped marks a stage whose retained boundary could
 	// not be proved against the scanned conversation.
 	segmentReasonRetentionUnmapped = "retention-unmapped"
+	// segmentReasonSplitInChain is decideSegmentAction's split reason. An
+	// unmapped boundary reads as a split at the start of the chain, so that
+	// decision is the one relabelled retention-unmapped.
+	segmentReasonSplitInChain = "split-in-chain"
 	// segmentReasonStrippedView marks a stage whose candidate view omits an
 	// existing chain, so its source cannot be split for an append.
 	segmentReasonStrippedView = "stripped-view"
@@ -194,11 +198,8 @@ type segmentStage struct {
 	Recall []Message
 }
 
-// newSegmentStage decides the segmented shape of one stage. It scans the latest
-// generation's conversation, maps the retained boundary, estimates chain tokens
-// and the conservative post-append prompt, and turns that into a decision. A
-// rebase whose source has no non-summary coverage becomes the plain summary
-// fallback, so no segment is ever stored with SourceMessageCount 0.
+// buildSegmentRetryPlan rebuilds a stage plan for a summarizer retry, adopting
+// the segmented shape that retry decides.
 func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams, requestBlock string) (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
 	if err != nil {
@@ -209,9 +210,9 @@ func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, 
 		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
 	}
 	effective := params
-	block, status := latestRequestBlock(segment.Source, req.ModelBudget.ContextSize)
-	applySegmentStage(req, &effective, segment, block, status)
-	effective.segment = segment
+	// applySegmentStage sets the retry plan's source and clamped tail only; the
+	// request block is re-derived when the stage adopts these params.
+	applySegmentStage(req, &effective, segment, "", "")
 	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, effective)
 	if err != nil {
 		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
@@ -222,6 +223,11 @@ func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, 
 	return plan, segment, effective, nil
 }
 
+// newSegmentStage decides the segmented shape of one stage. It scans the latest
+// generation's conversation, maps the retained boundary, estimates chain tokens
+// and the conservative post-append prompt, and turns that into a decision. A
+// rebase whose source has no non-summary coverage becomes the plain summary
+// fallback, so no segment is ever stored with SourceMessageCount 0.
 func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in segmentStageInput) (segmentStage, error) {
 	scan := scanSegmentChain(in.Full)
 	chainTokens, err := segmentChainTokens(ctx, in.Model, scan.Segments)
@@ -266,8 +272,11 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 	case !mapped:
 		// The retained boundary cannot be proved. Rebase defensively over the
 		// selected source; the empty-source check below still decides whether a
-		// segment is stored.
-		stage.Decision = segmentRebaseDecision(segmentReasonRetentionUnmapped, decision)
+		// segment is stored. Every other rebase keeps its own reason, so an
+		// emergency, retry or chain rebase is not relabelled.
+		if !decision.Rebase || decision.Reason == segmentReasonSplitInChain {
+			stage.Decision = segmentRebaseDecision(segmentReasonRetentionUnmapped, decision)
+		}
 		stage.Source = cloneMessages(in.Source)
 	case !decision.Rebase:
 		stage.Source = cloneMessages(in.Full[scan.End:retentionStart])
