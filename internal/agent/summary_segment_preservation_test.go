@@ -114,6 +114,26 @@ func TestCloneMessagesDeepCopiesSegment(t *testing.T) {
 	}
 }
 
+// TestCloneMessagesWithoutSegmentsAllocatesOnlyTheSlice pins that a
+// segment-free clone allocates nothing per message: the nil Segment path must
+// add no work, so only the output slice is allocated.
+func TestCloneMessagesWithoutSegmentsAllocatesOnlyTheSlice(t *testing.T) {
+	source := []Message{
+		{Role: MessageRoleUser, Content: "question"},
+		{Role: MessageRoleAssistant, Content: "answer"},
+	}
+	var cloned []Message
+	allocs := testing.AllocsPerRun(100, func() {
+		cloned = cloneMessages(source)
+	})
+	if allocs != 1 {
+		t.Fatalf("cloneMessages allocated %v times for two segment-free messages, want 1 for the output slice", allocs)
+	}
+	if cloned[0].Segment != nil {
+		t.Fatalf("cloned message grew segment metadata: %+v", cloned[0].Segment)
+	}
+}
+
 func TestConversationGenerationCloneDeepCopiesSegment(t *testing.T) {
 	source := segmentTestMessage()
 	generation := ConversationGeneration{

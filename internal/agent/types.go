@@ -115,12 +115,16 @@ type Message struct {
 	// message through its content; image handling records the user's original
 	// words in RequestText before it rewrites.
 	VisionRouted bool `json:"vision_routed,omitempty"`
-	// Timestamp records when the message entered the conversation. It is display
-	// metadata for resumed transcripts and never reaches the model.
-	Timestamp time.Time `json:"timestamp,omitzero"`
 	// Incomplete marks an assistant message whose model call failed before the
 	// message finished. Its content is what streamed before the failure.
 	Incomplete bool `json:"incomplete,omitempty"`
+	// Timestamp records when the message entered the conversation. It is display
+	// metadata for resumed transcripts and never reaches the model.
+	//
+	// The bool fields stay ahead of Timestamp so they fill its alignment padding:
+	// that holds Message at 240 bytes, which keeps a 500-message clone inside one
+	// allocator size class (TestBenchmarkAllocationCeilings depends on it).
+	Timestamp time.Time `json:"timestamp,omitzero"`
 	// Segment marks a summary message as an immutable compaction segment.
 	Segment             *SummarySegment           `json:"segment,omitempty"`
 	Retention           *MessageRetention         `json:"retention,omitempty"`
