@@ -370,10 +370,12 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 
 	requestBlock, requestBlockStatus := latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
 
+	retryParams := params
 	var segment *segmentStage
 	if req.SegmentedCompaction.Enabled {
 		var err error
-		segment, err = segmentStageFor(ctx, req, state, candidate, retainedFit, params, requestBlock)
+		retryParams = params
+		segment, err = segmentStageFor(ctx, req, state, candidate, retainedFit, params, requestBlock, false)
 		if err != nil {
 			return CompactionOutcome{}, err
 		}
@@ -397,7 +399,32 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	summary := compactionSummaryRequest(req, params.summaryReq)
 	// The retry ladder owns the retirement signal of each call, so this stage only
 	// reads the cumulative result.
-	calls, err := summarizeCompactionCalls(ctx, summary, turn, plan, onFallback)
+	var retryBuilder compactionRetryPlanBuilder
+	if req.SegmentedCompaction.Enabled && !onFallback {
+		retryBuilder = func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
+			retryRetainedFit, err := fitConversationState(ctx, req, state.WithConversation(retryParams.retainedMessages))
+			if err != nil {
+				return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
+			}
+			retrySegment, err := segmentStageFor(ctx, req, state, candidate, retryRetainedFit, retryParams, requestBlock, true)
+			if err != nil {
+				return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
+			}
+			effective := retryParams
+			retryRequestBlock, retryRequestBlockStatus := latestRequestBlock(retrySegment.Source, req.ModelBudget.ContextSize)
+			applySegmentStage(req, &effective, retrySegment, retryRequestBlock, retryRequestBlockStatus)
+			effective.segment = retrySegment
+			effectiveRequest, ok, err := compactionStagePlan(ctx, req, state, candidate, effective)
+			if err != nil || !ok {
+				if err == nil {
+					err = errCompactionFallbackNotFit
+				}
+				return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
+			}
+			return effectiveRequest, retrySegment, effective, nil
+		}
+	}
+	calls, err := summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, retryBuilder)
 	cleared := calls.cleared
 	if cleared {
 		// An in-place summary retired the generation's live process, so the
@@ -406,6 +433,14 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	}
 	if err != nil {
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
+	}
+	if calls.segment != nil && calls.params != nil {
+		segment = calls.segment
+		params = *calls.params
+		requestBlock, requestBlockStatus = latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
+	}
+	if calls.plan != nil {
+		plan = *calls.plan
 	}
 	summaryText := strings.TrimSpace(calls.response.Message.Content)
 	marker := stageTruncationMarker(calls.truncated)
@@ -501,7 +536,7 @@ func applySegmentStage(req RunRequest, params *summarizeCompactionStageParams, s
 // FullMessages, never from the candidate view, so a stripped view cannot hide an
 // existing chain. It is split out of summarizeCompactionStage to keep that
 // stage's branching bounded.
-func segmentStageFor(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, retainedFit prompt.RequestTokenBudget, params summarizeCompactionStageParams, requestBlock string) (*segmentStage, error) {
+func segmentStageFor(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, retainedFit prompt.RequestTokenBudget, params summarizeCompactionStageParams, requestBlock string, retry bool) (*segmentStage, error) {
 	if !req.SegmentedCompaction.Enabled {
 		return nil, nil
 	}
@@ -519,7 +554,7 @@ func segmentStageFor(ctx context.Context, req RunRequest, state RunState, candid
 		Model:        req.ResolvedModel.BackendModelID,
 		Budget:       retainedFit,
 		MaxTokens:    params.maxTokens,
-		Retry:        params.summaryReq != nil,
+		Retry:        retry || params.summaryReq != nil,
 		RequestBlock: requestBlock,
 	})
 	if err != nil {

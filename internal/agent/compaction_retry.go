@@ -34,6 +34,10 @@ const (
 type summaryCalls struct {
 	// response is the reply whose text is the summary. It is set only on success.
 	response provider.ChatResponse
+	// plan, segment and params are the effective source used by a successful retry.
+	plan    *compactionExecutionPlan
+	segment *segmentStage
+	params  *summarizeCompactionStageParams
 	// usage and cacheReported sum every call of the stage, empty replies included.
 	usage         *provider.UsageStats
 	cacheReported int
@@ -53,7 +57,13 @@ type summaryCalls struct {
 // call retired it) the backend state, and only the final instruction changes. The
 // failed reply is never replayed. A fallback target gets no retry, so its empty
 // reply fails the stage and the operation reruns on main.
+type compactionRetryPlanBuilder func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error)
+
 func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
+	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, nil)
+}
+
+func summarizeCompactionCallsWithRetryPlan(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool, builder compactionRetryPlanBuilder) (summaryCalls, error) {
 	maxAttempts := maxSummaryAttempts
 	if onFallback {
 		maxAttempts = 1
@@ -87,6 +97,7 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 				}
 			} else {
 				calls.response = response
+				calls.plan = &plan
 			}
 			// Only the ladder attempts belong in the note: the condense call is not one.
 			noteSummaryReply(summary.Events, turn, calls.attempts[:draftIndex+1], calls.response)
@@ -102,7 +113,19 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 			Final:     attempt+1 == maxAttempts,
 			Attempted: quoteAttemptedToolCalls(response.Message.ToolCalls),
 		}
-		request = retryCompactionRequest(plan.request, retry, calls.cleared)
+		base := plan.request
+		if builder != nil {
+			retryPlan, segment, params, err := builder()
+			if err != nil {
+				return calls, err
+			}
+			plan = retryPlan
+			base = plan.request
+			calls.plan = &plan
+			calls.segment = segment
+			calls.params = &params
+		}
+		request = retryCompactionRequest(base, retry, calls.cleared)
 		fit, err := summary.ModelBudget.FitCompactionRequest(ctx, request)
 		if err != nil {
 			return calls, err
