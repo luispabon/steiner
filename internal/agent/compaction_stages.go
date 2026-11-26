@@ -330,15 +330,21 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	if !outcome.Applied || outcome.RequestBlock == "" || outcome.RequestBlock == output.RequestBlockNone || outcome.RequestBlock == output.RequestBlockDropped {
 		return CompactionOutcome{}, false
 	}
-	// A segmented state must keep its immutable segments, so only its mutable tail
-	// loses the block. The display text keeps the summarizer body and note.
-	state, summaryText, dropped := dropTailRequestBlockState(outcome.State)
-	if outcome.segmentDecision != nil {
+	// A segmented segment keeps immutable bytes; a plain fallback must keep its
+	// ordinary summary even when dropping the block empties its mutable tail.
+	var state RunState
+	var summaryText string
+	var dropped bool
+	switch {
+	case outcome.segmentDecision == nil:
+		state, summaryText, dropped = dropRequestBlockState(outcome.State)
+	case segmentPlainReason(outcome.segmentDecision.Reason):
+		state, summaryText, dropped = dropPlainSegmentRequestBlock(outcome.State, outcome.SummaryText)
+	default:
+		state, summaryText, dropped = dropTailRequestBlockState(outcome.State)
 		if body, _, ok := SplitRequestBlock(outcome.SummaryText); ok {
 			summaryText = body
 		}
-	} else {
-		state, summaryText, dropped = dropRequestBlockState(outcome.State)
 	}
 	if !dropped {
 		return CompactionOutcome{}, false
@@ -472,6 +478,31 @@ func summarizeStageCalls(ctx context.Context, req, summary RunRequest, turn int,
 		}
 	}
 	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, builder)
+}
+
+func dropPlainSegmentRequestBlock(state RunState, summaryText string) (RunState, string, bool) {
+	next := state.Clone()
+	if len(next.Lineage.Generations) == 0 {
+		return state, "", false
+	}
+	latest := &next.Lineage.Generations[len(next.Lineage.Generations)-1]
+	for i := len(latest.SummaryPrefix) - 1; i >= 0; i-- {
+		message := &latest.SummaryPrefix[i]
+		if message.Role != MessageRoleSummary || message.Segment != nil {
+			continue
+		}
+		body, _, ok := SplitRequestBlock(message.Content)
+		if !ok {
+			continue
+		}
+		message.Content = body
+		next.Conversation = next.Lineage.FullMessages()
+		if display, _, hasBlock := SplitRequestBlock(summaryText); hasBlock {
+			summaryText = display
+		}
+		return next, summaryText, true
+	}
+	return state, "", false
 }
 
 // compactionStageRetention strips skill blocks and elides old tool output in the

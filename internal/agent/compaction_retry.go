@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -64,6 +65,7 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, nil)
 }
 
+//nolint:gocyclo // Retry planning adds one bounded error mapping to the call ladder.
 func summarizeCompactionCallsWithRetryPlan(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool, builder compactionRetryPlanBuilder) (summaryCalls, error) {
 	maxAttempts := maxSummaryAttempts
 	if onFallback {
@@ -117,6 +119,9 @@ func summarizeCompactionCallsWithRetryPlan(ctx context.Context, summary RunReque
 		base := plan.request
 		if builder != nil {
 			retryPlan, segment, params, err := builder()
+			if errors.Is(err, errCompactionFallbackNotFit) {
+				return calls, &compactionSummaryError{Reason: summaryFailRetryNoFit, Attempts: attempt, Details: calls.attempts}
+			}
 			if err != nil {
 				return calls, err
 			}
