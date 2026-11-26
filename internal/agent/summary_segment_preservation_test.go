@@ -50,20 +50,28 @@ func TestSummarySegmentSurvivesMessageHelpers(t *testing.T) {
 }
 
 func TestDropRequestBlockStatePreservesSegment(t *testing.T) {
-	source := segmentTestMessage()
+	segment := segmentTestMessage()
+	plain := Message{Role: MessageRoleSummary, Content: withRequestBlock("plain summary", "the latest request")}
 	state := RunState{Lineage: ConversationLineage{
-		Generations:      []ConversationGeneration{{ID: 2, SummaryPrefix: []Message{source}}},
+		Generations:      []ConversationGeneration{{ID: 2, SummaryPrefix: []Message{segment, plain}}},
 		NextGenerationID: 3,
 	}}
+	state.Conversation = state.Lineage.FullMessages()
 	next, summaryText, dropped := dropRequestBlockState(state)
-	if !dropped || summaryText != "Segment 1. summary" {
-		t.Fatalf("dropped = %t text = %q, want a dropped block with the body", dropped, summaryText)
+	if !dropped || summaryText != "plain summary" {
+		t.Fatalf("dropped = %t text = %q, want only the plain summary rewritten", dropped, summaryText)
 	}
-	got := next.Lineage.Generations[0].SummaryPrefix[0]
-	if got.Segment == nil || *got.Segment != *source.Segment {
-		t.Fatalf("segment metadata = %+v, want %+v", got.Segment, source.Segment)
+	prefix := next.Lineage.Generations[0].SummaryPrefix
+	if prefix[0].Segment == nil || *prefix[0].Segment != *segment.Segment {
+		t.Fatalf("segment metadata = %+v, want %+v", prefix[0].Segment, *segment.Segment)
 	}
-	if state.Lineage.Generations[0].SummaryPrefix[0].Content != source.Content {
+	if prefix[0].Content != segment.Content {
+		t.Fatalf("segment content = %q, want its bytes kept", prefix[0].Content)
+	}
+	if prefix[1].Content != "plain summary" {
+		t.Fatalf("plain summary = %q, want the body", prefix[1].Content)
+	}
+	if state.Lineage.Generations[0].SummaryPrefix[0].Content != segment.Content {
 		t.Fatal("source state mutated")
 	}
 }

@@ -220,9 +220,10 @@ func stripRequestBlocks(messages []Message) []Message {
 	return out
 }
 
-// dropRequestBlockState rewrites every summary message in state's latest
-// generation to its body without the latest-request trailer, reporting the
-// rewritten summary text.
+// dropRequestBlockState rewrites the latest generation's plain summary messages
+// to their body without the latest-request trailer, reporting the rewritten
+// summary text. Segments are immutable, so they keep their bytes, matching
+// dropTailRequestBlockState.
 func dropRequestBlockState(state RunState) (RunState, string, bool) {
 	next := state.Clone()
 	if len(next.Lineage.Generations) == 0 {
@@ -233,7 +234,8 @@ func dropRequestBlockState(state RunState) (RunState, string, bool) {
 	dropped := false
 	for i := range latest.SummaryPrefix {
 		message := &latest.SummaryPrefix[i]
-		if message.Role != MessageRoleSummary {
+		// Segments are never rewritten; only a plain summary loses its trailer.
+		if message.Role != MessageRoleSummary || message.Segment != nil {
 			continue
 		}
 		if body, _, ok := SplitRequestBlock(message.Content); ok {

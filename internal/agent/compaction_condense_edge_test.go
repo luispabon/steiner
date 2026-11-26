@@ -42,9 +42,9 @@ func TestCondenseTruncatedSummaryCancellation(t *testing.T) {
 		ModelBudget: prompt.ModelTokenBudget{ContextSize: 100000, MaxCompletionTokens: 128, SummaryMaxTokens: 64},
 		Events:      output.NoopSink{},
 	}
-	calls, err := summarizeCompactionCalls(ctx, summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(ctx, summary, 1, condensePlan(), false, nil)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want context.Canceled", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want context.Canceled", err)
 	}
 	if got := calls.response.Message.Content; got != "" {
 		t.Errorf("response content = %q, want the draft not adopted on cancellation", got)
@@ -97,9 +97,9 @@ func TestCondenseTruncatedSummaryDoesNotFit(t *testing.T) {
 	prov := &fakeProvider{responses: []provider.ChatResponse{draft, summaryResponse("never sent")}}
 	rec := &eventRecorder{}
 	summary := RunRequest{Provider: prov, ModelBudget: budgetFor(lo), Events: rec.sink()}
-	calls, err := summarizeCompactionCalls(ctx, summary, 1, plan, false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(ctx, summary, 1, plan, false, nil)
 	if err != nil {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 	}
 	if got := len(prov.requests); got != 1 {
 		t.Errorf("provider requests = %d, want 1: the condense request must not be sent", got)
@@ -187,9 +187,9 @@ func TestCondenseTruncatedSummaryBackendState(t *testing.T) {
 		ModelBudget: prompt.ModelTokenBudget{ContextSize: 100000, MaxCompletionTokens: 128, SummaryMaxTokens: 64},
 		Events:      output.NoopSink{},
 	}
-	calls, err := summarizeCompactionCalls(context.Background(), summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, condensePlan(), false, nil)
 	if err != nil {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 	}
 	if !calls.cleared || !calls.condensed {
 		t.Errorf("cleared, condensed = %t, %t, want true, true", calls.cleared, calls.condensed)
@@ -210,9 +210,9 @@ func TestCondenseTruncatedSummaryNoRecoveredNote(t *testing.T) {
 		ModelBudget: prompt.ModelTokenBudget{ContextSize: 100000, MaxCompletionTokens: 128, SummaryMaxTokens: 64},
 		Events:      rec.sink(),
 	}
-	calls, err := summarizeCompactionCalls(context.Background(), summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, condensePlan(), false, nil)
 	if err != nil {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 	}
 	if got := len(prov.requests); got != 2 {
 		t.Errorf("provider requests = %d, want 2", got)
@@ -237,9 +237,9 @@ func TestCondenseTruncatedSummaryOneCondenseCall(t *testing.T) {
 		ModelBudget: prompt.ModelTokenBudget{ContextSize: 100000, MaxCompletionTokens: 128, SummaryMaxTokens: 64},
 		Events:      output.NoopSink{},
 	}
-	calls, err := summarizeCompactionCalls(context.Background(), summary, 1, condensePlan(), false)
+	calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, condensePlan(), false, nil)
 	if err != nil {
-		t.Fatalf("summarizeCompactionCalls() error = %v, want nil", err)
+		t.Fatalf("summarizeCompactionCallsWithRetryPlan() error = %v, want nil", err)
 	}
 	if got := len(prov.requests); got != 2 {
 		t.Fatalf("provider requests = %d, want 2: a truncated condense reply must not condense again", got)

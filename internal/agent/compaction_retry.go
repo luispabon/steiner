@@ -52,19 +52,19 @@ type summaryCalls struct {
 	attempts []output.CompactionSummaryAttempt
 }
 
-// summarizeCompactionCalls runs the summary calls of one stage. The first call is
-// plan.request unchanged. A reply with no summary text is retried with tail-only
-// steering: the retry keeps the tools, params, cache key, history and (unless a
-// call retired it) the backend state, and only the final instruction changes. The
-// failed reply is never replayed. A fallback target gets no retry, so its empty
-// reply fails the stage and the operation reruns on main.
+// compactionRetryPlanBuilder rebuilds a stage's plan after a failed reply. It
+// reports the plan, the segmented stage and the params the retry adopts; a nil
+// builder keeps the plan and retries the same request.
 type compactionRetryPlanBuilder func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error)
 
-//nolint:unparam // The turn is shared with direct callers that record stage notes.
-func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
-	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, nil)
-}
-
+// summarizeCompactionCallsWithRetryPlan runs the summary calls of one stage. The
+// first call is plan.request unchanged. A reply with no summary text is retried
+// with tail-only steering: the retry keeps the tools, params, cache key, history
+// and (unless a call retired it) the backend state, and only the final
+// instruction changes. The failed reply is never replayed. A fallback target
+// gets no retry, so its empty reply fails the stage and the operation reruns on
+// main.
+//
 //nolint:gocyclo // Retry planning adds one bounded error mapping to the call ladder.
 func summarizeCompactionCallsWithRetryPlan(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool, builder compactionRetryPlanBuilder) (summaryCalls, error) {
 	maxAttempts := maxSummaryAttempts
