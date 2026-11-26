@@ -142,10 +142,9 @@ type cliRuntime struct {
 	quotaService      *quota.Service
 	diagnostics       *diagnostics.Writer
 	compactionLogFile string
-	// segmentedCompaction is the experimental immutable summary segment policy
-	// (#1042), parsed once at startup from the environment and threaded into
-	// every run request this process builds.
-	segmentedCompaction   agent.SegmentedCompactionPolicy
+	// segmentedCompaction is the experimental segment policy, parsed once at
+	// startup and threaded into every run request this process builds.
+	segmentedCompaction   config.SegmentedCompactionPolicy
 	usageRecorder         *usagestats.Recorder
 	imageStore            *agent.ImageStore
 	visionCapabilities    *agent.VisionCapabilities

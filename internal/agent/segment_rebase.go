@@ -1,6 +1,9 @@
 package agent
 
-import "github.com/luispabon/steiner/internal/prompt"
+import (
+	"github.com/luispabon/steiner/internal/config"
+	"github.com/luispabon/steiner/internal/prompt"
+)
 
 // segmentDecision is the append-or-rebase choice for one segmented compaction.
 type segmentDecision struct {
@@ -19,7 +22,7 @@ type segmentDecision struct {
 // segmentDecisionInput carries everything decideSegmentAction needs to choose
 // between appending an immutable segment and rebasing the chain.
 type segmentDecisionInput struct {
-	Policy              SegmentedCompactionPolicy
+	Policy              config.SegmentedCompactionPolicy
 	Chain               segmentChainScan
 	Mode                prompt.CompactionMode
 	ContextSize         int

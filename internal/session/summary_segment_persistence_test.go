@@ -135,12 +135,8 @@ func TestLoadLegacySessionWithoutSegmentsRemarshalsWithoutSegmentKey(t *testing.
 	}
 	wantLineage := agent.ConversationLineage{
 		Generations: []agent.ConversationGeneration{{
-			ID: 1,
-			Messages: []agent.Message{
-				{Role: agent.MessageRoleUser, Content: "old question"},
-				{Role: agent.MessageRoleSummary, Content: "old summary"},
-				{Role: agent.MessageRoleAssistant, Content: "old answer"},
-			},
+			ID:       1,
+			Messages: legacyConversation(),
 		}},
 		NextGenerationID: 2,
 	}

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -41,12 +42,12 @@ func segmentBoundaryConversation() []Message {
 // prompt without a provider call. Segmented compaction is enabled so the
 // request path may mark a valid chain.
 func segmentBoundaryRequest() RunRequest {
-	return segmentBoundaryRequestWithPolicy(SegmentedCompactionPolicy{Enabled: true})
+	return segmentBoundaryRequestWithPolicy(config.SegmentedCompactionPolicy{Enabled: true})
 }
 
 // segmentBoundaryRequestWithPolicy is segmentBoundaryRequest with an explicit
 // segmented compaction policy.
-func segmentBoundaryRequestWithPolicy(policy SegmentedCompactionPolicy) RunRequest {
+func segmentBoundaryRequestWithPolicy(policy config.SegmentedCompactionPolicy) RunRequest {
 	return RunRequest{
 		ResolvedModel:       provider.ResolvedModel{BackendModelID: "test-model"},
 		SegmentedCompaction: policy,
@@ -183,7 +184,7 @@ func prepareTurnChatRequest(t *testing.T, request RunRequest, conversation []Mes
 // segment metadata produces the same provider bytes as the same conversation
 // with Segment cleared.
 func TestPrepareTurnFlagOffSegmentWireMatchesClearedMetadata(t *testing.T) {
-	request := segmentBoundaryRequestWithPolicy(SegmentedCompactionPolicy{})
+	request := segmentBoundaryRequestWithPolicy(config.SegmentedCompactionPolicy{})
 	segmented := segmentBoundaryConversation()
 
 	wireBody := func(request RunRequest, conversation []Message) []byte {
@@ -210,7 +211,7 @@ func TestPrepareTurnFlagOffSegmentWireMatchesClearedMetadata(t *testing.T) {
 // TestCompactionRequestFlagOffLeavesSegmentsUnmarked pins D18 on the summarizer
 // request path, whose converter is built separately from the main turn.
 func TestCompactionRequestFlagOffLeavesSegmentsUnmarked(t *testing.T) {
-	request := segmentBoundaryRequestWithPolicy(SegmentedCompactionPolicy{})
+	request := segmentBoundaryRequestWithPolicy(config.SegmentedCompactionPolicy{})
 	segmented := segmentBoundaryConversation()
 
 	build := func(conversation []Message) []byte {

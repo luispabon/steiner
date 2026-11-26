@@ -16,6 +16,16 @@ import (
 // session shape change, and capture the new bytes from origin/main.
 var updateLegacySessionGolden = flag.Bool("update-legacy-session-golden", false, "rewrite the legacy saved-session golden")
 
+// legacyConversation is the plain user/summary/assistant conversation a
+// session saved before summary segments existed holds.
+func legacyConversation() []agent.Message {
+	return []agent.Message{
+		{Role: agent.MessageRoleUser, Content: "old question"},
+		{Role: agent.MessageRoleSummary, Content: "old summary"},
+		{Role: agent.MessageRoleAssistant, Content: "old answer"},
+	}
+}
+
 // legacyGoldenSession is a saved session with a plain summary message and no
 // segment metadata: the shape every pre-segmented-compaction session file has.
 func legacyGoldenSession() Session {
@@ -32,12 +42,8 @@ func legacyGoldenSession() Session {
 		Skills:        []string{"review"},
 		Lineage: agent.ConversationLineage{
 			Generations: []agent.ConversationGeneration{{
-				ID: 1,
-				Messages: []agent.Message{
-					{Role: agent.MessageRoleUser, Content: "old question"},
-					{Role: agent.MessageRoleSummary, Content: "old summary"},
-					{Role: agent.MessageRoleAssistant, Content: "old answer"},
-				},
+				ID:       1,
+				Messages: legacyConversation(),
 			}},
 			NextGenerationID: 2,
 		},

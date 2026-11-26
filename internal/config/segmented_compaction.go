@@ -1,4 +1,4 @@
-package agent
+package config
 
 import (
 	"fmt"
@@ -11,14 +11,14 @@ import (
 // prototype. They are read once at startup (see ParseSegmentedCompactionPolicy)
 // and are not part of the configuration file surface.
 const (
-	// SegmentedCompactionEnv enables segmented compaction when it parses as true.
-	SegmentedCompactionEnv = "STEINER_EXPERIMENT_SEGMENTED_COMPACTION"
-	// SegmentMaxCountEnv bounds how many immutable segments a chain may hold.
-	SegmentMaxCountEnv = "STEINER_EXPERIMENT_SEGMENT_MAX_COUNT"
-	// SegmentMaxChainPercentEnv bounds the segment chain as a percentage of the compaction budget.
-	SegmentMaxChainPercentEnv = "STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT"
-	// SegmentMaxPostPercentEnv bounds projected post-append tokens as a percentage of the compaction budget.
-	SegmentMaxPostPercentEnv = "STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT"
+	// segmentedCompactionEnv enables segmented compaction when it parses as true.
+	segmentedCompactionEnv = "STEINER_EXPERIMENT_SEGMENTED_COMPACTION"
+	// segmentMaxCountEnv bounds how many immutable segments a chain may hold.
+	segmentMaxCountEnv = "STEINER_EXPERIMENT_SEGMENT_MAX_COUNT"
+	// segmentMaxChainPercentEnv bounds the segment chain as a percentage of the compaction budget.
+	segmentMaxChainPercentEnv = "STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT"
+	// segmentMaxPostPercentEnv bounds projected post-append tokens as a percentage of the compaction budget.
+	segmentMaxPostPercentEnv = "STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT"
 )
 
 const (
@@ -28,7 +28,10 @@ const (
 	maxSegmentCount               = 64
 )
 
-// SegmentedCompactionPolicy configures the experimental immutable summary segment compaction (#1042).
+// SegmentedCompactionPolicy configures the experimental immutable summary
+// segment compaction (#1042). The zero value disables it. The fields are read
+// from the environment only, through ParseSegmentedCompactionPolicy, so they
+// are not part of the configuration file surface.
 type SegmentedCompactionPolicy struct {
 	Enabled                  bool
 	MaxSegments              int     // default 8, valid 1..64
@@ -36,9 +39,9 @@ type SegmentedCompactionPolicy struct {
 	MaxPostCompactionPercent float64 // default 50, valid (0,100]; percent of the compaction budget (D15)
 }
 
-// DefaultSegmentedCompactionPolicy returns the policy that applies when no
+// defaultSegmentedCompactionPolicy returns the policy that applies when no
 // environment overrides are set: disabled, with the documented thresholds.
-func DefaultSegmentedCompactionPolicy() SegmentedCompactionPolicy {
+func defaultSegmentedCompactionPolicy() SegmentedCompactionPolicy {
 	return SegmentedCompactionPolicy{
 		MaxSegments:              defaultSegmentMaxCount,
 		MaxChainPercent:          defaultSegmentMaxChainPercent,
@@ -51,34 +54,34 @@ func DefaultSegmentedCompactionPolicy() SegmentedCompactionPolicy {
 // even when Enabled is false, so a bad value fails startup rather than the first
 // compaction.
 func ParseSegmentedCompactionPolicy(lookup func(string) (string, bool)) (SegmentedCompactionPolicy, error) {
-	policy := DefaultSegmentedCompactionPolicy()
+	policy := defaultSegmentedCompactionPolicy()
 
-	if v, ok := envValue(lookup, SegmentedCompactionEnv); ok {
+	if v, ok := envValue(lookup, segmentedCompactionEnv); ok {
 		enabled, err := strconv.ParseBool(v)
 		if err != nil {
-			return SegmentedCompactionPolicy{}, fmt.Errorf("parse %s: %w", SegmentedCompactionEnv, err)
+			return SegmentedCompactionPolicy{}, fmt.Errorf("parse %s: %w", segmentedCompactionEnv, err)
 		}
 		policy.Enabled = enabled
 	}
 
-	if v, ok := envValue(lookup, SegmentMaxCountEnv); ok {
+	if v, ok := envValue(lookup, segmentMaxCountEnv); ok {
 		count, err := strconv.Atoi(v)
 		if err != nil {
-			return SegmentedCompactionPolicy{}, fmt.Errorf("parse %s: %w", SegmentMaxCountEnv, err)
+			return SegmentedCompactionPolicy{}, fmt.Errorf("parse %s: %w", segmentMaxCountEnv, err)
 		}
 		if count < 1 || count > maxSegmentCount {
-			return SegmentedCompactionPolicy{}, fmt.Errorf("%s must be between 1 and %d, got %d", SegmentMaxCountEnv, maxSegmentCount, count)
+			return SegmentedCompactionPolicy{}, fmt.Errorf("%s must be between 1 and %d, got %d", segmentMaxCountEnv, maxSegmentCount, count)
 		}
 		policy.MaxSegments = count
 	}
 
-	chainPercent, err := parseSegmentPercent(lookup, SegmentMaxChainPercentEnv, policy.MaxChainPercent)
+	chainPercent, err := parseSegmentPercent(lookup, segmentMaxChainPercentEnv, policy.MaxChainPercent)
 	if err != nil {
 		return SegmentedCompactionPolicy{}, err
 	}
 	policy.MaxChainPercent = chainPercent
 
-	postPercent, err := parseSegmentPercent(lookup, SegmentMaxPostPercentEnv, policy.MaxPostCompactionPercent)
+	postPercent, err := parseSegmentPercent(lookup, segmentMaxPostPercentEnv, policy.MaxPostCompactionPercent)
 	if err != nil {
 		return SegmentedCompactionPolicy{}, err
 	}

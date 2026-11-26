@@ -103,7 +103,7 @@ func selectionModelSource(cfg config.Config, flags *cliFlags) string {
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
 	// Parse the experimental segmented compaction policy before any resource
 	// is created, so a bad value fails startup instead of the first compaction.
-	segmentedCompaction, err := agent.ParseSegmentedCompactionPolicy(os.LookupEnv)
+	segmentedCompaction, err := config.ParseSegmentedCompactionPolicy(os.LookupEnv)
 	if err != nil {
 		return cliRuntime{}, fmt.Errorf("load segmented compaction policy: %w", err)
 	}

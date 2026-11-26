@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -154,7 +155,7 @@ const (
 // segmentStageInput carries what one compaction stage needs to decide and
 // describe its segmented shape.
 type segmentStageInput struct {
-	Policy SegmentedCompactionPolicy
+	Policy config.SegmentedCompactionPolicy
 	// Full is the latest generation's FullMessages. The chain is scanned from
 	// its leading summary messages, never from a candidate view.
 	Full []Message

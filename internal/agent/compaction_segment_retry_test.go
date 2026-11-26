@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -99,7 +100,7 @@ func TestSegmentedRetryFlagOffKeepsOriginalRequestShape(t *testing.T) {
 		t.Fatal("selectCompactionCandidate() ok = false, want true")
 	}
 	providerStub := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply(), summaryResponse("ordinary retry")}}
-	req := segmentedCompactionRequest(providerStub, SegmentedCompactionPolicy{})
+	req := segmentedCompactionRequest(providerStub, config.SegmentedCompactionPolicy{})
 	outcome, err := summarizeCompactor{}.Compact(context.Background(), req, state, 1, candidate, "")
 	if err != nil {
 		t.Fatalf("Compact() error = %v", err)

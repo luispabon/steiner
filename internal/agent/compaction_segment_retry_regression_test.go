@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -146,7 +147,7 @@ func TestSegmentedRetryRebaseNoFitKeepsStateAndReportsFailure(t *testing.T) {
 func TestSegmentedRetryFlagOffKeepsLegacyRequestAndAdoption(t *testing.T) {
 	state := stateFromMessages(segmentStageConversation())
 	providerStub := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply(), summaryResponse("ordinary retry")}}
-	req := segmentedCompactionRequest(providerStub, SegmentedCompactionPolicy{})
+	req := segmentedCompactionRequest(providerStub, config.SegmentedCompactionPolicy{})
 	req.CompactionLogPath = filepath.Join(t.TempDir(), "compaction.log")
 	applied, compacted, _, err := (&Runner{}).compactConversationForBudgetWithSteering(context.Background(), req, &state, 1, nil, map[string]bool{}, new(int), "")
 	if err != nil || !applied || !compacted {

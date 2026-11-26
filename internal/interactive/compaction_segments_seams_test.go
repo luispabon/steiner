@@ -18,6 +18,20 @@ func seamSegmentChain() []agent.Message {
 	}
 }
 
+// seamExtendedSegmentChain is seamSegmentChain with segment 3 inserted before
+// the mutable tail.
+func seamExtendedSegmentChain() []agent.Message {
+	chain := seamSegmentChain()
+	extended := make([]agent.Message, 0, len(chain)+1)
+	extended = append(extended, chain[:len(chain)-1]...)
+	extended = append(extended, agent.Message{
+		Role:    agent.MessageRoleSummary,
+		Content: "Segment 3. Later segments override earlier conflicting state.\n\nthird span",
+		Segment: &agent.SummarySegment{Sequence: 3, SourceMessageCount: 5},
+	})
+	return append(extended, chain[len(chain)-1])
+}
+
 // seamAssertSegmentChain checks got is want with every content byte-identical,
 // every segment coordinate intact, and the tail still segment-free.
 func seamAssertSegmentChain(t *testing.T, label string, got, want []agent.Message) {
@@ -121,12 +135,7 @@ func TestSegmentSeamMergeRunLineageKeepsAppendedSegment(t *testing.T) {
 	prior := append(cloneMessages(seamSegmentChain()),
 		agent.Message{Role: agent.MessageRoleUser, Content: "earlier turn"},
 		agent.Message{Role: agent.MessageRoleAssistant, Content: "earlier answer"})
-	chain := []agent.Message{
-		{Role: agent.MessageRoleSummary, Content: "Segment 1. Later segments override earlier conflicting state.\n\nfirst span", Segment: &agent.SummarySegment{Sequence: 1, SourceMessageCount: 4}},
-		{Role: agent.MessageRoleSummary, Content: "Segment 2. Later segments override earlier conflicting state.\n\nsecond span", Segment: &agent.SummarySegment{Sequence: 2, SourceMessageCount: 3}},
-		{Role: agent.MessageRoleSummary, Content: "Segment 3. Later segments override earlier conflicting state.\n\nthird span", Segment: &agent.SummarySegment{Sequence: 3, SourceMessageCount: 5}},
-		{Role: agent.MessageRoleSummary, Content: "mutable tail summary"},
-	}
+	chain := seamExtendedSegmentChain()
 	runMessages := append(cloneMessages(chain), agent.Message{Role: agent.MessageRoleUser, Content: "latest turn"})
 
 	merged := mergeRunLineage(lineageOf(prior...), lineageOf(runMessages...))

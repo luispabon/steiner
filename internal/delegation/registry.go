@@ -49,9 +49,9 @@ type DelegateDeps struct {
 	MaxTokens int
 	// StreamingPreferred reports whether child runs should prefer streaming.
 	StreamingPreferred bool
-	// SegmentedCompaction is the parent's experimental immutable summary segment
-	// policy (#1042), forwarded to every child run. The zero value disables it.
-	SegmentedCompaction agent.SegmentedCompactionPolicy
+	// SegmentedCompaction is the experimental segment policy forwarded to every
+	// child run.
+	SegmentedCompaction config.SegmentedCompactionPolicy
 	// TraceLogger receives delegation trace output.
 	TraceLogger *TraceLogger
 	// Diagnostics is the process diagnostics writer, threaded to child runs and

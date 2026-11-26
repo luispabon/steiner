@@ -274,9 +274,9 @@ type childRunRequestParams struct {
 	ModelBudget        prompt.ModelTokenBudget
 	MaxTokens          *int
 	StreamingPreferred bool
-	// SegmentedCompaction is the parent's experimental immutable summary
-	// segment policy (#1042); see DelegateDeps.SegmentedCompaction.
-	SegmentedCompaction agent.SegmentedCompactionPolicy
+	// SegmentedCompaction is the experimental segment policy; see
+	// DelegateDeps.SegmentedCompaction.
+	SegmentedCompaction config.SegmentedCompactionPolicy
 	UsageRecorder       *usagestats.Recorder
 	ModeGetter          func() config.ExecutionMode
 	AgentType           AgentType

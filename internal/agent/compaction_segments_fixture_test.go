@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -154,11 +155,11 @@ func (a *fixtureHistoryArchive) Append(context.Context, []Message) error {
 // disabled policy is the zero value; the enabled one caps the chain at four
 // segments with the production chain and post-compaction defaults, so only
 // max-segments rebases.
-func fixturePolicy(enabled bool) SegmentedCompactionPolicy {
+func fixturePolicy(enabled bool) config.SegmentedCompactionPolicy {
 	if !enabled {
-		return SegmentedCompactionPolicy{}
+		return config.SegmentedCompactionPolicy{}
 	}
-	return SegmentedCompactionPolicy{
+	return config.SegmentedCompactionPolicy{
 		Enabled:                  true,
 		MaxSegments:              fixtureMaxSegments,
 		MaxChainPercent:          12.5,
@@ -214,7 +215,7 @@ func fixtureReadJSON(t *testing.T, name string, into any) {
 // fixtureRunConversation drives the scripted turns through the real turn
 // progressor, with the real compaction path, and captures every provider
 // request in order.
-func fixtureRunConversation(t *testing.T, policy SegmentedCompactionPolicy) fixtureResult {
+func fixtureRunConversation(t *testing.T, policy config.SegmentedCompactionPolicy) fixtureResult {
 	t.Helper()
 	var turns fixtureTurnsFile
 	fixtureReadJSON(t, "turns.json", &turns)

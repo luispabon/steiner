@@ -59,10 +59,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	return nil
 }
 
-// execRunner builds the runner for one exec invocation. It takes the runtime by
-// value so the caller's runtime stays unchanged, and it is the single place
-// exec wiring binds the runtime to the runner, including the segmented
-// compaction policy buildRunRequest copies into every request.
+// execRunner builds the runner for one exec invocation, taking the runtime by value.
 func execRunner(rt cliRuntime, promptCacheKey string, sessionDate prompt.SessionDate, maxTurns int, streamingPreferred bool) cliRunner {
 	return cliRunner{
 		runtime: rt,

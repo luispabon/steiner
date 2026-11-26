@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
@@ -428,7 +429,7 @@ func TestSegmentAppendSourceCountSkipsReplayOnlySpan(t *testing.T) {
 		t.Fatalf("replay-only span count = %d, %t, want 0, true", count, ok)
 	}
 	decision := decideSegmentAction(segmentDecisionInput{
-		Policy:               SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50},
+		Policy:               config.SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50},
 		Chain:                scan,
 		Mode:                 prompt.CompactionModeNormal,
 		ContextSize:          20000,
@@ -529,15 +530,15 @@ func segmentStageConversation() []Message {
 }
 
 // segmentedCompactionPolicy is the default experiment policy, enabled.
-func segmentedCompactionPolicy() SegmentedCompactionPolicy {
-	policy := DefaultSegmentedCompactionPolicy()
+func segmentedCompactionPolicy() config.SegmentedCompactionPolicy {
+	policy := config.SegmentedCompactionPolicy{MaxSegments: 8, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50}
 	policy.Enabled = true
 	return policy
 }
 
 // segmentedCompactionRequest builds a compaction request for the fixture
 // conversations: a large window so only the segment thresholds can rebase.
-func segmentedCompactionRequest(p provider.Provider, policy SegmentedCompactionPolicy) RunRequest {
+func segmentedCompactionRequest(p provider.Provider, policy config.SegmentedCompactionPolicy) RunRequest {
 	return RunRequest{
 		Provider:            p,
 		ResolvedModel:       provider.ResolvedModel{BackendModelID: "test-model"},
@@ -751,7 +752,7 @@ func TestSegmentedCompactionPlainFallbackThenChainStart(t *testing.T) {
 func TestSegmentedCompactionFlagOffStoresPlainSummary(t *testing.T) {
 	full := segmentStageConversation()
 	providerStub := oneSummaryProvider("flag off facts")
-	req := segmentedCompactionRequest(providerStub, SegmentedCompactionPolicy{})
+	req := segmentedCompactionRequest(providerStub, config.SegmentedCompactionPolicy{})
 	req.CompactionLogPath = filepath.Join(t.TempDir(), "compaction.log")
 	state := stateFromMessages(full)
 
@@ -1225,7 +1226,7 @@ func TestSegmentedCompactionHistoryNoteTiming(t *testing.T) {
 			stored := map[bool]string{}
 			for _, enabled := range []bool{false, true} {
 				archive := &fakeHistoryArchive{note: tt.note, noteErr: tt.noteErr}
-				policy := SegmentedCompactionPolicy{}
+				policy := config.SegmentedCompactionPolicy{}
 				if enabled {
 					policy = segmentedCompactionPolicy()
 				}

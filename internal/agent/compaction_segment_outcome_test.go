@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
@@ -25,13 +26,13 @@ func TestSegmentPolicyRebasesAreAdoptedAndArchived(t *testing.T) {
 	tests := []struct {
 		name       string
 		messages   func() []Message
-		policy     func() SegmentedCompactionPolicy
+		policy     func() config.SegmentedCompactionPolicy
 		wantReason string
 	}{
 		{
 			name:     "max segments",
 			messages: segmentStageConversation,
-			policy: func() SegmentedCompactionPolicy {
+			policy: func() config.SegmentedCompactionPolicy {
 				p := segmentedCompactionPolicy()
 				p.MaxSegments = 2
 				return p

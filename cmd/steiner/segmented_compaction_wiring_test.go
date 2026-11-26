@@ -11,13 +11,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/tool"
 )
 
 // nonDefaultSegmentedPolicy is distinguishable from both the zero value and
 // the parsed defaults, so a test can prove the runtime value was copied.
-func nonDefaultSegmentedPolicy() agent.SegmentedCompactionPolicy {
-	return agent.SegmentedCompactionPolicy{
+func nonDefaultSegmentedPolicy() config.SegmentedCompactionPolicy {
+	return config.SegmentedCompactionPolicy{
 		Enabled:                  true,
 		MaxSegments:              3,
 		MaxChainPercent:          20,
@@ -102,10 +103,10 @@ models:
 func isolateSegmentedCompactionEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
-		agent.SegmentedCompactionEnv,
-		agent.SegmentMaxCountEnv,
-		agent.SegmentMaxChainPercentEnv,
-		agent.SegmentMaxPostPercentEnv,
+		"STEINER_EXPERIMENT_SEGMENTED_COMPACTION",
+		"STEINER_EXPERIMENT_SEGMENT_MAX_COUNT",
+		"STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT",
+		"STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT",
 	} {
 		t.Setenv(name, "")
 		if err := os.Unsetenv(name); err != nil {
@@ -116,9 +117,9 @@ func isolateSegmentedCompactionEnv(t *testing.T) {
 
 // segmentedEnabledFromEnv returns the policy the env vars in the test should
 // parse to, so the assertion does not restate the parser's defaults.
-func segmentedEnabledFromEnv(t *testing.T) agent.SegmentedCompactionPolicy {
+func segmentedEnabledFromEnv(t *testing.T) config.SegmentedCompactionPolicy {
 	t.Helper()
-	want, err := agent.ParseSegmentedCompactionPolicy(os.LookupEnv)
+	want, err := config.ParseSegmentedCompactionPolicy(os.LookupEnv)
 	if err != nil {
 		t.Fatalf("ParseSegmentedCompactionPolicy() error = %v", err)
 	}
@@ -133,8 +134,8 @@ func segmentedEnabledFromEnv(t *testing.T) agent.SegmentedCompactionPolicy {
 // constructor) carries the policy parsed from the environment.
 func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 	isolateSegmentedCompactionEnv(t)
-	t.Setenv(agent.SegmentedCompactionEnv, "1")
-	t.Setenv(agent.SegmentMaxCountEnv, "3")
+	t.Setenv("STEINER_EXPERIMENT_SEGMENTED_COMPACTION", "1")
+	t.Setenv("STEINER_EXPERIMENT_SEGMENT_MAX_COUNT", "3")
 	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
 
 	phase, err := newPhaseRunner(context.Background(), cmd, flags, phaseRunnerParams{
@@ -166,8 +167,8 @@ func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 // buildInteractiveRuntime rewiring.
 func TestInteractiveRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 	isolateSegmentedCompactionEnv(t)
-	t.Setenv(agent.SegmentedCompactionEnv, "1")
-	t.Setenv(agent.SegmentMaxChainPercentEnv, "20")
+	t.Setenv("STEINER_EXPERIMENT_SEGMENTED_COMPACTION", "1")
+	t.Setenv("STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT", "20")
 	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
 
 	rt, err := buildRuntimeWithRoots(context.Background(), cmd, flags, projectRoot, projectRoot, "")
@@ -200,10 +201,10 @@ func TestBuildRuntimeRejectsInvalidSegmentedCompactionEnv(t *testing.T) {
 		env   string
 		value string
 	}{
-		{name: "enabled", env: agent.SegmentedCompactionEnv, value: "maybe"},
-		{name: "max segment count", env: agent.SegmentMaxCountEnv, value: "0"},
-		{name: "max chain percent", env: agent.SegmentMaxChainPercentEnv, value: "0"},
-		{name: "max post percent", env: agent.SegmentMaxPostPercentEnv, value: "101"},
+		{name: "enabled", env: "STEINER_EXPERIMENT_SEGMENTED_COMPACTION", value: "maybe"},
+		{name: "max segment count", env: "STEINER_EXPERIMENT_SEGMENT_MAX_COUNT", value: "0"},
+		{name: "max chain percent", env: "STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT", value: "0"},
+		{name: "max post percent", env: "STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT", value: "101"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			isolateSegmentedCompactionEnv(t)

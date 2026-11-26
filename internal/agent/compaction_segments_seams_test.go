@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/luispabon/steiner/internal/config"
 )
 
 // seamChainPolicy is the experiment policy the seam tests share: enabled, with
 // loose thresholds so only the chain's own validity decides append or rebase.
-func seamChainPolicy() SegmentedCompactionPolicy {
+func seamChainPolicy() config.SegmentedCompactionPolicy {
 	policy := segmentedCompactionPolicy()
 	policy.MaxSegments = 32
 	policy.MaxChainPercent = 100

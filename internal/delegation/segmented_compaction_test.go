@@ -15,8 +15,8 @@ import (
 
 // segmentedCompactionEnabledPolicy returns a non-default policy so a propagated
 // value cannot be confused with the zero value a dropped field would leave.
-func segmentedCompactionEnabledPolicy() agent.SegmentedCompactionPolicy {
-	return agent.SegmentedCompactionPolicy{
+func segmentedCompactionEnabledPolicy() config.SegmentedCompactionPolicy {
+	return config.SegmentedCompactionPolicy{
 		Enabled:                  true,
 		MaxSegments:              5,
 		MaxChainPercent:          20,
@@ -24,19 +24,35 @@ func segmentedCompactionEnabledPolicy() agent.SegmentedCompactionPolicy {
 	}
 }
 
+// segmentedPolicyCase pairs a policy with the subtest name that reports it.
+type segmentedPolicyCase struct {
+	name   string
+	policy config.SegmentedCompactionPolicy
+}
+
+// segmentedPolicyCases is the flag-off/enabled pair every propagation test runs.
+func segmentedPolicyCases() []segmentedPolicyCase {
+	return []segmentedPolicyCase{
+		{name: "flag off", policy: config.SegmentedCompactionPolicy{}},
+		{name: "enabled", policy: segmentedCompactionEnabledPolicy()},
+	}
+}
+
+// captureRunRequestRunner returns a runner that records the request it is
+// handed and reports a successful run.
+func captureRunRequestRunner(captured *agent.RunRequest) *mockRunner {
+	return &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+		*captured = req
+		return successRunState(), nil
+	}}
+}
+
 // TestBuildChildRunThreadsSegmentedCompaction proves an ordinary child run
 // request carries the parent's segmented compaction policy, and that the
 // flag-off zero value stays disabled.
 func TestBuildChildRunThreadsSegmentedCompaction(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		policy agent.SegmentedCompactionPolicy
-	}{
-		{name: "flag off", policy: agent.SegmentedCompactionPolicy{}},
-		{name: "enabled", policy: segmentedCompactionEnabledPolicy()},
-	}
-	for _, tt := range tests {
+	for _, tt := range segmentedPolicyCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			deps := SubAgentHandlerDeps{
@@ -71,14 +87,7 @@ func TestBuildChildRunThreadsSegmentedCompaction(t *testing.T) {
 // so a dropped policy there would not be caught by the other child-run tests.
 func TestVisionChildRunThreadsSegmentedCompaction(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		policy agent.SegmentedCompactionPolicy
-	}{
-		{name: "flag off", policy: agent.SegmentedCompactionPolicy{}},
-		{name: "enabled", policy: segmentedCompactionEnabledPolicy()},
-	}
-	for _, tt := range tests {
+	for _, tt := range segmentedPolicyCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
@@ -90,10 +99,7 @@ func TestVisionChildRunThreadsSegmentedCompaction(t *testing.T) {
 			ref := store.Register(imgPath, "image/png", 10, 20, 15)
 
 			var captured agent.RunRequest
-			deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-				captured = req
-				return successRunState(), nil
-			}})
+			deps := minimalDeps(captureRunRequestRunner(&captured))
 			deps.WorkDir = t.TempDir()
 			deps.ImageStore = store
 			deps.SegmentedCompaction = tt.policy
@@ -114,11 +120,7 @@ func TestSpecializedChildRunThreadsSegmentedCompaction(t *testing.T) {
 	t.Parallel()
 	policy := segmentedCompactionEnabledPolicy()
 	var captured agent.RunRequest
-	runner := &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-		captured = req
-		return successRunState(), nil
-	}}
-	deps := minimalDeps(runner)
+	deps := minimalDeps(captureRunRequestRunner(&captured))
 	deps.WorkDir = t.TempDir()
 	deps.SegmentedCompaction = policy
 
@@ -153,10 +155,7 @@ func TestFollowUpContinuationCarriesSegmentedCompaction(t *testing.T) {
 		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 100, MaxFollowUps: 3},
 		Events:       noopEventSink{},
 		SessionStore: store,
-		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
-			captured = req
-			return successRunState(), nil
-		}},
+		Runner:       captureRunRequestRunner(&captured),
 	})
 
 	if _, err := handler(context.Background(), map[string]any{"agent_id": "child-segmented", "message": "continue"}); err != nil {
@@ -176,12 +175,7 @@ func TestRemediationContinuationCarriesSegmentedCompaction(t *testing.T) {
 	req := remediationTestRequest()
 	req.SegmentedCompaction = policy
 	var captured agent.RunRequest
-	runner := &mockRunner{runFunc: func(_ context.Context, got agent.RunRequest) (agent.RunState, error) {
-		captured = got
-		state := successRunState()
-		state.TurnCount = 2
-		return state, nil
-	}}
+	runner := captureRunRequestRunner(&captured)
 	cfg := remediationConfigForDirty([]string{"changed.go"}, nil, func() (bool, error) { return true, nil })
 
 	_, _, _, outcome, err := applyRemediation(

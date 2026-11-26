@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
@@ -26,7 +27,7 @@ func segmentChainMessages(count int, tail bool) []Message {
 }
 
 func TestDecideSegmentAction(t *testing.T) {
-	policy := SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50}
+	policy := config.SegmentedCompactionPolicy{MaxSegments: 4, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50}
 	// Default input: budget 8000 (min of 20000 and the 8000 threshold), chain
 	// limit 1000, post-compaction limit 4000, retention starting after a
 	// one-message append span.
