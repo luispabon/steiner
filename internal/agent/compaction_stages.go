@@ -355,6 +355,7 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	return outcome, true
 }
 
+//nolint:gocyclo // Retry plan adoption adds a bounded result branch to the existing stage.
 func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
 	onFallback := params.summaryReq != nil
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
@@ -374,7 +375,6 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	var segment *segmentStage
 	if req.SegmentedCompaction.Enabled {
 		var err error
-		retryParams = params
 		segment, err = segmentStageFor(ctx, req, state, candidate, retainedFit, params, requestBlock, false)
 		if err != nil {
 			return CompactionOutcome{}, err
@@ -399,32 +399,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	summary := compactionSummaryRequest(req, params.summaryReq)
 	// The retry ladder owns the retirement signal of each call, so this stage only
 	// reads the cumulative result.
-	var retryBuilder compactionRetryPlanBuilder
-	if req.SegmentedCompaction.Enabled && !onFallback {
-		retryBuilder = func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
-			retryRetainedFit, err := fitConversationState(ctx, req, state.WithConversation(retryParams.retainedMessages))
-			if err != nil {
-				return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
-			}
-			retrySegment, err := segmentStageFor(ctx, req, state, candidate, retryRetainedFit, retryParams, requestBlock, true)
-			if err != nil {
-				return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
-			}
-			effective := retryParams
-			retryRequestBlock, retryRequestBlockStatus := latestRequestBlock(retrySegment.Source, req.ModelBudget.ContextSize)
-			applySegmentStage(req, &effective, retrySegment, retryRequestBlock, retryRequestBlockStatus)
-			effective.segment = retrySegment
-			effectiveRequest, ok, err := compactionStagePlan(ctx, req, state, candidate, effective)
-			if err != nil || !ok {
-				if err == nil {
-					err = errCompactionFallbackNotFit
-				}
-				return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
-			}
-			return effectiveRequest, retrySegment, effective, nil
-		}
-	}
-	calls, err := summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, retryBuilder)
+	calls, err := summarizeStageCalls(ctx, req, summary, turn, state, candidate, retryParams, requestBlock, plan, onFallback)
 	cleared := calls.cleared
 	if cleared {
 		// An in-place summary retired the generation's live process, so the
@@ -487,6 +462,16 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 		StageSizes:               []output.ContextCompactionStage{stage},
 		segmentDecision:          segmentDecisionOf(segment),
 	}, nil
+}
+
+func summarizeStageCalls(ctx context.Context, req, summary RunRequest, turn int, state RunState, candidate ConversationCandidate, retryParams summarizeCompactionStageParams, requestBlock string, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
+	var builder compactionRetryPlanBuilder
+	if req.SegmentedCompaction.Enabled && !onFallback {
+		builder = func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
+			return buildSegmentRetryPlan(ctx, req, state, candidate, retryParams, requestBlock)
+		}
+	}
+	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, builder)
 }
 
 // compactionStageRetention strips skill blocks and elides old tool output in the

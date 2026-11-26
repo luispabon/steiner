@@ -199,6 +199,29 @@ type segmentStage struct {
 // and the conservative post-append prompt, and turns that into a decision. A
 // rebase whose source has no non-summary coverage becomes the plain summary
 // fallback, so no segment is ever stored with SourceMessageCount 0.
+func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams, requestBlock string) (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
+	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
+	if err != nil {
+		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
+	}
+	segment, err := segmentStageFor(ctx, req, state, candidate, retainedFit, params, requestBlock, true)
+	if err != nil {
+		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
+	}
+	effective := params
+	block, status := latestRequestBlock(segment.Source, req.ModelBudget.ContextSize)
+	applySegmentStage(req, &effective, segment, block, status)
+	effective.segment = segment
+	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, effective)
+	if err != nil {
+		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
+	}
+	if !ok {
+		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, errCompactionFallbackNotFit
+	}
+	return plan, segment, effective, nil
+}
+
 func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in segmentStageInput) (segmentStage, error) {
 	scan := scanSegmentChain(in.Full)
 	chainTokens, err := segmentChainTokens(ctx, in.Model, scan.Segments)

@@ -59,6 +59,7 @@ type summaryCalls struct {
 // reply fails the stage and the operation reruns on main.
 type compactionRetryPlanBuilder func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error)
 
+//nolint:unparam // The turn is shared with direct callers that record stage notes.
 func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
 	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, nil)
 }
