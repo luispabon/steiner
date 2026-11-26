@@ -716,6 +716,39 @@ test("peak: a non-empty input with no JSONL records is rejected by name", () => 
 	}
 });
 
+// A minified raw.json, a null line, and an array line all parse to a value, but
+// none has a record shape: peak counts them as malformed, so a file holding only
+// them is rejected instead of reporting zero runs at exit 0.
+test("peak: a parsed line without a record shape is malformed, not a record", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-shape-"));
+	try {
+		const cases = [
+			["raw-min.json", JSON.stringify({ nodes: [{ kind: "tool_call" }], edges: [] })],
+			["null.jsonl", "null\n"],
+			["array.jsonl", "[1,2]\n"],
+		];
+		for (const [name, content] of cases) {
+			const file = join(dir, name);
+			writeFileSync(file, content);
+			assert.throws(
+				() => execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8", stdio: "pipe" }),
+				(err) => err.status === 1 && err.stderr.includes(name) && err.stderr.includes("no JSONL records"),
+				`${name} alone must be rejected`,
+			);
+		}
+		// Mixed with a valid log the same lines are skipped and counted, not fatal.
+		const valid = JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 250000 }, run_id: "run-shape" });
+		const mixed = join(dir, "mixed.jsonl");
+		writeFileSync(mixed, [valid, '{"nodes":[],"edges":[]}', "null", "[1,2]"].join("\n") + "\n");
+		const out = peak([mixed]);
+		assert.equal(out.runs, 1);
+		assert.equal(out.skipped_malformed_lines, 3);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-shape/main", n: 1, metrics: { peakPromptTokens: 250000 } }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("peak: an empty input is accepted, as a rotated generation can be empty", () => {
 	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-empty-"));
 	try {

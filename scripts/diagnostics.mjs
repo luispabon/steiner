@@ -909,6 +909,19 @@ function peakFiles(args) {
 	return { files };
 }
 
+// isPeakRecord reports whether a parsed line has the shape peak reads: a JSON
+// object with a string top-level `type` (session log) or `kind` (telemetry).
+// Anything else parses but is not a record, so a minified raw.json, `null`, or
+// an array line cannot pass as a JSONL input.
+function isPeakRecord(value) {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		(typeof value.type === "string" || typeof value.kind === "string")
+	);
+}
+
 // readPeakJsonl reads one peak input file and counts the lines that are not
 // JSONL records. Blank lines are neither records nor malformed: they separate
 // records. The malformed count is reported so a partly corrupt input stays
@@ -919,11 +932,15 @@ function readPeakJsonl(path) {
 	for (const line of readFileSync(path, "utf8").split("\n")) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
+		let value;
 		try {
-			records.push(JSON.parse(trimmed));
+			value = JSON.parse(trimmed);
 		} catch {
 			malformed++;
+			continue;
 		}
+		if (isPeakRecord(value)) records.push(value);
+		else malformed++;
 	}
 	return { records, malformed };
 }

@@ -159,6 +159,59 @@ test("compareRows flags an observed limit that differs from the configured one",
 	assert.match(renderCompare(sortRows(matching), ["raw.json"]), /0 run\(s\) reported an observed limit/);
 });
 
+test("renderCompare marks a run with no observed limit as configured-only", () => {
+	const rows = compareRows(
+		rawFile({
+			contextWindow: 200000,
+			threshold: 140000,
+			aliases: [
+				{
+					alias: "m",
+					ref: "m",
+					runs: {
+						off: [
+							run({
+								configuredContextWindow: null,
+								configuredThresholdTokens: null,
+								observedContextWindow: null,
+								observedThresholdTokens: null,
+							}),
+						],
+					},
+				},
+			],
+		}),
+		"raw.json",
+	);
+	assert.equal(rows[0].observedWindow, null);
+	assert.equal(rows[0].window, 200000, "the row falls back to the configured window");
+	const md = renderCompare(sortRows(rows), ["raw.json"]);
+	assert.match(md, /\| 140000 \| cfg \| off \| 1 \| 1 \|/);
+	assert.match(md, /1 run\(s\) reported no observed limit and fall back to the configured values/);
+	assert.match(md, /0 run\(s\) reported an observed limit that differs/);
+	// A real mismatch still names its limit, and cfg stays visible for the limit
+	// the run did not report.
+	const mixed = compareRows(
+		rawFile({ aliases: [{ alias: "m", ref: "m", runs: { off: [run({ observedContextWindow: null, observedThresholdTokens: 600000 })] } }] }),
+		"raw.json",
+	);
+	assert.match(renderCompare(sortRows(mixed), ["raw.json"]), /\| 600000 \| cfg\+threshold \|/);
+});
+
+test("renderCompare escapes a raw.json path that would break the table", () => {
+	const withPipe = "/bench/phase|1/raw.json";
+	const withBackslash = "/bench/win\\next/raw.json";
+	const rows = sortRows([...compareRows(rawFile(), withPipe), ...compareRows(rawFile(), withBackslash)]);
+	const md = renderCompare(rows, [withPipe, withBackslash]);
+	assert.match(md, /\/bench\/phase\\\|1\/raw\.json \|/);
+	assert.match(md, /\/bench\/win\\\\next\/raw\.json \|/);
+	const header = md.split("\n").find((line) => line.startsWith("| threshold "));
+	const pipes = header.split("|").length - 1;
+	for (const line of md.split("\n").filter((entry) => entry.startsWith("| "))) {
+		assert.equal(line.replace(/\\\|/g, "").split("|").length - 1, pipes, "an escaped pipe must not open a new cell");
+	}
+});
+
 test("compareRows marks failed and invalid runs instead of scoring them", () => {
 	const rows = compareRows(
 		rawFile({

@@ -199,12 +199,21 @@ function continuityText(row) {
 }
 
 // The limits column flags a run whose observed limit differs from the configured
-// one, so a table grouped by observed values never hides the gap.
+// one, so a table grouped by observed values never hides the gap. A run that
+// reported no observed limit falls back to the configured value, which "cfg"
+// marks instead of a bare "-" that would read as a verified match.
 function limitsText(row) {
 	const parts = [];
+	if (!isNum(row.observedWindow) || !isNum(row.observedThreshold)) parts.push("cfg");
 	if (row.windowMismatch) parts.push("window");
 	if (row.thresholdMismatch) parts.push("threshold");
 	return parts.length === 0 ? "-" : parts.join("+");
+}
+
+// A raw.json path may hold a pipe or backslash, which would split the cell or
+// escape the next character: escape both before a path enters a Markdown cell.
+function mdCell(value) {
+	return String(value).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 const COLUMNS = [
@@ -229,7 +238,7 @@ const COLUMNS = [
 	["cached in", (row) => numText(row.cachedTokens)],
 	["uncached in", (row) => numText(row.uncachedTokens)],
 	["cost proxy", (row) => numText(row.costProxy)],
-	["source", (row) => (row.source === null ? "n/a" : row.source)],
+	["source", (row) => (row.source === null ? "n/a" : mdCell(row.source))],
 ];
 
 function tableFor(rows) {
@@ -275,8 +284,9 @@ export function renderCompare(rows, sources = []) {
 		lines.push(`### ${label}`, "", tableFor(group.rows), "");
 	}
 	const mismatched = rows.filter((row) => row.windowMismatch || row.thresholdMismatch).length;
+	const configuredOnly = rows.filter((row) => !isNum(row.observedWindow) || !isNum(row.observedThreshold)).length;
 	lines.push(
-		`Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries and failed calls included), includes retry waits, and may include delegated or advisor calls, so its scope can exceed main-conversation time. JSON rows carry timingSource: provider, session (fallback when the provider stream measured nothing), or null. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage. Failures counts failed compactions; emergency fail is a lower bound over failures that recorded an emergency stage, because production omits the stage for some emergency failures. Seed is the fixture seed the run used: the bench seed plus the repeat minus one, or the repeat number when the bench ran without --seed. Window and threshold are the run's observed limits, falling back to the configured values; both values are in the JSON. ${mismatched} run(s) reported an observed limit that differs from the configured one; the limits column names the mismatched limit (window, threshold, or window+threshold). Token counts and the cost proxy fold in applied compaction summary calls only: a failed compaction reports no usage for any of its summary calls, so they are absent. The cost proxy is a weighted token estimate, not billing.`,
+		`Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries and failed calls included), includes retry waits, and may include delegated or advisor calls, so its scope can exceed main-conversation time. JSON rows carry timingSource: provider, session (fallback when the provider stream measured nothing), or null. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage. Failures counts failed compactions; emergency fail is a lower bound over failures that recorded an emergency stage, because production omits the stage for some emergency failures. Seed is the fixture seed the run used: the bench seed plus the repeat minus one, or the repeat number when the bench ran without --seed. Window and threshold are the run's observed limits, falling back to the configured values; both values are in the JSON. ${mismatched} run(s) reported an observed limit that differs from the configured one; the limits column names the mismatched limit (window, threshold, or window+threshold), combined with cfg when the other limit was not observed. ${configuredOnly} run(s) reported no observed limit and fall back to the configured values; the limits column marks them cfg. Token counts and the cost proxy fold in applied compaction summary calls only: a failed compaction reports no usage for any of its summary calls, so they are absent. The cost proxy is a weighted token estimate, not billing.`,
 		"",
 	);
 	return lines.join("\n");
