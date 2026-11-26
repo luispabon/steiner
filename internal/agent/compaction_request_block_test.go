@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1073,5 +1074,67 @@ func TestToProviderMessagesUserMessageKeepsTypedMarker(t *testing.T) {
 	got := ToProviderMessages([]Message{{Role: MessageRoleUser, Content: typed}})
 	if len(got) != 1 || got[0].Content != typed {
 		t.Fatalf("projection = %+v, want the user message verbatim", got)
+	}
+}
+
+func TestDropTailRequestBlockState(t *testing.T) {
+	t.Parallel()
+
+	segment := Message{Role: MessageRoleSummary, Content: withRequestBlock("Segment 1. facts", "segment request"), Segment: testSegment(1, 2)}
+	tests := []struct {
+		name        string
+		tail        Message
+		wantSummary string
+		wantPrefix  []Message
+	}{
+		{
+			name:        "history note tail keeps its body",
+			tail:        Message{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived", "tail request")},
+			wantSummary: "[steiner:history] archived",
+			wantPrefix: []Message{
+				segment,
+				{Role: MessageRoleSummary, Content: "[steiner:history] archived"},
+			},
+		},
+		{
+			name:        "block-only tail is removed",
+			tail:        Message{Role: MessageRoleSummary, Content: withRequestBlock("", "tail request")},
+			wantSummary: "",
+			wantPrefix:  []Message{segment},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			state := RunState{Lineage: ConversationLineage{
+				Generations:      []ConversationGeneration{{ID: 2, SummaryPrefix: []Message{segment, tt.tail}, Messages: []Message{{Role: MessageRoleUser, Content: "current request"}}}},
+				NextGenerationID: 3,
+			}}
+			state.Conversation = state.Lineage.FullMessages()
+			segmentJSON := mustJSON(t, []Message{segment})
+			sourceJSON := mustJSON(t, state.Lineage.Generations[0].SummaryPrefix)
+
+			next, summaryText, dropped := dropTailRequestBlockState(state)
+			if !dropped {
+				t.Fatal("dropTailRequestBlockState() reported no drop")
+			}
+			if summaryText != tt.wantSummary {
+				t.Errorf("summary text = %q, want %q", summaryText, tt.wantSummary)
+			}
+			prefix := next.Lineage.Generations[0].SummaryPrefix
+			if got := mustJSON(t, prefix[:1]); !bytes.Equal(got, segmentJSON) {
+				t.Fatalf("segment changed:\n got %s\nwant %s", got, segmentJSON)
+			}
+			if got, want := mustJSON(t, prefix), mustJSON(t, tt.wantPrefix); !bytes.Equal(got, want) {
+				t.Fatalf("summary prefix = %s, want %s", got, want)
+			}
+			if !sameMessages(next.Conversation, next.Lineage.FullMessages()) {
+				t.Fatal("conversation does not match the new lineage")
+			}
+			if got := mustJSON(t, state.Lineage.Generations[0].SummaryPrefix); !bytes.Equal(got, sourceJSON) {
+				t.Fatalf("source state summary prefix mutated:\n got %s\nwant %s", got, sourceJSON)
+			}
+		})
 	}
 }

@@ -856,3 +856,102 @@ func TestSegmentsFixture(t *testing.T) {
 		fixtureAssertSegmented(t, result)
 	})
 }
+
+// segmentCompactionMessages builds two immutable segments, a mutable tail with
+// note and request block, a two-message append span and one retained turn.
+func segmentCompactionMessages() []Message {
+	return []Message{
+		{Role: MessageRoleSummary, Content: segmentHeader(1) + "first facts", Segment: testSegment(1, 2)},
+		{Role: MessageRoleSummary, Content: segmentHeader(2) + "second facts", Segment: testSegment(2, 3)},
+		{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived to sessions/old.jsonl", "old request")},
+		{Role: MessageRoleUser, Content: "span request"},
+		{Role: MessageRoleAssistant, Content: "span reply"},
+		{Role: MessageRoleUser, Content: "current request"},
+	}
+}
+
+// mustJSON marshals a message slice for a byte-identity comparison.
+func mustJSON(t *testing.T, messages []Message) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(messages)
+	if err != nil {
+		t.Fatalf("marshal messages: %v", err)
+	}
+	return encoded
+}
+
+// segmentStageConversation builds the in-run shape of a segmented conversation:
+// two immutable segments, a mutable tail, a two-message append span and three
+// retained turns. Retention keeps the last three turns, so the append span is
+// FullMessages()[3:5].
+func segmentStageConversation() []Message {
+	return []Message{
+		{Role: MessageRoleSummary, Content: segmentHeader(1) + "first facts", Segment: testSegment(1, 2)},
+		{Role: MessageRoleSummary, Content: segmentHeader(2) + "second facts", Segment: testSegment(2, 3)},
+		{Role: MessageRoleSummary, Content: withRequestBlock("[steiner:history] archived to sessions/old.jsonl", "old request")},
+		{Role: MessageRoleUser, Content: "span request"},
+		{Role: MessageRoleAssistant, Content: "span reply"},
+		{Role: MessageRoleUser, Content: "recent one"},
+		{Role: MessageRoleAssistant, Content: "recent one reply"},
+		{Role: MessageRoleUser, Content: "recent two"},
+		{Role: MessageRoleAssistant, Content: "recent two reply"},
+		{Role: MessageRoleUser, Content: "recent three"},
+		{Role: MessageRoleAssistant, Content: "recent three reply"},
+	}
+}
+
+// segmentedCompactionPolicy is the default experiment policy, enabled.
+func segmentedCompactionPolicy() config.SegmentedCompactionPolicy {
+	policy := config.SegmentedCompactionPolicy{MaxSegments: 8, MaxChainPercent: 12.5, MaxPostCompactionPercent: 50}
+	policy.Enabled = true
+	return policy
+}
+
+// segmentedCompactionRequest builds a compaction request for the fixture
+// conversations: a large window so only the segment thresholds can rebase.
+func segmentedCompactionRequest(p provider.Provider, policy config.SegmentedCompactionPolicy) RunRequest {
+	return RunRequest{
+		Provider:            p,
+		ResolvedModel:       provider.ResolvedModel{BackendModelID: "test-model"},
+		SegmentedCompaction: policy,
+		ModelBudget: prompt.ModelTokenBudget{
+			ContextSize:               100000,
+			MaxCompletionTokens:       256,
+			SafetyMarginTokens:        0,
+			SummaryMaxTokens:          128,
+			NormalSummaryMaxTokens:    128,
+			EmergencySummaryMaxTokens: 64,
+		},
+	}
+}
+
+// oneSummaryProvider returns a fake provider that answers each summary call
+// with the next scripted text.
+func oneSummaryProvider(texts ...string) *fakeProvider {
+	responses := make([]provider.ChatResponse, 0, len(texts))
+	for _, text := range texts {
+		responses = append(responses, provider.ChatResponse{
+			Message:      provider.Message{Role: provider.MessageRoleAssistant, Content: text},
+			FinishReason: "stop",
+		})
+	}
+	return &fakeProvider{responses: responses}
+}
+
+func segmentDecisionLines(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read compaction log: %v", err)
+	}
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "segment_decision ") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
