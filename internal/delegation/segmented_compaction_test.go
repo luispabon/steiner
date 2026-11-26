@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/luispabon/steiner/internal/agent"
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/provider"
 	"github.com/luispabon/steiner/internal/tool"
 )
@@ -81,6 +82,75 @@ func TestSpecializedChildRunThreadsSegmentedCompaction(t *testing.T) {
 	}
 	if captured.SegmentedCompaction != policy {
 		t.Fatalf("child SegmentedCompaction = %+v, want %+v", captured.SegmentedCompaction, policy)
+	}
+}
+
+// TestFollowUpContinuationCarriesSegmentedCompaction proves a stored child
+// session's follow_up resume inherits the policy recorded on its original
+// request: buildContinuationRequest copies the request by value and runFollowUp
+// seeds it from session.Request.
+func TestFollowUpContinuationCarriesSegmentedCompaction(t *testing.T) {
+	t.Parallel()
+	policy := segmentedCompactionEnabledPolicy()
+	store := NewSessionStore()
+	store.Save(&ChildSession{
+		Spec:    Spec{AgentID: "child-segmented", Task: "inspect code", Limits: Limits{MaxTurns: 2}},
+		Request: agent.RunRequest{Prompt: promptWithConversation("initial task"), SegmentedCompaction: policy},
+		Conversation: []agent.Message{
+			{Role: agent.MessageRoleUser, Content: "initial task"},
+			{Role: agent.MessageRoleAssistant, Content: "first answer"},
+		},
+		TurnCount: 1,
+	})
+
+	var captured agent.RunRequest
+	handler := NewFollowUpHandler(SubAgentHandlerDeps{
+		SubAgentCfg:  config.SubAgentConfig{MaxTurns: 5, MaxTokens: 100, MaxFollowUps: 3},
+		Events:       noopEventSink{},
+		SessionStore: store,
+		Runner: &mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+			captured = req
+			return successRunState(), nil
+		}},
+	})
+
+	if _, err := handler(context.Background(), map[string]any{"agent_id": "child-segmented", "message": "continue"}); err != nil {
+		t.Fatalf("follow_up handler() error = %v", err)
+	}
+	if captured.SegmentedCompaction != policy {
+		t.Fatalf("follow-up request SegmentedCompaction = %+v, want %+v", captured.SegmentedCompaction, policy)
+	}
+}
+
+// TestRemediationContinuationCarriesSegmentedCompaction proves the post-run
+// remediation continuation, which runs after the initial child run, forwards
+// the policy carried by the request it derives its continuation from.
+func TestRemediationContinuationCarriesSegmentedCompaction(t *testing.T) {
+	t.Parallel()
+	policy := segmentedCompactionEnabledPolicy()
+	req := remediationTestRequest()
+	req.SegmentedCompaction = policy
+	var captured agent.RunRequest
+	runner := &mockRunner{runFunc: func(_ context.Context, got agent.RunRequest) (agent.RunState, error) {
+		captured = got
+		state := successRunState()
+		state.TurnCount = 2
+		return state, nil
+	}}
+	cfg := remediationConfigForDirty([]string{"changed.go"}, nil, func() (bool, error) { return true, nil })
+
+	_, _, _, outcome, err := applyRemediation(
+		context.Background(), remediationTestSpec(), req, runner,
+		successRunState(), TokenUsage{}, cfg, newTraceCollector("remediation-agent", "implement the task"),
+	)
+	if err != nil {
+		t.Fatalf("applyRemediation() error = %v", err)
+	}
+	if outcome != remediationAttempted {
+		t.Fatalf("outcome = %q, want %q", outcome, remediationAttempted)
+	}
+	if captured.SegmentedCompaction != policy {
+		t.Fatalf("remediation request SegmentedCompaction = %+v, want %+v", captured.SegmentedCompaction, policy)
 	}
 }
 

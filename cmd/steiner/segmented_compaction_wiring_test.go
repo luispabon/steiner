@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,109 @@ func TestDelegateDepsCarrySegmentedCompactionPolicy(t *testing.T) {
 	deps := runner.newDelegateDeps(runnerSetup{}, nil, nil, nil, "")
 	if deps.SegmentedCompaction != policy {
 		t.Errorf("DelegateDeps.SegmentedCompaction = %+v, want %+v", deps.SegmentedCompaction, policy)
+	}
+}
+
+// segmentedCompactionRuntimeFixture writes a minimal provider config into a
+// temp project and isolates the caches and home state, so the real runtime
+// builders run without touching the developer's directories.
+func segmentedCompactionRuntimeFixture(t *testing.T) (*cobra.Command, *cliFlags, string) {
+	t.Helper()
+	useSeededModelsDevCache(t)
+	isolateQuotaState(t)
+	projectRoot := t.TempDir()
+	configPath := filepath.Join(projectRoot, "config.yaml")
+	writeFile(t, configPath, `providers:
+  openrouter:
+    type: openrouter
+    api_key: sk-test
+models:
+  profiles:
+    default:
+      default_model: router
+  definitions:
+    router:
+      provider: openrouter
+      id: anthropic/claude-sonnet-5-5
+`)
+	cmd := &cobra.Command{}
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	return cmd, &cliFlags{configPath: configPath, trustProjectConfig: true, exec: true}, projectRoot
+}
+
+// segmentedEnabledFromEnv returns the policy the env vars in the test should
+// parse to, so the assertion does not restate the parser's defaults.
+func segmentedEnabledFromEnv(t *testing.T) agent.SegmentedCompactionPolicy {
+	t.Helper()
+	want, err := agent.ParseSegmentedCompactionPolicy(os.LookupEnv)
+	if err != nil {
+		t.Fatalf("ParseSegmentedCompactionPolicy() error = %v", err)
+	}
+	if !want.Enabled {
+		t.Fatal("parsed policy is disabled; the test env vars did not take effect")
+	}
+	return want
+}
+
+// TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction proves the oneshot
+// phase runtime built through newPhaseRunner (and its real buildPhaseRuntime
+// constructor) carries the policy parsed from the environment.
+func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
+	t.Setenv(agent.SegmentedCompactionEnv, "1")
+	t.Setenv(agent.SegmentMaxCountEnv, "3")
+	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
+
+	phase, err := newPhaseRunner(context.Background(), cmd, flags, phaseRunnerParams{
+		ProjectRoot: projectRoot,
+		WorkDir:     projectRoot,
+		MaxTurns:    1,
+	})
+	if err != nil {
+		t.Fatalf("newPhaseRunner() error = %v", err)
+	}
+	runner, ok := phase.(phaseRunner)
+	if !ok {
+		t.Fatalf("newPhaseRunner() = %T, want phaseRunner", phase)
+	}
+	rt := runner.runner.runtime
+	t.Cleanup(func() { closeRuntime(&rt) })
+
+	want := segmentedEnabledFromEnv(t)
+	if want.MaxSegments != 3 {
+		t.Fatalf("parsed MaxSegments = %d, want the test env value 3", want.MaxSegments)
+	}
+	if got := rt.segmentedCompaction; got != want {
+		t.Fatalf("phase runtime segmentedCompaction = %+v, want %+v", got, want)
+	}
+}
+
+// TestInteractiveRuntimeCarriesParsedSegmentedCompaction proves the policy
+// parsed by the real runtime builder survives the interactive session and
+// buildInteractiveRuntime rewiring.
+func TestInteractiveRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
+	t.Setenv(agent.SegmentedCompactionEnv, "1")
+	t.Setenv(agent.SegmentMaxChainPercentEnv, "20")
+	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
+
+	rt, err := buildRuntimeWithRoots(context.Background(), cmd, flags, projectRoot, projectRoot, "")
+	if err != nil {
+		t.Fatalf("buildRuntimeWithRoots() error = %v", err)
+	}
+	t.Cleanup(func() { closeRuntime(&rt) })
+	sess, err := buildInteractiveSession(rt)
+	if err != nil {
+		t.Fatalf("buildInteractiveSession() error = %v", err)
+	}
+	rt = buildInteractiveRuntime(rt, sess)
+
+	want := segmentedEnabledFromEnv(t)
+	if want.MaxChainPercent != 20 {
+		t.Fatalf("parsed MaxChainPercent = %v, want the test env value 20", want.MaxChainPercent)
+	}
+	if got := rt.segmentedCompaction; got != want {
+		t.Fatalf("interactive runtime segmentedCompaction = %+v, want %+v", got, want)
 	}
 }
 
