@@ -4,9 +4,10 @@
 //
 // Usage:
 //   node scripts/diagnostics.mjs <mode> [flags]
+//   node scripts/diagnostics.mjs peak <file...> [flags]
 //   node scripts/diagnostics.mjs prefix <logfile> [flags]
 //
-// Modes: cache | provider | tools | coldturns | mutate | tui | prefix <logfile>
+// Modes: cache | provider | tools | coldturns | mutate | tui | peak <file...> | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
 // stream: cache.jsonl, provider.jsonl, tool.jsonl, internal.jsonl (no mode
@@ -19,6 +20,15 @@
 // prefix divergence needs the message_hashes sequence, which only exists
 // there -- it never moves to the diagnostics envelope.
 //
+// peak reads one or more session logs and groups model_call_finished
+// prompt_tokens by run and agent. A session log exists only when logging is
+// enabled (--log-file, or logging.enabled with logging.file), which is off by
+// default, so peak also accepts STEINER_USAGE_TELEMETRY files. The format is
+// detected per line; a telemetry line is kind: "usage" and carries
+// prompt_tokens but no agent id (source stands in) and no run id unless
+// STEINER_USAGE_TELEMETRY_RUN was set, so lines from unlabelled runs collapse
+// into one group.
+//
 // Flags:
 //   --dir <path>          diagnostics directory (default: $XDG_STATE_HOME/steiner/diagnostics,
 //                          else ~/.local/state/steiner/diagnostics -- mirrors
@@ -30,8 +40,8 @@
 //                          delta, for every row of the running mode. This is
 //                          the before/after operation: every record carries
 //                          build_sha for exactly this reason. Not valid with
-//                          prefix or coldturns mode, which read more or less
-//                          than one stream.
+//                          prefix, coldturns or peak mode, which read session
+//                          logs or more than one stream.
 //   --json                 print aggregates as JSON instead of tables
 //   --top N                cap unbounded per-key listings (default 20; tui lists every
 //                          message type, costliest first)
@@ -856,6 +866,106 @@ function runColdTurns(cacheRecords, toolRecords) {
 	printTable("coldturns excluded (no cache reporting)", sections.excluded_no_cache_reporting, []);
 }
 
+// --------------------------------------------------------------- peak mode
+
+// PEAK_BUCKETS are the main-agent peak prompt sizes the summary counts runs
+// at or above. 200k and 1M are the context windows the compaction threshold
+// experiment compares; 500k sits between them.
+const PEAK_BUCKETS = [
+	{ label: ">= 200k", min: 200_000 },
+	{ label: ">= 500k", min: 500_000 },
+	{ label: ">= 1M", min: 1_000_000 },
+];
+
+// MAIN_AGENT is the group name for the parent agent: session log events leave
+// scope.agent_id empty for the parent, and telemetry labels the parent
+// source: "parent".
+const MAIN_AGENT = "main";
+
+// FLAGS_WITH_VALUE are the flags whose next token is a value, so peak does
+// not read a flag value as an input file.
+const FLAGS_WITH_VALUE = new Set(["--dir", "--since", "--until", "--sha", "--top", "--min-n", "--baseline-sha", "--exclude-run", "--model", "--samples", "--cause"]);
+
+function positionalArgs(args) {
+	const out = [];
+	for (let i = 0; i < args.length; i++) {
+		if (FLAGS_WITH_VALUE.has(args[i])) {
+			i++;
+			continue;
+		}
+		if (args[i].startsWith("--")) continue;
+		out.push(args[i]);
+	}
+	return out;
+}
+
+// peakObservation converts one input line to {runID, agent, tokens}, or null
+// for lines peak does not measure. Session log events carry a top-level
+// run_id and a scope.agent_id; telemetry usage lines carry neither an agent
+// id nor, without STEINER_USAGE_TELEMETRY_RUN, a run id.
+function peakObservation(line) {
+	if (line?.type === "model_call_finished") {
+		const tokens = line.payload?.prompt_tokens;
+		if (!Number.isFinite(tokens)) return null;
+		return { runID: line.run_id ?? "", agent: line.scope?.agent_id || MAIN_AGENT, tokens };
+	}
+	if (line?.kind === "usage") {
+		if (!Number.isFinite(line.prompt_tokens)) return null;
+		const source = line.source ?? "";
+		return { runID: line.run_id ?? "", agent: source === "" || source === "parent" ? MAIN_AGENT : source, tokens: line.prompt_tokens };
+	}
+	return null;
+}
+
+function peakGroups(observations) {
+	const groups = new Map();
+	for (const o of observations) {
+		const key = `${o.runID || "(no run_id)"}/${o.agent}`;
+		const group = groups.get(key) ?? { key, runID: o.runID, agent: o.agent, calls: 0, peak: 0 };
+		group.calls++;
+		group.peak = Math.max(group.peak, o.tokens);
+		groups.set(key, group);
+	}
+	return [...groups.values()].sort((a, b) => b.peak - a.peak || a.key.localeCompare(b.key));
+}
+
+// peakSummary counts runs and the runs whose main-agent peak reaches each
+// bucket. A run whose only measured calls are sub-agent ones still counts as
+// a run, but contributes no main-agent peak.
+function peakSummary(groups) {
+	const runs = new Set(groups.map((g) => g.runID));
+	const mainPeaks = new Map();
+	for (const g of groups) {
+		if (g.agent !== MAIN_AGENT) continue;
+		mainPeaks.set(g.runID, Math.max(mainPeaks.get(g.runID) ?? 0, g.peak));
+	}
+	const atLeast = {};
+	const rows = [{ key: "runs", n: runs.size, metrics: { share: runs.size ? 1 : 0 } }];
+	for (const bucket of PEAK_BUCKETS) {
+		const count = [...mainPeaks.values()].filter((peak) => peak >= bucket.min).length;
+		atLeast[String(bucket.min)] = count;
+		rows.push({ key: `main peak ${bucket.label}`, n: count, metrics: { share: runs.size ? count / runs.size : 0 } });
+	}
+	return { runs: runs.size, atLeast, rows };
+}
+
+const PEAK_COLUMNS = [{ name: "peak_prompt_tokens", value: (r) => r.metrics.peakPromptTokens, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) }];
+
+const PEAK_SHARE_COLUMNS = [{ name: "share", value: (r) => r.metrics.share, fmt: (v) => (v * 100).toFixed(1) + "%", fmtDelta: (d) => (d * 100).toFixed(1) + "pp" }];
+
+function runPeak(files) {
+	const observations = files.flatMap((file) => readJsonl(file).map(peakObservation)).filter(Boolean);
+	const groups = peakGroups(observations);
+	const summary = peakSummary(groups);
+	const rows = capTop(groups).map((g) => ({ key: g.key, n: g.calls, metrics: { peakPromptTokens: g.peak } }));
+	if (AS_JSON) {
+		console.log(JSON.stringify({ files: files.length, runs: summary.runs, main_peak_at_least: summary.atLeast, by_run_agent: rows }, null, 1));
+		return;
+	}
+	printTable("peak main-agent threshold counts", summary.rows, PEAK_SHARE_COLUMNS);
+	printTable(`peak prompt tokens by run/agent (${files.length} file${files.length === 1 ? "" : "s"})`, rows, PEAK_COLUMNS);
+}
+
 // ------------------------------------------------------------- prefix mode
 
 // longestCommonPrefixLen mirrors internal/agent/cache_diagnostics.go's
@@ -932,6 +1042,26 @@ function loadEnvelope(kind) {
 }
 
 function main() {
+	if (MODE === "peak") {
+		if (COMPARE) {
+			console.error("--compare does not apply to peak mode, which reads session logs and telemetry files");
+			process.exit(1);
+		}
+		const files = positionalArgs(argv.slice(1));
+		if (files.length === 0) {
+			console.error("usage: node scripts/diagnostics.mjs peak <file...> [--json]");
+			console.error("       <file> is a session log (JSONL with model_call_finished events) or a");
+			console.error("       STEINER_USAGE_TELEMETRY file; the format is detected per line, so");
+			console.error("       rotated generations and both formats may be passed together.");
+			console.error("       A session log exists only with --log-file or logging.enabled.");
+			console.error("       Telemetry lines carry no agent id (source stands in) and share one run");
+			console.error("       unless STEINER_USAGE_TELEMETRY_RUN was set.");
+			process.exit(1);
+		}
+		runPeak(files);
+		return;
+	}
+
 	if (MODE === "prefix") {
 		if (COMPARE) {
 			console.error("--compare does not apply to prefix mode, which reads a single session log");
@@ -988,7 +1118,8 @@ function main() {
 	}
 
 	if (!["cache", "provider", "tools"].includes(MODE)) {
-		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate|tui> [flags]");
+		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate|tui|peak> [flags]");
+		console.error("       node scripts/diagnostics.mjs peak <file...> [flags]");
 		console.error("       node scripts/diagnostics.mjs prefix <logfile> [flags]");
 		process.exit(1);
 	}

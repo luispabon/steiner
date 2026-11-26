@@ -1,0 +1,4 @@
+{"kind":"usage","ts":"2026-09-03T10:00:00Z","run_id":"run-tel","seq":1,"source":"parent","provider_type":"openai_compat","backend_model_id":"beam-free","prompt_tokens":500000,"cache_read_tokens":0,"cache_create_tokens":0,"completion_tokens":500}
+{"kind":"ws","ts":"2026-09-03T10:00:01Z","run_id":"run-tel","event":"dial"}
+{"kind":"usage","ts":"2026-09-03T10:00:05Z","run_id":"run-tel","seq":2,"source":"sub_agent","provider_type":"openai_compat","backend_model_id":"beam-free","prompt_tokens":900000,"cache_read_tokens":0,"cache_create_tokens":0,"completion_tokens":400}
+{"kind":"usage","ts":"2026-09-03T10:00:10Z","seq":3,"source":"parent","provider_type":"openai_compat","backend_model_id":"beam-free","prompt_tokens":20000,"cache_read_tokens":0,"cache_create_tokens":0,"completion_tokens":200}

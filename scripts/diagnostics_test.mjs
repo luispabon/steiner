@@ -22,6 +22,14 @@ const COLDTURN_FIXTURES = join(FIXTURES, "coldturns");
 // prefix_predecessor_known behaviours. Kept apart from coldturns/ so the
 // original set's row counts stay pinned by their own assertions.
 const COLDTURN_SEQ_FIXTURES = join(FIXTURES, "coldturns_seq");
+// peak reads whole files positional-style, so its session logs and telemetry
+// lines are a set of their own: one rotated session pair plus a telemetry
+// file, standing in for the two formats a single run may leave behind.
+const PEAK_FIXTURES = join(FIXTURES, "peak");
+const PEAK_SESSION_OLD = join(PEAK_FIXTURES, "session.jsonl.1");
+const PEAK_SESSION = join(PEAK_FIXTURES, "session.jsonl");
+const PEAK_TELEMETRY = join(PEAK_FIXTURES, "telemetry.jsonl");
+const PEAK_FILES = [PEAK_SESSION_OLD, PEAK_SESSION, PEAK_TELEMETRY];
 
 function run(args) {
 	const out = execFileSync("node", [SCRIPT, ...args], { encoding: "utf8" });
@@ -555,4 +563,88 @@ test("tui mode lists every message type, costliest first, in both compare column
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+// --------------------------------------------------------------- peak mode
+
+const peak = (files, extra = []) => run(["peak", ...files, "--json", ...extra]);
+
+// Pinned counts, computed by hand from the fixture files:
+//   run-old:  main 120000, 240000; child-1 900000
+//   run-new:  main 150000, 1000000; child-2 2000000
+//   run-mid:  main 199999; child-3 600000
+//   run-tel:  telemetry parent 500000, sub_agent 900000
+//   (no run_id): telemetry parent 20000
+// 9 groups over 5 runs. run-mid's 199999 sits one token under the 200k
+// bucket on purpose, and 500000/1000000 sit exactly on their buckets.
+test("peak: combines rotated generations and telemetry lines into run/agent groups", () => {
+	const out = peak(PEAK_FILES);
+	assert.equal(out.files, 3);
+	assert.equal(out.runs, 5);
+	assert.equal(out.by_run_agent.length, 9);
+
+	const group = (key) => out.by_run_agent.find((r) => r.key === key);
+	assert.deepEqual(group("run-old/main"), { key: "run-old/main", n: 2, metrics: { peakPromptTokens: 240000 } });
+	assert.deepEqual(group("run-new/main"), { key: "run-new/main", n: 2, metrics: { peakPromptTokens: 1000000 } });
+	assert.equal(group("run-new/child-2").metrics.peakPromptTokens, 2000000);
+	assert.equal(group("run-mid/child-3").metrics.peakPromptTokens, 600000);
+	// Telemetry has no agent id: source stands in for it, and parent is main.
+	assert.deepEqual(group("run-tel/main"), { key: "run-tel/main", n: 1, metrics: { peakPromptTokens: 500000 } });
+	assert.equal(group("run-tel/sub_agent").metrics.peakPromptTokens, 900000);
+	// Without STEINER_USAGE_TELEMETRY_RUN the run id is absent and lines collapse.
+	assert.deepEqual(group("(no run_id)/main"), { key: "(no run_id)/main", n: 1, metrics: { peakPromptTokens: 20000 } });
+});
+
+test("peak: a single rotated generation stands on its own", () => {
+	const old = peak([PEAK_SESSION_OLD]);
+	assert.equal(old.runs, 1);
+	assert.equal(old.by_run_agent.length, 2);
+	assert.deepEqual(old.main_peak_at_least, { 200000: 1, 500000: 0, 1000000: 0 });
+
+	const active = peak([PEAK_SESSION]);
+	assert.equal(active.runs, 2);
+	assert.deepEqual(active.main_peak_at_least, { 200000: 1, 500000: 1, 1000000: 1 });
+});
+
+test("peak: main-agent buckets count at-or-above and ignore sub-agent peaks", () => {
+	const out = peak(PEAK_FILES);
+	// run-old 240000, run-new 1000000, run-tel 500000 clear 200k; run-mid
+	// (199999) and (no run_id) (20000) do not. child-1/child-2/child-3 and
+	// run-tel/sub_agent are above their run's main peak but never counted.
+	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
+});
+
+test("peak: --top caps the group listing, not the run summary", () => {
+	const out = peak(PEAK_FILES, ["--top", "2"]);
+	assert.equal(out.by_run_agent.length, 2);
+	assert.equal(out.runs, 5);
+	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
+});
+
+test("peak: a flag value is not read as an input file", () => {
+	// With no files but a value-taking flag, the old positional handling would
+	// treat "1" as a path and print an empty result instead of the usage error.
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", "--top", "1", "--json"], { encoding: "utf8", stdio: "pipe" }),
+		/USAGE_TELEMETRY/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak"], { encoding: "utf8", stdio: "pipe" }),
+		/usage: node scripts\/diagnostics\.mjs peak/,
+	);
+});
+
+test("peak: --compare is refused rather than silently ignored", () => {
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, "--compare", "a", "b"], { encoding: "utf8", stdio: "pipe" }),
+		/--compare does not apply to peak mode/,
+	);
+});
+
+test("peak: the text tables print the summary and per-group peak", () => {
+	const out = execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES], { encoding: "utf8" });
+	assert.match(out, /peak main-agent threshold counts/);
+	assert.match(out, /main peak >= 200k\s+3\s+60\.0%/);
+	assert.match(out, /peak prompt tokens by run\/agent \(3 files\)/);
+	assert.match(out, /run-new\/main\s+2\s+1000000/);
 });
