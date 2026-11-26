@@ -144,7 +144,8 @@ func (a *fixtureHistoryArchive) Append(context.Context, []Message) error {
 
 // fixturePolicy is the segmented compaction policy the fixture exercises. A
 // disabled policy is the zero value; the enabled one caps the chain at four
-// segments with the token thresholds high enough that only max-segments rebases.
+// segments with the production chain and post-compaction defaults, so only
+// max-segments rebases.
 func fixturePolicy(enabled bool) SegmentedCompactionPolicy {
 	if !enabled {
 		return SegmentedCompactionPolicy{}
@@ -152,8 +153,8 @@ func fixturePolicy(enabled bool) SegmentedCompactionPolicy {
 	return SegmentedCompactionPolicy{
 		Enabled:                  true,
 		MaxSegments:              fixtureMaxSegments,
-		MaxChainPercent:          100,
-		MaxPostCompactionPercent: 100,
+		MaxChainPercent:          12.5,
+		MaxPostCompactionPercent: 50,
 	}
 }
 
@@ -169,6 +170,25 @@ func fixtureExpectedDecisions() []fixtureDecision {
 		{Action: "rebase", Reason: "max-segments", Sequence: 1},
 		{Action: "append", Reason: "append", Sequence: 2},
 	}
+}
+
+// fixturePlainSummaries derives the flag-off summarizer response of every
+// compaction: equal information content in both modes, so the comparison
+// isolates cache layout; real rewrite summaries may compress more. Each
+// response is the blank-line joined concatenation of the on-mode segment
+// bodies in the chain after that compaction, so a rebase starts a new chain.
+func fixturePlainSummaries(decisions []fixtureDecision, summaries []string) []string {
+	out := make([]string, len(decisions))
+	var chain []string
+	for i, decision := range decisions {
+		if decision.Action == "rebase" {
+			chain = []string{summaries[i]}
+		} else {
+			chain = append(chain, summaries[i])
+		}
+		out[i] = strings.Join(chain, "\n\n")
+	}
+	return out
 }
 
 func fixtureReadJSON(t *testing.T, name string, into any) {
@@ -196,7 +216,11 @@ func fixtureRunConversation(t *testing.T, policy SegmentedCompactionPolicy) fixt
 		t.Fatal("fixture files must be non-empty")
 	}
 
-	script := &fixtureScript{turns: turns.Turns, summaries: summaries.Summaries}
+	summaryTexts := summaries.Summaries
+	if !policy.Enabled {
+		summaryTexts = fixturePlainSummaries(fixtureExpectedDecisions(), summaries.Summaries)
+	}
+	script := &fixtureScript{turns: turns.Turns, summaries: summaryTexts}
 	providerStub := &fakeProvider{chatFn: script.chat}
 	archive := &fixtureHistoryArchive{}
 	logPath := filepath.Join(t.TempDir(), "compaction.log")
@@ -205,7 +229,6 @@ func fixtureRunConversation(t *testing.T, policy SegmentedCompactionPolicy) fixt
 		Provider:      providerStub,
 		ResolvedModel: provider.ResolvedModel{BackendModelID: "fixture-model"},
 		Prompt: prompt.AssemblyOptions{
-			CachedPreamble:     "fixture preamble",
 			SkipAgents:         true,
 			SkipProjectContext: true,
 		},
@@ -224,8 +247,9 @@ func fixtureRunConversation(t *testing.T, policy SegmentedCompactionPolicy) fixt
 		Events:              output.NoopSink{},
 		ContextManager:      NewContextStateManager(),
 	}
-	base := req.Prompt
-	base.Conversation = nil
+	// Main turns and summarizer calls both carry the session system preamble
+	// prepareBasePrompt renders, so they share the same static prefix.
+	base := prepareBasePrompt(req)
 	progressor := newTurnProgressor(req, base, (&Runner{}).compactConversationForBudget)
 
 	ctx := context.Background()
@@ -625,10 +649,11 @@ func fixtureAssertPlain(t *testing.T, result fixtureResult) {
 
 	var summaries fixtureSummariesFile
 	fixtureReadJSON(t, "summaries.json", &summaries)
+	plain := fixturePlainSummaries(fixtureExpectedDecisions(), summaries.Summaries)
 	final := result.State.Lineage.FullMessages()[0]
-	last := summaries.Summaries[result.SummaryCalls-1]
-	if !strings.Contains(final.Content, last) {
-		t.Fatalf("flag-off final summary = %q, want the last canned summary %q", final.Content, last)
+	want := plain[result.SummaryCalls-1]
+	if !strings.Contains(final.Content, want) {
+		t.Fatalf("flag-off final summary = %q, want the concatenated segment bodies %q", final.Content, want)
 	}
 
 	// Each main request after the first compaction carries exactly one leading
