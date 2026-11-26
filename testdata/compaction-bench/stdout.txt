@@ -1,0 +1,8 @@
+status: run started mode=build model=test-alias turn_limit=80
+assistant> read notes/f01.txt
+tool: read notes/f01.txt 412 bytes
+assistant: turn 1 role assistant content Starting at notes/f01.txt.
+assistant: turn 8 role assistant content f01: K7-QX42
+f02: A1-BC23
+f03: E3-FG67
+status: stopped after 80 turns: reached the max turn limit next: increase limits.max_turns or continue in a new prompt
