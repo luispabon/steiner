@@ -20,12 +20,12 @@ const legacyRetrySteering = `This is a retry of the summary request above. The p
 Do not call tools. Any tool call will be discarded and not executed. Reply with the plain-text handoff summary in the format requested above.`
 
 // TestSegmentedRetryRebasedPlanNoFitReportsFailure pins the retry ladder's
-// mapping of a rebuilt-plan fit failure to retry_does_not_fit. A retry from an
-// accepted stage reuses that stage's source and only swaps the longer append
-// instruction for the ordinary one, so its rebuilt plan is never larger: in the
-// segmentStageConversation fixture the accepted append request first fits a
-// 2734-token window while the rebuilt rebase plan fits a 2718-token window, so
-// this branch is defensive. Injecting the builder error proves the mapping itself.
+// mapping of a rebuilt-plan fit failure to retry_does_not_fit. This branch is
+// defensive in the segmentStageConversation fixture: the accepted append request
+// first fits a 2734-token window, the unsteered rebuilt rebase plan a 2718-token
+// window, and the steered retry 2771, so a real retry fails later on the steered
+// fit (covered by TestSegmentedRetryRebaseNoFitKeepsStateAndReportsFailure).
+// Injecting the builder error proves the mapping itself.
 func TestSegmentedRetryRebasedPlanNoFitReportsFailure(t *testing.T) {
 	providerStub := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply()}}
 	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
@@ -47,6 +47,99 @@ func TestSegmentedRetryRebasedPlanNoFitReportsFailure(t *testing.T) {
 	}
 	if calls.response.Message.Content != "" || len(providerStub.requests) != 1 {
 		t.Fatalf("response = %q, provider calls = %d, want no adoption and one request", calls.response.Message.Content, len(providerStub.requests))
+	}
+}
+
+// TestSegmentedRetryRebaseNoFitKeepsStateAndReportsFailure drives the real
+// steered no-fit branch: the append plan is accepted at the chosen window, the
+// retry plan fits unsteered, and only the retry steering pushes the request over,
+// so the ladder fails after rebuilding the plan rather than in the builder.
+func TestSegmentedRetryRebaseNoFitKeepsStateAndReportsFailure(t *testing.T) {
+	full := segmentStageConversation()
+	probe := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply(), summaryResponse("rebased facts")}}
+	probeReq := segmentedCompactionRequest(probe, segmentedCompactionPolicy())
+	probeState := stateFromMessages(full)
+	candidate, ok := selectCompactionCandidate(probeState.Lineage, nil)
+	if !ok {
+		t.Fatal("selectCompactionCandidate() ok = false, want true")
+	}
+	if _, err := (summarizeCompactor{}).Compact(context.Background(), probeReq, probeState, 1, candidate, ""); err != nil {
+		t.Fatalf("probe Compact() error = %v", err)
+	}
+	if len(probe.requests) != 2 {
+		t.Fatalf("probe summary calls = %d, want 2", len(probe.requests))
+	}
+	budget := probeReq.ModelBudget
+	budget.ContextSize = 100000
+	firstEstimate, err := provider.EstimateChatRequestTokens(context.Background(), probe.requests[0])
+	if err != nil {
+		t.Fatalf("estimate first request: %v", err)
+	}
+	retryEstimate, err := provider.EstimateChatRequestTokens(context.Background(), probe.requests[1])
+	if err != nil {
+		t.Fatalf("estimate retry request: %v", err)
+	}
+	fits := func(request provider.ChatRequest) bool {
+		t.Helper()
+		fit, err := budget.FitCompactionRequest(context.Background(), request)
+		if err != nil {
+			t.Fatalf("FitCompactionRequest() error = %v", err)
+		}
+		return fit.Fits
+	}
+	maxContextSize := max(firstEstimate, retryEstimate) + 512
+	firstFitsAt, retryFitsAt := 0, 0
+	for size := 1; size <= maxContextSize; size++ {
+		budget.ContextSize = size
+		if firstFitsAt == 0 && fits(probe.requests[0]) {
+			firstFitsAt = size
+		}
+		if retryFitsAt == 0 && fits(probe.requests[1]) {
+			retryFitsAt = size
+		}
+	}
+	if firstFitsAt == 0 || retryFitsAt <= firstFitsAt {
+		t.Fatalf("fit thresholds first=%d retry=%d, want append to fit before rebuilt rebase", firstFitsAt, retryFitsAt)
+	}
+	providerStub := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply()}}
+	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
+	req.ModelBudget.ContextSize = retryFitsAt - 1
+	state := stateFromMessages(full)
+	before := state.Clone()
+	archive := &fakeHistoryArchive{note: "[steiner:history] archived"}
+	req.HistoryArchive = archive
+	req.CompactionLogPath = filepath.Join(t.TempDir(), "compaction.log")
+	var rec eventRecorder
+	req.Events = rec.sink()
+	_, applied, _, err := (&Runner{}).compactConversationForBudgetWithSteering(context.Background(), req, &state, 1, nil, map[string]bool{}, new(int), "")
+	var summaryErr *compactionSummaryError
+	if !errors.As(err, &summaryErr) || summaryErr.Reason != summaryFailRetryNoFit || summaryErr.Attempts != 1 || len(summaryErr.Details) != 1 {
+		t.Fatalf("compaction error = %v, want retry_does_not_fit with first attempt details", err)
+	}
+	if applied || len(providerStub.requests) != 1 {
+		t.Fatalf("applied = %t, provider calls = %d, want no adoption and one request", applied, len(providerStub.requests))
+	}
+	if !reflect.DeepEqual(state, before) {
+		t.Fatal("failed retry changed conversation or lineage")
+	}
+	if len(archive.notes) != 0 || len(archive.appends) != 0 {
+		t.Fatalf("archive Note calls = %d, Append calls = %d, want none", len(archive.notes), len(archive.appends))
+	}
+	if lines := segmentDecisionLines(t, req.CompactionLogPath); len(lines) != 0 {
+		t.Fatalf("segment decision log = %v, want none for failed retry", lines)
+	}
+	var failed bool
+	for _, event := range rec.snapshot() {
+		if event.Type != output.EventTypeContextDiagnostics {
+			continue
+		}
+		payload, ok := output.AsContextCompactionEvent(event.Payload)
+		if ok && payload.CompactionResult == output.CompactionResultFailed {
+			failed = payload.SummaryFailureReason == summaryFailRetryNoFit && payload.SummaryAttempts == 1
+		}
+	}
+	if !failed {
+		t.Fatal("failed compaction diagnostics omitted retry_does_not_fit")
 	}
 }
 
@@ -104,6 +197,10 @@ func TestSegmentedPlainEmptySourceDropsBlockOnlyAndRetainsSummary(t *testing.T) 
 	if outcome.RequestBlock != output.RequestBlockCarried {
 		t.Fatalf("plain outcome request block = %q, want carried", outcome.RequestBlock)
 	}
+	// The state below is synthetic on purpose. A summarizer must return text, so
+	// it cannot produce a block-only reply, but stripping the history note or
+	// other summary content can leave only the request block. Construct that
+	// stored shape so the block drop is exercised against it.
 	blockOnly := withRequestBlock("", "old request")
 	blockState := outcome.State.Clone()
 	latest := &blockState.Lineage.Generations[len(blockState.Lineage.Generations)-1]
