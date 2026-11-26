@@ -26,7 +26,7 @@ func needsEmergencyCompaction(fit prompt.RequestTokenBudget) bool {
 	}
 	threshold := fit.CompactionThreshold
 	if threshold <= 0 {
-		threshold = compactionUsageThreshold
+		threshold = provider.DefaultCompactionThreshold
 	}
 	return fit.PromptUsage >= threshold
 }
@@ -34,7 +34,7 @@ func needsEmergencyCompaction(fit prompt.RequestTokenBudget) bool {
 func emergencyCompactionError(fit prompt.RequestTokenBudget) error {
 	threshold := fit.CompactionThreshold
 	if threshold <= 0 {
-		threshold = compactionUsageThreshold
+		threshold = provider.DefaultCompactionThreshold
 	}
 	return fmt.Errorf(
 		"emergency compaction could not reduce context enough: prompt=%d context_window=%d usage=%.0f%% compaction_threshold=%.0f%%",

@@ -102,6 +102,10 @@ const defaultContextWindow = 32768
 // max_tokens the Anthropic wire sends when a request sets none.
 const DefaultMaxOutputTokens = 4096
 
+// DefaultCompactionThreshold is the prompt-usage fraction of the context window
+// at which compaction triggers when no absolute threshold is configured.
+const DefaultCompactionThreshold = 0.70
+
 // resolveEffectiveLimits derives runtime effective limits from the user-configured
 // advanced limits, filling in missing values with sensible defaults based on
 // known fields. When nothing is configured, uses fallback defaults.
@@ -120,7 +124,7 @@ func deriveEffectiveLimits(contextWindow, maxOutputTokens, compactionThresholdTo
 		ContextWindow:             contextWindow,
 		MaxOutputTokens:           maxOutputTokens,
 		CompactionThresholdTokens: compactionThresholdTokens,
-		CompactionThreshold:       0.70,
+		CompactionThreshold:       DefaultCompactionThreshold,
 		EstimatorPadTokens:        clampInt(contextWindow/100, 256, 2048),
 		NormalSummaryMaxTokens:    deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 8, 6144, 20480),
 		EmergencySummaryMaxTokens: deriveSummaryMaxTokens(contextWindow, maxOutputTokens, 4, 3072, 10240),

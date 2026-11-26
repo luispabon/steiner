@@ -62,7 +62,7 @@ func statefulUsageAboveThreshold(usage *provider.UsageStats, contextSize int, th
 	if usage == nil || contextSize <= 0 {
 		return false
 	}
-	threshold := compactionUsageThreshold
+	threshold := provider.DefaultCompactionThreshold
 	if thresholdPercent > 0 {
 		threshold = thresholdPercent
 	}
