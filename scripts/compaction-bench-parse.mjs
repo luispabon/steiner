@@ -158,6 +158,8 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 	const retainedTail = [];
 	let compactions = 0;
 	let emergencyCompactions = 0;
+	let compactionFailures = 0;
+	let emergencyFailures = 0;
 	let malformed = 0;
 	let nonReadFileAccess = 0;
 	let contextWindow = null;
@@ -210,14 +212,23 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 		}
 		if (record.type === "context_diagnostics") {
 			if (payload.kind !== "compaction") continue;
-			if (COMPACTION_START_SEVERITIES.has(payload.severity)) continue;
 			if (scopedToSubAgent(record)) continue;
+			// A failed compaction adopts no state and reuses the skipped severity, so
+			// count it separately from applied compactions rather than hiding it.
+			if (payload.severity === "skipped" && payload.compaction_result === "failed") {
+				compactionFailures++;
+				if (stageNames(payload.stages).includes("emergency")) emergencyFailures++;
+				continue;
+			}
+			if (COMPACTION_START_SEVERITIES.has(payload.severity)) continue;
 			compactions++;
 			events.push({ kind: "compaction", index: compactions });
 			compactionCalls.push(parseCompactionCall(payload));
 			if (stageNames(payload.stages).includes("emergency")) emergencyCompactions++;
 			const stage = finalAppliedStage(payload.stages);
-			if (stage !== null && Number.isFinite(stage.retained_tokens)) retainedTail.push(stage.retained_tokens);
+			// An applied stage always reports retained_tokens; a missing field is a
+			// zero-sized tail, not an absent measurement.
+			if (stage !== null) retainedTail.push(Number.isFinite(stage.retained_tokens) ? stage.retained_tokens : 0);
 			if (Number.isFinite(payload.context_window) && payload.context_window > 0) contextWindow = payload.context_window;
 			if (Number.isFinite(payload.compaction_threshold_tokens) && payload.compaction_threshold_tokens > 0) {
 				thresholdTokens = payload.compaction_threshold_tokens;
@@ -231,6 +242,8 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 		compactionCalls,
 		compactions,
 		emergencyCompactions,
+		compactionFailures,
+		emergencyFailures,
 		retainedTail,
 		contextWindow,
 		thresholdTokens,
@@ -248,7 +261,10 @@ export const parseToolReads = (text) => parseRunLog(text).events.filter((event) 
  * the call record under payload) or as the bare provider stream record.
  */
 export function parseProviderLog(text) {
-	const out = { calls: 0, retries: 0, rateLimited: 0, errors: 0 };
+	// durations and ttfts hold every call that reported one, including failed
+	// calls, compaction summaries and any delegated or advisor calls that share
+	// the stream. The record's duration covers the whole call, retry waits included.
+	const out = { calls: 0, retries: 0, rateLimited: 0, errors: 0, durations: [], ttfts: [] };
 	for (const raw of String(text).split(/\r?\n/)) {
 		const line = raw.trim();
 		if (line === "") continue;
@@ -263,8 +279,13 @@ export function parseProviderLog(text) {
 		if (typeof payload.attempts !== "number" && typeof payload.outcome !== "string") continue;
 		out.calls++;
 		if (Number.isFinite(payload.attempts)) out.retries += Math.max(0, payload.attempts - 1);
+		// Only a final failure carries an error class: a call that retried and then
+		// succeeded reports outcome retried without one, so this counts final
+		// rate-limited failures, not every 429 the provider returned.
 		if (payload.error_class === "rate_limited") out.rateLimited++;
 		if (payload.outcome === "exhausted" || payload.outcome === "cancelled") out.errors++;
+		if (Number.isFinite(payload.duration_ms) && payload.duration_ms > 0) out.durations.push(payload.duration_ms);
+		if (Number.isFinite(payload.ttft_ms) && payload.ttft_ms > 0) out.ttfts.push(payload.ttft_ms);
 	}
 	return out;
 }

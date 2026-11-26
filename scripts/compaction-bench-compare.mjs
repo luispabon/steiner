@@ -79,8 +79,8 @@ export function loadRaws(inputs) {
 // One row per bench run. A run's own reported window and threshold win over the
 // invocation defaults, because the effective values are what the model saw.
 export function compareRows(raw, source = null) {
-	const fallbackWindow = isNum(raw.contextWindow) ? raw.contextWindow : null;
-	const fallbackThreshold = isNum(raw.threshold) ? raw.threshold : null;
+	const configuredWindow = isNum(raw.contextWindow) ? raw.contextWindow : null;
+	const configuredThreshold = isNum(raw.threshold) ? raw.threshold : null;
 	const rows = [];
 	for (const alias of Array.isArray(raw.aliases) ? raw.aliases : []) {
 		for (const mode of ["off", "on"]) {
@@ -89,8 +89,14 @@ export function compareRows(raw, source = null) {
 					source,
 					model: alias.alias,
 					ref: alias.ref ?? alias.alias,
-					window: run.effectiveContextWindow ?? fallbackWindow,
-					threshold: run.effectiveThresholdTokens ?? fallbackThreshold,
+					// The observed value is what the run reported; the configured value is
+					// what the bench asked for. Grouping uses observed when present.
+					observedWindow: run.observedContextWindow ?? null,
+					observedThreshold: run.observedThresholdTokens ?? null,
+					configuredWindow: run.configuredContextWindow ?? configuredWindow,
+					configuredThreshold: run.configuredThresholdTokens ?? configuredThreshold,
+					window: run.observedContextWindow ?? run.configuredContextWindow ?? configuredWindow,
+					threshold: run.observedThresholdTokens ?? run.configuredThresholdTokens ?? configuredThreshold,
 					mode,
 					repeat: run.repeat ?? null,
 					failed: run.failed === true,
@@ -102,6 +108,8 @@ export function compareRows(raw, source = null) {
 					maxTurnsHit: run.maxTurnsHit === true,
 					compactions: run.compactions ?? null,
 					emergencyCompactions: run.emergencyCompactions ?? null,
+					compactionFailures: run.compactionFailures ?? null,
+					emergencyFailures: run.emergencyFailures ?? null,
 					retainedTailMedian: run.retainedTailMedian ?? null,
 					retainedTailMax: run.retainedTailMax ?? null,
 					wallClockMs: run.wallClockMs ?? null,
@@ -163,13 +171,15 @@ const COLUMNS = [
 	["continuity", continuityText],
 	["max turns", (row) => (row.maxTurnsHit ? "hit" : "no")],
 	["compactions", (row) => numText(row.compactions)],
-	["emergency", (row) => numText(row.emergencyCompactions)],
+	["emergency done", (row) => numText(row.emergencyCompactions)],
+	["failures", (row) => numText(row.compactionFailures)],
+	["emergency fail", (row) => numText(row.emergencyFailures)],
 	["retained med", (row) => numText(row.retainedTailMedian)],
 	["retained max", (row) => numText(row.retainedTailMax)],
 	["wall", (row) => durationText(row.wallClockMs)],
 	["summed duration", (row) => durationText(row.durationMs)],
 	["retries", (row) => numText(row.providerRetries)],
-	["429", (row) => numText(row.providerRateLimited)],
+	["429 fail", (row) => numText(row.providerRateLimited)],
 	["errors", (row) => numText(row.providerErrors)],
 	["cached in", (row) => numText(row.cachedTokens)],
 	["uncached in", (row) => numText(row.uncachedTokens)],
@@ -219,7 +229,7 @@ export function renderCompare(rows, sources = []) {
 		lines.push(`### ${label}`, "", tableFor(group.rows), "");
 	}
 	lines.push(
-		"Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Times are bench wall clock and summed reported per-call duration. Retries sum attempts beyond the first, 429 counts rate-limited calls, and errors counts exhausted or cancelled calls. Token counts and the cost proxy fold in compaction summary calls, and cost proxy is the weighted token estimate, not billing.",
+		"Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries included), includes retry waits, and may include delegated or advisor calls. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage; failures and emergency fail count failed compactions separately and are not included in the applied counts. Window and threshold are the run's observed limits, falling back to the configured values; JSON rows carry both. Token counts and the cost proxy fold in compaction summary calls, and cost proxy is the weighted token estimate, not billing.",
 		"",
 	);
 	return lines.join("\n");

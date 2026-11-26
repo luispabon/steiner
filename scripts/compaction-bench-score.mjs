@@ -103,6 +103,8 @@ export function aggregateMode(runs) {
 		turns: median(numbers(sample, "turns")),
 		compactions: median(numbers(sample, "compactions")),
 		emergencyCompactions: median(numbers(sample, "emergencyCompactions")),
+		compactionFailures: median(numbers(sample, "compactionFailures")),
+		emergencyFailures: median(numbers(sample, "emergencyFailures")),
 		rebases: median(numbers(sample, "rebases")),
 		plainFallbacks: median(numbers(sample, "plainFallbacks")),
 		maxSegments: median(numbers(sample, "maxSegments")),
@@ -149,6 +151,8 @@ function emptyMetrics() {
 		turns: null,
 		compactions: null,
 		emergencyCompactions: null,
+		compactionFailures: null,
+		emergencyFailures: null,
 		rebases: null,
 		plainFallbacks: null,
 		maxSegments: null,
@@ -175,8 +179,10 @@ function emptyMetrics() {
 		recallInvalid: false,
 		recallInvalidReason: null,
 		lostAt: [],
-		effectiveContextWindow: null,
-		effectiveThresholdTokens: null,
+		configuredContextWindow: null,
+		configuredThresholdTokens: null,
+		observedContextWindow: null,
+		observedThresholdTokens: null,
 		valid: false,
 		invalidReason: null,
 		maxTurnsHit: false,
@@ -209,11 +215,13 @@ export function analyzeRun({
 	const agg = aggregateCache(calls);
 	const cost = costProxy(agg, family);
 	const turns = runLog.modelCalls.length;
-	// A zero duration or TTFT is unreported (both fields are omitempty), so only
-	// calls that measured one feed the sums and percentiles.
-	const reported = (key) => calls.map((call) => call[key]).filter((value) => isNum(value) && value > 0);
-	const durations = reported("durationMs");
-	const ttfts = reported("ttftMs");
+	// The provider stream measures every call, compaction summaries included, and
+	// its duration spans retry waits. Fall back to the session log's main and
+	// compaction calls only when that stream reported no measurement; a zero is
+	// unreported (both fields are omitempty) and never fills a metric.
+	const sessionTimings = (key) => calls.map((call) => call[key]).filter((value) => isNum(value) && value > 0);
+	const durations = provider.durations.length > 0 ? provider.durations : sessionTimings("durationMs");
+	const ttfts = provider.ttfts.length > 0 ? provider.ttfts : sessionTimings("ttftMs");
 	const validity = runValidity({
 		mode,
 		compactions: runLog.compactions,
@@ -226,6 +234,8 @@ export function analyzeRun({
 		turns,
 		compactions: runLog.compactions,
 		emergencyCompactions: runLog.emergencyCompactions,
+		compactionFailures: runLog.compactionFailures,
+		emergencyFailures: runLog.emergencyFailures,
 		rebases: decisionSummary.rebases,
 		plainFallbacks: decisionSummary.plainFallbacks,
 		maxSegments: decisionSummary.maxSegments,
@@ -237,7 +247,7 @@ export function analyzeRun({
 		costProxy: cost,
 		costPerTurn: cost !== null && turns > 0 ? cost / turns : null,
 		wallClockMs,
-		durationMs: durations.reduce((sum, value) => sum + value, 0),
+		durationMs: durations.length > 0 ? durations.reduce((sum, value) => sum + value, 0) : null,
 		ttftP50Ms: percentile(ttfts, 0.5),
 		ttftP95Ms: percentile(ttfts, 0.95),
 		durationP50Ms: percentile(durations, 0.5),
@@ -252,8 +262,10 @@ export function analyzeRun({
 		recallInvalid: recall.invalid,
 		recallInvalidReason: recall.invalidReason,
 		lostAt: lostEntries(recall),
-		effectiveContextWindow: runLog.contextWindow ?? contextWindow,
-		effectiveThresholdTokens: runLog.thresholdTokens ?? threshold,
+		configuredContextWindow: contextWindow,
+		configuredThresholdTokens: threshold,
+		observedContextWindow: runLog.contextWindow,
+		observedThresholdTokens: runLog.thresholdTokens,
 		valid: validity.valid,
 		invalidReason: validity.reason,
 		maxTurnsHit: stdout.maxTurnsHit,

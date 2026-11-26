@@ -879,6 +879,8 @@ test("parseRunLog judges an absolute notes dir only against the run's own repo",
 		compactionCalls: [],
 		compactions: 0,
 		emergencyCompactions: 0,
+		compactionFailures: 0,
+		emergencyFailures: 0,
 		retainedTail: [],
 		contextWindow: null,
 		thresholdTokens: null,
@@ -1290,7 +1292,7 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 			await mkdir(diagDir, { recursive: true });
 			await writeFile(
 				join(diagDir, "provider.jsonl"),
-				`${JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 10 } })}\n${JSON.stringify({ kind: "provider", payload: { outcome: "retried", attempts: 3, error_class: "rate_limited" } })}\n`,
+				`${JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 10, ttft_ms: 4 } })}\n${JSON.stringify({ kind: "provider", payload: { outcome: "exhausted", attempts: 3, error_class: "rate_limited", duration_ms: 30, ttft_ms: 9 } })}\n`,
 			);
 			await writeFile(join(diagDir, "cache.jsonl"), "{}\n");
 		}
@@ -1865,19 +1867,26 @@ test("percentile uses nearest rank and handles empty input", () => {
 	assert.equal(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.95), 10);
 });
 
-test("parseProviderLog counts attempts, rate limits and failed outcomes from both record shapes", () => {
+test("parseProviderLog counts attempts, final rate-limited failures, outcomes and timings", () => {
 	const text = [
-		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1 } }),
-		JSON.stringify({ kind: "provider", payload: { outcome: "retried", attempts: 3, error_class: "rate_limited" } }),
-		JSON.stringify({ outcome: "exhausted", attempts: 2, error_class: "http_5xx" }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 100, ttft_ms: 10 } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "exhausted", attempts: 3, error_class: "rate_limited", duration_ms: 300, ttft_ms: 30 } }),
+		JSON.stringify({ outcome: "exhausted", attempts: 2, error_class: "http_5xx", duration_ms: 200 }),
 		JSON.stringify({ kind: "cache", payload: { outcome: "ok", attempts: 1 } }),
 		"not json",
 	].join("\n");
-	assert.deepEqual(parseProviderLog(text), { calls: 3, retries: 3, rateLimited: 1, errors: 1 });
-	assert.deepEqual(parseProviderLog(""), { calls: 0, retries: 0, rateLimited: 0, errors: 0 });
+	assert.deepEqual(parseProviderLog(text), {
+		calls: 3,
+		retries: 3,
+		rateLimited: 1,
+		errors: 2,
+		durations: [100, 300, 200],
+		ttfts: [10, 30],
+	});
+	assert.deepEqual(parseProviderLog(""), { calls: 0, retries: 0, rateLimited: 0, errors: 0, durations: [], ttfts: [] });
 });
 
-test("parseRunLog reads stage sizes, emergency compactions and effective limits", () => {
+test("parseRunLog reads stage sizes, applied and failed compactions and observed limits", () => {
 	const lines = [
 		{
 			type: "context_diagnostics",
@@ -1898,27 +1907,31 @@ test("parseRunLog reads stage sizes, emergency compactions and effective limits"
 			payload: { kind: "compaction", severity: "warning", stages: [{ stage: "normal", retained_tokens: 50 }], context_window: 1000000, compaction_threshold_tokens: 560000 },
 		},
 		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", stages: [{ stage: "emergency", retained_tokens: 1, failed: true }] } },
+		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", compaction_result: "failed", stages: [{ stage: "emergency", retained_tokens: 5, failed: true }] } },
+		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", notes: ["compaction skipped: no stage applied"] } },
 	].map((line) => JSON.stringify(line)).join("\n");
 	const run = parseRunLog(lines);
 	assert.equal(run.compactions, 2);
 	assert.equal(run.emergencyCompactions, 1, "the skipped failure event is not a compaction");
-	assert.deepEqual(run.retainedTail, [120, 50], "a failed trailing stage never supplies the tail");
+	assert.equal(run.compactionFailures, 1);
+	assert.equal(run.emergencyFailures, 1);
+	assert.deepEqual(run.retainedTail, [120, 50], "a failed trailing stage never supplies the tail and failed events add none");
 	assert.equal(run.contextWindow, 1000000);
 	assert.equal(run.thresholdTokens, 560000);
 });
 
-test("analyzeRun records timings, provider outcomes, retained tail and effective limits", () => {
+test("analyzeRun takes provider timings, provider outcomes, retained tail and configured/observed limits", () => {
 	const log = [
-		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 100, duration_ms: 1000, ttft_ms: 100, success: true } },
-		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 100, duration_ms: 3000, ttft_ms: 300, success: true } },
+		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 100, duration_ms: 111, ttft_ms: 11, success: true } },
+		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 100, duration_ms: 222, ttft_ms: 22, success: true } },
 		{
 			type: "context_diagnostics",
-			payload: { kind: "compaction", severity: "info", stages: [{ stage: "normal", retained_tokens: 100 }, { stage: "emergency", retained_tokens: 300 }], context_window: 1000000, compaction_threshold_tokens: 560000 },
+			payload: { kind: "compaction", severity: "info", stages: [{ stage: "normal", retained_tokens: 100 }, { stage: "emergency" }], context_window: 1000000, compaction_threshold_tokens: 560000 },
 		},
 	].map((line) => JSON.stringify(line)).join("\n");
 	const providerText = [
-		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1 } }),
-		JSON.stringify({ kind: "provider", payload: { outcome: "retried", attempts: 3, error_class: "rate_limited" } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 1000, ttft_ms: 100 } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "exhausted", attempts: 3, error_class: "rate_limited", duration_ms: 3000, ttft_ms: 300 } }),
 	].join("\n");
 	const metrics = analyzeRun({
 		stdoutText: "",
@@ -1932,25 +1945,29 @@ test("analyzeRun records timings, provider outcomes, retained tail and effective
 		contextWindow: 200000,
 		threshold: 140000,
 	});
-	assert.equal(metrics.durationMs, 4000);
+	assert.equal(metrics.durationMs, 4000, "provider timings win over the session log");
 	assert.equal(metrics.durationP50Ms, 1000);
 	assert.equal(metrics.durationP95Ms, 3000);
 	assert.equal(metrics.ttftP50Ms, 100);
 	assert.equal(metrics.ttftP95Ms, 300);
-	assert.equal(metrics.retainedTailMedian, 300);
-	assert.equal(metrics.retainedTailMax, 300);
+	assert.equal(metrics.retainedTailMedian, 0, "an applied stage without retained_tokens counts as zero");
+	assert.equal(metrics.retainedTailMax, 0);
 	assert.equal(metrics.emergencyCompactions, 1);
-	assert.equal(metrics.effectiveContextWindow, 1000000);
-	assert.equal(metrics.effectiveThresholdTokens, 560000);
+	assert.equal(metrics.compactionFailures, 0);
+	assert.equal(metrics.emergencyFailures, 0);
+	assert.equal(metrics.configuredContextWindow, 200000);
+	assert.equal(metrics.configuredThresholdTokens, 140000);
+	assert.equal(metrics.observedContextWindow, 1000000);
+	assert.equal(metrics.observedThresholdTokens, 560000);
 	assert.equal(metrics.providerRetries, 2);
 	assert.equal(metrics.providerRateLimited, 1);
-	assert.equal(metrics.providerErrors, 0);
+	assert.equal(metrics.providerErrors, 1);
 	assert.equal(metrics.promptTokens, 200);
 	assert.equal(metrics.cachedTokens, null);
 	assert.equal(metrics.wallClockMs, 9000);
 });
 
-test("analyzeRun falls back to the configured window and threshold when no compaction reports them", () => {
+test("analyzeRun reports configured limits, null observed limits and null timing when nothing measured them", () => {
 	const metrics = analyzeRun({
 		stdoutText: "",
 		logText: "",
@@ -1961,9 +1978,34 @@ test("analyzeRun falls back to the configured window and threshold when no compa
 		contextWindow: 200000,
 		threshold: 140000,
 	});
-	assert.equal(metrics.effectiveContextWindow, 200000);
-	assert.equal(metrics.effectiveThresholdTokens, 140000);
+	assert.equal(metrics.configuredContextWindow, 200000);
+	assert.equal(metrics.configuredThresholdTokens, 140000);
+	assert.equal(metrics.observedContextWindow, null);
+	assert.equal(metrics.observedThresholdTokens, null);
 	assert.equal(metrics.retainedTailMedian, null);
+	assert.equal(metrics.durationMs, null, "missing timing is null, not zero");
+	assert.equal(metrics.durationP50Ms, null);
+	assert.equal(metrics.ttftP50Ms, null);
+});
+
+test("analyzeRun falls back to session-log timings when the provider stream measured none", () => {
+	const log = [
+		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 10, duration_ms: 500, ttft_ms: 50, success: true } },
+		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 10, duration_ms: 1500, success: true } },
+	].map((line) => JSON.stringify(line)).join("\n");
+	const metrics = analyzeRun({
+		stdoutText: "",
+		logText: log,
+		compactionText: "",
+		providerText: JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1 } }),
+		fixtures: recallFixtures(),
+		mode: "off",
+		family: "openai",
+	});
+	assert.equal(metrics.durationMs, 2000);
+	assert.equal(metrics.durationP50Ms, 500);
+	assert.equal(metrics.durationP95Ms, 1500);
+	assert.equal(metrics.ttftP50Ms, 50);
 });
 
 test("aggregateMode medians the timing, retry and retained-tail metrics", () => {
@@ -1972,6 +2014,8 @@ test("aggregateMode medians the timing, retry and retained-tail metrics", () => 
 			wallClockMs: 1000,
 			durationMs: 500,
 			emergencyCompactions: 0,
+			compactionFailures: 0,
+			emergencyFailures: 0,
 			retainedTailMedian: 10,
 			retainedTailMax: 20,
 			ttftP50Ms: 1,
@@ -1991,6 +2035,8 @@ test("aggregateMode medians the timing, retry and retained-tail metrics", () => 
 			wallClockMs: 3000,
 			durationMs: 1500,
 			emergencyCompactions: 2,
+			compactionFailures: 2,
+			emergencyFailures: 2,
 			retainedTailMedian: 30,
 			retainedTailMax: 40,
 			ttftP50Ms: 3,
@@ -2010,6 +2056,8 @@ test("aggregateMode medians the timing, retry and retained-tail metrics", () => 
 	assert.equal(agg.wallClockMs, 2000);
 	assert.equal(agg.durationMs, 1000);
 	assert.equal(agg.emergencyCompactions, 1);
+	assert.equal(agg.compactionFailures, 1);
+	assert.equal(agg.emergencyFailures, 1);
 	assert.equal(agg.retainedTailMedian, 20);
 	assert.equal(agg.retainedTailMax, 30);
 	assert.equal(agg.providerRetries, 1);
@@ -2026,12 +2074,14 @@ test("renderTable shows the timing, retry and retained-tail rows", () => {
 			family: "openai",
 			informational: false,
 			probe: null,
-			off: modeAgg({ emergencyCompactions: 1, retainedTailMedian: 120, retainedTailMax: 400, wallClockMs: 61000, durationMs: 59000, ttftP50Ms: 900, durationP50Ms: 2000, providerRetries: 3, providerRateLimited: 1, providerErrors: 0, uncachedTokens: 8000 }),
-			on: modeAgg({ emergencyCompactions: 4 }),
+			off: modeAgg({ emergencyCompactions: 1, compactionFailures: 2, emergencyFailures: 1, retainedTailMedian: 120, retainedTailMax: 400, wallClockMs: 61000, durationMs: 59000, ttftP50Ms: 900, durationP50Ms: 2000, providerRetries: 3, providerRateLimited: 1, providerErrors: 0, uncachedTokens: 8000 }),
+			on: modeAgg({ emergencyCompactions: 4, compactionFailures: 0, emergencyFailures: 0 }),
 			verdict: { label: "PASS", cache: "checked", reasons: [] },
 		},
 	]);
-	assert.match(md, /\| emergency compactions \| 1 \| 4 \|/);
+	assert.match(md, /\| emergency compactions \(applied\) \| 1 \| 4 \|/);
+	assert.match(md, /\| compaction failures \| 2 \| 0 \|/);
+	assert.match(md, /\| emergency failures \| 1 \| 0 \|/);
 	assert.match(md, /\| retained tail median \| 120 \| not reported \|/);
 	assert.match(md, /\| retained tail max \| 400 \| not reported \|/);
 	assert.match(md, /\| wall clock \| 61\.0 s \| not reported \|/);
@@ -2039,7 +2089,7 @@ test("renderTable shows the timing, retry and retained-tail rows", () => {
 	assert.match(md, /\| ttft p50 \| 900 ms \| not reported \|/);
 	assert.match(md, /\| call duration p50 \| 2\.0 s \| not reported \|/);
 	assert.match(md, /\| provider retries \| 3 \| not reported \|/);
-	assert.match(md, /\| rate limited \(429\) \| 1 \| not reported \|/);
+	assert.match(md, /\| rate limited failures \(429\) \| 1 \| not reported \|/);
 	assert.match(md, /\| uncached input tokens \| 8000 \| not reported \|/);
 });
 
@@ -2096,11 +2146,14 @@ test("main benches a provider/id ref under its synthesized alias and keeps rotat
 		assert.equal(raw.aliases[0].id, "beam-free");
 		const run = raw.aliases[0].runs.off[0];
 		assert.equal(typeof run.wallClockMs, "number");
-		assert.equal(run.effectiveContextWindow, 1000000);
-		assert.equal(run.effectiveThresholdTokens, 560000);
+		assert.equal(run.configuredContextWindow, 1000000);
+		assert.equal(run.configuredThresholdTokens, 560000);
+		assert.equal(run.observedContextWindow, null, "the fake log reports no limits, so none are claimed as observed");
+		assert.equal(run.observedThresholdTokens, null);
+		assert.equal(run.durationMs, 40, "provider timings cover both reported calls");
 		assert.equal(run.providerRetries, 2);
 		assert.equal(run.providerRateLimited, 1);
-		assert.equal(run.providerErrors, 0);
+		assert.equal(run.providerErrors, 1);
 		const modelIndex = (call) => call.args.indexOf("--model") + 1;
 		const benchCall = fake.invocations.find((call) => call.args[modelIndex(call)] === "bench--opencode-go--beam-free");
 		assert.ok(benchCall, "steiner runs under the synthesized alias");

@@ -19,6 +19,8 @@ function run(over = {}) {
 		maxTurnsHit: false,
 		compactions: 12,
 		emergencyCompactions: 1,
+		compactionFailures: 0,
+		emergencyFailures: 0,
 		retainedTailMedian: 900,
 		retainedTailMax: 1200,
 		wallClockMs: 60000,
@@ -29,8 +31,10 @@ function run(over = {}) {
 		cachedTokens: 500000,
 		uncachedTokens: 20000,
 		costProxy: 70000,
-		effectiveContextWindow: 1000000,
-		effectiveThresholdTokens: 560000,
+		configuredContextWindow: 1000000,
+		configuredThresholdTokens: 560000,
+		observedContextWindow: 1000000,
+		observedThresholdTokens: 560000,
 		...over,
 	};
 }
@@ -60,6 +64,10 @@ test("compareRows reads one row per run, preferring the run's effective window a
 	assert.equal(rows[0].ref, "opencode-go/beam-free");
 	assert.equal(rows[0].window, 1000000);
 	assert.equal(rows[0].threshold, 560000);
+	assert.equal(rows[0].observedWindow, 1000000);
+	assert.equal(rows[0].configuredWindow, 1000000);
+	assert.equal(rows[0].compactionFailures, 0);
+	assert.equal(rows[0].emergencyFailures, 0);
 	assert.equal(rows[0].exact, 24);
 	assert.equal(rows[1].mode, "on");
 	assert.equal(rows[1].exact, 23);
@@ -67,7 +75,13 @@ test("compareRows reads one row per run, preferring the run's effective window a
 		rawFile({
 			contextWindow: 200000,
 			threshold: 140000,
-			aliases: [{ alias: "hy4-flash", ref: "hy4-flash", runs: { off: [run({ effectiveContextWindow: null, effectiveThresholdTokens: null })] } }],
+			aliases: [
+				{
+					alias: "hy4-flash",
+					ref: "hy4-flash",
+					runs: { off: [run({ observedContextWindow: null, observedThresholdTokens: null, configuredContextWindow: null, configuredThresholdTokens: null })] },
+				},
+			],
 		}),
 	);
 	assert.equal(fallback[0].window, 200000);
@@ -120,7 +134,7 @@ test("renderCompare groups by window and model and prints every run's values", (
 		...compareRows(
 			rawFile({
 				contextWindow: 200000,
-				aliases: [{ alias: "hy4-flash", ref: "hy4-flash", runs: { off: [run({ effectiveContextWindow: 200000, effectiveThresholdTokens: 140000 })] } }],
+				aliases: [{ alias: "hy4-flash", ref: "hy4-flash", runs: { off: [run({ observedContextWindow: 200000, observedThresholdTokens: 140000, configuredContextWindow: 200000, configuredThresholdTokens: 140000 })] } }],
 			}),
 			"/b/raw.json",
 		),
@@ -135,9 +149,12 @@ test("renderCompare groups by window and model and prints every run's values", (
 	assert.match(md, /### hy4-flash/);
 	assert.match(md, /### bench--opencode-go--beam-free \(opencode-go\/beam-free\)/);
 	assert.match(md, /\| threshold \| mode \| r \| continuity \| max turns \|/);
-	assert.match(md, /\| 560000 \| off \| 1 \| 24\/24 \| no \| 12 \| 1 \| 900 \| 1200 \| 60\.0 s \| 59\.0 s \| 2 \| 1 \| 0 \| 500000 \| 20000 \| 70000 \|/);
+	assert.match(md, /\| 560000 \| off \| 1 \| 24\/24 \| no \| 12 \| 1 \| 0 \| 0 \| 900 \| 1200 \| 60\.0 s \| 59\.0 s \| 2 \| 1 \| 0 \| 500000 \| 20000 \| 70000 \|/);
 	assert.match(md, /\| 560000 \| on \| 1 \| 23\/24 \|/);
 	assert.match(md, /Retries sum attempts beyond the first/);
+	assert.match(md, /429 fail counts final rate-limited failures only/);
+	assert.match(md, /failures and emergency fail count failed compactions separately/);
+	assert.match(md, /may include delegated or advisor calls/);
 });
 
 test("findRawFiles scans directories recursively, dedupes and rejects missing paths", async () => {
