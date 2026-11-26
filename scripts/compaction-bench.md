@@ -84,11 +84,11 @@ Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL` or
 
 ## Provider notes
 
-Mark aliases using Anthropic cache accounting with `--anthropic-alias`; all other aliases use the other cost formula. The probe tests the actual route rather than assuming cache support. Use `--informational-alias` for subscription routes whose cache behavior should not be judged as a pass or fail.
+Mark aliases using Anthropic cache accounting with `--anthropic-alias`; all other aliases use the other cost formula. The probe tests the actual route rather than assuming cache support. Use `--informational-alias` for `claude_subscription`: the Claude CLI manages the session and its caching, so its results should not be judged as a pass or fail.
 
 ## Limitations
 
-- A fast run understates the effects of cache expiry in longer sessions.
+- A fast run understates the effects of cache expiry during idle gaps in real sessions. Codex's measured idle cache TTL is about 5 minutes.
 - Small or verbose models may not finish the chain within `--max-turns`.
 - Loss attribution identifies the first compaction after a read, not proof that compaction caused the loss.
 - The cost proxy is not a provider bill.
