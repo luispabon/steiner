@@ -11,6 +11,7 @@ project_planning/
 /steiner
 .steiner/plans/
 .steiner/traces/
+.steiner/tmp/
 
 .steiner/home/
 internal/provider/testdata/codex_ws_probe_output.jsonl
