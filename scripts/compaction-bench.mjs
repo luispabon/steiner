@@ -16,11 +16,13 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync } from "node:fs";
+import { closeSync, openSync, rmSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+
+const MAX_PAD_TOKENS = 16000;
 
 export const USAGE = `usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
 
@@ -31,7 +33,7 @@ flags:
   --modes <a,b>                modes to run, subset of off,on (default: off,on)
   --threshold <n>              compaction_threshold_tokens for every alias (default: 15000)
   --files <n>                  notes chain length, 4 to 99 (default: 24)
-  --pad-tokens <n>             filler tokens per notes file (default: 3000)
+  --pad-tokens <n>             filler tokens per notes file, 0 to ${MAX_PAD_TOKENS} (default: 3000)
   --max-turns <n>              limits.max_turns for every run (default: 80)
   --repeat <n>                 runs per alias and mode (default: 1)
   --tolerance <n>              allowed percent change for continuity and cost (default: 5)
@@ -185,6 +187,11 @@ export function parseArgs(argv) {
 				throw usageError(`${flag} value ${JSON.stringify(alias)} is not in --model`);
 			}
 		}
+	}
+	if (args.padTokens > MAX_PAD_TOKENS) {
+		throw usageError(
+			`--pad-tokens ${args.padTokens} exceeds ${MAX_PAD_TOKENS}: the read tool caps a single output at 65536 runes, so more padding is silently truncated`,
+		);
 	}
 	return args;
 }
@@ -402,6 +409,7 @@ export function summarizeDecisions(decisions) {
 
 const READ_NOTES_RE = /(?:^|\/)notes\/(f\d+)\.txt$/;
 const READ_BASENAME_RE = /(?:^|\/)(f\d+)\.txt$/;
+const FIXTURE_DIR_MARKER = "notes/";
 const COMPACTION_START_SEVERITIES = new Set(["compacting", "skipped"]);
 
 function readFileName(path) {
@@ -450,6 +458,7 @@ export function parseRunLog(text) {
 	const compactionCalls = [];
 	let compactions = 0;
 	let malformed = 0;
+	let nonReadFileAccess = 0;
 
 	for (const raw of String(text).split(/\r?\n/)) {
 		const line = raw.trim();
@@ -467,7 +476,13 @@ export function parseRunLog(text) {
 		}
 		const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
 		if (record.type === "tool_call_started") {
-			if (scopedToSubAgent(record) || payload.tool !== "read") continue;
+			if (scopedToSubAgent(record)) continue;
+			if (payload.tool !== "read") {
+				// The task allows only the read tool; any other tool whose arguments
+				// name a fixture file wins the score outside the scored access path.
+				if (JSON.stringify(payload.arguments ?? {}).includes(FIXTURE_DIR_MARKER)) nonReadFileAccess++;
+				continue;
+			}
 			const path = payload.arguments && payload.arguments.path;
 			if (typeof path !== "string") continue;
 			const file = readFileName(path);
@@ -494,7 +509,7 @@ export function parseRunLog(text) {
 		}
 	}
 
-	return { events, modelCalls, compactionCalls, compactions, malformed };
+	return { events, modelCalls, compactionCalls, compactions, malformed, nonReadFileAccess };
 }
 
 /** Return only the ordered read events from a session log. */
@@ -646,8 +661,10 @@ export function median(nums) {
 	return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/** Judge a single run: flag-on runs need four compactions and at least one append decision. */
-export function runValidity({ mode, compactions, decisionSummary }) {
+/** Judge a single run: it must answer, stay inside the read tool, and, when on, compact enough. */
+export function runValidity({ mode, compactions, decisionSummary, finalAnswer, nonReadFileAccess = 0 }) {
+	if (finalAnswer === null) return { valid: false, reason: "no final answer parsed" };
+	if (nonReadFileAccess > 0) return { valid: false, reason: "fixture accessed outside read tool" };
 	if (mode !== "on") return { valid: true, reason: null };
 	if (compactions < 4) return { valid: false, reason: "fewer than 4 compactions" };
 	if ((decisionSummary?.appends ?? 0) === 0) return { valid: false, reason: "no append decision" };
@@ -668,17 +685,21 @@ export function aggregateMode(runs) {
 	}
 	const failed = runs.find((run) => run.failed);
 	const invalid = runs.find((run) => run.valid === false);
+	// A failed run can still carry partial metrics from a dead run, so only the
+	// completed runs feed the medians; with none completed, all runs are used.
+	const completed = runs.filter((run) => !run.failed);
+	const sample = completed.length > 0 ? completed : runs;
 	return {
-		turns: median(numbers(runs, "turns")),
-		compactions: median(numbers(runs, "compactions")),
-		rebases: median(numbers(runs, "rebases")),
-		plainFallbacks: median(numbers(runs, "plainFallbacks")),
-		maxSegments: median(numbers(runs, "maxSegments")),
-		cachedTokens: median(numbers(runs, "cachedTokens")),
-		costPerTurn: median(numbers(runs, "costPerTurn")),
-		exact: median(numbers(runs, "exact")),
-		lost: median(numbers(runs, "lost")),
-		total: median(numbers(runs, "total")),
+		turns: median(numbers(sample, "turns")),
+		compactions: median(numbers(sample, "compactions")),
+		rebases: median(numbers(sample, "rebases")),
+		plainFallbacks: median(numbers(sample, "plainFallbacks")),
+		maxSegments: median(numbers(sample, "maxSegments")),
+		cachedTokens: median(numbers(sample, "cachedTokens")),
+		costPerTurn: median(numbers(sample, "costPerTurn")),
+		exact: median(numbers(sample, "exact")),
+		lost: median(numbers(sample, "lost")),
+		total: median(numbers(sample, "total")),
 		recallInvalid: runs.some((run) => run.recallInvalid === true),
 		maxTurnsHitRuns: runs.filter((run) => run.maxTurnsHit === true).length,
 		valid: !failed && !invalid,
@@ -708,11 +729,13 @@ export function verdict({ off, on, tolerance, informational, probeOk, family }) 
 	const cache = cacheChecked ? "checked" : "no cache verdict";
 	const reasons = [];
 
-	if (!off.valid || !on.valid || off.recallInvalid || on.recallInvalid) {
+	if (!off.valid || !on.valid || off.recallInvalid || on.recallInvalid || off.exact === 0) {
 		if (!off.valid) reasons.push(`off: ${off.invalidReason ?? "run invalid"}`);
 		if (!on.valid) reasons.push(`on: ${on.invalidReason ?? "run invalid"}`);
 		if (off.recallInvalid) reasons.push("off: a fixture file was read again after a compaction");
 		if (on.recallInvalid) reasons.push("on: a fixture file was read again after a compaction");
+		// Continuity is relative, so 0/N on both sides would otherwise pass.
+		if (off.exact === 0) reasons.push("off mode recalled nothing");
 		return { label: "INVALID", cache, reasons };
 	}
 
@@ -743,7 +766,8 @@ export function verdict({ off, on, tolerance, informational, probeOk, family }) 
 	}
 	if (failed) return { label: "FAIL", cache, reasons };
 
-	if (cacheChecked) reasons.push("continuity and cost proxy within tolerance");
+	if (!cacheChecked) return { label: "CONTINUITY_ONLY", cache, reasons };
+	reasons.push("continuity and cost proxy within tolerance");
 	return { label: "PASS", cache, reasons };
 }
 
@@ -803,6 +827,67 @@ export function renderTable(results) {
 
 const SANDBOX_NOTE = "not verified (steiner exposes no read-only check)";
 
+// Live resources for signal cleanup: the CLI installs SIGINT and SIGTERM
+// handlers, so an interrupted bench must not leave steiner process groups or
+// scratch directories behind.
+const liveProcessGroups = new Set();
+const liveTempDirs = new Set();
+
+/** Register a detached child's process group so a signal can kill it. */
+export function registerProcessGroup(pid) {
+	liveProcessGroups.add(pid);
+}
+
+/** Register a scratch directory so a signal can remove it. */
+export function registerTempDir(dir) {
+	liveTempDirs.add(dir);
+	return dir;
+}
+
+function killProcessGroup(pid) {
+	// A missing or invalid pid would make the negated value signal this process
+	// group instead of the child's.
+	if (!Number.isInteger(pid) || pid <= 0) return;
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		// ESRCH means the group is already gone; cleanup must continue either way.
+	}
+}
+
+/** Kill every registered process group and remove every registered directory. */
+export function cleanupLiveResources() {
+	const processes = liveProcessGroups.size;
+	const dirs = liveTempDirs.size;
+	for (const pid of liveProcessGroups) {
+		killProcessGroup(pid);
+		liveProcessGroups.delete(pid);
+	}
+	for (const dir of liveTempDirs) {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// A directory that cannot be removed must not stop the remaining cleanup.
+		}
+		liveTempDirs.delete(dir);
+	}
+	return { processes, dirs };
+}
+
+async function removeTempDir(dir) {
+	liveTempDirs.delete(dir);
+	await rm(dir, { recursive: true, force: true });
+}
+
+function installSignalHandlers() {
+	for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+		process.once(signal, () => {
+			cleanupLiveResources();
+			process.exit(code);
+		});
+	}
+}
+
 /**
  * Spawn the run detached so a timeout can kill the whole process group, and turn
  * a spawn failure into a failed result instead of an uncaught exception.
@@ -821,12 +906,15 @@ export function defaultSpawnRun({ command, args, cwd, env, stdoutPath, stderrPat
 			if (timer !== null) clearTimeout(timer);
 			if (stdoutFd !== null) closeSync(stdoutFd);
 			if (stderrFd !== null) closeSync(stderrFd);
+			if (child?.pid !== undefined) liveProcessGroups.delete(child.pid);
 			resolve({ timedOut, ...result });
 		};
 		try {
 			stdoutFd = openSync(stdoutPath, "w", 0o600);
 			stderrFd = openSync(stderrPath, "w", 0o600);
 			child = spawn(command, args, { cwd, env, detached: true, stdio: ["ignore", stdoutFd, stderrFd] });
+			// A spawn that fails to start reports no pid, and the error event settles it.
+			if (child.pid !== undefined) registerProcessGroup(child.pid);
 		} catch (error) {
 			finish({ code: null, error: error.message });
 			return;
@@ -835,15 +923,14 @@ export function defaultSpawnRun({ command, args, cwd, env, stdoutPath, stderrPat
 		// leaves a kill timer pointed at a missing pid.
 		timer = setTimeout(() => {
 			timedOut = true;
-			try {
-				process.kill(-child.pid, "SIGKILL");
-			} catch {
-				// The group is already gone; fall back to the direct child handle.
-				child.kill("SIGKILL");
-			}
+			killProcessGroup(child.pid);
 		}, timeoutMs);
 		child.on("error", (error) => finish({ code: null, error: error.message }));
-		child.on("close", (code) => finish({ code }));
+		child.on("close", (code) => {
+			// The run exited but its group can still hold background descendants.
+			if (child.pid !== undefined) killProcessGroup(child.pid);
+			finish({ code });
+		});
 	});
 }
 
@@ -863,7 +950,7 @@ function parseSandboxEnabled(text) {
 }
 
 async function detectSandbox({ opts, env, spawnRun }) {
-	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-config-"));
+	const dir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-config-")));
 	try {
 		const stdoutPath = join(dir, "config.stdout.txt");
 		const stderrPath = join(dir, "config.stderr.txt");
@@ -882,7 +969,7 @@ async function detectSandbox({ opts, env, spawnRun }) {
 		// Sandbox status is optional: an unreadable config is reported as not verified.
 		return null;
 	} finally {
-		await rm(dir, { recursive: true, force: true });
+		await removeTempDir(dir);
 	}
 }
 
@@ -973,7 +1060,13 @@ function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode, famil
 	const agg = aggregateCache([...runLog.modelCalls, ...runLog.compactionCalls]);
 	const cost = costProxy(agg, family);
 	const turns = runLog.modelCalls.length;
-	const validity = runValidity({ mode, compactions: runLog.compactions, decisionSummary });
+	const validity = runValidity({
+		mode,
+		compactions: runLog.compactions,
+		decisionSummary,
+		finalAnswer: stdout.finalAnswer,
+		nonReadFileAccess: runLog.nonReadFileAccess,
+	});
 	return {
 		turns,
 		compactions: runLog.compactions,
@@ -1029,8 +1122,8 @@ async function runProbe({ opts, alias, env, spawnRun, newId }) {
 	let privDir = null;
 	try {
 		const probeText = probePrompt(newId());
-		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
-		privDir = await mkdtemp(join(tmpdir(), "compaction-bench-priv-"));
+		repoDir = registerTempDir(await createScratchRepo(spawnRun, env, timeoutMs));
+		privDir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-priv-")));
 		const diagDir = join(privDir, "diag");
 		await mkdir(diagDir, { recursive: true });
 		const configPath = join(privDir, "probe.yaml");
@@ -1075,8 +1168,8 @@ async function runProbe({ opts, alias, env, spawnRun, newId }) {
 	} catch (error) {
 		return { ok: false, reason: `probe calls failed: ${error.message}`, exits: [] };
 	} finally {
-		if (repoDir) await rm(repoDir, { recursive: true, force: true });
-		if (privDir) await rm(privDir, { recursive: true, force: true });
+		if (repoDir) await removeTempDir(repoDir);
+		if (privDir) await removeTempDir(privDir);
 	}
 }
 
@@ -1088,12 +1181,12 @@ async function runOnce({ opts, alias, family, mode, repeat, runId, fixtures, out
 	let repoDir = null;
 	let privDir = null;
 	try {
-		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
+		repoDir = registerTempDir(await createScratchRepo(spawnRun, env, timeoutMs));
 		await mkdir(join(repoDir, "notes"));
 		for (const file of fixtures.files) {
 			await writeFile(join(repoDir, file.name), file.content);
 		}
-		privDir = await mkdtemp(join(tmpdir(), "compaction-bench-priv-"));
+		privDir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-priv-")));
 		const diagDir = join(privDir, "diag");
 		await mkdir(diagDir, { recursive: true });
 		const configPath = join(privDir, "bench.yaml");
@@ -1152,8 +1245,8 @@ async function runOnce({ opts, alias, family, mode, repeat, runId, fixtures, out
 	} catch (error) {
 		return failedRun({ mode, repeat, reason: `setup failed: ${error.message}` });
 	} finally {
-		if (repoDir) await rm(repoDir, { recursive: true, force: true });
-		if (privDir) await rm(privDir, { recursive: true, force: true });
+		if (repoDir) await removeTempDir(repoDir);
+		if (privDir) await removeTempDir(privDir);
 	}
 }
 
@@ -1264,5 +1357,6 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	installSignalHandlers();
 	process.exitCode = await main();
 }
