@@ -1945,6 +1945,7 @@ test("analyzeRun takes provider timings, provider outcomes, retained tail and co
 		contextWindow: 200000,
 		threshold: 140000,
 	});
+	assert.equal(metrics.timingSource, "provider");
 	assert.equal(metrics.durationMs, 4000, "provider timings win over the session log");
 	assert.equal(metrics.durationP50Ms, 1000);
 	assert.equal(metrics.durationP95Ms, 3000);
@@ -1983,6 +1984,7 @@ test("analyzeRun reports configured limits, null observed limits and null timing
 	assert.equal(metrics.observedContextWindow, null);
 	assert.equal(metrics.observedThresholdTokens, null);
 	assert.equal(metrics.retainedTailMedian, null);
+	assert.equal(metrics.timingSource, null);
 	assert.equal(metrics.durationMs, null, "missing timing is null, not zero");
 	assert.equal(metrics.durationP50Ms, null);
 	assert.equal(metrics.ttftP50Ms, null);
@@ -2002,6 +2004,7 @@ test("analyzeRun falls back to session-log timings when the provider stream meas
 		mode: "off",
 		family: "openai",
 	});
+	assert.equal(metrics.timingSource, "session");
 	assert.equal(metrics.durationMs, 2000);
 	assert.equal(metrics.durationP50Ms, 500);
 	assert.equal(metrics.durationP95Ms, 1500);
@@ -2081,7 +2084,7 @@ test("renderTable shows the timing, retry and retained-tail rows", () => {
 	]);
 	assert.match(md, /\| emergency compactions \(applied\) \| 1 \| 4 \|/);
 	assert.match(md, /\| compaction failures \| 2 \| 0 \|/);
-	assert.match(md, /\| emergency failures \| 1 \| 0 \|/);
+	assert.match(md, /\| emergency failures \(recorded stages, lower bound\) \| 1 \| 0 \|/);
 	assert.match(md, /\| retained tail median \| 120 \| not reported \|/);
 	assert.match(md, /\| retained tail max \| 400 \| not reported \|/);
 	assert.match(md, /\| wall clock \| 61\.0 s \| not reported \|/);

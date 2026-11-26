@@ -114,7 +114,7 @@ const METRIC_ROWS = [
 	{ label: () => "compactions", value: (agg) => numText(agg.compactions) },
 	{ label: () => "emergency compactions (applied)", value: (agg) => numText(agg.emergencyCompactions) },
 	{ label: () => "compaction failures", value: (agg) => numText(agg.compactionFailures) },
-	{ label: () => "emergency failures", value: (agg) => numText(agg.emergencyFailures) },
+	{ label: () => "emergency failures (recorded stages, lower bound)", value: (agg) => numText(agg.emergencyFailures) },
 	{ label: () => "rebases", value: (agg) => numText(agg.rebases) },
 	{ label: () => "plain fallbacks", value: (agg) => numText(agg.plainFallbacks) },
 	{ label: () => "max segments", value: (agg) => numText(agg.maxSegments) },

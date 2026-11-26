@@ -164,6 +164,7 @@ function emptyMetrics() {
 		costProxy: null,
 		costPerTurn: null,
 		wallClockMs: null,
+		timingSource: null,
 		durationMs: null,
 		ttftP50Ms: null,
 		ttftP95Ms: null,
@@ -220,8 +221,19 @@ export function analyzeRun({
 	// compaction calls only when that stream reported no measurement; a zero is
 	// unreported (both fields are omitempty) and never fills a metric.
 	const sessionTimings = (key) => calls.map((call) => call[key]).filter((value) => isNum(value) && value > 0);
-	const durations = provider.durations.length > 0 ? provider.durations : sessionTimings("durationMs");
-	const ttfts = provider.ttfts.length > 0 ? provider.ttfts : sessionTimings("ttftMs");
+	const sessionDurations = sessionTimings("durationMs");
+	const sessionTtfts = sessionTimings("ttftMs");
+	const durations = provider.durations.length > 0 ? provider.durations : sessionDurations;
+	const ttfts = provider.ttfts.length > 0 ? provider.ttfts : sessionTtfts;
+	// Name the stream the timing numbers came from, so a provider aggregate that
+	// includes summarizer, failed, delegated or advisor calls is never mistaken
+	// for main-conversation time.
+	const timingSource =
+		provider.durations.length > 0 || provider.ttfts.length > 0
+			? "provider"
+			: sessionDurations.length > 0 || sessionTtfts.length > 0
+				? "session"
+				: null;
 	const validity = runValidity({
 		mode,
 		compactions: runLog.compactions,
@@ -247,6 +259,7 @@ export function analyzeRun({
 		costProxy: cost,
 		costPerTurn: cost !== null && turns > 0 ? cost / turns : null,
 		wallClockMs,
+		timingSource,
 		durationMs: durations.length > 0 ? durations.reduce((sum, value) => sum + value, 0) : null,
 		ttftP50Ms: percentile(ttfts, 0.5),
 		ttftP95Ms: percentile(ttfts, 0.95),

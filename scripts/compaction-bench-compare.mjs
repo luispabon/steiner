@@ -110,6 +110,7 @@ export function compareRows(raw, source = null) {
 					emergencyCompactions: run.emergencyCompactions ?? null,
 					compactionFailures: run.compactionFailures ?? null,
 					emergencyFailures: run.emergencyFailures ?? null,
+					timingSource: run.timingSource ?? null,
 					retainedTailMedian: run.retainedTailMedian ?? null,
 					retainedTailMax: run.retainedTailMax ?? null,
 					wallClockMs: run.wallClockMs ?? null,
@@ -173,7 +174,7 @@ const COLUMNS = [
 	["compactions", (row) => numText(row.compactions)],
 	["emergency done", (row) => numText(row.emergencyCompactions)],
 	["failures", (row) => numText(row.compactionFailures)],
-	["emergency fail", (row) => numText(row.emergencyFailures)],
+	["emergency fail (lower bound)", (row) => numText(row.emergencyFailures)],
 	["retained med", (row) => numText(row.retainedTailMedian)],
 	["retained max", (row) => numText(row.retainedTailMax)],
 	["wall", (row) => durationText(row.wallClockMs)],
@@ -229,7 +230,7 @@ export function renderCompare(rows, sources = []) {
 		lines.push(`### ${label}`, "", tableFor(group.rows), "");
 	}
 	lines.push(
-		"Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries included), includes retry waits, and may include delegated or advisor calls. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage; failures and emergency fail count failed compactions separately and are not included in the applied counts. Window and threshold are the run's observed limits, falling back to the configured values; JSON rows carry both. Token counts and the cost proxy fold in compaction summary calls, and cost proxy is the weighted token estimate, not billing.",
+		"Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries and failed calls included), includes retry waits, and may include delegated or advisor calls, so its scope can exceed main-conversation time. JSON rows carry timingSource: provider, session (fallback when the provider stream measured nothing), or null. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage. Failures counts failed compactions; emergency fail is a lower bound over failures that recorded an emergency stage, because production omits the stage for some emergency failures. Window and threshold are the run's observed limits, falling back to the configured values; JSON rows carry both. Token counts and the cost proxy fold in applied compaction summary calls only: failed summary calls report no usage record, so they are absent. The cost proxy is a weighted token estimate, not billing.",
 		"",
 	);
 	return lines.join("\n");

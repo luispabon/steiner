@@ -21,6 +21,7 @@ function run(over = {}) {
 		emergencyCompactions: 1,
 		compactionFailures: 0,
 		emergencyFailures: 0,
+		timingSource: "provider",
 		retainedTailMedian: 900,
 		retainedTailMax: 1200,
 		wallClockMs: 60000,
@@ -68,6 +69,7 @@ test("compareRows reads one row per run, preferring the run's effective window a
 	assert.equal(rows[0].configuredWindow, 1000000);
 	assert.equal(rows[0].compactionFailures, 0);
 	assert.equal(rows[0].emergencyFailures, 0);
+	assert.equal(rows[0].timingSource, "provider");
 	assert.equal(rows[0].exact, 24);
 	assert.equal(rows[1].mode, "on");
 	assert.equal(rows[1].exact, 23);
@@ -153,7 +155,9 @@ test("renderCompare groups by window and model and prints every run's values", (
 	assert.match(md, /\| 560000 \| on \| 1 \| 23\/24 \|/);
 	assert.match(md, /Retries sum attempts beyond the first/);
 	assert.match(md, /429 fail counts final rate-limited failures only/);
-	assert.match(md, /failures and emergency fail count failed compactions separately/);
+	assert.match(md, /emergency fail is a lower bound over failures that recorded an emergency stage/);
+	assert.match(md, /failed summary calls report no usage record/);
+	assert.match(md, /JSON rows carry timingSource: provider, session/);
 	assert.match(md, /may include delegated or advisor calls/);
 });
 
@@ -199,6 +203,7 @@ test("main prints Markdown, JSON and usage errors", async () => {
 		assert.equal(payload.sources.length, 1);
 		assert.equal(payload.rows.length, 2);
 		assert.equal(payload.rows[0].model, "bench--opencode-go--beam-free");
+		assert.equal(payload.rows[0].timingSource, "provider");
 		out.length = 0;
 		assert.equal(main(["--help"], deps), 0);
 		assert.equal(out.join(""), USAGE);
