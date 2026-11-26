@@ -5,8 +5,8 @@
 // repeat against a generated notes chain, with a low compaction threshold so
 // every run compacts many times. This module owns the functions that turn a
 // run's artefacts (session log JSONL, compaction log text, exec stdout) into
-// continuity and cache economics. Spawning steiner and writing results lands
-// in a later change: main() is a guard-and-usage stub for now.
+// continuity and cache economics, and main() orchestrates the live runs and
+// writes results.md plus raw.json.
 //
 // The only environment values ever surfaced are
 // STEINER_EXPERIMENT_SEGMENTED_COMPACTION and its three
@@ -14,6 +14,11 @@
 //
 // Usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
 
+import { spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const USAGE = `usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
@@ -29,8 +34,9 @@ flags:
   --max-turns <n>              limits.max_turns for every run (default: 80)
   --repeat <n>                 runs per alias and mode (default: 1)
   --tolerance <n>              allowed percent change for continuity and cost (default: 5)
+  --run-timeout-minutes <n>    kill a run that exceeds this many minutes (default: 30)
   --steiner <path>             steiner binary (default: steiner)
-  --out <path>                 write results here instead of stdout
+  --out <dir>                  write results.md and raw.json here (default: a temp dir)
   --help                       print this usage and exit
 
 The bench makes real provider calls and spends real tokens. It refuses to run
@@ -50,6 +56,7 @@ const INT_FLAGS = {
 	"--pad-tokens": "padTokens",
 	"--max-turns": "maxTurns",
 	"--repeat": "repeat",
+	"--run-timeout-minutes": "runTimeoutMinutes",
 };
 
 const STRING_FLAGS = {
@@ -99,6 +106,7 @@ export function parseArgs(argv) {
 		maxTurns: 80,
 		repeat: 1,
 		tolerance: 5,
+		runTimeoutMinutes: 30,
 		steiner: "steiner",
 		out: null,
 	};
@@ -576,6 +584,38 @@ export function runValidity({ mode, compactions, decisionSummary }) {
 	return { valid: true, reason: null };
 }
 
+function numbers(runs, key) {
+	return runs.map((run) => run[key]).filter((value) => typeof value === "number" && Number.isFinite(value));
+}
+
+/** Fold one mode's run records into median metrics, a union of loss points and the first failure reason. */
+export function aggregateMode(runs) {
+	const lostAt = [];
+	for (const run of runs) {
+		for (const entry of run.lostAt ?? []) {
+			if (!lostAt.includes(entry)) lostAt.push(entry);
+		}
+	}
+	const failed = runs.find((run) => run.failed);
+	const invalid = runs.find((run) => run.valid === false);
+	return {
+		turns: median(numbers(runs, "turns")),
+		compactions: median(numbers(runs, "compactions")),
+		rebases: median(numbers(runs, "rebases")),
+		plainFallbacks: median(numbers(runs, "plainFallbacks")),
+		maxSegments: median(numbers(runs, "maxSegments")),
+		cachedTokens: median(numbers(runs, "cachedTokens")),
+		costPerTurn: median(numbers(runs, "costPerTurn")),
+		exact: median(numbers(runs, "exact")),
+		lost: median(numbers(runs, "lost")),
+		total: median(numbers(runs, "total")),
+		recallInvalid: runs.some((run) => run.recallInvalid === true),
+		valid: !failed && !invalid,
+		invalidReason: failed ? `run failed: ${failed.reason ?? "unknown"}` : (invalid?.invalidReason ?? null),
+		lostAt,
+	};
+}
+
 function isNum(value) {
 	return typeof value === "number" && Number.isFinite(value);
 }
@@ -643,6 +683,10 @@ function continuityCell(agg) {
 	return lostAt.length > 0 ? `${base} (lost: ${lostAt.join(", ")})` : base;
 }
 
+function cell(agg, format) {
+	return agg ? format(agg) : "not run";
+}
+
 function probeLine(result) {
 	if (result.family !== "anthropic") return null;
 	if (!result.probe) return "Probe: not run";
@@ -658,14 +702,14 @@ function renderAlias(result) {
 		"",
 		"| metric | off | on |",
 		"| --- | --- | --- |",
-		`| turns | ${numText(off.turns)} | ${numText(on.turns)} |`,
-		`| compactions | ${numText(off.compactions)} | ${numText(on.compactions)} |`,
-		`| rebases | ${numText(off.rebases)} | ${numText(on.rebases)} |`,
-		`| plain fallbacks | ${numText(off.plainFallbacks)} | ${numText(on.plainFallbacks)} |`,
-		`| max segments | ${numText(off.maxSegments)} | ${numText(on.maxSegments)} |`,
-		`| cached tokens | ${numText(off.cachedTokens)} | ${numText(on.cachedTokens)} |`,
-		`| cost proxy per turn (${COST_LABELS[result.family]}) | ${numText(off.costPerTurn)} | ${numText(on.costPerTurn)} |`,
-		`| continuity | ${continuityCell(off)} | ${continuityCell(on)} |`,
+		`| turns | ${cell(off, (agg) => numText(agg.turns))} | ${cell(on, (agg) => numText(agg.turns))} |`,
+		`| compactions | ${cell(off, (agg) => numText(agg.compactions))} | ${cell(on, (agg) => numText(agg.compactions))} |`,
+		`| rebases | ${cell(off, (agg) => numText(agg.rebases))} | ${cell(on, (agg) => numText(agg.rebases))} |`,
+		`| plain fallbacks | ${cell(off, (agg) => numText(agg.plainFallbacks))} | ${cell(on, (agg) => numText(agg.plainFallbacks))} |`,
+		`| max segments | ${cell(off, (agg) => numText(agg.maxSegments))} | ${cell(on, (agg) => numText(agg.maxSegments))} |`,
+		`| cached tokens | ${cell(off, (agg) => numText(agg.cachedTokens))} | ${cell(on, (agg) => numText(agg.cachedTokens))} |`,
+		`| cost proxy per turn (${COST_LABELS[result.family]}) | ${cell(off, (agg) => numText(agg.costPerTurn))} | ${cell(on, (agg) => numText(agg.costPerTurn))} |`,
+		`| continuity | ${cell(off, continuityCell)} | ${cell(on, continuityCell)} |`,
 		"",
 		`Verdict: ${result.verdict.label} (cache: ${result.verdict.cache})`,
 		...result.verdict.reasons.map((reason) => `- ${reason}`),
@@ -680,31 +724,434 @@ export function renderTable(results) {
 	return results.map(renderAlias).join("\n\n");
 }
 
-function main(argv = process.argv.slice(2), env = process.env) {
-	let args;
-	try {
-		args = parseArgs(argv);
-	} catch (err) {
-		console.error(err.message);
-		process.exitCode = 2;
-		return;
+const SANDBOX_NOTE = "not verified (steiner exposes no read-only check)";
+
+function defaultSpawnRun({ command, args, cwd, env, stdoutPath, stderrPath, timeoutMs }) {
+	return new Promise((resolve) => {
+		const stdoutFd = openSync(stdoutPath, "w", 0o600);
+		const stderrFd = openSync(stderrPath, "w", 0o600);
+		let timedOut = false;
+		let settled = false;
+		const finish = (result) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			closeSync(stdoutFd);
+			closeSync(stderrFd);
+			resolve({ timedOut, ...result });
+		};
+		const timer = setTimeout(() => {
+			timedOut = true;
+			child.kill("SIGKILL");
+		}, timeoutMs);
+		const child = spawn(command, args, { cwd, env, stdio: ["ignore", stdoutFd, stderrFd] });
+		child.on("error", (error) => finish({ code: null, error: error.message }));
+		child.on("close", (code) => finish({ code }));
+	});
+}
+
+function parseSandboxEnabled(text) {
+	let inSandbox = false;
+	for (const raw of String(text).split(/\r?\n/)) {
+		if (/^sandbox:\s*$/.test(raw)) {
+			inSandbox = true;
+			continue;
+		}
+		if (!inSandbox) continue;
+		if (/^\S/.test(raw)) return null;
+		const match = /^\s+enabled:\s*(true|false)\s*$/.exec(raw);
+		if (match) return match[1] === "true";
 	}
-	if (args.help) {
-		process.stdout.write(USAGE);
-		return;
+	return null;
+}
+
+async function detectSandbox({ opts, env, spawnRun }) {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-config-"));
+	try {
+		const stdoutPath = join(dir, "config.stdout.txt");
+		const stderrPath = join(dir, "config.stderr.txt");
+		const child = await spawnRun({
+			command: opts.steiner,
+			args: ["config"],
+			cwd: dir,
+			env,
+			stdoutPath,
+			stderrPath,
+			timeoutMs: 30_000,
+		});
+		if (child.timedOut || child.code !== 0) return null;
+		return parseSandboxEnabled(await readTextOrEmpty(stdoutPath));
+	} catch {
+		return null;
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}
+
+async function readTextOrEmpty(path) {
+	try {
+		return await readFile(path, "utf8");
+	} catch (error) {
+		if (error.code === "ENOENT") return "";
+		throw error;
+	}
+}
+
+async function copyIfExists(from, to) {
+	try {
+		await copyFile(from, to);
+	} catch (error) {
+		if (error.code !== "ENOENT") throw error;
+	}
+}
+
+function lostEntries(recall) {
+	const entries = [];
+	for (const file of recall.perFile) {
+		if (file.status !== "lost") continue;
+		entries.push(`${file.file}@${file.lostAt === "unattributed" ? "unattributed" : `c${file.lostAt}`}`);
+	}
+	return entries;
+}
+
+function probePrompt() {
+	const lines = [];
+	let chars = 0;
+	for (let i = 0; chars < 9000; i++) {
+		const line = `Probe line ${i}: the quick brown fox jumps over the lazy dog while the prompt cache warms up.`;
+		lines.push(line);
+		chars += line.length + 1;
+	}
+	lines.push("Reply with OK only.");
+	return lines.join("\n");
+}
+
+function firstCleanStderrLine(text, env) {
+	const envValues = Object.values(env ?? {}).filter((value) => typeof value === "string" && value !== "");
+	for (const raw of String(text).split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "") continue;
+		if (envValues.some((value) => line.includes(value))) continue;
+		return line.slice(0, 200);
+	}
+	return null;
+}
+
+async function gitInit(spawnRun, dir, env, timeoutMs) {
+	const init = await spawnRun({
+		command: "git",
+		args: ["init", "-q"],
+		cwd: dir,
+		env,
+		stdoutPath: join(dir, "git-init.stdout.txt"),
+		stderrPath: join(dir, "git-init.stderr.txt"),
+		timeoutMs,
+	});
+	if (init.timedOut) throw new Error("git init timed out");
+	if (init.code !== 0) throw new Error(`git init failed: ${init.error ?? `exit ${init.code}`}`);
+}
+
+async function createScratchRepo(spawnRun, env, timeoutMs) {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-repo-"));
+	await gitInit(spawnRun, dir, env, timeoutMs);
+	return dir;
+}
+
+function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode, family }) {
+	const stdout = parseStdout(stdoutText);
+	const runLog = parseRunLog(logText);
+	const decisionSummary = summarizeDecisions(parseSegmentDecisions(compactionText));
+	const recall = scoreRecall({ answer: stdout.finalAnswer, fixtures, events: runLog.events });
+	const agg = aggregateCache(runLog.modelCalls);
+	const cost = costProxy(agg, family);
+	const turns = runLog.modelCalls.length;
+	const validity = runValidity({ mode, compactions: runLog.compactions, decisionSummary });
+	return {
+		turns,
+		compactions: runLog.compactions,
+		rebases: decisionSummary.rebases,
+		plainFallbacks: decisionSummary.plainFallbacks,
+		maxSegments: decisionSummary.maxSegments,
+		cachedTokens: agg.reported ? agg.cacheReadTokens : null,
+		costPerTurn: cost !== null && turns > 0 ? cost / turns : null,
+		exact: recall.exact,
+		lost: recall.lost,
+		total: recall.total,
+		recallInvalid: recall.invalid,
+		recallInvalidReason: recall.invalidReason,
+		lostAt: lostEntries(recall),
+		valid: validity.valid,
+		invalidReason: validity.reason,
+		maxTurnsHit: stdout.maxTurnsHit,
+		malformed: runLog.malformed,
+	};
+}
+
+function failedRun({ mode, repeat, reason, exitCode = null, timedOut = false }) {
+	return {
+		mode,
+		repeat,
+		failed: true,
+		timedOut,
+		exitCode,
+		reason,
+		turns: null,
+		compactions: null,
+		rebases: null,
+		plainFallbacks: null,
+		maxSegments: null,
+		cachedTokens: null,
+		costPerTurn: null,
+		exact: null,
+		lost: null,
+		total: null,
+		recallInvalid: false,
+		recallInvalidReason: null,
+		lostAt: [],
+		valid: false,
+		invalidReason: `run failed: ${reason}`,
+		maxTurnsHit: false,
+		malformed: 0,
+	};
+}
+
+async function runProbe({ opts, alias, env, spawnRun }) {
+	const timeoutMs = opts.runTimeoutMinutes * 60_000;
+	let repoDir = null;
+	let privDir = null;
+	try {
+		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
+		privDir = await mkdtemp(join(tmpdir(), "compaction-bench-priv-"));
+		const diagDir = join(privDir, "diag");
+		await mkdir(diagDir, { recursive: true });
+		const configPath = join(privDir, "probe.yaml");
+		await writeFile(configPath, buildBenchConfig({ alias, threshold: 1_000_000, diagnosticsDir: diagDir }));
+		const calls = [];
+		const exits = [];
+		for (const attempt of [1, 2]) {
+			const logPath = join(privDir, `probe-${attempt}.log.jsonl`);
+			const stderrPath = join(privDir, `probe-${attempt}.stderr.txt`);
+			const child = await spawnRun({
+				command: opts.steiner,
+				args: [
+					"--exec",
+					"--model",
+					alias,
+					"--max-turns",
+					"1",
+					"--compaction-log-file",
+					join(privDir, `probe-${attempt}-compaction-log.txt`),
+					"--log-file",
+					logPath,
+					"--config",
+					configPath,
+					"--trust-project-config",
+					probePrompt(),
+				],
+				cwd: repoDir,
+				env,
+				stdoutPath: join(privDir, `probe-${attempt}.stdout.txt`),
+				stderrPath,
+				timeoutMs,
+			});
+			exits.push(child.timedOut ? "timeout" : child.code);
+			if (child.timedOut || child.code !== 0) {
+				const base = child.timedOut
+					? "probe calls failed: timeout"
+					: `probe calls failed: ${child.error ?? `exit ${child.code}`}`;
+				const evidence = firstCleanStderrLine(await readTextOrEmpty(stderrPath), env);
+				return { ok: false, reason: evidence ? `${base}: ${evidence}` : base, exits };
+			}
+			calls.push(parseRunLog(await readTextOrEmpty(logPath)).modelCalls);
+		}
+		return { ...evaluateProbe(calls[0], calls[1]), exits };
+	} catch (error) {
+		return { ok: false, reason: `probe calls failed: ${error.message}`, exits: [] };
+	} finally {
+		if (repoDir) await rm(repoDir, { recursive: true, force: true });
+		if (privDir) await rm(privDir, { recursive: true, force: true });
+	}
+}
+
+async function runOnce({ opts, alias, family, mode, repeat, fixtures, out, env, spawnRun }) {
+	const timeoutMs = opts.runTimeoutMinutes * 60_000;
+	const base = `${mode}-r${repeat}`;
+	const runOutDir = join(out, alias);
+	await mkdir(runOutDir, { recursive: true });
+	let repoDir = null;
+	let privDir = null;
+	try {
+		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
+		await mkdir(join(repoDir, "notes"));
+		for (const file of fixtures.files) {
+			await writeFile(join(repoDir, file.name), file.content);
+		}
+		privDir = await mkdtemp(join(tmpdir(), "compaction-bench-priv-"));
+		const diagDir = join(privDir, "diag");
+		await mkdir(diagDir, { recursive: true });
+		const configPath = join(privDir, "bench.yaml");
+		await writeFile(configPath, buildBenchConfig({ alias, threshold: opts.threshold, diagnosticsDir: diagDir }));
+		const logPath = join(privDir, "run.log.jsonl");
+		const compactionPath = join(privDir, "compaction-log.txt");
+		const stdoutPath = join(runOutDir, `${base}.stdout.txt`);
+		const stderrPath = join(runOutDir, `${base}.stderr.txt`);
+		const child = await spawnRun({
+			command: opts.steiner,
+			args: [
+				"--exec",
+				"--model",
+				alias,
+				"--max-turns",
+				String(opts.maxTurns),
+				"--compaction-log-file",
+				compactionPath,
+				"--log-file",
+				logPath,
+				"--config",
+				configPath,
+				"--trust-project-config",
+				taskPrompt(fixtures.files),
+			],
+			cwd: repoDir,
+			env: { ...env, ...experimentEnv(env, mode) },
+			stdoutPath,
+			stderrPath,
+			timeoutMs,
+		});
+		const metrics = analyzeRun({
+			stdoutText: await readTextOrEmpty(stdoutPath),
+			logText: await readTextOrEmpty(logPath),
+			compactionText: await readTextOrEmpty(compactionPath),
+			fixtures,
+			mode,
+			family,
+		});
+		await copyIfExists(logPath, join(runOutDir, `${base}.run.log.jsonl`));
+		await copyIfExists(compactionPath, join(runOutDir, `${base}.compaction-log.txt`));
+		let reason = null;
+		if (child.timedOut) reason = "timeout";
+		else if (child.code !== 0) reason = child.error ?? `exit ${child.code ?? "unknown"}`;
+		return {
+			mode,
+			repeat,
+			failed: reason !== null,
+			timedOut: child.timedOut,
+			exitCode: child.code,
+			reason,
+			...metrics,
+			valid: reason === null && metrics.valid,
+			invalidReason: reason === null ? metrics.invalidReason : `run failed: ${reason}`,
+		};
+	} catch (error) {
+		return failedRun({ mode, repeat, reason: `setup failed: ${error.message}` });
+	} finally {
+		if (repoDir) await rm(repoDir, { recursive: true, force: true });
+		if (privDir) await rm(privDir, { recursive: true, force: true });
+	}
+}
+
+function renderResults({ opts, experiment, results, sandbox, timestamp }) {
+	return [
+		"# Compaction bench",
+		"",
+		`- generated: ${timestamp}`,
+		`- steiner: ${opts.steiner}`,
+		`- threshold: ${opts.threshold}`,
+		`- files: ${opts.files}`,
+		`- padTokens: ${opts.padTokens}`,
+		`- maxTurns: ${opts.maxTurns}`,
+		`- repeat: ${opts.repeat}`,
+		`- tolerance: ${opts.tolerance}%`,
+		`- modes: ${opts.modes.join(", ")}`,
+		`- env: ${Object.entries(experiment).map(([key, value]) => `${key}=${value}`).join(", ")} (on mode)`,
+		`- sandbox: ${sandbox}`,
+		"",
+		renderTable(results),
+		"",
+	].join("\n");
+}
+
+/** Run the live bench: probe, per-mode exec runs, results.md and raw.json. Returns the exit code. */
+export async function main(argv = process.argv.slice(2), env = process.env, deps = {}) {
+	const log = deps.log ?? ((line) => process.stderr.write(`${line}\n`));
+	const writeOut = deps.stdout ?? ((text) => process.stdout.write(text));
+	const spawnRun = deps.spawnRun ?? defaultSpawnRun;
+	const now = deps.now ?? (() => new Date());
+	let opts;
+	try {
+		opts = parseArgs(argv);
+	} catch (error) {
+		log(error.message);
+		return 2;
+	}
+	if (opts.help) {
+		writeOut(USAGE);
+		return 0;
 	}
 	const blocked = checkGuard(env);
 	if (blocked) {
-		console.error(blocked);
-		process.exitCode = 1;
-		return;
+		log(blocked);
+		return 1;
 	}
-	// Orchestration (spawn steiner, probe calls, write results) lands in a later
-	// change; the pure API is already usable from the test suite.
-	console.error("compaction-bench: orchestration is not implemented yet");
-	process.exitCode = 1;
+
+	const out = opts.out ?? (await mkdtemp(join(tmpdir(), "compaction-bench-")));
+	await mkdir(out, { recursive: true });
+	const results = [];
+	for (const alias of opts.models) {
+		const family = opts.anthropicAliases.includes(alias) ? "anthropic" : "openai";
+		const informational = opts.informationalAliases.includes(alias);
+		const probe = family === "anthropic" ? await runProbe({ opts, alias, env, spawnRun }) : null;
+		if (probe) log(`probe ${alias}: ${probe.ok ? "ok" : `failed (${probe.reason})`}`);
+		const runs = { off: [], on: [] };
+		for (let repeat = 1; repeat <= opts.repeat; repeat++) {
+			const fixtures = generateFixtures(repeat, opts.files, opts.padTokens);
+			for (const mode of opts.modes) {
+				const run = await runOnce({ opts, alias, family, mode, repeat, fixtures, out, env, spawnRun });
+				runs[mode].push(run);
+				const exit = run.timedOut ? "timeout" : run.exitCode === null ? "error" : run.exitCode;
+				log(`${alias} mode ${mode} r${repeat} exit ${exit} compactions ${run.compactions ?? "n/a"} exact ${run.exact ?? "n/a"}/${run.total ?? "n/a"}`);
+			}
+		}
+		const summaries = {};
+		for (const mode of opts.modes) summaries[mode] = aggregateMode(runs[mode]);
+		const off = summaries.off ?? null;
+		const on = summaries.on ?? null;
+		const aliasVerdict = off && on
+			? verdict({ off, on, tolerance: opts.tolerance, informational, probeOk: probe ? probe.ok : undefined, family })
+			: { label: "INCOMPARABLE", cache: "no cache verdict", reasons: ["single mode"] };
+		results.push({ alias, family, informational, probe, off, on, verdict: aliasVerdict, runs });
+	}
+
+	const timestamp = now().toISOString();
+	const experiment = experimentEnv(env, "on");
+	const sandboxEnabled = await detectSandbox({ opts, env, spawnRun });
+	const sandbox = sandboxEnabled === null ? SANDBOX_NOTE : sandboxEnabled ? "enabled" : "disabled";
+	const markdown = renderResults({ opts, experiment, results, sandbox, timestamp });
+	await writeFile(join(out, "results.md"), markdown);
+	const raw = {
+		generatedAt: timestamp,
+		steiner: opts.steiner,
+		out,
+		threshold: opts.threshold,
+		files: opts.files,
+		padTokens: opts.padTokens,
+		maxTurns: opts.maxTurns,
+		repeat: opts.repeat,
+		tolerance: opts.tolerance,
+		runTimeoutMinutes: opts.runTimeoutMinutes,
+		modes: opts.modes,
+		anthropicAliases: opts.anthropicAliases,
+		informationalAliases: opts.informationalAliases,
+		experimentEnv: experiment,
+		sandbox,
+		aliases: results.map(({ alias, family, informational, probe, runs }) => ({ alias, family, informational, probe, runs })),
+	};
+	await writeFile(join(out, "raw.json"), `${JSON.stringify(raw, null, 2)}\n`);
+	writeOut(`${markdown}\n`);
+	const anyFailed = results.some((result) => [...result.runs.off, ...result.runs.on].some((run) => run.failed));
+	return anyFailed ? 3 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	main();
+	process.exitCode = await main();
 }
