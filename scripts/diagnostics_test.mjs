@@ -687,6 +687,21 @@ test("peak: a nonexistent or non-file input is rejected, not read as empty", () 
 	);
 });
 
+test("peak: a large input is not mistaken for a read error", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-large-"));
+	try {
+		// Comfortably past the engine's argument limit, so spreading the records
+		// into push would raise RangeError and surface as "cannot read".
+		const line = JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 1000 }, run_id: "run-big" });
+		writeFileSync(join(dir, "big.jsonl"), Array.from({ length: 150000 }, () => line).join("\n") + "\n");
+		const out = peak([join(dir, "big.jsonl")]);
+		assert.equal(out.runs, 1);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-big/main", n: 150000, metrics: { peakPromptTokens: 1000 } }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("peak: an unreadable input is a clean error, not a stack trace", (t) => {
 	if (process.getuid?.() === 0) {
 		t.skip("root ignores mode 0o000");

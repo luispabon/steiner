@@ -911,7 +911,9 @@ function peakFiles(args) {
 
 // peakInput checks every input is a readable file and reads its lines. Read
 // and stat failures become errors instead of stack traces: a bad path and an
-// unreadable one both mean the input was not usable.
+// unreadable one both mean the input was not usable. Only the read itself is
+// caught; iteration must not throw, and spreading a large file's records into
+// push would hit the engine's argument limit and masquerade as a read error.
 function peakInput(files) {
 	const lines = [];
 	for (const file of files) {
@@ -923,11 +925,13 @@ function peakInput(files) {
 		}
 		if (!stats) return { error: `no such file: ${file}` };
 		if (!stats.isFile()) return { error: `not a regular file: ${file}` };
+		let records;
 		try {
-			lines.push(...readJsonl(file));
+			records = readJsonl(file);
 		} catch (err) {
 			return { error: `cannot read ${file}: ${err.code ?? err.message}` };
 		}
+		for (const record of records) lines.push(record);
 	}
 	return { lines };
 }
