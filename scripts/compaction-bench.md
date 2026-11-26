@@ -86,9 +86,16 @@ Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL` or
 
 Mark aliases using Anthropic cache accounting with `--anthropic-alias`; all other aliases use the other cost formula. The probe tests the actual route rather than assuming cache support. Use `--informational-alias` for `claude_subscription`: the Claude CLI manages the session and its caching, so its results should not be judged as a pass or fail.
 
+Setup guidance from the prototype's provider research (confirm details with your provider):
+
+- Anthropic route: define a provider with `type: anthropic`, `base_url: https://opencode.ai/inference/go/anthropic/v1`, the OpenCode Go key via `api_key_env`, and an `X-Opencode-Session` header. Add an `Authorization: Bearer` header only if the route rejects `x-api-key`. Pass the alias with `--anthropic-alias`.
+- OpenCode Zen pay-as-you-go is the fallback Anthropic route if the Go route does not honour `cache_control` (the probe reports this).
+- Free OpenCode models are chat-completions only and may return 403 outside the OpenCode client. They still give continuity and compaction stats, but no Anthropic cache verdict.
+- `claude_subscription` sends no `cache_control` (the Claude CLI owns caching), so it cannot test the segment cache breakpoint.
+
 ## Limitations
 
-- A fast run understates the effects of cache expiry during idle gaps in real sessions. Codex's measured idle cache TTL is about 5 minutes.
+- A fast run understates the effects of cache expiry during idle gaps in real sessions. Anthropic prompt cache entries expire after 5 minutes without use.
 - Small or verbose models may not finish the chain within `--max-turns`.
 - Loss attribution identifies the first compaction after a read, not proof that compaction caused the loss.
 - The cost proxy is not a provider bill.
