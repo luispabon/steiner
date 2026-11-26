@@ -4,9 +4,13 @@ import "github.com/luispabon/steiner/internal/prompt"
 
 // segmentDecision is the append-or-rebase choice for one segmented compaction.
 type segmentDecision struct {
-	Rebase              bool
-	Reason              string // append | chain-start | invalid-chain | split-in-chain | empty-span | emergency | max-segments | chain-tokens | post-compaction-tokens | no-progress | retry
-	Sequence            int    // sequence of the segment this compaction will write
+	Rebase bool
+	// Reason labels the decision: append, chain-start, invalid-chain,
+	// split-in-chain, retention-unmapped, stripped-view, empty-span,
+	// empty-source, emergency, max-segments, chain-tokens,
+	// post-compaction-tokens, no-progress or retry.
+	Reason              string
+	Sequence            int // sequence of the segment this compaction will write
 	ChainTokens         int
 	ProjectedPostTokens int
 	Budget              int

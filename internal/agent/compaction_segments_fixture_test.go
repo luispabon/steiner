@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -403,6 +404,20 @@ func fixtureEncodeGoldens(t *testing.T, captures []fixtureCapture) []byte {
 	return append(data, '\n')
 }
 
+// fixtureWrittenPreamble holds the system preamble the first update-mode mode
+// wrote, so a later mode cannot silently overwrite it with different text.
+var fixtureWrittenPreamble string
+
+// fixtureCheckPreambleStable reports the update-mode conflict where a later mode
+// renders a system preamble that differs from the one already written. The two
+// modes share one preamble file, so the last writer would otherwise win.
+func fixtureCheckPreambleStable(written, preamble string) error {
+	if written != "" && written != preamble {
+		return errors.New("system preamble differs from the one an earlier mode wrote")
+	}
+	return nil
+}
+
 // fixtureCheckGolden compares encoded with the stored golden and its shared
 // system preamble, or rewrites both when -update-segment-goldens is set.
 func fixtureCheckGolden(t *testing.T, mode, preamble string, encoded []byte) {
@@ -411,6 +426,10 @@ func fixtureCheckGolden(t *testing.T, mode, preamble string, encoded []byte) {
 	name := "captured_" + mode + ".json"
 	path := filepath.Join(fixtureGoldenDir, name)
 	if *fixtureUpdateGoldens {
+		if err := fixtureCheckPreambleStable(fixtureWrittenPreamble, preamble); err != nil {
+			t.Fatalf("mode %s: %v", mode, err)
+		}
+		fixtureWrittenPreamble = preamble
 		if err := os.MkdirAll(fixtureGoldenDir, 0o755); err != nil {
 			t.Fatalf("create golden dir: %v", err)
 		}
@@ -434,6 +453,29 @@ func fixtureCheckGolden(t *testing.T, mode, preamble string, encoded []byte) {
 	}
 	if !bytes.Equal(stored, encoded) {
 		t.Fatalf("captured requests drifted from %s\nregenerate with:\n  go test ./internal/agent -run SegmentsFixture -update-segment-goldens", path)
+	}
+}
+
+// TestFixtureCheckPreambleStable pins the guard that keeps a later update mode
+// from overwriting the shared system preamble with different text.
+func TestFixtureCheckPreambleStable(t *testing.T) {
+	tests := []struct {
+		name     string
+		written  string
+		preamble string
+		wantErr  bool
+	}{
+		{name: "first write", preamble: "preamble a"},
+		{name: "same preamble", written: "preamble a", preamble: "preamble a"},
+		{name: "different preamble", written: "preamble a", preamble: "preamble b", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fixtureCheckPreambleStable(tt.written, tt.preamble)
+			if got := err != nil; got != tt.wantErr {
+				t.Fatalf("fixtureCheckPreambleStable(%q, %q) error = %v, want error %t", tt.written, tt.preamble, err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -793,6 +835,9 @@ func fixtureAppliedEpisode(decisions []fixtureDecision, applied int) int {
 // TestSegmentsFixture runs the scripted conversation through the real turn and
 // compaction flow once per mode and pins the captured requests.
 func TestSegmentsFixture(t *testing.T) {
+	// Each run starts with no recorded preamble, so a repeated test process does
+	// not compare against a preamble from a previous run.
+	fixtureWrittenPreamble = ""
 	t.Run("Off", func(t *testing.T) {
 		result := fixtureRunConversation(t, fixturePolicy(false))
 		captures, preamble := fixtureGoldenCaptures(t, result.Goldens)

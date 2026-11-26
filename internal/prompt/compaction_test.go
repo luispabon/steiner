@@ -10,7 +10,7 @@ import (
 // template's trailing newline.
 const segmentAppendInstructionWant = `You extend the summary of a coding agent conversation. Another agent must resume from the full summary chain alone.
 
-Earlier summary messages whose text starts with "Segment N." are immutable segments. They are read-only records: reuse them as written, and do not repeat their facts. The last summary message that starts with "Segment N." is the newest segment. The conversation after it, up to the retained recent turns, is the new span. Summarize only the new span.
+Earlier summary messages that contain a "Segment N." header are immutable segments. Steiner wraps them in its own summary framing, so read the header inside the message. They are read-only records: reuse them as written, and do not repeat their facts. The last summary message that contains a "Segment N." header is the newest segment. The conversation after it, up to the retained recent turns, is the new span. Summarize only the new span.
 
 Ignore [steiner:history] lines and [steiner:latest-request ...] blocks. Steiner rebuilds them after this summary.
 
@@ -38,6 +38,17 @@ Supersession:
 - If a fact in an earlier segment is now wrong or superseded, end the reply with a "## Corrections" heading.
 - Under the heading, write one line per correction: "Segment K: <old fact> -> <new fact>", where K is the number in that segment's "Segment K." header.
 - Omit the "## Corrections" heading when nothing needs correcting.`
+
+// segmentAppendRulesWant is segmentAppendInstructionWant without the opening
+// generic guidance paragraph, which a compaction override replaces.
+func segmentAppendRulesWant(t *testing.T) string {
+	t.Helper()
+	_, rules, ok := strings.Cut(segmentAppendInstructionWant, "\n\n")
+	if !ok {
+		t.Fatal("append instruction literal holds no guidance paragraph separator")
+	}
+	return rules
+}
 
 func TestRenderSegmentAppendInstructionExact(t *testing.T) {
 	t.Parallel()
@@ -71,12 +82,31 @@ func TestSegmentAppendInstructionSemantics(t *testing.T) {
 	}
 }
 
-func TestRenderSegmentAppendInstructionOverrideReplacesInstruction(t *testing.T) {
+// TestRenderSegmentAppendInstructionOverrideKeepsAppendRules pins the override
+// semantics: the override replaces the generic guidance, and the append rules
+// follow it, so a custom prompt cannot make the segment chain mutable.
+func TestRenderSegmentAppendInstructionOverrideKeepsAppendRules(t *testing.T) {
 	t.Parallel()
 
 	const override = "custom compaction prompt"
-	if got := RenderSegmentAppendInstruction(override); got != override {
-		t.Fatalf("override instruction = %q, want %q", got, override)
+	got := RenderSegmentAppendInstruction(override)
+	if want := override + "\n\n" + segmentAppendRulesWant(t); got != want {
+		t.Fatalf("override instruction = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "You extend the summary of a coding agent conversation") {
+		t.Fatalf("override instruction kept the generic guidance: %q", got)
+	}
+	for _, rule := range []string{
+		`contain a "Segment N." header are immutable segments`,
+		"read-only records",
+		"Summarize only the new span",
+		"Reply with the summary body only. Do not write a Segment header; it is added for you.",
+		`The last summary message that contains a "Segment N." header is the newest segment.`,
+		`"## Corrections" heading`,
+	} {
+		if !strings.Contains(got, rule) {
+			t.Errorf("override instruction = %q, want it to contain the append rule %q", got, rule)
+		}
 	}
 }
 
@@ -97,7 +127,7 @@ func TestRenderSegmentAppendInstructionSteering(t *testing.T) {
 	}
 
 	const override = "custom compaction prompt"
-	if got, want := RenderSegmentAppendInstruction(override, steering), override+"\n\n"+marker; got != want {
+	if got, want := RenderSegmentAppendInstruction(override, steering), override+"\n\n"+segmentAppendRulesWant(t)+"\n\n"+marker; got != want {
 		t.Fatalf("override plus steering = %q, want %q", got, want)
 	}
 }

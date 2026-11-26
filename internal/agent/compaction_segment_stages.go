@@ -74,6 +74,15 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	summaryText := strings.TrimSpace(calls.response.Message.Content)
 	marker := stageTruncationMarker(calls.truncated)
 
+	// The history note is written before the retained tail is refit, the order
+	// the flag-off stage has always used, so a failed refit cannot skip the Note
+	// call and its warning.
+	removedSource := stripRequestBlocks(params.sourceMessages)
+	if segment != nil {
+		removedSource = segmentArchiveSource(segment)
+	}
+	noted, note, pendingArchive := stageHistoryNote(req, summaryText, removedSource)
+
 	retained, stageRetainedFit, err := compactionStageRetention(ctx, req, state, segment != nil && segment.ClampRetained, retainedFit, plan.retainedMessages)
 	if err != nil {
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
@@ -81,8 +90,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	retainedFit = stageRetainedFit
 	params.retainedMessages = retained
 
-	removedSource := stripRequestBlocks(params.sourceMessages)
-	nextState, summaryText, pendingArchive, err := buildCompactionStageState(req, state, segment, removedSource, summaryText, marker, requestBlock, retained)
+	nextState, summaryText, err := buildCompactionStageState(state, segment, noted, note, marker, requestBlock, retained)
 	if err != nil {
 		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
 	}
@@ -210,48 +218,62 @@ func stageRecallCount(state RunState, segment *segmentStage, removedSource, sour
 	return segment.Recall, countSummarizedMessages(segment.Source, activeSkillBlocks(state))
 }
 
+// segmentArchiveSource returns the source a segmented stage archives once it is
+// adopted: the span it summarizes, preceded on an append by the previous tail,
+// whose body still carries the older history pointers. The tail is stripped of
+// its request block, the way the flag-off source is. A rebase covers the chain
+// and tail it replaces in its own span.
+func segmentArchiveSource(segment *segmentStage) []Message {
+	if segment.Decision.Rebase || segment.Scan.Tail == nil {
+		return segment.Recall
+	}
+	previous := stripRequestBlocks([]Message{*segment.Scan.Tail})
+	return append(previous, segment.Recall...)
+}
+
+// stageHistoryNote returns body with its history note, the note text alone, and
+// the source to archive once the outcome is adopted. It runs before the retained
+// tail is refit, so a failed refit cannot skip the Note call and its warning.
+func stageHistoryNote(req RunRequest, body string, removedSource []Message) (string, string, [][]Message) {
+	if req.HistoryArchive == nil {
+		return body, "", nil
+	}
+	// The archive note must not re-quote the verbatim request. The summary
+	// request itself keeps the block, because it replays this conversation
+	// exactly as a main request projects it, so the shared prefix stays cached.
+	text, pendingArchive := withHistoryNote(req, body, removedSource)
+	note := strings.TrimPrefix(strings.TrimPrefix(text, StripHistoryNotes(body)), "\n\n")
+	return text, note, pendingArchive
+}
+
 // buildCompactionStageState stores the state a successful stage produces and
-// returns the summary text reported for it. It runs only after the summarizer
-// succeeded, so a failed call writes no history note. With no segment stage it is
-// today's plain summary with the history note and request block inline. A
-// segmented stage stores the summarizer body as the immutable segment and moves
-// the note and request block to the mutable tail; a plain segmented decision keeps
-// the flag-off shape with no segment metadata. marker is the truncation marker,
-// which follows the history note and precedes the request block.
-func buildCompactionStageState(req RunRequest, state RunState, segment *segmentStage, removedSource []Message, body, marker, requestBlock string, retained []Message) (RunState, string, [][]Message, error) {
-	if segment != nil {
-		// A segmented stage notes and archives only the span it replaces, never
-		// the segments and tail it keeps.
-		removedSource = segment.Recall
-	}
-	note := ""
-	text := body
-	var pendingArchive [][]Message
-	if req.HistoryArchive != nil {
-		// The archive note must not re-quote the verbatim request. The summary
-		// request itself keeps the block, because it replays this conversation
-		// exactly as a main request projects it, so the shared prefix stays cached.
-		text, pendingArchive = withHistoryNote(req, body, removedSource)
-		note = strings.TrimPrefix(strings.TrimPrefix(text, StripHistoryNotes(body)), "\n\n")
-	}
+// returns the summary text reported for it. noted is the summary body with its
+// history note, computed by stageHistoryNote for the source the stage replaces;
+// note is that note alone. With no segment stage, or a plain segmented decision,
+// the stored summary keeps the flag-off shape with the note and request block
+// inline. A segmented stage stores the summarizer body as the immutable segment
+// and moves the note and request block to the mutable tail. marker is the
+// truncation marker, which follows the history note and precedes the request
+// block.
+func buildCompactionStageState(state RunState, segment *segmentStage, noted, note, marker, requestBlock string, retained []Message) (RunState, string, error) {
 	if segment == nil || segment.Plain {
-		stored := withRequestBlock(text+marker, requestBlock)
-		return buildSummarizedCompactionState(state, stored, retained), stored, pendingArchive, nil
+		stored := withRequestBlock(noted+marker, requestBlock)
+		return buildSummarizedCompactionState(state, stored, retained), stored, nil
 	}
-	display := withRequestBlock(segmentNoteText(StripHistoryNotes(body+marker), note), requestBlock)
+	display := withRequestBlock(segmentNoteText(StripHistoryNotes(noted+marker), note), requestBlock)
 	next, err := buildSegmentCompactionState(state, segmentStateInput{
 		Scan:         segment.Scan,
 		Rebase:       segment.Decision.Rebase,
 		Source:       segment.Source,
-		Summary:      body + marker,
+		Summary:      noted + marker,
 		HistoryNote:  note,
 		RequestBlock: requestBlock,
 		Retained:     retained,
 	})
 	if err != nil {
-		return RunState{}, "", nil, err
+		return RunState{}, "", err
 	}
-	return next, display, pendingArchive, nil
+	return next, display, nil
 }
 
 // segmentDecisionOf returns the decision an adopted stage reports, or nil with

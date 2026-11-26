@@ -60,7 +60,7 @@ Encoding directives:
 
 	appendInstructionLiteral = `You extend the summary of a coding agent conversation. Another agent must resume from the full summary chain alone.
 
-Earlier summary messages whose text starts with "Segment N." are immutable segments. They are read-only records: reuse them as written, and do not repeat their facts. The last summary message that starts with "Segment N." is the newest segment. The conversation after it, up to the retained recent turns, is the new span. Summarize only the new span.
+Earlier summary messages that contain a "Segment N." header are immutable segments. Steiner wraps them in its own summary framing, so read the header inside the message. They are read-only records: reuse them as written, and do not repeat their facts. The last summary message that contains a "Segment N." header is the newest segment. The conversation after it, up to the retained recent turns, is the new span. Summarize only the new span.
 
 Ignore [steiner:history] lines and [steiner:latest-request ...] blocks. Steiner rebuilds them after this summary.
 
