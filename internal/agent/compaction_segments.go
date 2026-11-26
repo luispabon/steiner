@@ -142,9 +142,9 @@ const (
 	// segmentReasonRetentionUnmapped marks a stage whose retained boundary could
 	// not be proved against the scanned conversation.
 	segmentReasonRetentionUnmapped = "retention-unmapped"
-	// segmentReasonSplitInChain is decideSegmentAction's split reason. An
-	// unmapped boundary reads as a split at the start of the chain, so that
-	// decision is the one relabelled retention-unmapped.
+	// segmentReasonSplitInChain marks a decision whose retention start falls
+	// inside the chain. An unmapped boundary reads as such a split at the start
+	// of the chain, so that decision is the one relabelled retention-unmapped.
 	segmentReasonSplitInChain = "split-in-chain"
 	// segmentReasonStrippedView marks a stage whose candidate view omits an
 	// existing chain, so its source cannot be split for an append.

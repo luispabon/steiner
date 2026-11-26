@@ -67,7 +67,7 @@ func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 	case in.Chain.Status == chainInvalid:
 		return rebase("invalid-chain")
 	case in.RetentionStart < in.Chain.End:
-		return rebase("split-in-chain")
+		return rebase(segmentReasonSplitInChain)
 	case in.AppendSourceMessages == 0:
 		return rebase("empty-span")
 	}
