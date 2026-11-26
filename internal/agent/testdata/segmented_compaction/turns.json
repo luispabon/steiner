@@ -71,22 +71,6 @@
     {
       "user": "Write the operator facing summary. One paragraph on the cause, one on the fix, one on the guard against recurrence. Avoid jargon where a plain phrase works and keep the superseded identifier out of the operator summary.",
       "assistant": "Operator summary explains the shared retry context as the cause, the loop scoped context as the fix, and the regression table as the guard. The superseded identifier appears only in the internal corrections block, not in the operator text."
-    },
-    {
-      "user": "Compare the final timeline against the first failure report. Confirm that every question raised in the report is answered, and list any question that is still open with the reason it was deferred.",
-      "assistant": "Every question in the first report is answered except the reporting wrapper retry, which is explicitly deferred. The deferred item is listed with its reason and the file that owns it, so the next session can pick it up without rereading the timeline."
-    },
-    {
-      "user": "Close out the investigation with a final consistency pass over the corrections block, the timeline, and the handoff note. Confirm the corrected identifier is used everywhere and the superseded one only appears in the corrections block.",
-      "assistant": "Final pass complete. The corrections block is the only place that names the superseded identifier. The timeline, handoff note, release notes, and operator summary all use the corrected identifier, and the deferred follow up is listed once."
-    },
-    {
-      "user": "Archive the investigation notes into the session history and confirm the archive step does not alter the active summary. Then stop, we have what we need for the release review tomorrow morning.",
-      "assistant": "Archive step recorded without touching the active summary. The release review package is the operator summary, the timeline, the handoff note, and the test list. Nothing else changed after the final consistency pass."
-    },
-    {
-      "user": "Confirm the release review package is complete and that no further code change is pending for this investigation. Answer with the file list and a single sentence on residual risk, then we are done.",
-      "assistant": "Package complete: the three wrapper files, the regression table, the package comment, and the notes. No code change is pending. Residual risk is limited to the deferred reporting wrapper retry, which is unchanged and already documented."
     }
   ]
 }
