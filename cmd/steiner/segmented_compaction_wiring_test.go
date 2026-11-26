@@ -96,6 +96,24 @@ models:
 	return cmd, &cliFlags{configPath: configPath, trustProjectConfig: true, exec: true}, projectRoot
 }
 
+// isolateSegmentedCompactionEnv clears the four experiment variables this
+// package parses so ambient values cannot leak into a test. t.Setenv records the
+// current values first, so cleanup restores the developer's environment.
+func isolateSegmentedCompactionEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		agent.SegmentedCompactionEnv,
+		agent.SegmentMaxCountEnv,
+		agent.SegmentMaxChainPercentEnv,
+		agent.SegmentMaxPostPercentEnv,
+	} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+	}
+}
+
 // segmentedEnabledFromEnv returns the policy the env vars in the test should
 // parse to, so the assertion does not restate the parser's defaults.
 func segmentedEnabledFromEnv(t *testing.T) agent.SegmentedCompactionPolicy {
@@ -114,6 +132,7 @@ func segmentedEnabledFromEnv(t *testing.T) agent.SegmentedCompactionPolicy {
 // phase runtime built through newPhaseRunner (and its real buildPhaseRuntime
 // constructor) carries the policy parsed from the environment.
 func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
+	isolateSegmentedCompactionEnv(t)
 	t.Setenv(agent.SegmentedCompactionEnv, "1")
 	t.Setenv(agent.SegmentMaxCountEnv, "3")
 	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
@@ -146,6 +165,7 @@ func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 // parsed by the real runtime builder survives the interactive session and
 // buildInteractiveRuntime rewiring.
 func TestInteractiveRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
+	isolateSegmentedCompactionEnv(t)
 	t.Setenv(agent.SegmentedCompactionEnv, "1")
 	t.Setenv(agent.SegmentMaxChainPercentEnv, "20")
 	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
@@ -186,6 +206,7 @@ func TestBuildRuntimeRejectsInvalidSegmentedCompactionEnv(t *testing.T) {
 		{name: "max post percent", env: agent.SegmentMaxPostPercentEnv, value: "101"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			isolateSegmentedCompactionEnv(t)
 			t.Setenv(tt.env, tt.value)
 			blocker := filepath.Join(t.TempDir(), "blocker")
 			if err := os.WriteFile(blocker, nil, 0o644); err != nil {

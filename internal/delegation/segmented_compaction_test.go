@@ -2,6 +2,8 @@ package delegation
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -58,6 +60,49 @@ func TestBuildChildRunThreadsSegmentedCompaction(t *testing.T) {
 			}
 			if req.SegmentedCompaction != tt.policy {
 				t.Fatalf("child SegmentedCompaction = %+v, want %+v", req.SegmentedCompaction, tt.policy)
+			}
+		})
+	}
+}
+
+// TestVisionChildRunThreadsSegmentedCompaction proves the vision agent's child
+// run request carries the parent's segmented compaction policy. Vision builds
+// its child run from ChildBootstrapOverrides rather than the specialized path,
+// so a dropped policy there would not be caught by the other child-run tests.
+func TestVisionChildRunThreadsSegmentedCompaction(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		policy agent.SegmentedCompactionPolicy
+	}{
+		{name: "flag off", policy: agent.SegmentedCompactionPolicy{}},
+		{name: "enabled", policy: segmentedCompactionEnabledPolicy()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			imgPath := filepath.Join(dir, "segment.png")
+			if err := os.WriteFile(imgPath, []byte("fake-png-content"), 0o600); err != nil {
+				t.Fatalf("write temp image: %v", err)
+			}
+			store := agent.NewImageStore(dir)
+			ref := store.Register(imgPath, "image/png", 10, 20, 15)
+
+			var captured agent.RunRequest
+			deps := minimalDeps(&mockRunner{runFunc: func(_ context.Context, req agent.RunRequest) (agent.RunState, error) {
+				captured = req
+				return successRunState(), nil
+			}})
+			deps.WorkDir = t.TempDir()
+			deps.ImageStore = store
+			deps.SegmentedCompaction = tt.policy
+
+			if _, err := newVisionHandler(deps)(context.Background(), subAgentTaskWithImageID("describe the image", ref.ID)); err != nil {
+				t.Fatalf("vision handler() error = %v", err)
+			}
+			if captured.SegmentedCompaction != tt.policy {
+				t.Fatalf("vision child SegmentedCompaction = %+v, want %+v", captured.SegmentedCompaction, tt.policy)
 			}
 		})
 	}

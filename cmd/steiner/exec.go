@@ -51,15 +51,28 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 	// Exec is one sequential run stream, so it owns one group scope.
 	groupScope, releaseGroupScope := rt.openGroupScope()
 	defer releaseGroupScope()
-	_, err = cliRunner{
+	runner := execRunner(rt, promptCacheKey, sessionDate, execMaxTurns, flags.enableStreaming)
+	_, err = runner.RunWithHooks(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, runHooks{delegationGroupScope: groupScope})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// execRunner builds the runner for one exec invocation. It takes the runtime by
+// value so the caller's runtime stays unchanged, and it is the single place
+// exec wiring binds the runtime to the runner, including the segmented
+// compaction policy buildRunRequest copies into every request.
+func execRunner(rt cliRuntime, promptCacheKey string, sessionDate prompt.SessionDate, maxTurns int, streamingPreferred bool) cliRunner {
+	return cliRunner{
 		runtime: rt,
 		approver: agent.NewEventingApprover(
 			rt.events,
 			stdinApprovalResponder{reader: approvalReader(rt)},
 		),
-		maxTurns:           execMaxTurns,
+		maxTurns:           maxTurns,
 		runMode:            "exec",
-		streamingPreferred: flags.enableStreaming,
+		streamingPreferred: streamingPreferred,
 		promptCacheKeyFn:   func() string { return promptCacheKey },
 		sessionIDFn:        func() string { return promptCacheKey },
 		sessionDateFn:      func() prompt.SessionDate { return sessionDate },
@@ -68,11 +81,7 @@ func runExecMode(cmd *cobra.Command, flags *cliFlags, args []string) error {
 		// Exec is a single-run scope: allocate a fresh store per invocation
 		// rather than sharing one across process-lifetime invocations.
 		cacheBaseline: agent.NewCacheBaselineStore(),
-	}.RunWithHooks(cmd.Context(), []agent.Message{{Role: agent.MessageRoleUser, Content: promptText}}, nil, runHooks{delegationGroupScope: groupScope})
-	if err != nil {
-		return err
 	}
-	return nil
 }
 
 func readPromptFromInput(reader *bufio.Reader) (string, error) {
