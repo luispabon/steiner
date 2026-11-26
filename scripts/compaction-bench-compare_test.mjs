@@ -45,7 +45,10 @@ function rawFile(over = {}) {
 		generatedAt: "2026-11-26T12:00:00.000Z",
 		threshold: 560000,
 		contextWindow: 1000000,
+		seed: null,
 		files: 96,
+		padTokens: 10,
+		maxTurns: 80,
 		aliases: [
 			{
 				alias: "bench--opencode-go--beam-free",
@@ -90,6 +93,72 @@ test("compareRows reads one row per run, preferring the run's effective window a
 	assert.equal(fallback[0].threshold, 140000);
 });
 
+test("compareRows carries the effective seed, source and fixture settings", () => {
+	const rows = compareRows(rawFile(), "/phase1/w1000000-t560000/raw.json");
+	assert.equal(rows[0].seed, 1, "without --seed the repeat number is the seed");
+	assert.equal(rows[0].source, "/phase1/w1000000-t560000/raw.json");
+	assert.equal(rows[0].files, 96);
+	assert.equal(rows[0].padTokens, 10);
+	assert.equal(rows[0].maxTurns, 80);
+	const seeded = compareRows(
+		rawFile({
+			seed: 11,
+			aliases: [{ alias: "hy4-flash", ref: "hy4-flash", runs: { off: [run({ repeat: 2 }), run({ repeat: 3 })], on: [] } }],
+		}),
+		"run-b/raw.json",
+	);
+	assert.deepEqual(seeded.map((row) => row.seed), [12, 13], "--seed N with repeat r uses N + r - 1");
+	const missing = compareRows(rawFile({ files: null, padTokens: undefined, maxTurns: null, seed: 4, aliases: [{ alias: "m", ref: "m", runs: { off: [run({ repeat: null })] } }] }));
+	assert.equal(missing[0].files, null);
+	assert.equal(missing[0].padTokens, null);
+	assert.equal(missing[0].maxTurns, null);
+	assert.equal(missing[0].seed, null, "a run without a repeat cannot resolve a base seed");
+});
+
+test("compareRows flags an observed limit that differs from the configured one", () => {
+	const rows = compareRows(
+		rawFile({
+			contextWindow: 200000,
+			threshold: 140000,
+			aliases: [
+				{
+					alias: "hy4-flash",
+					ref: "hy4-flash",
+					runs: {
+						off: [
+							run({
+								configuredContextWindow: 200000,
+								configuredThresholdTokens: 140000,
+								observedContextWindow: 1000000,
+								observedThresholdTokens: 560000,
+							}),
+						],
+					},
+				},
+			],
+		}),
+		"/bench/raw.json",
+	);
+	assert.equal(rows[0].windowMismatch, true);
+	assert.equal(rows[0].thresholdMismatch, true);
+	assert.equal(rows[0].window, 1000000, "grouping keeps the observed window");
+	const md = renderCompare(sortRows(rows), ["/bench/raw.json"]);
+	assert.match(md, /## window 1000000/);
+	assert.match(md, /\| 560000 \| window\+threshold \|/);
+	assert.match(md, /1 run\(s\) reported an observed limit that differs from the configured one/);
+	const thresholdOnly = compareRows(
+		rawFile({ aliases: [{ alias: "m", ref: "m", runs: { off: [run({ observedThresholdTokens: 600000 })] } }] }),
+		"raw.json",
+	);
+	assert.equal(thresholdOnly[0].thresholdMismatch, true);
+	assert.equal(thresholdOnly[0].windowMismatch, false);
+	assert.match(renderCompare(sortRows(thresholdOnly), ["raw.json"]), /\| 600000 \| threshold \|/);
+	const matching = compareRows(rawFile({ aliases: [{ alias: "m", ref: "m", runs: { off: [run()] } }] }), "raw.json");
+	assert.equal(matching[0].windowMismatch, false);
+	assert.equal(matching[0].thresholdMismatch, false);
+	assert.match(renderCompare(sortRows(matching), ["raw.json"]), /0 run\(s\) reported an observed limit/);
+});
+
 test("compareRows marks failed and invalid runs instead of scoring them", () => {
 	const rows = compareRows(
 		rawFile({
@@ -130,12 +199,21 @@ test("sortRows orders by window, model, threshold, mode and repeat", () => {
 	);
 });
 
+test("sortRows orders equal runs by their effective seed", () => {
+	const rows = [
+		{ window: 1, model: "m", threshold: 1, mode: "off", repeat: 1, seed: 12, source: "/a/raw.json" },
+		{ window: 1, model: "m", threshold: 1, mode: "off", repeat: 1, seed: 11, source: "/z/raw.json" },
+	];
+	assert.deepEqual(sortRows(rows).map((row) => row.seed), [11, 12], "the seed orders phase1 rows ahead of the source path");
+});
+
 test("renderCompare groups by window and model and prints every run's values", () => {
 	const rows = sortRows([
 		...compareRows(rawFile(), "/a/raw.json"),
 		...compareRows(
 			rawFile({
 				contextWindow: 200000,
+				seed: 11,
 				aliases: [{ alias: "hy4-flash", ref: "hy4-flash", runs: { off: [run({ observedContextWindow: 200000, observedThresholdTokens: 140000, configuredContextWindow: 200000, configuredThresholdTokens: 140000 })] } }],
 			}),
 			"/b/raw.json",
@@ -150,13 +228,14 @@ test("renderCompare groups by window and model and prints every run's values", (
 	assert.ok(md.indexOf("## window 200000") < md.indexOf("## window 1000000"), "windows sort ascending");
 	assert.match(md, /### hy4-flash/);
 	assert.match(md, /### bench--opencode-go--beam-free \(opencode-go\/beam-free\)/);
-	assert.match(md, /\| threshold \| mode \| r \| continuity \| max turns \|/);
-	assert.match(md, /\| 560000 \| off \| 1 \| 24\/24 \| no \| 12 \| 1 \| 0 \| 0 \| 900 \| 1200 \| 60\.0 s \| 59\.0 s \| 2 \| 1 \| 0 \| 500000 \| 20000 \| 70000 \|/);
-	assert.match(md, /\| 560000 \| on \| 1 \| 23\/24 \|/);
+	assert.match(md, /\| threshold \| limits \| mode \| r \| seed \| continuity \| max turns \|/);
+	assert.match(md, /\| 560000 \| - \| off \| 1 \| 1 \| 24\/24 \| no \| 12 \| 1 \| 0 \| 0 \| 900 \| 1200 \| 60\.0 s \| 59\.0 s \| 2 \| 1 \| 0 \| 500000 \| 20000 \| 70000 \| \/a\/raw\.json \|/);
+	assert.match(md, /\| 560000 \| - \| on \| 1 \| 1 \| 23\/24 \|/);
+	assert.match(md, /\| 140000 \| - \| off \| 1 \| 11 \| 24\/24 \| .* \| \/b\/raw\.json \|/, "a seeded invocation's rows carry their own seed and source");
 	assert.match(md, /Retries sum attempts beyond the first/);
 	assert.match(md, /429 fail counts final rate-limited failures only/);
 	assert.match(md, /emergency fail is a lower bound over failures that recorded an emergency stage/);
-	assert.match(md, /failed summary calls report no usage record/);
+	assert.match(md, /a failed compaction reports no usage for any of its summary calls/);
 	assert.match(md, /JSON rows carry timingSource: provider, session/);
 	assert.match(md, /may include delegated or advisor calls/);
 });
@@ -204,6 +283,13 @@ test("main prints Markdown, JSON and usage errors", async () => {
 		assert.equal(payload.rows.length, 2);
 		assert.equal(payload.rows[0].model, "bench--opencode-go--beam-free");
 		assert.equal(payload.rows[0].timingSource, "provider");
+		assert.equal(payload.rows[0].source, join(runDir, "raw.json"));
+		assert.equal(payload.rows[0].seed, 1);
+		assert.equal(payload.rows[0].files, 96);
+		assert.equal(payload.rows[0].padTokens, 10);
+		assert.equal(payload.rows[0].maxTurns, 80);
+		assert.equal(payload.rows[0].windowMismatch, false);
+		assert.equal(payload.rows[0].thresholdMismatch, false);
 		out.length = 0;
 		assert.equal(main(["--help"], deps), 0);
 		assert.equal(out.join(""), USAGE);

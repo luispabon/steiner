@@ -4,7 +4,9 @@
 // The bench writes raw.json per invocation. A threshold experiment runs many
 // invocations, so this script takes the bench --out directories (or a root
 // directory holding them) and prints one table per context window and model,
-// grouped by threshold, with every run's values rather than mode medians.
+// grouped by threshold, with every run's values rather than mode medians. Each
+// row names its effective fixture seed and its raw.json, so repeats that a phase
+// script encodes only in --seed stay distinguishable.
 //
 // Usage: node scripts/compaction-bench-compare.mjs <dir-or-raw.json...> [--json]
 
@@ -20,7 +22,9 @@ flags:
 
 Each path is either a bench --out directory, a directory holding bench runs
 (scanned recursively for raw.json), or a raw.json file. Tables are grouped by
-context window, then model, then threshold, and show per-run values.
+context window, then model, then threshold, and show per-run values with the
+run's effective fixture seed, its raw.json and any configured/observed limit
+mismatch.
 `;
 
 const MODE_ORDER = { off: 0, on: 1 };
@@ -81,24 +85,39 @@ export function loadRaws(inputs) {
 export function compareRows(raw, source = null) {
 	const configuredWindow = isNum(raw.contextWindow) ? raw.contextWindow : null;
 	const configuredThreshold = isNum(raw.threshold) ? raw.threshold : null;
+	const files = isNum(raw.files) ? raw.files : null;
+	const padTokens = isNum(raw.padTokens) ? raw.padTokens : null;
+	const maxTurns = isNum(raw.maxTurns) ? raw.maxTurns : null;
 	const rows = [];
 	for (const alias of Array.isArray(raw.aliases) ? raw.aliases : []) {
 		for (const mode of ["off", "on"]) {
 			for (const run of alias.runs?.[mode] ?? []) {
+				const observedWindow = run.observedContextWindow ?? null;
+				const observedThreshold = run.observedThresholdTokens ?? null;
+				const rowConfiguredWindow = run.configuredContextWindow ?? configuredWindow;
+				const rowConfiguredThreshold = run.configuredThresholdTokens ?? configuredThreshold;
 				rows.push({
 					source,
 					model: alias.alias,
 					ref: alias.ref ?? alias.alias,
 					// The observed value is what the run reported; the configured value is
 					// what the bench asked for. Grouping uses observed when present.
-					observedWindow: run.observedContextWindow ?? null,
-					observedThreshold: run.observedThresholdTokens ?? null,
-					configuredWindow: run.configuredContextWindow ?? configuredWindow,
-					configuredThreshold: run.configuredThresholdTokens ?? configuredThreshold,
-					window: run.observedContextWindow ?? run.configuredContextWindow ?? configuredWindow,
-					threshold: run.observedThresholdTokens ?? run.configuredThresholdTokens ?? configuredThreshold,
+					observedWindow,
+					observedThreshold,
+					configuredWindow: rowConfiguredWindow,
+					configuredThreshold: rowConfiguredThreshold,
+					window: observedWindow ?? rowConfiguredWindow,
+					threshold: observedThreshold ?? rowConfiguredThreshold,
+					windowMismatch: limitsDiffer(observedWindow, rowConfiguredWindow),
+					thresholdMismatch: limitsDiffer(observedThreshold, rowConfiguredThreshold),
 					mode,
 					repeat: run.repeat ?? null,
+					// Phase1 invocations pass --repeat 1 and carry the repeat index in
+					// --seed, so the repeat alone cannot identify a run's fixtures.
+					seed: effectiveSeed(raw.seed, run.repeat),
+					files,
+					padTokens,
+					maxTurns,
 					failed: run.failed === true,
 					valid: run.valid === true,
 					invalidReason: run.invalidReason ?? null,
@@ -128,6 +147,17 @@ export function compareRows(raw, source = null) {
 	return rows;
 }
 
+// Without --seed the bench seeds each repeat with its repeat number, so the
+// effective seed needs both values to recover.
+function effectiveSeed(seed, repeat) {
+	if (isNum(seed) && isNum(repeat)) return seed + repeat - 1;
+	return isNum(repeat) ? repeat : null;
+}
+
+function limitsDiffer(observed, configured) {
+	return isNum(observed) && isNum(configured) && observed !== configured;
+}
+
 function compareNullable(a, b) {
 	if (a === b) return 0;
 	if (!isNum(a)) return 1;
@@ -135,7 +165,7 @@ function compareNullable(a, b) {
 	return a - b;
 }
 
-/** Sort rows by window, model, threshold, mode and repeat. */
+/** Sort rows by window, model, threshold, mode, repeat, seed and source. */
 export function sortRows(rows) {
 	return [...rows].sort(
 		(a, b) =>
@@ -144,6 +174,9 @@ export function sortRows(rows) {
 			compareNullable(a.threshold, b.threshold) ||
 			(MODE_ORDER[a.mode] ?? 9) - (MODE_ORDER[b.mode] ?? 9) ||
 			compareNullable(a.repeat, b.repeat) ||
+			// Phase1 encodes the repeat index in the seed, so seed order keeps one
+			// table in repeat order even when every invocation uses --repeat 1.
+			compareNullable(a.seed, b.seed) ||
 			String(a.source).localeCompare(String(b.source)),
 	);
 }
@@ -165,10 +198,21 @@ function continuityText(row) {
 	return `${row.exact}/${row.total}`;
 }
 
+// The limits column flags a run whose observed limit differs from the configured
+// one, so a table grouped by observed values never hides the gap.
+function limitsText(row) {
+	const parts = [];
+	if (row.windowMismatch) parts.push("window");
+	if (row.thresholdMismatch) parts.push("threshold");
+	return parts.length === 0 ? "-" : parts.join("+");
+}
+
 const COLUMNS = [
 	["threshold", (row) => numText(row.threshold)],
+	["limits", limitsText],
 	["mode", (row) => row.mode],
 	["r", (row) => numText(row.repeat)],
+	["seed", (row) => numText(row.seed)],
 	["continuity", continuityText],
 	["max turns", (row) => (row.maxTurnsHit ? "hit" : "no")],
 	["compactions", (row) => numText(row.compactions)],
@@ -185,6 +229,7 @@ const COLUMNS = [
 	["cached in", (row) => numText(row.cachedTokens)],
 	["uncached in", (row) => numText(row.uncachedTokens)],
 	["cost proxy", (row) => numText(row.costProxy)],
+	["source", (row) => (row.source === null ? "n/a" : row.source)],
 ];
 
 function tableFor(rows) {
@@ -229,8 +274,9 @@ export function renderCompare(rows, sources = []) {
 		const label = ref && ref !== group.model ? `${group.model} (${ref})` : group.model;
 		lines.push(`### ${label}`, "", tableFor(group.rows), "");
 	}
+	const mismatched = rows.filter((row) => row.windowMismatch || row.thresholdMismatch).length;
 	lines.push(
-		"Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries and failed calls included), includes retry waits, and may include delegated or advisor calls, so its scope can exceed main-conversation time. JSON rows carry timingSource: provider, session (fallback when the provider stream measured nothing), or null. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage. Failures counts failed compactions; emergency fail is a lower bound over failures that recorded an emergency stage, because production omits the stage for some emergency failures. Window and threshold are the run's observed limits, falling back to the configured values; JSON rows carry both. Token counts and the cost proxy fold in applied compaction summary calls only: failed summary calls report no usage record, so they are absent. The cost proxy is a weighted token estimate, not billing.",
+		`Continuity is the exact/total recall score; a failed or invalid run names its reason instead. Wall is the bench clock around the process; summed duration and p50/p95 come from the provider stream, which covers every provider call (compaction summaries and failed calls included), includes retry waits, and may include delegated or advisor calls, so its scope can exceed main-conversation time. JSON rows carry timingSource: provider, session (fallback when the provider stream measured nothing), or null. Retries sum attempts beyond the first. 429 fail counts final rate-limited failures only: a call that retried and succeeded carries no error class. Emergency done counts applied compactions with an emergency stage. Failures counts failed compactions; emergency fail is a lower bound over failures that recorded an emergency stage, because production omits the stage for some emergency failures. Seed is the fixture seed the run used: the bench seed plus the repeat minus one, or the repeat number when the bench ran without --seed. Window and threshold are the run's observed limits, falling back to the configured values; both values are in the JSON. ${mismatched} run(s) reported an observed limit that differs from the configured one; the limits column names the mismatched limit (window, threshold, or window+threshold). Token counts and the cost proxy fold in applied compaction summary calls only: a failed compaction reports no usage for any of its summary calls, so they are absent. The cost proxy is a weighted token estimate, not billing.`,
 		"",
 	);
 	return lines.join("\n");

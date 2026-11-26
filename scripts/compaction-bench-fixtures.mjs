@@ -1,6 +1,6 @@
 // Notes-chain fixtures and the YAML configs a bench run or probe writes.
 
-import { ALIAS_RE } from "./compaction-bench-args.mjs";
+import { ALIAS_RE, isModelId } from "./compaction-bench-args.mjs";
 
 const FILLER_WORDS = [
 	"haystack", "meadow", "lantern", "harbour", "tram", "copper", "saffron", "brisk",
@@ -131,13 +131,14 @@ function diagnosticsLines(diagnosticsDir) {
 
 function modelDefinitionLines({ alias, provider, id }) {
 	if (provider === null && id === null) return [];
-	if (typeof provider !== "string" || !ALIAS_RE.test(provider) || typeof id !== "string" || !ALIAS_RE.test(id)) {
+	if (typeof provider !== "string" || !ALIAS_RE.test(provider) || !isModelId(id)) {
 		throw new Error(`invalid provider/id for alias ${JSON.stringify(alias)}: ${JSON.stringify(provider)}/${JSON.stringify(id)}`);
 	}
 	if (typeof alias !== "string" || !ALIAS_RE.test(alias)) {
 		throw new Error(`invalid model alias: ${JSON.stringify(alias)} (${ALIAS_HINT})`);
 	}
-	return ["models:", "  definitions:", `    ${alias}:`, `      provider: ${provider}`, `      id: ${id}`];
+	// The id is quoted because it may hold YAML syntax such as name:tag.
+	return ["models:", "  definitions:", `    ${alias}:`, `      provider: ${provider}`, `      id: ${JSON.stringify(id)}`];
 }
 
 /** Render the per-alias YAML config with the limits block and the cache and provider diagnostics streams. */

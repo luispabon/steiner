@@ -7,6 +7,16 @@ const MAX_PAD_TOKENS = 16000;
 // characters both tolerate.
 export const ALIAS_RE = /^[A-Za-z0-9._-]+$/;
 
+// A provider id reaches the provider verbatim, so it only has to be a non-empty
+// single line; vendor/model and name:tag ids are legitimate.
+export function isModelId(value) {
+	return typeof value === "string" && value.length > 0 && !/[\r\n]/.test(value);
+}
+
+// The synthesized alias holding an id is a YAML key and a directory name, so its
+// unsafe characters become dashes. The YAML keeps the real id.
+const UNSAFE_ALIAS_CHARS_RE = /[^A-Za-z0-9._-]+/g;
+
 // Synthesized aliases for provider/id refs share one prefix, so a bench output
 // tree names every alias it wrote without needing the original ref.
 const SYNTHESIZED_ALIAS_PREFIX = "bench--";
@@ -33,8 +43,9 @@ flags:
 
 A provider/id ref such as opencode-go/beam-free is benched under the
 synthesized alias ${SYNTHESIZED_ALIAS_PREFIX}<provider>--<id>, whose private config
-pins that provider and id. Output directories and report labels use the
-synthesized alias.
+pins that provider and id. Characters outside [A-Za-z0-9._-] in the id become
+dashes in the alias. Output directories and report labels use the synthesized
+alias.
 
 The bench makes real provider calls and spends real tokens. It refuses to run
 unless STEINER_LIVE_BENCH=1 is set.
@@ -104,9 +115,12 @@ export function resolveModelRef(ref) {
 	}
 	const provider = ref.slice(0, slash);
 	const id = ref.slice(slash + 1);
-	const alias = `${SYNTHESIZED_ALIAS_PREFIX}${provider}--${id}`;
-	if (!ALIAS_RE.test(provider) || !ALIAS_RE.test(id) || !ALIAS_RE.test(alias)) {
-		throw usageError(`invalid --model value: ${JSON.stringify(ref)} (a provider/id ref needs a safe provider and id, and its alias ${JSON.stringify(alias)} must be safe too)`);
+	if (!isModelId(id)) {
+		throw usageError(`invalid --model value: ${JSON.stringify(ref)} (a provider/id ref needs a non-empty id on one line)`);
+	}
+	const alias = `${SYNTHESIZED_ALIAS_PREFIX}${provider}--${id.replace(UNSAFE_ALIAS_CHARS_RE, "-")}`;
+	if (!ALIAS_RE.test(provider) || !ALIAS_RE.test(alias)) {
+		throw usageError(`invalid --model value: ${JSON.stringify(ref)} (a provider/id ref needs a safe provider, and its alias ${JSON.stringify(alias)} must be safe too)`);
 	}
 	return { ref, alias, provider, id };
 }
@@ -191,8 +205,14 @@ export function parseArgs(argv) {
 	const aliasOwners = new Map();
 	for (const entry of args.modelEntries) {
 		const owner = aliasOwners.get(entry.alias);
-		if (owner !== undefined && owner !== entry.ref) {
-			throw usageError(`--model values ${JSON.stringify(owner)} and ${JSON.stringify(entry.ref)} both map to alias ${JSON.stringify(entry.alias)}`);
+		if (owner !== undefined) {
+			// A repeated ref would run the same cells twice into one output directory
+			// and overwrite the first run's evidence.
+			throw usageError(
+				owner === entry.ref
+					? `--model value ${JSON.stringify(entry.ref)} is repeated (each ref may appear once)`
+					: `--model values ${JSON.stringify(owner)} and ${JSON.stringify(entry.ref)} both map to alias ${JSON.stringify(entry.alias)}`,
+			);
 		}
 		aliasOwners.set(entry.alias, entry.ref);
 	}

@@ -515,7 +515,7 @@ test("buildBenchConfig pins the provider and id of a synthesized alias and write
 			"  definitions:",
 			"    bench--opencode-go--beam-free:",
 			"      provider: opencode-go",
-			"      id: beam-free",
+			'      id: "beam-free"',
 			"      advanced:",
 			"        limits:",
 			"          compaction_threshold_tokens: 560000",
@@ -553,8 +553,25 @@ test("buildProbeConfig emits the diagnostics streams without a threshold", () =>
 
 test("buildProbeConfig pins a synthesized alias's provider and id without limits", () => {
 	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/diag", alias: "bench--p--m", provider: "p", id: "m" });
-	assert.match(yaml, /^models:\n  definitions:\n    bench--p--m:\n      provider: p\n      id: m\ndiagnostics:/);
+	assert.match(yaml, /^models:\n  definitions:\n    bench--p--m:\n      provider: p\n      id: "m"\ndiagnostics:/);
 	assert.ok(!yaml.includes("limits:"), "a probe config must not set limits");
+});
+
+test("buildBenchConfig quotes a provider id that holds YAML syntax", () => {
+	const yaml = buildBenchConfig({
+		alias: "bench--p--vendor-model",
+		provider: "p",
+		id: "vendor/model",
+		threshold: 10,
+		diagnosticsDir: "/tmp/d",
+	});
+	assert.match(yaml, /      id: "vendor\/model"\n/);
+	const tagged = buildBenchConfig({ alias: "bench--p--name-tag", provider: "p", id: "name:tag", threshold: 10, diagnosticsDir: "/tmp/d" });
+	assert.match(tagged, /      id: "name:tag"\n/);
+	assert.throws(
+		() => buildBenchConfig({ alias: "bench--p--x", provider: "p", id: "two\nlines", threshold: 10, diagnosticsDir: "/tmp/d" }),
+		/invalid provider\/id/,
+	);
 });
 
 test("buildBenchConfig rejects unsafe aliases, bad thresholds and empty dirs", () => {
@@ -1317,6 +1334,11 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 			return { code: 0, timedOut: false };
 		}
 		normalRuns++;
+		// Capture the generated chain while the scratch repo still exists, so a
+		// test can compare the fixtures two invocations actually benched.
+		invocations.at(-1).notes = readdirSync(join(call.cwd, "notes"))
+			.sort()
+			.map((name) => `${name}\n${readFileSync(join(call.cwd, "notes", name), "utf8")}`);
 		if (failOn && failOn(call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION)) {
 			await writeFile(call.stdoutPath, "");
 			await writeFile(call.stderrPath, "");
@@ -1581,6 +1603,38 @@ test("main alternates mode order per repeat and gives every run its own first re
 	}
 });
 
+test("main derives each repeat's fixture seed from --seed and the repeat number", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-seed-"));
+	const runAt = async (name, extra) => {
+		const outDir = join(root, name);
+		const fake = makeFakeRunner({ sandbox: false });
+		const code = await main(
+			["--model", "gpt-test", "--modes", "off", "--files", "4", "--pad-tokens", "10", "--out", outDir, ...extra],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		assert.equal(code, 0);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		return { notes: fake.invocations.filter((call) => call.notes).map((call) => call.notes), raw };
+	};
+	try {
+		const first = await runAt("seed-11", ["--seed", "11"]);
+		const next = await runAt("seed-12", ["--seed", "12"]);
+		const again = await runAt("seed-11-again", ["--seed", "11"]);
+		assert.equal(first.notes.length, 1);
+		assert.equal(first.raw.seed, 11);
+		assert.equal(next.raw.seed, 12);
+		assert.deepEqual(again.notes, first.notes, "the same seed reproduces identical fixtures");
+		assert.notDeepEqual(next.notes, first.notes, "the next seed changes the fixture content");
+		const repeated = await runAt("repeat-2", ["--seed", "11", "--repeat", "2"]);
+		assert.deepEqual(repeated.raw.aliases[0].runs.off.map((run) => run.repeat), [1, 2]);
+		assert.deepEqual(repeated.notes[0], first.notes[0], "repeat 1 keeps the base seed's fixtures");
+		assert.deepEqual(repeated.notes[1], next.notes[0], "repeat 2 uses the base seed plus one");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("a failed git init removes its scratch repo instead of leaving it for signal cleanup", async () => {
 	const root = await mkdtemp(join(tmpdir(), "compaction-bench-gitinit-"));
 	const benchTmp = join(root, "tmp");
@@ -1832,13 +1886,30 @@ test("parseArgs rejects unsafe or colliding model refs", () => {
 	for (const argv of [
 		["--model", "a b"],
 		["--model", "a:b"],
-		["--model", "p/m/x"],
 		["--model", "/m"],
 		["--model", "p/"],
+		["--model", "p/two\nlines"],
 		["--model", "a--b/c,a/b--c"],
 	]) {
 		assert.throws(() => parseArgs(argv), /usage:/, `argv ${JSON.stringify(argv)} should throw with usage`);
 	}
+});
+
+test("parseArgs rejects a repeated model ref", () => {
+	assert.throws(() => parseArgs(["--model", "a,a"]), /is repeated/);
+	assert.throws(() => parseArgs(["--model", "a", "--model", "a"]), /is repeated/);
+	assert.throws(() => parseArgs(["--model", "opencode-go/beam-free,opencode-go/beam-free"]), /is repeated/);
+	assert.deepEqual(parseArgs(["--model", "a,b"]).models, ["a", "b"], "distinct refs are still accepted");
+});
+
+test("parseArgs accepts provider ids with a slash or a colon and keeps the alias safe", () => {
+	assert.deepEqual(parseArgs(["--model", "p/vendor/model"]).modelEntries, [
+		{ ref: "p/vendor/model", alias: "bench--p--vendor-model", provider: "p", id: "vendor/model" },
+	]);
+	assert.deepEqual(parseArgs(["--model", "p/name:tag"]).modelEntries, [
+		{ ref: "p/name:tag", alias: "bench--p--name-tag", provider: "p", id: "name:tag" },
+	]);
+	assert.equal(parseArgs(["--model", "p/name:tag", "--anthropic-alias", "p/name:tag"]).anthropicAliases[0], "p/name:tag");
 });
 
 test("parseArgs rejects a threshold at or above the context window and bad seed values", () => {
@@ -2161,7 +2232,7 @@ test("main benches a provider/id ref under its synthesized alias and keeps rotat
 		const benchCall = fake.invocations.find((call) => call.args[modelIndex(call)] === "bench--opencode-go--beam-free");
 		assert.ok(benchCall, "steiner runs under the synthesized alias");
 		assert.match(benchCall.configText, /      provider: opencode-go/);
-		assert.match(benchCall.configText, /      id: beam-free/);
+		assert.match(benchCall.configText, /      id: "beam-free"/);
 		assert.match(benchCall.configText, /          context_window: 1000000/);
 		assert.match(benchCall.configText, /          compaction_threshold_tokens: 560000/);
 		const files = readdirSync(join(outDir, "bench--opencode-go--beam-free"));
