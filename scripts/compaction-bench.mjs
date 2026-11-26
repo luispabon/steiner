@@ -1088,7 +1088,14 @@ async function createScratchRepo(spawnRun, env, timeoutMs) {
 	// Register before git init can fail, so a scratch repo that never becomes
 	// usable is still removed by signal cleanup.
 	const dir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-repo-")));
-	await gitInit(spawnRun, dir, env, timeoutMs);
+	try {
+		await gitInit(spawnRun, dir, env, timeoutMs);
+	} catch (error) {
+		// The caller never sees this dir, so it would otherwise linger until a signal.
+		// A failed removal must not mask the git init error the caller reports.
+		await removeTempDir(dir).catch(() => {});
+		throw error;
+	}
 	return dir;
 }
 

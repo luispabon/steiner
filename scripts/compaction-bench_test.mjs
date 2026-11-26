@@ -1483,10 +1483,12 @@ test("main alternates mode order per repeat and gives every run its own first re
 	}
 });
 
-test("a failed git init leaves its scratch repo registered for cleanup", async () => {
-	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+test("a failed git init removes its scratch repo instead of leaving it for signal cleanup", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-gitinit-"));
+	const benchTmp = join(root, "tmp");
+	const outDir = join(root, "out");
+	const savedTmp = process.env.TMPDIR;
 	cleanupLiveResources();
-	const repoDirsBefore = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("compaction-bench-repo-")));
 	const failingGit = async (call) => {
 		await mkdir(dirname(call.stdoutPath), { recursive: true });
 		await mkdir(dirname(call.stderrPath), { recursive: true });
@@ -1495,6 +1497,8 @@ test("a failed git init leaves its scratch repo registered for cleanup", async (
 		return { code: 1, timedOut: false };
 	};
 	try {
+		await mkdir(benchTmp);
+		process.env.TMPDIR = benchTmp;
 		const code = await main(
 			["--model", "gpt-test", "--files", "4", "--pad-tokens", "1", "--out", outDir],
 			{ STEINER_LIVE_BENCH: "1" },
@@ -1503,14 +1507,12 @@ test("a failed git init leaves its scratch repo registered for cleanup", async (
 		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
 		assert.equal(code, 3);
 		assert.match(raw.aliases[0].runs.off[0].invalidReason, /setup failed: git init failed: exit 1/);
-		const cleaned = cleanupLiveResources();
-		assert.ok(cleaned.dirs >= 1, "the abandoned scratch repo stays registered until cleanup removes it");
-		const leaked = readdirSync(tmpdir()).filter(
-			(name) => name.startsWith("compaction-bench-repo-") && !repoDirsBefore.has(name),
-		);
-		assert.deepEqual(leaked, [], "cleanup removes the scratch repo that git init could not use");
+		assert.deepEqual(readdirSync(benchTmp), [], "a scratch repo whose git init failed is removed right away");
+		assert.equal(cleanupLiveResources().dirs, 0, "no scratch dir stays registered after a failed git init");
 	} finally {
-		await rm(outDir, { recursive: true, force: true });
+		if (savedTmp === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = savedTmp;
+		await rm(root, { recursive: true, force: true });
 	}
 });
 
