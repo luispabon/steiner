@@ -415,6 +415,9 @@ const READ_BASENAME_RE = /(?:^|\/)(f\d+)\.txt$/;
 // that merely contains "notes" (release-notes/, footnotes/, docs/notes/) does
 // not count. A fixture file name is inside that same directory.
 const FIXTURE_PATH_RE = /(?:^|[\s"'=:(])(?:\.\/)?notes(?:\/|$|[\s"')])/;
+// An absolute path to a fixture file counts wherever it sits, since the segment
+// before the file name is exactly notes.
+const FIXTURE_FILE_RE = /(?:^|\/)notes\/f\d+\.txt(?![\w.])/;
 const COMPACTION_START_SEVERITIES = new Set(["compacting", "skipped"]);
 
 function readFileName(path) {
@@ -429,8 +432,23 @@ function stringValues(value, out = []) {
 	return out;
 }
 
-function referencesFixture(argumentValue) {
-	return stringValues(argumentValue).some((text) => FIXTURE_PATH_RE.test(text));
+function escapeRegExp(text) {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// The run's own notes directory, for an absolute path that ends at the directory
+// instead of naming a file. No notes dir means the parser cannot judge those.
+function notesDirPattern(notesDir) {
+	if (typeof notesDir !== "string") return null;
+	const dir = notesDir.replace(/\/+$/, "");
+	if (dir === "") return null;
+	return new RegExp(`(?:^|[\\s"'])${escapeRegExp(dir)}\\/?(?:$|[\\s"')])`);
+}
+
+function referencesFixture(argumentValue, notesDirRe = null) {
+	return stringValues(argumentValue).some(
+		(text) => FIXTURE_PATH_RE.test(text) || FIXTURE_FILE_RE.test(text) || notesDirRe?.test(text) === true,
+	);
 }
 
 function scopedToSubAgent(record) {
@@ -468,13 +486,14 @@ function parseCompactionCall(payload) {
 }
 
 /** Parse a session log JSONL into ordered reads, applied compactions and model-call cache usage. */
-export function parseRunLog(text) {
+export function parseRunLog(text, { notesDir = null } = {}) {
 	const events = [];
 	const modelCalls = [];
 	const compactionCalls = [];
 	let compactions = 0;
 	let malformed = 0;
 	let nonReadFileAccess = 0;
+	const notesDirRe = notesDirPattern(notesDir);
 
 	for (const raw of String(text).split(/\r?\n/)) {
 		const line = raw.trim();
@@ -495,13 +514,13 @@ export function parseRunLog(text) {
 			if (scopedToSubAgent(record)) {
 				// A sub-agent cannot carry the main conversation's context, so fixture
 				// access there scores nothing, not even through the read tool.
-				if (referencesFixture(payload.arguments)) nonReadFileAccess++;
+				if (referencesFixture(payload.arguments, notesDirRe)) nonReadFileAccess++;
 				continue;
 			}
 			if (payload.tool !== "read") {
 				// The task allows only the read tool; any other tool that reaches the
 				// fixtures wins the score outside the scored access path.
-				if (referencesFixture(payload.arguments)) nonReadFileAccess++;
+				if (referencesFixture(payload.arguments, notesDirRe)) nonReadFileAccess++;
 				continue;
 			}
 			const path = payload.arguments && payload.arguments.path;
@@ -1073,9 +1092,9 @@ async function createScratchRepo(spawnRun, env, timeoutMs) {
 	return dir;
 }
 
-function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode, family }) {
+function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode, family, notesDir = null }) {
 	const stdout = parseStdout(stdoutText);
-	const runLog = parseRunLog(logText);
+	const runLog = parseRunLog(logText, { notesDir });
 	const decisionSummary = summarizeDecisions(parseSegmentDecisions(compactionText));
 	const recall = scoreRecall({ answer: stdout.finalAnswer, fixtures, events: runLog.events });
 	// Compaction summary calls cost real tokens, so the cost and cache totals fold
@@ -1248,6 +1267,7 @@ async function runOnce({ opts, alias, family, mode, repeat, runId, fixtures, out
 			fixtures,
 			mode,
 			family,
+			notesDir: join(repoDir, "notes"),
 		});
 		await copyIfExists(logPath, join(runOutDir, `${base}.run.log.jsonl`));
 		await copyIfExists(compactionPath, join(runOutDir, `${base}.compaction-log.txt`));

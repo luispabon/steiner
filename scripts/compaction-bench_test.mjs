@@ -779,9 +779,28 @@ test("parseRunLog only counts fixture paths, not paths that merely contain notes
 		["bash", { command: "cat ./notes/f01.txt" }],
 		["glob", { pattern: "notes/*.txt" }],
 		["grep", { pattern: "CODE", path: "notes" }],
+		["bash", { command: "cat /abs/repo/notes/f05.txt" }],
+		["glob", { pattern: "/tmp/x/notes/f01.txt" }],
 	]) {
 		assert.equal(access(tool, args), 1, `${tool} ${JSON.stringify(args)} must count as fixture access`);
 	}
+});
+
+test("parseRunLog judges an absolute notes dir only against the run's own repo", () => {
+	const access = (args, options) =>
+		parseRunLog(JSON.stringify({ type: "tool_call_started", payload: { turn: 1, tool: "bash", arguments: args } }), options)
+			.nonReadFileAccess;
+	const notesDir = "/tmp/compaction-bench-repo-abc/notes";
+	assert.equal(access({ path: `${notesDir}/` }, { notesDir }), 1);
+	assert.equal(access({ command: `ls ${notesDir}` }, { notesDir }), 1);
+	assert.equal(access({ path: `${notesDir}/` }), 0, "without the repo path a bare absolute notes dir is not judged");
+	assert.equal(access({ path: "docs/notes/" }, { notesDir }), 0);
+	assert.equal(
+		access({ path: "/tmp/compaction-bench-repo-xyz/notes/" }, { notesDir }),
+		0,
+		"another run's notes dir is not this run's fixture",
+	);
+	assert.deepEqual(parseRunLog("", { notesDir }), { events: [], modelCalls: [], compactionCalls: [], compactions: 0, malformed: 0, nonReadFileAccess: 0 });
 });
 
 test("parseRunLog counts sub-agent fixture access, read tool included", () => {
