@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import {
 	buildProbeConfig,
 	checkGuard,
 	classifyProbeFailure,
+	cleanupLiveResources,
 	costProxy,
 	defaultSpawnRun,
 	evaluateProbe,
@@ -26,6 +28,8 @@ import {
 	parseSegmentDecisions,
 	parseStdout,
 	parseToolReads,
+	registerProcessGroup,
+	registerTempDir,
 	renderTable,
 	runValidity,
 	scoreRecall,
@@ -37,6 +41,41 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = join(here, "..", "testdata", "compaction-bench");
 const fixture = (name) => readFileSync(join(fixtureDir, name), "utf8");
+
+// A killed orphan can linger as a zombie until a new parent reaps it, which
+// still answers signal 0 on Linux, so check the state when /proc exists.
+function processIsGone(pid) {
+	try {
+		process.kill(pid, 0);
+	} catch (error) {
+		if (error.code === "ESRCH") return true;
+		throw error;
+	}
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+		return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z");
+	} catch {
+		// Without /proc a live signal-0 answer is the only evidence, so stay with it.
+		return false;
+	}
+}
+
+async function waitUntilGone(pid, timeoutMs = 5000) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		if (processIsGone(pid)) return true;
+		if (Date.now() > deadline) return false;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
+function killQuietly(signal, pid) {
+	try {
+		process.kill(signal, pid);
+	} catch {
+		// Best-effort cleanup for a stand-in process that may already be dead.
+	}
+}
 
 function recallFixtures() {
 	return {
@@ -205,6 +244,19 @@ test("parseArgs rejects alias flags whose value is not in --model", () => {
 		/--informational-alias value "b" is not in --model/,
 	);
 	assert.deepEqual(parseArgs(["--model", "a,b", "--anthropic-alias", "b"]).anthropicAliases, ["b"]);
+});
+
+test("parseArgs caps --pad-tokens at the read tool's output size", () => {
+	assert.equal(parseArgs(["--model", "a", "--pad-tokens", "16000"]).padTokens, 16000);
+	assert.throws(
+		() => parseArgs(["--model", "a", "--pad-tokens", "16001"]),
+		(err) => {
+			assert.match(err.message, /--pad-tokens 16001 exceeds 16000/);
+			assert.match(err.message, /65536 runes/);
+			assert.ok(err.message.includes(USAGE));
+			return true;
+		},
+	);
 });
 
 test("parseArgs --help needs no model and prints usage", () => {
@@ -563,7 +615,7 @@ test("parseStdout prefers the last answer and stops at the next label", () => {
 	assert.deepEqual(parseStdout(""), { finalAnswer: null, maxTurnsHit: false });
 });
 
-test("parseStdout reads the captured live exec format through the final status line", () => {
+test("parseStdout reads the exec renderer format through the final status line", () => {
 	const text = [
 		"assistant: turn=25 role=assistant content=f01: Q0-NZ92",
 		"f02: P7-LZ44",
@@ -661,6 +713,29 @@ test("scoreRecall invalidates any later read after a compaction past the first r
 	assert.equal(scoreRecall({ answer, fixtures: recallFixtures(), events: noCompactionAfter }).invalid, false);
 });
 
+test("parseRunLog counts non-read tool access to the fixtures", () => {
+	const lines = [
+		{ type: "tool_call_started", payload: { turn: 1, tool: "read", arguments: { path: "notes/f01.txt" } } },
+		{ type: "tool_call_started", payload: { turn: 2, tool: "grep", arguments: { pattern: "CODE", path: "notes/" } } },
+		{ type: "tool_call_started", payload: { turn: 3, tool: "bash", arguments: { command: "cat notes/f02.txt" } } },
+		{ type: "tool_call_started", payload: { turn: 4, tool: "grep", arguments: { pattern: "notes" } } },
+		{ type: "tool_call_started", payload: { turn: 5, tool: "glob", arguments: { pattern: "src/**" } } },
+		{
+			type: "tool_call_started",
+			scope: { agent_id: "child-1", agent_type: "code" },
+			payload: { turn: 6, tool: "bash", arguments: { command: "cat notes/f03.txt" } },
+		},
+	];
+	const run = parseRunLog(lines.map((line) => JSON.stringify(line)).join("\n"));
+	assert.equal(run.nonReadFileAccess, 2, "grep and bash touching notes/ count, sub-agent and unrelated tools do not");
+	assert.deepEqual(
+		run.events.filter((event) => event.kind === "read").map((event) => event.file),
+		["f01"],
+	);
+	assert.equal(parseRunLog(fixture("run.log.jsonl")).nonReadFileAccess, 0);
+	assert.equal(parseRunLog("").nonReadFileAccess, 0);
+});
+
 function call(over = {}) {
 	return { turn: 1, promptTokens: 0, cacheReported: true, cacheReadTokens: 0, cacheCreateTokens: 0, ...over };
 }
@@ -714,16 +789,45 @@ test("median handles odd, even and empty input", () => {
 });
 
 test("runValidity gates flag-on runs on compaction count and append decisions", () => {
-	assert.deepEqual(runValidity({ mode: "on", compactions: 3, decisionSummary: { appends: 2 } }), {
+	const ok = { finalAnswer: "f01: A1-BC23" };
+	assert.deepEqual(runValidity({ mode: "on", compactions: 3, decisionSummary: { appends: 2 }, ...ok }), {
 		valid: false,
 		reason: "fewer than 4 compactions",
 	});
-	assert.deepEqual(runValidity({ mode: "on", compactions: 4, decisionSummary: { appends: 0 } }), {
+	assert.deepEqual(runValidity({ mode: "on", compactions: 4, decisionSummary: { appends: 0 }, ...ok }), {
 		valid: false,
 		reason: "no append decision",
 	});
-	assert.deepEqual(runValidity({ mode: "on", compactions: 4, decisionSummary: { appends: 1 } }), { valid: true, reason: null });
-	assert.deepEqual(runValidity({ mode: "off", compactions: 0, decisionSummary: { appends: 0 } }), { valid: true, reason: null });
+	assert.deepEqual(runValidity({ mode: "on", compactions: 4, decisionSummary: { appends: 1 }, ...ok }), { valid: true, reason: null });
+	assert.deepEqual(runValidity({ mode: "off", compactions: 0, decisionSummary: { appends: 0 }, ...ok }), { valid: true, reason: null });
+});
+
+test("runValidity invalidates an off or on run without a parsed final answer", () => {
+	assert.deepEqual(
+		runValidity({ mode: "off", compactions: 0, decisionSummary: { appends: 0 }, finalAnswer: null }),
+		{ valid: false, reason: "no final answer parsed" },
+	);
+	assert.deepEqual(
+		runValidity({ mode: "on", compactions: 8, decisionSummary: { appends: 3 }, finalAnswer: null }),
+		{ valid: false, reason: "no final answer parsed" },
+	);
+});
+
+test("runValidity invalidates a run that reached the fixtures outside the read tool", () => {
+	assert.deepEqual(
+		runValidity({
+			mode: "off",
+			compactions: 4,
+			decisionSummary: { appends: 0 },
+			finalAnswer: "f01: A1-BC23",
+			nonReadFileAccess: 2,
+		}),
+		{ valid: false, reason: "fixture accessed outside read tool" },
+	);
+	assert.deepEqual(
+		runValidity({ mode: "on", compactions: 4, decisionSummary: { appends: 1 }, finalAnswer: "f01: A1-BC23", nonReadFileAccess: 0 }),
+		{ valid: true, reason: null },
+	);
 });
 
 test("verdict prefers INVALID over every other label", () => {
@@ -735,6 +839,25 @@ test("verdict prefers INVALID over every other label", () => {
 	const recallInvalid = verdictFor({ off: verdictSide({ recallInvalid: true }) });
 	assert.equal(recallInvalid.label, "INVALID");
 	assert.ok(recallInvalid.reasons.some((reason) => /off: a fixture file was read again after a compaction/.test(reason)));
+});
+
+test("verdict is INVALID when the off side recalled nothing", () => {
+	const both = verdictFor({ off: verdictSide({ exact: 0 }), on: verdictSide({ exact: 0 }) });
+	assert.equal(both.label, "INVALID", "0/N on both sides must not pass on a relative comparison");
+	assert.ok(both.reasons.includes("off mode recalled nothing"));
+	const oneSide = verdictFor({ off: verdictSide({ exact: 0 }), on: verdictSide({ exact: 24 }) });
+	assert.equal(oneSide.label, "INVALID");
+	assert.ok(oneSide.reasons.includes("off mode recalled nothing"));
+	assert.equal(verdictFor({ off: verdictSide({ exact: 1 }), on: verdictSide({ exact: 1 }) }).label, "PASS");
+});
+
+test("verdict reports CONTINUITY_ONLY when cost was not judged", () => {
+	const result = verdictFor({ family: "openai", on: verdictSide({ costPerTurn: null }) });
+	assert.equal(result.label, "CONTINUITY_ONLY");
+	assert.equal(result.cache, "no cache verdict");
+	assert.ok(result.reasons.some((reason) => /cost proxy not judged/.test(reason)));
+	assert.ok(!result.reasons.some((reason) => /within tolerance/.test(reason)));
+	assert.equal(verdictFor().label, "PASS");
 });
 
 test("verdict treats an invalid off run as INVALID, not INCOMPARABLE", () => {
@@ -916,6 +1039,20 @@ test("aggregateMode reports a failed run and a validity failure as invalid", () 
 	assert.equal(aggregateMode([]).turns, null);
 });
 
+test("aggregateMode takes metric medians over completed runs only", () => {
+	const agg = aggregateMode([
+		runRecord({ turns: 10, exact: 24 }),
+		runRecord({ turns: 12, exact: 22 }),
+		runRecord({ failed: true, reason: "timeout", turns: 90, exact: 0, lost: 24, total: 24, costPerTurn: 900 }),
+	]);
+	assert.equal(agg.turns, 11, "a failed run's partial metrics must not move the median");
+	assert.equal(agg.exact, 23);
+	assert.equal(agg.costPerTurn, 10);
+	assert.equal(agg.valid, false);
+	assert.equal(agg.invalidReason, "run failed: timeout");
+	assert.equal(aggregateMode([runRecord({ failed: true, turns: null })]).turns, null);
+});
+
 test("aggregateMode counts runs that hit the max-turn limit", () => {
 	assert.equal(aggregateMode([runRecord(), runRecord({ maxTurnsHit: true }), runRecord({ maxTurnsHit: true })]).maxTurnsHitRuns, 2);
 	assert.equal(aggregateMode([runRecord()]).maxTurnsHitRuns, 0);
@@ -956,7 +1093,7 @@ function fakeStdout() {
 	return [`assistant: turn=8 role=assistant content=${lines[0]}`, ...lines.slice(1), "status: run finished", ""].join("\n");
 }
 
-function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, secret = "", sandbox = true } = {}) {
+function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, secret = "", sandbox = true, noAnswer = false } = {}) {
 	const invocations = [];
 	const probeAttempts = new Map();
 	let normalRuns = 0;
@@ -1005,7 +1142,7 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 		}
 		await writeFile(flag("--log-file"), `${fakeRunLog()}\n`);
 		await writeFile(flag("--compaction-log-file"), fixture("compaction-log.txt"));
-		await writeFile(call.stdoutPath, fakeStdout());
+		await writeFile(call.stdoutPath, noAnswer ? "" : fakeStdout());
 		await writeFile(call.stderrPath, "");
 		return { code: 0, timedOut: false };
 	}
@@ -1087,6 +1224,29 @@ test("main writes results.md and raw.json through a fake runner without leaking 
 	}
 });
 
+test("main invalidates runs that never produce a final answer instead of passing 0/N", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ noAnswer: true, sandbox: false });
+	try {
+		const code = await main(
+			["--model", "gpt-test", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.aliases[0].runs.off[0].valid, false);
+		assert.equal(raw.aliases[0].runs.off[0].invalidReason, "no final answer parsed");
+		assert.match(markdown, /Verdict: INVALID/);
+		assert.match(markdown, /- off: no final answer parsed/);
+		assert.match(markdown, /- on: no final answer parsed/);
+		assert.ok(!markdown.includes("Verdict: PASS"));
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
 test("main returns 3 when a run fails", async () => {
 	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
 	const fake = makeFakeRunner({ failOn: (flag) => flag === "1", sandbox: "fail" });
@@ -1126,6 +1286,7 @@ test("main reports a failed probe reason classified from stderr, never the raw l
 		assert.equal(raw.aliases[0].probe.ok, false);
 		assert.equal(raw.aliases[0].probe.reason, "probe calls failed: exit 2: auth error (401)");
 		assert.match(markdown, /Probe: failed \(probe calls failed: exit 2: auth error \(401\)\)/);
+		assert.match(markdown, /Verdict: CONTINUITY_ONLY \(cache: no cache verdict\)/);
 		for (const text of [markdown, JSON.stringify(raw), stderrLines.join("\n")]) {
 			assert.ok(!text.includes(secret), "the secret value must not appear");
 			assert.ok(!text.includes("Unauthorized"), "raw stderr must not appear");
@@ -1290,6 +1451,51 @@ test("defaultSpawnRun kills the whole process group on timeout", async () => {
 		await new Promise((resolve) => setTimeout(resolve, 500));
 		assert.equal(existsSync(marker), false, "the grandchild must die with the group");
 	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("defaultSpawnRun kills background descendants when the run exits", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-exit-"));
+	let pid = null;
+	try {
+		const result = await defaultSpawnRun({
+			command: "sh",
+			args: ["-c", "sleep 97 >/dev/null 2>&1 & echo $!"],
+			cwd: dir,
+			env: process.env,
+			stdoutPath: join(dir, "out.txt"),
+			stderrPath: join(dir, "err.txt"),
+			timeoutMs: 30_000,
+		});
+		assert.equal(result.timedOut, false);
+		assert.equal(result.code, 0);
+		pid = Number((await readFile(join(dir, "out.txt"), "utf8")).trim());
+		assert.ok(Number.isInteger(pid) && pid > 0, "the background sleep reports its pid");
+		assert.ok(await waitUntilGone(pid), "the background sleep must die with the exited run's group");
+		assert.deepEqual(cleanupLiveResources(), { processes: 0, dirs: 0 }, "a closed run is unregistered");
+	} finally {
+		if (pid !== null) killQuietly("SIGKILL", pid);
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("cleanupLiveResources kills registered process groups and removes registered dirs", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-cleanup-"));
+	await writeFile(join(dir, "marker.txt"), "x");
+	const child = spawn("sleep", ["97"], { detached: true, stdio: "ignore" });
+	child.unref();
+	try {
+		assert.ok(Number.isInteger(child.pid) && child.pid > 0, "the stand-in sleep started");
+		registerTempDir(dir);
+		registerProcessGroup(child.pid);
+		assert.deepEqual(cleanupLiveResources(), { processes: 1, dirs: 1 });
+		assert.equal(existsSync(dir), false, "the registered temp dir is removed");
+		assert.ok(await waitUntilGone(child.pid), "the registered process group is killed");
+		assert.deepEqual(cleanupLiveResources(), { processes: 0, dirs: 0 }, "a second cleanup finds nothing");
+	} finally {
+		killQuietly("SIGKILL", -child.pid);
+		killQuietly("SIGKILL", child.pid);
 		await rm(dir, { recursive: true, force: true });
 	}
 });

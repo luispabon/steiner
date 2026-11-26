@@ -8,7 +8,7 @@
 
 The bench refuses to run without `STEINER_LIVE_BENCH=1`. Provider calls spend real tokens, including two extra probe calls per Anthropic alias. Runs use fresh scratch git repositories and never pass `--unsafe`. `--trust-project-config` applies to the run; it does not persist trust or disable the sandbox. The report shows the sandbox setting from `steiner config`, or `not verified` if it could not be read.
 
-Run artifacts can contain prompts and model output. Keep the output directory private and review artifacts before sharing them. The bench report includes only the experiment environment values, not the full environment; child logs and output can still contain sensitive data. A run that exceeds `--run-timeout-minutes` is killed with `SIGKILL` together with its whole process group, so no descendant keeps running.
+Run artifacts can contain prompts and model output. Keep the output directory private and review artifacts before sharing them. The bench report includes only the experiment environment values, not the full environment; child logs and output can still contain sensitive data. A run that exceeds `--run-timeout-minutes` is killed with `SIGKILL` together with its whole process group, so no descendant keeps running. The same group kill runs when a run exits on its own, and `SIGINT` or `SIGTERM` kills every live run's process group and removes the scratch directories before exiting with 130 or 143.
 
 ## Prerequisites
 
@@ -45,7 +45,7 @@ Replace the example aliases with configured aliases. `--model` is required and a
 | `--modes <a,b>` | Subset of `off,on` | `off,on` |
 | `--threshold <n>` | Compaction threshold in tokens for each alias | 15000 |
 | `--files <n>` | Chain length, 4 to 99 | 24 |
-| `--pad-tokens <n>` | Approximate filler tokens per file | 3000 |
+| `--pad-tokens <n>` | Approximate filler tokens per file, 0 to 16000 | 3000 |
 | `--max-turns <n>` | Turn limit per run | 80 |
 | `--repeat <n>` | Runs per alias and mode | 1 |
 | `--tolerance <n>` | Allowed percent change in continuity and cost | 5 |
@@ -54,7 +54,7 @@ Replace the example aliases with configured aliases. `--model` is required and a
 | `--out <dir>` | Output directory | a temporary directory |
 | `--help` | Print usage | |
 
-Exit codes are 0 for completion, 1 for the live-call guard or an uncaught error, 2 for usage errors, and 3 if a benchmark run failed. A failing verdict or probe alone does not set exit code 3. Values of `--anthropic-alias` and `--informational-alias` must also appear in `--model`; anything else is a usage error.
+Exit codes are 0 for completion, 1 for the live-call guard or an uncaught error, 2 for usage errors, and 3 if a benchmark run failed. A failing verdict or probe alone does not set exit code 3. Values of `--anthropic-alias` and `--informational-alias` must also appear in `--model`; anything else is a usage error. `--pad-tokens` above 16000 is a usage error: the read tool caps a single output at 65536 runes, so a larger file would be truncated on read.
 
 ## How a run works
 
@@ -66,9 +66,9 @@ Files `notes/f01.txt` through `notes/fNN.txt` each contain a code, a `NEXT` poin
 
 Continuity counts exact code matches per file. `f03` only counts if the corrected code is present and the old code is absent from the answer. Each lost code is attributed to the first compaction after its file was read, as `fNN@cN`, or marked unattributed. Recall is invalid if any read of a file follows a compaction that came after that file's first read, so context dropped between the reads cannot be recovered from a re-read.
 
-The bench reads file paths, model-call usage, and applied compactions from the session log, and `segment_decision` records from the compaction log. Failed model calls (`success` not true) and sub-agent scoped calls and reads are skipped, since they are not part of the main conversation's cache economics. Rebases exclude `chain-start`; a `plain` decision counts as both a rebase and a plain fallback.
+The bench reads file paths, model-call usage, and applied compactions from the session log, and `segment_decision` records from the compaction log. Failed model calls (`success` not true) and sub-agent scoped calls and reads are skipped, since they are not part of the main conversation's cache economics. Any other tool call whose arguments name the `notes/` directory counts as fixture access outside the read tool. Rebases exclude `chain-start`; a `plain` decision counts as both a rebase and a plain fallback.
 
-An on run is invalid with fewer than four compactions or no append decision. A failed or invalid run on either side makes the verdict `INVALID`, with reasons prefixed `off: ` or `on: `. The off and on medians are incomparable if their compaction counts differ by more than one. A single-mode run is also incomparable. Repeat metrics are medians of reported numeric values; loss points are combined across runs. A run stopped by `--max-turns` stays scored: its table row counts it and the verdict lists how many runs stopped that way, without invalidating them.
+An on run is invalid with fewer than four compactions or no append decision. An off or on run is invalid with no parsed final answer, or when it accessed a fixture outside the read tool. A failed or invalid run on either side makes the verdict `INVALID`, with reasons prefixed `off: ` or `on: `. An off mode whose median exact count is zero also makes the verdict `INVALID`, since continuity compares the two modes relatively and `0/N` against `0/N` would otherwise pass. The off and on medians are incomparable if their compaction counts differ by more than one. A single-mode run is also incomparable. Repeat metrics are medians of reported numeric values over runs that did not fail; if every run failed the medians stay empty. Loss points are combined across runs. A run stopped by `--max-turns` stays scored: its table row counts it and the verdict lists how many runs stopped that way, without invalidating them.
 
 Cache data is reported for a run only when every model call reports it. Otherwise its cache metrics are unavailable. Cost and cached tokens fold in the summarizer calls of applied compactions alongside the main turns, and per-turn cost divides by the main-turn count. The cost proxy uses `uncached + 1.25*write + 0.1*read` for Anthropic aliases and `uncached + 0.1*read` for other aliases. This is a relative token estimate, not billing.
 
@@ -80,7 +80,7 @@ For each `--anthropic-alias`, two one-turn probe calls with one shared prompt te
 
 `raw.json` contains run records and settings. Per-run stdout, stderr, session log, and compaction log copies are under `<out>/<alias>/` when available. The report includes the on-mode flag and only limit variables set in the environment.
 
-Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL` or `PASS`. A failed or invalid run, or invalid recall, on either side yields `INVALID`. After validity and comparability checks, an informational alias gets no pass or fail. Otherwise `FAIL` means on continuity is below off by more than the tolerance, or, when cache is checked, on cost per turn exceeds off by more than the tolerance. Missing cache reporting or a failed Anthropic probe gives `no cache verdict`; cost is not judged.
+Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL`, `CONTINUITY_ONLY` or `PASS`. A failed or invalid run, or invalid recall, on either side yields `INVALID`, as does an off side that recalled nothing. After validity and comparability checks, an informational alias gets no pass or fail. Otherwise `FAIL` means on continuity is below off by more than the tolerance, or, when cache is checked, on cost per turn exceeds off by more than the tolerance. Missing cache reporting or a failed Anthropic probe gives `no cache verdict`; cost is not judged, continuity still is, and a continuity result within tolerance is labelled `CONTINUITY_ONLY`. `PASS` requires both continuity and the cost proxy within tolerance.
 
 ## Provider notes
 
