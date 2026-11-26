@@ -11,11 +11,13 @@ import {
 	USAGE,
 	aggregateCache,
 	aggregateMode,
+	analyzeRun,
 	buildBenchConfig,
 	buildProbeConfig,
 	checkGuard,
 	classifyProbeFailure,
 	cleanupLiveResources,
+	copyLogGenerations,
 	costProxy,
 	defaultSpawnRun,
 	evaluateProbe,
@@ -24,12 +26,15 @@ import {
 	main,
 	median,
 	parseArgs,
+	parseProviderLog,
 	parseRunLog,
 	parseSegmentDecisions,
 	parseStdout,
 	parseToolReads,
+	percentile,
 	registerProcessGroup,
 	registerTempDir,
+	readLogGenerations,
 	renderTable,
 	runValidity,
 	scoreRecall,
@@ -173,10 +178,13 @@ test("parseArgs defaults", () => {
 	assert.deepEqual(parseArgs(["--model", "a"]), {
 		help: false,
 		models: ["a"],
+		modelEntries: [{ ref: "a", alias: "a", provider: null, id: null }],
 		anthropicAliases: [],
 		informationalAliases: [],
 		modes: ["off", "on"],
 		threshold: 15000,
+		contextWindow: null,
+		seed: null,
 		files: 24,
 		padTokens: 3000,
 		maxTurns: 80,
@@ -196,6 +204,8 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 		"--informational-alias", "b",
 		"--modes", "on",
 		"--threshold", "8000",
+		"--context-window", "1000000",
+		"--seed", "7",
 		"--files", "6",
 		"--pad-tokens", "50",
 		"--max-turns", "12",
@@ -210,6 +220,8 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 	assert.deepEqual(args.informationalAliases, ["b"]);
 	assert.deepEqual(args.modes, ["on"]);
 	assert.equal(args.threshold, 8000);
+	assert.equal(args.contextWindow, 1000000);
+	assert.equal(args.seed, 7);
 	assert.equal(args.files, 6);
 	assert.equal(args.padTokens, 50);
 	assert.equal(args.maxTurns, 12);
@@ -465,7 +477,7 @@ test("taskPrompt puts a run id on the first line when one is supplied", () => {
 	assert.notEqual(taskPrompt(files, "run-def"), withId);
 });
 
-test("buildBenchConfig emits the threshold under the alias and the cache diagnostics stream", () => {
+test("buildBenchConfig emits the threshold under the alias and the cache and provider diagnostics streams", () => {
 	const yaml = buildBenchConfig({ alias: "claude-test", threshold: 15000, diagnosticsDir: "/tmp/bench dir/\"x\"" });
 	assert.equal(
 		yaml,
@@ -481,12 +493,47 @@ test("buildBenchConfig emits the threshold under the alias and the cache diagnos
 			'  dir: "/tmp/bench dir/\\\"x\\\""',
 			"  streams:",
 			"    cache: true",
+			"    provider: true",
 			"",
 		].join("\n"),
 	);
 });
 
-test("buildProbeConfig emits only the cache diagnostics stream, with no threshold", () => {
+test("buildBenchConfig pins the provider and id of a synthesized alias and writes context_window", () => {
+	const yaml = buildBenchConfig({
+		alias: "bench--opencode-go--beam-free",
+		provider: "opencode-go",
+		id: "beam-free",
+		threshold: 560000,
+		contextWindow: 1000000,
+		diagnosticsDir: "/tmp/diag",
+	});
+	assert.equal(
+		yaml,
+		[
+			"models:",
+			"  definitions:",
+			"    bench--opencode-go--beam-free:",
+			"      provider: opencode-go",
+			"      id: beam-free",
+			"      advanced:",
+			"        limits:",
+			"          compaction_threshold_tokens: 560000",
+			"          context_window: 1000000",
+			"diagnostics:",
+			"  enabled: true",
+			'  dir: "/tmp/diag"',
+			"  streams:",
+			"    cache: true",
+			"    provider: true",
+			"",
+		].join("\n"),
+	);
+	assert.match(buildBenchConfig({ alias: "a", threshold: 10, diagnosticsDir: "/tmp/d" }), /compaction_threshold_tokens: 10\n/);
+	assert.throws(() => buildBenchConfig({ alias: "a", threshold: 10, contextWindow: 0, diagnosticsDir: "/tmp/d" }), /contextWindow/);
+});
+
+test("buildProbeConfig emits the diagnostics streams without a threshold", () => {
 	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/probe dir" });
 	assert.equal(
 		yaml,
@@ -496,11 +543,18 @@ test("buildProbeConfig emits only the cache diagnostics stream, with no threshol
 			'  dir: "/tmp/probe dir"',
 			"  streams:",
 			"    cache: true",
+			"    provider: true",
 			"",
 		].join("\n"),
 	);
 	assert.ok(!yaml.includes("compaction_threshold_tokens"), "a probe config must not override the threshold");
 	assert.throws(() => buildProbeConfig({ diagnosticsDir: "" }), /diagnosticsDir/);
+});
+
+test("buildProbeConfig pins a synthesized alias's provider and id without limits", () => {
+	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/diag", alias: "bench--p--m", provider: "p", id: "m" });
+	assert.match(yaml, /^models:\n  definitions:\n    bench--p--m:\n      provider: p\n      id: m\ndiagnostics:/);
+	assert.ok(!yaml.includes("limits:"), "a probe config must not set limits");
 });
 
 test("buildBenchConfig rejects unsafe aliases, bad thresholds and empty dirs", () => {
@@ -583,6 +637,8 @@ test("parseRunLog treats absent cache counters as unreported rather than zero", 
 	assert.deepEqual(modelCalls[0], {
 		turn: 2,
 		promptTokens: 61177,
+		durationMs: 7269,
+		ttftMs: 0,
 		cacheReported: true,
 		cacheReadTokens: 60928,
 		cacheCreateTokens: 0,
@@ -599,8 +655,8 @@ test("parseRunLog collects summarizer usage from applied compactions", () => {
 	// The payload's prompt_tokens (4500) is the post-compaction estimate, not the
 	// summary call input, so the total is input plus both cache counters.
 	assert.deepEqual(run.compactionCalls, [
-		{ promptTokens: 2000, cacheReported: true, cacheReadTokens: 500, cacheCreateTokens: 300 },
-		{ promptTokens: 0, cacheReported: false, cacheReadTokens: 0, cacheCreateTokens: 0 },
+		{ promptTokens: 2000, durationMs: 0, ttftMs: 0, cacheReported: true, cacheReadTokens: 500, cacheCreateTokens: 300 },
+		{ promptTokens: 0, durationMs: 0, ttftMs: 0, cacheReported: false, cacheReadTokens: 0, cacheCreateTokens: 0 },
 	]);
 	assert.equal(parseRunLog("").compactionCalls.length, 0);
 });
@@ -817,7 +873,18 @@ test("parseRunLog judges an absolute notes dir only against the run's own repo",
 		0,
 		"another run's notes dir is not this run's fixture",
 	);
-	assert.deepEqual(parseRunLog("", { notesDir }), { events: [], modelCalls: [], compactionCalls: [], compactions: 0, malformed: 0, nonReadFileAccess: 0 });
+	assert.deepEqual(parseRunLog("", { notesDir }), {
+		events: [],
+		modelCalls: [],
+		compactionCalls: [],
+		compactions: 0,
+		emergencyCompactions: 0,
+		retainedTail: [],
+		contextWindow: null,
+		thresholdTokens: null,
+		malformed: 0,
+		nonReadFileAccess: 0,
+	});
 });
 
 test("parseRunLog counts sub-agent fixture access, read tool included", () => {
@@ -1215,6 +1282,18 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 		const flag = (name) => call.args[call.args.indexOf(name) + 1];
 		const configPath = flag("--config");
 		if (configPath) invocations.at(-1).configText = await readFile(configPath, "utf8");
+		// Write the provider and cache streams where the generated config points,
+		// so the run exercises the diagnostics copy and provider metrics.
+		const dirLine = configPath ? /^  dir: "((?:[^"\\]|\\.)*)"$/m.exec(invocations.at(-1).configText) : null;
+		if (dirLine) {
+			const diagDir = JSON.parse(`"${dirLine[1]}"`);
+			await mkdir(diagDir, { recursive: true });
+			await writeFile(
+				join(diagDir, "provider.jsonl"),
+				`${JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 10 } })}\n${JSON.stringify({ kind: "provider", payload: { outcome: "retried", attempts: 3, error_class: "rate_limited" } })}\n`,
+			);
+			await writeFile(join(diagDir, "cache.jsonl"), "{}\n");
+		}
 		if (call.args[call.args.length - 1].includes("Reply with OK only.")) {
 			const alias = flag("--model");
 			const attempt = (probeAttempts.get(alias) ?? 0) + 1;
@@ -1735,6 +1814,309 @@ test("defaultSpawnRun reports an unopenable output file as a failed result", asy
 		assert.match(result.error, /ENOENT/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("parseArgs accepts slash refs and synthesizes a safe alias", () => {
+	const args = parseArgs(["--model", "opencode-go/beam-free,hy4-flash"]);
+	assert.deepEqual(args.modelEntries, [
+		{ ref: "opencode-go/beam-free", alias: "bench--opencode-go--beam-free", provider: "opencode-go", id: "beam-free" },
+		{ ref: "hy4-flash", alias: "hy4-flash", provider: null, id: null },
+	]);
+	assert.equal(parseArgs(["--model", "a/b", "--anthropic-alias", "a/b"]).anthropicAliases[0], "a/b");
+});
+
+test("parseArgs rejects unsafe or colliding model refs", () => {
+	for (const argv of [
+		["--model", "a b"],
+		["--model", "a:b"],
+		["--model", "p/m/x"],
+		["--model", "/m"],
+		["--model", "p/"],
+		["--model", "a--b/c,a/b--c"],
+	]) {
+		assert.throws(() => parseArgs(argv), /usage:/, `argv ${JSON.stringify(argv)} should throw with usage`);
+	}
+});
+
+test("parseArgs rejects a threshold at or above the context window and bad seed values", () => {
+	assert.equal(parseArgs(["--model", "a", "--context-window", "1000000"]).contextWindow, 1000000);
+	assert.throws(() => parseArgs(["--model", "a", "--context-window", "15000"]), /--threshold 15000 must be less than --context-window 15000/);
+	assert.throws(
+		() => parseArgs(["--model", "a", "--threshold", "100", "--context-window", "100"]),
+		/--threshold 100 must be less than --context-window 100/,
+	);
+	assert.equal(parseArgs(["--model", "a", "--threshold", "99", "--context-window", "100"]).contextWindow, 100);
+	assert.equal(parseArgs(["--model", "a", "--seed", "0"]).seed, 0);
+	for (const argv of [
+		["--model", "a", "--context-window", "0"],
+		["--model", "a", "--seed", "-1"],
+		["--model", "a", "--seed", "1.5"],
+	]) {
+		assert.throws(() => parseArgs(argv), /usage:/, `argv ${JSON.stringify(argv)} should throw with usage`);
+	}
+});
+
+test("percentile uses nearest rank and handles empty input", () => {
+	assert.equal(percentile([], 0.5), null);
+	assert.equal(percentile([5], 0.95), 5);
+	assert.equal(percentile([1, 2, 3, 4], 0.5), 2);
+	assert.equal(percentile([9, 1, 5], 0.95), 9);
+	assert.equal(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.95), 10);
+});
+
+test("parseProviderLog counts attempts, rate limits and failed outcomes from both record shapes", () => {
+	const text = [
+		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1 } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "retried", attempts: 3, error_class: "rate_limited" } }),
+		JSON.stringify({ outcome: "exhausted", attempts: 2, error_class: "http_5xx" }),
+		JSON.stringify({ kind: "cache", payload: { outcome: "ok", attempts: 1 } }),
+		"not json",
+	].join("\n");
+	assert.deepEqual(parseProviderLog(text), { calls: 3, retries: 3, rateLimited: 1, errors: 1 });
+	assert.deepEqual(parseProviderLog(""), { calls: 0, retries: 0, rateLimited: 0, errors: 0 });
+});
+
+test("parseRunLog reads stage sizes, emergency compactions and effective limits", () => {
+	const lines = [
+		{
+			type: "context_diagnostics",
+			payload: {
+				kind: "compaction",
+				severity: "info",
+				stages: [
+					{ stage: "normal", retained_tokens: 400 },
+					{ stage: "emergency", retained_tokens: 120 },
+					{ stage: "emergency", retained_tokens: 60, failed: true },
+				],
+				context_window: 1000000,
+				compaction_threshold_tokens: 560000,
+			},
+		},
+		{
+			type: "context_diagnostics",
+			payload: { kind: "compaction", severity: "warning", stages: [{ stage: "normal", retained_tokens: 50 }], context_window: 1000000, compaction_threshold_tokens: 560000 },
+		},
+		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", stages: [{ stage: "emergency", retained_tokens: 1, failed: true }] } },
+	].map((line) => JSON.stringify(line)).join("\n");
+	const run = parseRunLog(lines);
+	assert.equal(run.compactions, 2);
+	assert.equal(run.emergencyCompactions, 1, "the skipped failure event is not a compaction");
+	assert.deepEqual(run.retainedTail, [120, 50], "a failed trailing stage never supplies the tail");
+	assert.equal(run.contextWindow, 1000000);
+	assert.equal(run.thresholdTokens, 560000);
+});
+
+test("analyzeRun records timings, provider outcomes, retained tail and effective limits", () => {
+	const log = [
+		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 100, duration_ms: 1000, ttft_ms: 100, success: true } },
+		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 100, duration_ms: 3000, ttft_ms: 300, success: true } },
+		{
+			type: "context_diagnostics",
+			payload: { kind: "compaction", severity: "info", stages: [{ stage: "normal", retained_tokens: 100 }, { stage: "emergency", retained_tokens: 300 }], context_window: 1000000, compaction_threshold_tokens: 560000 },
+		},
+	].map((line) => JSON.stringify(line)).join("\n");
+	const providerText = [
+		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1 } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "retried", attempts: 3, error_class: "rate_limited" } }),
+	].join("\n");
+	const metrics = analyzeRun({
+		stdoutText: "",
+		logText: log,
+		compactionText: "",
+		providerText,
+		fixtures: recallFixtures(),
+		mode: "on",
+		family: "openai",
+		wallClockMs: 9000,
+		contextWindow: 200000,
+		threshold: 140000,
+	});
+	assert.equal(metrics.durationMs, 4000);
+	assert.equal(metrics.durationP50Ms, 1000);
+	assert.equal(metrics.durationP95Ms, 3000);
+	assert.equal(metrics.ttftP50Ms, 100);
+	assert.equal(metrics.ttftP95Ms, 300);
+	assert.equal(metrics.retainedTailMedian, 300);
+	assert.equal(metrics.retainedTailMax, 300);
+	assert.equal(metrics.emergencyCompactions, 1);
+	assert.equal(metrics.effectiveContextWindow, 1000000);
+	assert.equal(metrics.effectiveThresholdTokens, 560000);
+	assert.equal(metrics.providerRetries, 2);
+	assert.equal(metrics.providerRateLimited, 1);
+	assert.equal(metrics.providerErrors, 0);
+	assert.equal(metrics.promptTokens, 200);
+	assert.equal(metrics.cachedTokens, null);
+	assert.equal(metrics.wallClockMs, 9000);
+});
+
+test("analyzeRun falls back to the configured window and threshold when no compaction reports them", () => {
+	const metrics = analyzeRun({
+		stdoutText: "",
+		logText: "",
+		compactionText: "",
+		fixtures: recallFixtures(),
+		mode: "off",
+		family: "openai",
+		contextWindow: 200000,
+		threshold: 140000,
+	});
+	assert.equal(metrics.effectiveContextWindow, 200000);
+	assert.equal(metrics.effectiveThresholdTokens, 140000);
+	assert.equal(metrics.retainedTailMedian, null);
+});
+
+test("aggregateMode medians the timing, retry and retained-tail metrics", () => {
+	const agg = aggregateMode([
+		runRecord({
+			wallClockMs: 1000,
+			durationMs: 500,
+			emergencyCompactions: 0,
+			retainedTailMedian: 10,
+			retainedTailMax: 20,
+			ttftP50Ms: 1,
+			ttftP95Ms: 2,
+			durationP50Ms: 3,
+			durationP95Ms: 4,
+			providerCalls: 1,
+			providerRetries: 0,
+			providerRateLimited: 0,
+			providerErrors: 0,
+			cachedTokens: 10,
+			uncachedTokens: 90,
+			promptTokens: 100,
+			costProxy: 100,
+		}),
+		runRecord({
+			wallClockMs: 3000,
+			durationMs: 1500,
+			emergencyCompactions: 2,
+			retainedTailMedian: 30,
+			retainedTailMax: 40,
+			ttftP50Ms: 3,
+			ttftP95Ms: 4,
+			durationP50Ms: 5,
+			durationP95Ms: 6,
+			providerCalls: 3,
+			providerRetries: 2,
+			providerRateLimited: 1,
+			providerErrors: 1,
+			cachedTokens: 30,
+			uncachedTokens: 70,
+			promptTokens: 100,
+			costProxy: 300,
+		}),
+	]);
+	assert.equal(agg.wallClockMs, 2000);
+	assert.equal(agg.durationMs, 1000);
+	assert.equal(agg.emergencyCompactions, 1);
+	assert.equal(agg.retainedTailMedian, 20);
+	assert.equal(agg.retainedTailMax, 30);
+	assert.equal(agg.providerRetries, 1);
+	assert.equal(agg.providerRateLimited, 0.5);
+	assert.equal(agg.providerErrors, 0.5);
+	assert.equal(agg.uncachedTokens, 80);
+	assert.equal(agg.costProxy, 200);
+});
+
+test("renderTable shows the timing, retry and retained-tail rows", () => {
+	const md = renderTable([
+		{
+			alias: "m",
+			family: "openai",
+			informational: false,
+			probe: null,
+			off: modeAgg({ emergencyCompactions: 1, retainedTailMedian: 120, retainedTailMax: 400, wallClockMs: 61000, durationMs: 59000, ttftP50Ms: 900, durationP50Ms: 2000, providerRetries: 3, providerRateLimited: 1, providerErrors: 0, uncachedTokens: 8000 }),
+			on: modeAgg({ emergencyCompactions: 4 }),
+			verdict: { label: "PASS", cache: "checked", reasons: [] },
+		},
+	]);
+	assert.match(md, /\| emergency compactions \| 1 \| 4 \|/);
+	assert.match(md, /\| retained tail median \| 120 \| not reported \|/);
+	assert.match(md, /\| retained tail max \| 400 \| not reported \|/);
+	assert.match(md, /\| wall clock \| 61\.0 s \| not reported \|/);
+	assert.match(md, /\| summed call duration \| 59\.0 s \| not reported \|/);
+	assert.match(md, /\| ttft p50 \| 900 ms \| not reported \|/);
+	assert.match(md, /\| call duration p50 \| 2\.0 s \| not reported \|/);
+	assert.match(md, /\| provider retries \| 3 \| not reported \|/);
+	assert.match(md, /\| rate limited \(429\) \| 1 \| not reported \|/);
+	assert.match(md, /\| uncached input tokens \| 8000 \| not reported \|/);
+});
+
+test("readLogGenerations reads rotated generations oldest first", async () => {
+	const text = await readLogGenerations("/logs/run.log.jsonl", { readText: async (path) => `${path}\n` });
+	assert.equal(
+		text,
+		["/logs/run.log.jsonl.3", "/logs/run.log.jsonl.2", "/logs/run.log.jsonl.1", "/logs/run.log.jsonl"].map((path) => `${path}\n`).join(""),
+	);
+});
+
+test("copyLogGenerations copies the active file and rotated generations", async () => {
+	const src = await mkdtemp(join(tmpdir(), "compaction-bench-gen-src-"));
+	const dst = await mkdtemp(join(tmpdir(), "compaction-bench-gen-dst-"));
+	try {
+		await writeFile(join(src, "run.log.jsonl"), "active\n");
+		await writeFile(join(src, "run.log.jsonl.1"), "one\n");
+		await writeFile(join(src, "run.log.jsonl.2"), "two\n");
+		const copied = await copyLogGenerations(join(src, "run.log.jsonl"), join(dst, "run.log.jsonl"));
+		assert.deepEqual(copied, [join(dst, "run.log.jsonl"), join(dst, "run.log.jsonl.1"), join(dst, "run.log.jsonl.2")]);
+		assert.equal(await readFile(join(dst, "run.log.jsonl.2"), "utf8"), "two\n");
+		assert.ok(!existsSync(join(dst, "run.log.jsonl.3")));
+	} finally {
+		await rm(src, { recursive: true, force: true });
+		await rm(dst, { recursive: true, force: true });
+	}
+});
+
+test("main benches a provider/id ref under its synthesized alias and keeps rotated evidence", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		const code = await main(
+			[
+				"--model", "opencode-go/beam-free",
+				"--modes", "off",
+				"--context-window", "1000000",
+				"--threshold", "560000",
+				"--seed", "10",
+				"--files", "4",
+				"--pad-tokens", "10",
+				"--out", outDir,
+			],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.contextWindow, 1000000);
+		assert.equal(raw.seed, 10);
+		assert.equal(raw.aliases[0].alias, "bench--opencode-go--beam-free");
+		assert.equal(raw.aliases[0].ref, "opencode-go/beam-free");
+		assert.equal(raw.aliases[0].provider, "opencode-go");
+		assert.equal(raw.aliases[0].id, "beam-free");
+		const run = raw.aliases[0].runs.off[0];
+		assert.equal(typeof run.wallClockMs, "number");
+		assert.equal(run.effectiveContextWindow, 1000000);
+		assert.equal(run.effectiveThresholdTokens, 560000);
+		assert.equal(run.providerRetries, 2);
+		assert.equal(run.providerRateLimited, 1);
+		assert.equal(run.providerErrors, 0);
+		const modelIndex = (call) => call.args.indexOf("--model") + 1;
+		const benchCall = fake.invocations.find((call) => call.args[modelIndex(call)] === "bench--opencode-go--beam-free");
+		assert.ok(benchCall, "steiner runs under the synthesized alias");
+		assert.match(benchCall.configText, /      provider: opencode-go/);
+		assert.match(benchCall.configText, /      id: beam-free/);
+		assert.match(benchCall.configText, /          context_window: 1000000/);
+		assert.match(benchCall.configText, /          compaction_threshold_tokens: 560000/);
+		const files = readdirSync(join(outDir, "bench--opencode-go--beam-free"));
+		assert.ok(files.includes("off-r1.provider.jsonl"));
+		assert.ok(files.includes("off-r1.cache.jsonl"));
+		assert.ok(files.includes("off-r1.run.log.jsonl"));
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		assert.match(markdown, /- context window: 1000000/);
+		assert.match(markdown, /- seed: 10 \+ repeat - 1/);
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
 	}
 });
 

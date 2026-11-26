@@ -4,7 +4,7 @@
 
 `scripts/compaction-bench.mjs` compares continuity and cache token costs with immutable summary segments off and on (#1042). It uses Node's standard library and makes live model calls.
 
-The entry file holds `main` and the direct-run guard; the work is split across sibling `compaction-bench-*.mjs` modules for flags, fixtures, parsing, scoring, reporting and run execution. The entry re-exports their names, so `scripts/compaction-bench_test.mjs` imports a single path.
+The entry file holds `main` and the direct-run guard; the work is split across sibling `compaction-bench-*.mjs` modules for flags, fixtures, parsing, scoring, reporting and run execution. The entry re-exports their names, so `scripts/compaction-bench_test.mjs` imports a single path. `scripts/compaction-bench-compare.mjs` compares the `raw.json` files of several invocations.
 
 ## Safety and cost
 
@@ -35,17 +35,21 @@ STEINER_LIVE_BENCH=1 node scripts/compaction-bench.mjs \
   --steiner /tmp/steiner \
   --model hy4-flash-anthropic,hy4-flash \
   --anthropic-alias hy4-flash-anthropic \
+  --context-window 1000000 --threshold 560000 --seed 7 \
   --repeat 2 --out /tmp/bench-out
 ```
 
-Replace the example aliases with configured aliases. `--model` is required and accepts a comma-separated list. Other flags:
+`--model` accepts configured aliases and `provider/id` refs such as `opencode-go/beam-free`. A ref is benched under the synthesized alias `bench--<provider>--<id>`: the private config pins `provider` and `id`, and the run, its output directory and its report label all use that alias. A plain alias keeps its global settings through the config merge. `--anthropic-alias` and `--informational-alias` take the values exactly as written in `--model`.
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
-| `--anthropic-alias <a,b>` | Aliases with Anthropic cache weights and a cache probe | none |
-| `--informational-alias <a,b>` | Aliases without a pass or fail verdict | none |
+| `--model <a,b>` | Aliases or `provider/id` refs, comma-separated | required |
+| `--anthropic-alias <a,b>` | Models with Anthropic cache weights and a cache probe | none |
+| `--informational-alias <a,b>` | Models without a pass or fail verdict | none |
 | `--modes <a,b>` | Subset of `off,on` | `off,on` |
-| `--threshold <n>` | Compaction threshold in tokens for each alias | 15000 |
+| `--threshold <n>` | Compaction threshold in tokens for each model | 15000 |
+| `--context-window <n>` | `advanced.limits.context_window` for each model | alias setting |
+| `--seed <n>` | Fixture seed; repeat `r` uses `seed + r - 1` | the repeat number |
 | `--files <n>` | Chain length, 4 to 99 | 24 |
 | `--pad-tokens <n>` | Approximate filler tokens per file, 0 to 16000 | 3000 |
 | `--max-turns <n>` | Turn limit per run | 80 |
@@ -56,11 +60,11 @@ Replace the example aliases with configured aliases. `--model` is required and a
 | `--out <dir>` | Output directory | a temporary directory |
 | `--help` | Print usage | |
 
-Exit codes are 0 for completion, 1 for the live-call guard or an uncaught error, 2 for usage errors, 3 if a benchmark run failed, and 130 or 143 when `SIGINT` or `SIGTERM` interrupts the bench. A failing verdict or probe alone does not set exit code 3. Values of `--anthropic-alias` and `--informational-alias` must also appear in `--model`; anything else is a usage error. `--pad-tokens` above 16000 is a usage error: the read tool caps a single output at 65536 runes, so a larger file would be truncated on read.
+Exit codes are 0 for completion, 1 for the live-call guard or an uncaught error, 2 for usage errors, 3 if a benchmark run failed, and 130 or 143 when `SIGINT` or `SIGTERM` interrupts the bench. A failing verdict or probe alone does not set exit code 3. Values of `--anthropic-alias` and `--informational-alias` must also appear in `--model`; anything else is a usage error. `--threshold` must be lower than `--context-window` when both are set, because steiner rejects a threshold at or above the effective window. `--context-window` writes `context_window` under `advanced.limits`, so steiner's resolver may still report another window if the value is ignored; `raw.json` records what the run actually reported. `--pad-tokens` above 16000 is a usage error: the read tool caps a single output at 65536 runes, so a larger file would be truncated on read.
 
 ## How a run works
 
-For each alias, repeat, and selected mode, the bench generates a seeded chain in a fresh scratch repository and starts one `steiner --exec` without `--resume`. Off and on use the same seed for each repeat. Mode order alternates per repeat: repeat 1 runs off then on, repeat 2 runs on then off, and so on, so the second mode of a repeat does not start from a cache entry the first mode just warmed. Every run's task prompt opens with `Run id: <nonce>`, so no two runs send a byte-identical first request. The invocation passes `--model`, `--max-turns`, `--compaction-log-file`, `--log-file`, `--config`, and `--trust-project-config`. Its private config sets the alias's `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` and enables the cache diagnostics stream outside the project root.
+For each model, repeat, and selected mode, the bench generates a seeded chain in a fresh scratch repository and starts one `steiner --exec` without `--resume`. Off and on use the same seed for each repeat. With `--seed`, repeat `r` uses `seed + r - 1`, so separate invocations at different thresholds can share fixtures for a paired comparison; without it the repeat number is the seed. Mode order alternates per repeat: repeat 1 runs off then on, repeat 2 runs on then off, and so on, so the second mode of a repeat does not start from a cache entry the first mode just warmed. Every run's task prompt opens with `Run id: <nonce>`, so no two runs send a byte-identical first request. The invocation passes `--model`, `--max-turns`, `--compaction-log-file`, `--log-file`, `--config`, and `--trust-project-config`. Its private config sets the alias's `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens`, optionally `context_window`, and enables the cache and provider diagnostics streams outside the project root.
 
 Files `notes/f01.txt` through `notes/fNN.txt` each contain a code, a `NEXT` pointer, and filler. One file after `f03` in the second half corrects the code for `f03`, so the correction never lands in `f01` to `f03`. The task asks the model to follow the chain one file at a time, never re-read, list, or search the directory, and answer with `fNN: CODE` lines applying corrections.
 
@@ -78,11 +82,24 @@ For each `--anthropic-alias`, two one-turn probe calls with one shared prompt te
 
 ## Output and verdicts
 
-`results.md` is written to the output directory and printed to stdout. Its header records the UTC timestamp, binary path, settings, on-mode experiment environment, and sandbox status. Per-alias tables show turns, max turns hit, compactions, rebases, plain fallbacks, maximum segments, cached tokens, cost proxy per turn, and continuity, followed by verdict reasons and an Anthropic probe line when applicable. Progress goes to stderr.
+`results.md` is written to the output directory and printed to stdout. Its header records the UTC timestamp, binary path, threshold, context window, seed, settings, on-mode experiment environment, and sandbox status. Per-alias tables show turns, max turns hit, compactions, emergency compactions, rebases, plain fallbacks, maximum segments, retained-tail median and max, cached and uncached input tokens, cost proxy per turn, wall clock, summed call duration, TTFT and call-duration p50/p95, provider retries, rate-limited (429) calls, provider error outcomes, and continuity, followed by verdict reasons and an Anthropic probe line when applicable. Progress goes to stderr.
 
-`raw.json` contains run records and settings. Per-run stdout, stderr, session log, and compaction log copies are under `<out>/<alias>/` when available. The report includes the on-mode flag and only limit variables set in the environment.
+Wall clock is measured by the bench around the spawned process. Summed call duration and the percentiles use the `duration_ms` and `ttft_ms` reported by main model calls; applied compaction events carry no duration in the session log, so they contribute none. A zero value is unreported and excluded. Provider retries sum `attempts - 1` over the copied provider stream, `429` counts `rate_limited` error classes, and errors count `exhausted` and `cancelled` final outcomes. The retained tail is the `retained_tokens` of the last applied stage of each applied compaction; a trailing failed stage never supplies it. Emergency compactions are applied compactions whose stages include the `emergency` stage.
+
+`raw.json` contains run records and settings. Each alias entry carries its `alias` (the report label), the original `ref`, and the synthesized `provider` and `id` when the ref was a `provider/id` ref. Each run record carries the metrics above, plus `effectiveContextWindow` and `effectiveThresholdTokens` as the run reported them in its compaction diagnostics, falling back to the generated config values when no compaction reported them. Per-run stdout, stderr, session log, compaction log, provider stream, and cache stream copies are under `<out>/<alias>/<mode>-r<N>.*` when available. Session logs and diagnostics streams keep three rotated generations, and every generation is copied with its `.1`, `.2`, `.3` suffix; the parser reads them oldest first, so early events survive rotation. The report includes the on-mode flag and only limit variables set in the environment.
 
 Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL`, `CONTINUITY_ONLY` or `PASS`. A failed or invalid run, or invalid recall, on either side yields `INVALID`, as does an off side that recalled nothing. After validity and comparability checks, an informational alias gets no pass or fail. Otherwise `FAIL` means on continuity is below off by more than the tolerance, or, when cache is checked, on cost per turn exceeds off by more than the tolerance. Missing cache reporting or a failed Anthropic probe gives `no cache verdict`; cost is not judged, continuity still is, and a continuity result within tolerance is labelled `CONTINUITY_ONLY`. `PASS` requires both continuity and the cost proxy within tolerance.
+
+## Comparing invocations
+
+`scripts/compaction-bench-compare.mjs` reads the `raw.json` files of several bench invocations and prints one table per context window and model, ordered by threshold, with per-run values rather than mode medians. Arguments are bench `--out` directories, `raw.json` files, or a directory to scan recursively.
+
+```sh
+node scripts/compaction-bench-compare.mjs .steiner/bench/1043/phase0
+node scripts/compaction-bench-compare.mjs run-a run-b run-c/raw.json --json
+```
+
+`--json` prints `{ sources, rows }`, where every row is one run with its model, ref, window, threshold, mode, repeat, continuity fields, max-turn hit, compaction and emergency counts, retained-tail median and max, wall clock, summed duration, provider retries, 429 and error outcomes, cached and uncached input tokens, and cost proxy. Exit codes are 0 for success, 2 for a usage error, a missing path, an unparsable `raw.json`, or no `raw.json` found, and `--help` prints usage and exits 0. This script makes no provider calls and needs no `STEINER_LIVE_BENCH`.
 
 ## Provider notes
 
@@ -105,9 +122,9 @@ Provider setup guidance (confirm details with your provider):
 ## Tests
 
 ```sh
-node --test scripts/compaction-bench_test.mjs
+node --test scripts/compaction-bench_test.mjs scripts/compaction-bench-compare_test.mjs
 # Or run the script test suite:
 make test-scripts
 ```
 
-The bench tests use fake runners, a fake `--steiner` script, and local `node` subprocesses; they do not make live provider calls.
+The bench and compare tests use fake runners, a fake `--steiner` script, local `node` subprocesses, and temporary `raw.json` fixtures; they do not make live provider calls.

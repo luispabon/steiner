@@ -65,19 +65,23 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 	const out = opts.out ?? (await mkdtemp(join(tmpdir(), "compaction-bench-")));
 	await mkdir(out, { recursive: true });
 	const results = [];
-	for (const alias of opts.models) {
-		const family = opts.anthropicAliases.includes(alias) ? "anthropic" : "openai";
-		const informational = opts.informationalAliases.includes(alias);
-		const probe = family === "anthropic" ? await runProbe({ opts, alias, env, spawnRun, newId }) : null;
+	for (const entry of opts.modelEntries) {
+		const { alias, ref, provider, id } = entry;
+		const family = opts.anthropicAliases.includes(ref) ? "anthropic" : "openai";
+		const informational = opts.informationalAliases.includes(ref);
+		const probe = family === "anthropic" ? await runProbe({ opts, entry, env, spawnRun, newId }) : null;
 		if (probe) log(`probe ${alias}: ${probe.ok ? "ok" : `failed (${probe.reason})`}`);
 		const runs = { off: [], on: [] };
 		for (let repeat = 1; repeat <= opts.repeat; repeat++) {
-			const fixtures = generateFixtures(repeat, opts.files, opts.padTokens);
+			// One seed across thresholds makes the fixtures identical for a paired
+			// comparison; without --seed the repeat number stays the seed.
+			const seed = opts.seed === null ? repeat : opts.seed + repeat - 1;
+			const fixtures = generateFixtures(seed, opts.files, opts.padTokens);
 			// Alternate the mode order per repeat so the second mode never starts from
 			// a cache entry the first mode just warmed.
 			const modes = repeat % 2 === 1 ? opts.modes : [...opts.modes].reverse();
 			for (const mode of modes) {
-				const run = await runOnce({ opts, alias, family, mode, repeat, runId: newId(), fixtures, out, env, spawnRun });
+				const run = await runOnce({ opts, entry, family, mode, repeat, runId: newId(), fixtures, out, env, spawnRun });
 				runs[mode].push(run);
 				const exit = run.timedOut ? "timeout" : run.exitCode === null ? "error" : run.exitCode;
 				log(`${alias} mode ${mode} r${repeat} exit ${exit} compactions ${run.compactions ?? "n/a"} exact ${run.exact ?? "n/a"}/${run.total ?? "n/a"}`);
@@ -90,7 +94,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 		const aliasVerdict = off && on
 			? verdict({ off, on, tolerance: opts.tolerance, informational, probeOk: probe ? probe.ok : undefined, family })
 			: { label: "INCOMPARABLE", cache: "no cache verdict", reasons: ["single mode"] };
-		results.push({ alias, family, informational, probe, off, on, verdict: aliasVerdict, runs });
+		results.push({ alias, ref, provider, id, family, informational, probe, off, on, verdict: aliasVerdict, runs });
 	}
 
 	const timestamp = now().toISOString();
@@ -104,6 +108,8 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 		steiner: opts.steiner,
 		out,
 		threshold: opts.threshold,
+		contextWindow: opts.contextWindow,
+		seed: opts.seed,
 		files: opts.files,
 		padTokens: opts.padTokens,
 		maxTurns: opts.maxTurns,
@@ -115,7 +121,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 		informationalAliases: opts.informationalAliases,
 		experimentEnv: experiment,
 		sandbox,
-		aliases: results.map(({ alias, family, informational, probe, runs }) => ({ alias, family, informational, probe, runs })),
+		aliases: results.map(({ alias, ref, provider, id, family, informational, probe, runs }) => ({ alias, ref, provider, id, family, informational, probe, runs })),
 	};
 	await writeFile(join(out, "raw.json"), `${JSON.stringify(raw, null, 2)}\n`);
 	writeOut(`${markdown}\n`);

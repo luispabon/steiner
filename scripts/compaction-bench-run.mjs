@@ -172,9 +172,43 @@ async function readTextOrEmpty(path) {
 async function copyIfExists(from, to) {
 	try {
 		await copyFile(from, to);
+		return true;
 	} catch (error) {
 		if (error.code !== "ENOENT") throw error;
+		return false;
 	}
+}
+
+// Both the session log and the diagnostics streams keep three rotated
+// generations (<path>.1 is the newest, generation 0 is the active file). A
+// compaction log does not rotate, so it has only generation 0.
+const MAX_LOG_GENERATIONS = 3;
+
+function generationPath(path, generation) {
+	return generation === 0 ? path : `${path}.${generation}`;
+}
+
+// Read every generation oldest first, so a rotated session log parses as one
+// chronological stream.
+export async function readLogGenerations(path, deps = {}) {
+	const read = deps.readText ?? readTextOrEmpty;
+	const parts = [];
+	for (let generation = MAX_LOG_GENERATIONS; generation >= 0; generation--) {
+		parts.push(await read(generationPath(path, generation)));
+	}
+	return parts.join("");
+}
+
+// Copy the active file and every rotated generation, keeping the suffix, so the
+// evidence survives the scratch directory. Returns the copied destinations.
+export async function copyLogGenerations(from, to) {
+	const copied = [];
+	for (let generation = 0; generation <= MAX_LOG_GENERATIONS; generation++) {
+		if (await copyIfExists(generationPath(from, generation), generationPath(to, generation))) {
+			copied.push(generationPath(to, generation));
+		}
+	}
+	return copied;
 }
 
 function probePrompt(nonce) {
@@ -274,14 +308,15 @@ function steinerExecArgs({ alias, maxTurns, compactionPath, logPath, configPath,
 	];
 }
 
-/** Probe cache control for one Anthropic alias: two one-turn calls with one shared prompt. */
-export async function runProbe({ opts, alias, env, spawnRun, newId }) {
+/** Probe cache control for one Anthropic model: two one-turn calls with one shared prompt. */
+export async function runProbe({ opts, entry, env, spawnRun, newId }) {
 	const timeoutMs = opts.runTimeoutMinutes * 60_000;
+	const { alias, provider, id } = entry;
 	try {
 		return await withBenchDirs({ spawnRun, env, timeoutMs }, async ({ repoDir, privDir, diagDir }) => {
 			const probeText = probePrompt(newId());
 			const configPath = join(privDir, "probe.yaml");
-			await writeFile(configPath, buildProbeConfig({ diagnosticsDir: diagDir }));
+			await writeFile(configPath, buildProbeConfig({ diagnosticsDir: diagDir, alias, provider, id }));
 			const calls = [];
 			const exits = [];
 			for (const attempt of [1, 2]) {
@@ -319,10 +354,10 @@ export async function runProbe({ opts, alias, env, spawnRun, newId }) {
 }
 
 /** Run one mode/repeat: write the notes chain and config, exec steiner, then analyse its artefacts. */
-export async function runOnce({ opts, alias, family, mode, repeat, runId, fixtures, out, env, spawnRun }) {
+export async function runOnce({ opts, entry, family, mode, repeat, runId, fixtures, out, env, spawnRun }) {
 	const timeoutMs = opts.runTimeoutMinutes * 60_000;
 	const base = `${mode}-r${repeat}`;
-	const runOutDir = join(out, alias);
+	const runOutDir = join(out, entry.alias);
 	await mkdir(runOutDir, { recursive: true });
 	try {
 		return await withBenchDirs({ spawnRun, env, timeoutMs }, async ({ repoDir, privDir, diagDir }) => {
@@ -331,15 +366,26 @@ export async function runOnce({ opts, alias, family, mode, repeat, runId, fixtur
 				await writeFile(join(repoDir, file.name), file.content);
 			}
 			const configPath = join(privDir, "bench.yaml");
-			await writeFile(configPath, buildBenchConfig({ alias, threshold: opts.threshold, diagnosticsDir: diagDir }));
+			await writeFile(
+				configPath,
+				buildBenchConfig({
+					alias: entry.alias,
+					provider: entry.provider,
+					id: entry.id,
+					threshold: opts.threshold,
+					contextWindow: opts.contextWindow,
+					diagnosticsDir: diagDir,
+				}),
+			);
 			const logPath = join(privDir, "run.log.jsonl");
 			const compactionPath = join(privDir, "compaction-log.txt");
 			const stdoutPath = join(runOutDir, `${base}.stdout.txt`);
 			const stderrPath = join(runOutDir, `${base}.stderr.txt`);
+			const started = Date.now();
 			const child = await spawnRun({
 				command: opts.steiner,
 				args: steinerExecArgs({
-					alias,
+					alias: entry.alias,
 					maxTurns: opts.maxTurns,
 					compactionPath,
 					logPath,
@@ -352,17 +398,24 @@ export async function runOnce({ opts, alias, family, mode, repeat, runId, fixtur
 				stderrPath,
 				timeoutMs,
 			});
+			const wallClockMs = Date.now() - started;
 			const metrics = analyzeRun({
 				stdoutText: await readTextOrEmpty(stdoutPath),
-				logText: await readTextOrEmpty(logPath),
-				compactionText: await readTextOrEmpty(compactionPath),
+				logText: await readLogGenerations(logPath),
+				compactionText: await readLogGenerations(compactionPath),
+				providerText: await readLogGenerations(join(diagDir, "provider.jsonl")),
 				fixtures,
 				mode,
 				family,
 				notesDir: join(repoDir, "notes"),
+				wallClockMs,
+				contextWindow: opts.contextWindow,
+				threshold: opts.threshold,
 			});
-			await copyIfExists(logPath, join(runOutDir, `${base}.run.log.jsonl`));
-			await copyIfExists(compactionPath, join(runOutDir, `${base}.compaction-log.txt`));
+			await copyLogGenerations(logPath, join(runOutDir, `${base}.run.log.jsonl`));
+			await copyLogGenerations(compactionPath, join(runOutDir, `${base}.compaction-log.txt`));
+			await copyLogGenerations(join(diagDir, "provider.jsonl"), join(runOutDir, `${base}.provider.jsonl`));
+			await copyLogGenerations(join(diagDir, "cache.jsonl"), join(runOutDir, `${base}.cache.jsonl`));
 			let reason = null;
 			if (child.timedOut) reason = "timeout";
 			else if (child.code !== 0) reason = child.error ?? `exit ${child.code ?? "unknown"}`;

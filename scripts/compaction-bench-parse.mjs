@@ -108,6 +108,8 @@ function parseModelCall(payload) {
 	return {
 		turn: payload.turn ?? 0,
 		promptTokens: payload.prompt_tokens ?? 0,
+		durationMs: payload.duration_ms ?? 0,
+		ttftMs: payload.ttft_ms ?? 0,
 		...cacheFields(payload),
 	};
 }
@@ -117,7 +119,35 @@ function parseCompactionCall(payload) {
 	// estimate, not the summarizer's input (internal/agent/events.go sets it from
 	// afterFit). The summary call total is uncached input plus both cache counters.
 	const promptTokens = (payload.input_tokens ?? 0) + (payload.cache_read_tokens ?? 0) + (payload.cache_create_tokens ?? 0);
-	return { promptTokens, ...cacheFields(payload) };
+	return {
+		promptTokens,
+		// Applied compaction events report no call duration in the session log; the
+		// provider diagnostics stream carries it instead. A payload that gains one
+		// is still summed.
+		durationMs: payload.duration_ms ?? 0,
+		ttftMs: payload.ttft_ms ?? 0,
+		...cacheFields(payload),
+	};
+}
+
+// The retained tail is the retained_tokens of the last stage that applied. A
+// failed stage is appended after the applied ones, so it never supplies the tail.
+function finalAppliedStage(stages) {
+	if (!Array.isArray(stages)) return null;
+	for (let i = stages.length - 1; i >= 0; i--) {
+		const stage = stages[i];
+		if (stage === null || typeof stage !== "object" || stage.failed === true) continue;
+		return stage;
+	}
+	return null;
+}
+
+function stageNames(stages) {
+	if (!Array.isArray(stages)) return [];
+	return stages
+		.filter((stage) => stage !== null && typeof stage === "object")
+		.map((stage) => stage.stage)
+		.filter((name) => typeof name === "string");
 }
 
 /** Parse a session log JSONL into ordered reads, applied compactions and model-call cache usage. */
@@ -125,9 +155,13 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 	const events = [];
 	const modelCalls = [];
 	const compactionCalls = [];
+	const retainedTail = [];
 	let compactions = 0;
+	let emergencyCompactions = 0;
 	let malformed = 0;
 	let nonReadFileAccess = 0;
+	let contextWindow = null;
+	let thresholdTokens = null;
 	const notesDirRe = notesDirPattern(notesDir);
 
 	for (const raw of String(text).split(/\r?\n/)) {
@@ -181,14 +215,59 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 			compactions++;
 			events.push({ kind: "compaction", index: compactions });
 			compactionCalls.push(parseCompactionCall(payload));
+			if (stageNames(payload.stages).includes("emergency")) emergencyCompactions++;
+			const stage = finalAppliedStage(payload.stages);
+			if (stage !== null && Number.isFinite(stage.retained_tokens)) retainedTail.push(stage.retained_tokens);
+			if (Number.isFinite(payload.context_window) && payload.context_window > 0) contextWindow = payload.context_window;
+			if (Number.isFinite(payload.compaction_threshold_tokens) && payload.compaction_threshold_tokens > 0) {
+				thresholdTokens = payload.compaction_threshold_tokens;
+			}
 		}
 	}
 
-	return { events, modelCalls, compactionCalls, compactions, malformed, nonReadFileAccess };
+	return {
+		events,
+		modelCalls,
+		compactionCalls,
+		compactions,
+		emergencyCompactions,
+		retainedTail,
+		contextWindow,
+		thresholdTokens,
+		malformed,
+		nonReadFileAccess,
+	};
 }
 
 /** Return only the ordered read events from a session log. */
 export const parseToolReads = (text) => parseRunLog(text).events.filter((event) => event.kind === "read");
+
+/**
+ * Parse the provider diagnostics stream into per-call retry and outcome counts.
+ * Records come either wrapped in the diagnostics envelope (kind provider, with
+ * the call record under payload) or as the bare provider stream record.
+ */
+export function parseProviderLog(text) {
+	const out = { calls: 0, retries: 0, rateLimited: 0, errors: 0 };
+	for (const raw of String(text).split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "") continue;
+		let record;
+		try {
+			record = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (record === null || typeof record !== "object" || Array.isArray(record)) continue;
+		const payload = record.kind === "provider" && record.payload && typeof record.payload === "object" ? record.payload : record;
+		if (typeof payload.attempts !== "number" && typeof payload.outcome !== "string") continue;
+		out.calls++;
+		if (Number.isFinite(payload.attempts)) out.retries += Math.max(0, payload.attempts - 1);
+		if (payload.error_class === "rate_limited") out.rateLimited++;
+		if (payload.outcome === "exhausted" || payload.outcome === "cancelled") out.errors++;
+	}
+	return out;
+}
 
 const EVENT_LABEL_RE = /^[a-z_]+: /;
 const MAX_TURNS_RE = /^status: stopped after \d+ turns?: reached the max turn limit/;

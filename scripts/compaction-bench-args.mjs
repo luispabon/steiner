@@ -1,16 +1,26 @@
-// Flag parsing, the live-call guard and the experiment environment for the
-// live compaction bench.
+// Flag parsing, model references, the live-call guard and the experiment
+// environment for the live compaction bench.
 
 const MAX_PAD_TOKENS = 16000;
+
+// Aliases are YAML keys and output directory names, so keep them to the
+// characters both tolerate.
+export const ALIAS_RE = /^[A-Za-z0-9._-]+$/;
+
+// Synthesized aliases for provider/id refs share one prefix, so a bench output
+// tree names every alias it wrote without needing the original ref.
+const SYNTHESIZED_ALIAS_PREFIX = "bench--";
 
 export const USAGE = `usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
 
 flags:
-  --model <a,b>                model aliases to bench (required, comma-separated)
-  --anthropic-alias <a,b>      aliases priced with Anthropic cache weights
-  --informational-alias <a,b>  aliases reported without a pass or fail verdict
+  --model <a,b>                model aliases or provider/id refs (required, comma-separated)
+  --anthropic-alias <a,b>      models priced with Anthropic cache weights
+  --informational-alias <a,b>  models reported without a pass or fail verdict
   --modes <a,b>                modes to run, subset of off,on (default: off,on)
-  --threshold <n>              compaction_threshold_tokens for every alias (default: 15000)
+  --threshold <n>              compaction_threshold_tokens for every model (default: 15000)
+  --context-window <n>         context_window for every model; --threshold must be lower
+  --seed <n>                   fixture seed; repeat r uses seed + r - 1 (default: the repeat number)
   --files <n>                  notes chain length, 4 to 99 (default: 24)
   --pad-tokens <n>             filler tokens per notes file, 0 to ${MAX_PAD_TOKENS} (default: 3000)
   --max-turns <n>              limits.max_turns for every run (default: 80)
@@ -20,6 +30,11 @@ flags:
   --steiner <path>             steiner binary (default: steiner)
   --out <dir>                  write results.md and raw.json here (default: a temp dir)
   --help                       print this usage and exit
+
+A provider/id ref such as opencode-go/beam-free is benched under the
+synthesized alias ${SYNTHESIZED_ALIAS_PREFIX}<provider>--<id>, whose private config
+pins that provider and id. Output directories and report labels use the
+synthesized alias.
 
 The bench makes real provider calls and spends real tokens. It refuses to run
 unless STEINER_LIVE_BENCH=1 is set.
@@ -34,6 +49,8 @@ const FLAG_SPECS = {
 	"--informational-alias": { key: "informationalAliases", kind: "list" },
 	"--modes": { key: "modes", kind: "list" },
 	"--threshold": { key: "threshold", kind: "int", min: 1 },
+	"--context-window": { key: "contextWindow", kind: "int", min: 1 },
+	"--seed": { key: "seed", kind: "int", min: 0 },
 	"--files": { key: "files", kind: "int", min: 1 },
 	"--pad-tokens": { key: "padTokens", kind: "int", min: 0 },
 	"--max-turns": { key: "maxTurns", kind: "int", min: 1 },
@@ -72,6 +89,28 @@ function parseTolerance(flag, value) {
 	return Number(value);
 }
 
+/**
+ * Split one --model ref into its effective alias and, for provider/id refs, the
+ * provider and id the generated config must pin. Throws an Error carrying USAGE
+ * when the ref cannot become a config alias.
+ */
+export function resolveModelRef(ref) {
+	const slash = ref.indexOf("/");
+	if (slash === -1) {
+		if (!ALIAS_RE.test(ref)) {
+			throw usageError(`invalid --model value: ${JSON.stringify(ref)} (allowed: letters, digits, dot, underscore, dash, or a provider/id ref)`);
+		}
+		return { ref, alias: ref, provider: null, id: null };
+	}
+	const provider = ref.slice(0, slash);
+	const id = ref.slice(slash + 1);
+	const alias = `${SYNTHESIZED_ALIAS_PREFIX}${provider}--${id}`;
+	if (!ALIAS_RE.test(provider) || !ALIAS_RE.test(id) || !ALIAS_RE.test(alias)) {
+		throw usageError(`invalid --model value: ${JSON.stringify(ref)} (a provider/id ref needs a safe provider and id, and its alias ${JSON.stringify(alias)} must be safe too)`);
+	}
+	return { ref, alias, provider, id };
+}
+
 /** Parse bench flags into run options; throws an Error carrying USAGE on bad input. */
 export function parseArgs(argv) {
 	const args = {
@@ -81,6 +120,8 @@ export function parseArgs(argv) {
 		informationalAliases: [],
 		modes: ["off", "on"],
 		threshold: 15000,
+		contextWindow: null,
+		seed: null,
 		files: 24,
 		padTokens: 3000,
 		maxTurns: 80,
@@ -145,6 +186,20 @@ export function parseArgs(argv) {
 	if (args.help) return args;
 	if (args.models.length === 0) {
 		throw usageError("--model is required (comma-separated model aliases)");
+	}
+	args.modelEntries = args.models.map(resolveModelRef);
+	const aliasOwners = new Map();
+	for (const entry of args.modelEntries) {
+		const owner = aliasOwners.get(entry.alias);
+		if (owner !== undefined && owner !== entry.ref) {
+			throw usageError(`--model values ${JSON.stringify(owner)} and ${JSON.stringify(entry.ref)} both map to alias ${JSON.stringify(entry.alias)}`);
+		}
+		aliasOwners.set(entry.alias, entry.ref);
+	}
+	if (args.contextWindow !== null && args.threshold >= args.contextWindow) {
+		throw usageError(
+			`--threshold ${args.threshold} must be less than --context-window ${args.contextWindow}: steiner rejects a compaction threshold at or above the context window`,
+		);
 	}
 	args.modes = [...new Set(args.modes)];
 	for (const mode of args.modes) {
