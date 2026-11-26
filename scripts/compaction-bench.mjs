@@ -239,12 +239,25 @@ function nextCode(rand, used) {
 	}
 }
 
+// Filler lines stay just under the read tool's 2000-rune per-line clip
+// (internal/tool/builtin/render_bounds.go), so a file's padding arrives in a
+// few lines and a default 200-line read returns it in one page.
+const FILLER_LINE_TARGET_CHARS = 1900;
+
 function fillerLines(rand, targetChars) {
 	const lines = [];
 	let total = 0;
 	while (total < targetChars) {
+		const limit = Math.min(FILLER_LINE_TARGET_CHARS, targetChars - total);
 		const words = [];
-		for (let i = 0; i < 12; i++) words.push(FILLER_WORDS[Math.floor(rand() * FILLER_WORDS.length)]);
+		let length = 0;
+		while (length < limit) {
+			const word = FILLER_WORDS[Math.floor(rand() * FILLER_WORDS.length)];
+			const extra = words.length === 0 ? word.length : word.length + 1;
+			if (words.length > 0 && length + extra > limit) break;
+			words.push(word);
+			length += extra;
+		}
 		const line = words.join(" ");
 		lines.push(line);
 		total += line.length + 1;

@@ -46,6 +46,27 @@ function recallFixtures() {
 	};
 }
 
+// Text after the CODE/NEXT/CORRECTION header block, which always comes first.
+function fillerText(content) {
+	const lines = content.replace(/\n$/, "").split("\n");
+	return lines.slice(2 + (lines.some((line) => line.startsWith("CORRECTION:")) ? 1 : 0)).join("\n");
+}
+
+// Model one default read page: at most 200 lines, each clipped to 2000 runes,
+// total output capped at 65536 runes (internal/tool/builtin/render_bounds.go).
+function defaultReadPrefix(content) {
+	let total = 0;
+	const kept = [];
+	for (const [index, line] of content.split("\n").slice(0, 200).entries()) {
+		const clipped = line.length > 2000 ? line.slice(0, 2000) : line;
+		const sep = index > 0 ? 1 : 0;
+		if (total + sep + clipped.length > 65536) break;
+		total += sep + clipped.length;
+		kept.push(clipped);
+	}
+	return kept.join("\n");
+}
+
 function modeAgg(over = {}) {
 	return {
 		turns: 10,
@@ -286,6 +307,48 @@ test("generateFixtures keeps the correction out of f01..f03 on small chains", ()
 test("generateFixtures enforces the 4 to 99 file range", () => {
 	assert.throws(() => generateFixtures(1, 3, 10), /4 to 99/);
 	assert.throws(() => generateFixtures(1, 100, 10), /4 to 99/);
+});
+
+test("generateFixtures filler uses long lines and keeps the requested volume", () => {
+	for (const padTokens of [500, 4000, 12000]) {
+		const { files } = generateFixtures(9, 8, padTokens);
+		const target = padTokens * 4;
+		const longLines = [];
+		for (const file of files) {
+			const filler = fillerText(file.content);
+			assert.ok(filler.length >= target - 1 && filler.length <= target + 1901, `${file.name} filler is close to ${target} chars`);
+			for (const line of filler.split("\n")) {
+				assert.ok(line.length > 0 && line.length <= 2000, `${file.name} filler line stays under the 2000-char read clip`);
+				if (line.length > 1000) longLines.push(line);
+			}
+		}
+		assert.ok(longLines.length > 0, `padTokens=${padTokens} emits at least one line over 1000 chars`);
+	}
+});
+
+test("generateFixtures keeps CODE, NEXT and CORRECTION at the top and the seeded correction file fixed", () => {
+	const { files, codes, correction } = generateFixtures(7, 24, 12000);
+	assert.equal(correction.inFile, "f15");
+	for (const file of files) {
+		const label = file.name.replace(/^notes\//, "").replace(/\.txt$/, "");
+		const lines = file.content.split("\n");
+		assert.equal(lines[0], `CODE: ${codes[label]}`);
+		assert.match(lines[1], /^NEXT: /);
+		if (label === correction.inFile) {
+			assert.equal(lines[2], `CORRECTION: the code in f03 is now ${correction.newCode}`);
+		} else {
+			assert.ok(!file.content.includes("CORRECTION:"), `${label} carries no correction`);
+		}
+	}
+});
+
+test("a default 200-line read of a padded file returns nearly all of its bytes", () => {
+	for (const padTokens of [4000, 12000]) {
+		for (const file of generateFixtures(2, 6, padTokens).files) {
+			const covered = defaultReadPrefix(file.content).length;
+			assert.ok(covered >= file.content.length * 0.9, `${file.name} padTokens=${padTokens} read covers ${covered}/${file.content.length} bytes`);
+		}
+	}
 });
 
 test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN lines", () => {
