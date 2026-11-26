@@ -210,10 +210,10 @@ function limitsText(row) {
 	return parts.length === 0 ? "-" : parts.join("+");
 }
 
-// A raw.json path may hold a pipe or backslash, which would split the cell or
-// escape the next character, or a line break, which would end the row: escape
-// the first two, then fold CR and LF to a space, before a path enters a
-// Markdown cell.
+// A raw.json path or a failure reason may hold a pipe or backslash, which would
+// split the cell or escape the next character, or a line break, which would end
+// the row: escape the first two, then fold CR and LF to a space, before the
+// text enters a Markdown cell.
 function mdCell(value) {
 	return String(value)
 		.replace(/\\/g, "\\\\")
@@ -227,7 +227,7 @@ const COLUMNS = [
 	["mode", (row) => row.mode],
 	["r", (row) => numText(row.repeat)],
 	["seed", (row) => numText(row.seed)],
-	["continuity", continuityText],
+	["continuity", (row) => mdCell(continuityText(row))],
 	["max turns", (row) => (row.maxTurnsHit ? "hit" : "no")],
 	["compactions", (row) => numText(row.compactions)],
 	["emergency done", (row) => numText(row.emergencyCompactions)],

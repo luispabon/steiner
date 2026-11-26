@@ -909,15 +909,25 @@ function peakFiles(args) {
 	return { files };
 }
 
-// isPeakRecord reports whether a parsed line has the shape peak reads: an event
-// envelope, a JSON object with a string top-level `type` (session log) or `kind`
-// (telemetry) plus a `timestamp`, a `ts`, or a `payload` object. A type alone is
-// too weak, as a package.json carries `"type": "module"`. Anything else parses
-// but is not a record, so a minified raw.json, `null`, or an array line cannot
-// pass as a JSONL input.
+// PEAK_TELEMETRY_KINDS are the only `kind` values peak reads. Telemetry is the
+// only producer of them: internal/usagestats writes "usage" and the Codex
+// WebSocket recorder writes "ws". A diagnostics stream record also carries
+// `kind` plus `ts`, so accepting any string kind would let a mistyped stream
+// path read as an experiment with zero runs.
+const PEAK_TELEMETRY_KINDS = new Set(["usage", "ws"]);
+
+// isPeakRecord reports whether a parsed line has the shape peak reads: a
+// session-log event envelope, a JSON object with a string top-level `type`, or
+// a telemetry line whose top-level `kind` is "usage" or "ws", either one with a
+// `timestamp`, a `ts`, or a `payload` object. A type alone is too weak, as a
+// package.json carries `"type": "module"`. Anything else parses but is not a
+// record, so a minified raw.json, `null`, an array line, or a diagnostics
+// stream record cannot pass as a JSONL input.
 function isPeakRecord(value) {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-	if (typeof value.type !== "string" && typeof value.kind !== "string") return false;
+	const isSessionEvent = typeof value.type === "string";
+	const isTelemetry = typeof value.kind === "string" && PEAK_TELEMETRY_KINDS.has(value.kind);
+	if (!isSessionEvent && !isTelemetry) return false;
 	const payload = value.payload;
 	return (
 		typeof value.timestamp === "string" ||

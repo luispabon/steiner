@@ -237,6 +237,32 @@ test("renderCompare folds a line break in a raw.json path into one table cell", 
 	}
 });
 
+test("renderCompare escapes a failure reason that would break the table", () => {
+	// A reason comes from raw error text (child.error, error.message), so it can
+	// hold a pipe or a line break like a source path can.
+	const rows = compareRows(
+		rawFile({
+			aliases: [
+				{
+					alias: "m",
+					ref: "m",
+					runs: { off: [run({ failed: true, valid: false, invalidReason: "exit 3 | stderr:\r\nfatal" })] },
+				},
+			],
+		}),
+		"/bench/raw.json",
+	);
+	const md = renderCompare(sortRows(rows), ["/bench/raw.json"]);
+	const lines = md.split("\n").filter((line) => line.startsWith("| "));
+	const pipes = lines[0].split("|").length - 1;
+	for (const line of lines) {
+		assert.equal(line.replace(/\\\|/g, "").split("|").length - 1, pipes, "a reason must not open a new cell");
+	}
+	const reasonRows = lines.filter((line) => line.includes("failed: exit 3"));
+	assert.equal(reasonRows.length, 1, "the reason stays on one row");
+	assert.match(reasonRows[0], /failed: exit 3 \\\| stderr: fatal/, "the pipe is escaped and the line break folded");
+});
+
 test("compareRows marks failed and invalid runs instead of scoring them", () => {
 	const rows = compareRows(
 		rawFile({

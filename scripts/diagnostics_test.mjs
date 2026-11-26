@@ -783,6 +783,71 @@ test("peak: an object with a type but no event envelope is not a record", () => 
 	}
 });
 
+// A diagnostics stream record carries `kind` plus `ts`, which used to satisfy
+// the envelope: peak accepted a mistyped stream path and printed zero runs at
+// exit 0. Only telemetry kinds are records now, so a stream file is rejected by
+// name.
+test("peak: a diagnostics stream file is not a peak input", () => {
+	for (const name of ["provider.jsonl", "cache.jsonl", "tool.jsonl", "tui.jsonl"]) {
+		const file = join(FIXTURES, name);
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.status === 1 && err.stderr.includes(name) && err.stderr.includes("no JSONL records"),
+			`${name} alone must be rejected`,
+		);
+	}
+});
+
+// Telemetry is the only `kind` producer peak reads: "usage" and the Codex
+// WebSocket recorder's "ws". Any other kind, including a session-log type used
+// as a kind, is malformed; a "ws" line is a record but measures no peak.
+test("peak: only the telemetry kinds are records", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-kind-"));
+	try {
+		const mixed = join(dir, "mixed.jsonl");
+		const lines = [
+			{ type: "model_call_finished", payload: { prompt_tokens: 250000 }, run_id: "run-kind" },
+			{ kind: "usage", ts: "2026-09-06T10:00:00Z", run_id: "run-kind", source: "parent", prompt_tokens: 400000 },
+			{ kind: "ws", ts: "2026-09-06T10:00:01Z", run_id: "run-kind", event: "dial" },
+			{ kind: "api_request", ts: "2026-09-06T10:00:02Z", payload: {} },
+			{ kind: "provider", ts: "2026-09-06T10:00:03Z", payload: {} },
+		];
+		writeFileSync(mixed, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		const out = peak([mixed]);
+		assert.equal(out.runs, 1);
+		assert.equal(out.skipped_malformed_lines, 2);
+		assert.equal(out.unattributed_observations, 0);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-kind/main", n: 2, metrics: { peakPromptTokens: 400000 } }]);
+
+		// A session event plus a usage line is the clean case: nothing malformed.
+		const clean = join(dir, "clean.jsonl");
+		writeFileSync(
+			clean,
+			[
+				JSON.stringify({ type: "model_call_finished", timestamp: "2026-09-06T11:00:00Z", payload: { prompt_tokens: 250000 }, run_id: "run-clean" }),
+				JSON.stringify({ kind: "usage", ts: "2026-09-06T11:00:01Z", run_id: "run-clean", source: "parent", prompt_tokens: 300000 }),
+			].join("\n") + "\n",
+		);
+		const cleanOut = peak([clean]);
+		assert.equal(cleanOut.runs, 1);
+		assert.equal(cleanOut.skipped_malformed_lines, 0);
+		assert.deepEqual(cleanOut.by_run_agent, [{ key: "run-clean/main", n: 2, metrics: { peakPromptTokens: 300000 } }]);
+
+		// A ws line alone is a record, so the input is accepted, but it measures
+		// no peak and leaves no unattributed observation.
+		const ws = join(dir, "ws.jsonl");
+		writeFileSync(ws, JSON.stringify({ kind: "ws", ts: "2026-09-06T12:00:00Z", event: "reconnect" }) + "\n");
+		const wsOut = peak([ws]);
+		assert.equal(wsOut.runs, 0);
+		assert.deepEqual(wsOut.by_run_agent, []);
+		assert.equal(wsOut.skipped_malformed_lines, 0);
+		assert.equal(wsOut.unattributed_observations, 0);
+		assert.deepEqual(wsOut.unattributed, []);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("peak: an empty input is accepted, as a rotated generation can be empty", () => {
 	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-empty-"));
 	try {
