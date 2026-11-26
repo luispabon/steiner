@@ -129,6 +129,12 @@ function diagnosticsLines(diagnosticsDir) {
 	];
 }
 
+// Delegation stays off for bench runs so every fixture read is a main-agent
+// read; delegated children would move reads out of the validity rule's scope.
+function subAgentLines() {
+	return ["sub_agent:", "  enabled: false"];
+}
+
 function modelDefinitionLines({ alias, provider, id }) {
 	if (provider === null && id === null) return [];
 	if (typeof provider !== "string" || !ALIAS_RE.test(provider) || !isModelId(id)) {
@@ -141,7 +147,7 @@ function modelDefinitionLines({ alias, provider, id }) {
 	return ["models:", "  definitions:", `    ${alias}:`, `      provider: ${provider}`, `      id: ${JSON.stringify(id)}`];
 }
 
-/** Render the per-alias YAML config with the limits block and the cache and provider diagnostics streams. */
+/** Render the per-alias YAML config with the limits block, the cache and provider diagnostics streams and delegation off. */
 export function buildBenchConfig({ alias, provider = null, id = null, threshold, contextWindow = null, diagnosticsDir }) {
 	if (typeof alias !== "string" || !ALIAS_RE.test(alias)) {
 		throw new Error(`invalid model alias: ${JSON.stringify(alias)} (${ALIAS_HINT})`);
@@ -161,6 +167,7 @@ export function buildBenchConfig({ alias, provider = null, id = null, threshold,
 		"        limits:",
 		...limits,
 		...diagnosticsLines(diagnosticsDir),
+		...subAgentLines(),
 		"",
 	].join("\n");
 }

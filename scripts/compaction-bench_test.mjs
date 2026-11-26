@@ -477,7 +477,7 @@ test("taskPrompt puts a run id on the first line when one is supplied", () => {
 	assert.notEqual(taskPrompt(files, "run-def"), withId);
 });
 
-test("buildBenchConfig emits the threshold under the alias and the cache and provider diagnostics streams", () => {
+test("buildBenchConfig emits the threshold under the alias, the cache and provider diagnostics streams and delegation off", () => {
 	const yaml = buildBenchConfig({ alias: "claude-test", threshold: 15000, diagnosticsDir: "/tmp/bench dir/\"x\"" });
 	assert.equal(
 		yaml,
@@ -494,6 +494,8 @@ test("buildBenchConfig emits the threshold under the alias and the cache and pro
 			"  streams:",
 			"    cache: true",
 			"    provider: true",
+			"sub_agent:",
+			"  enabled: false",
 			"",
 		].join("\n"),
 	);
@@ -526,6 +528,8 @@ test("buildBenchConfig pins the provider and id of a synthesized alias and write
 			"  streams:",
 			"    cache: true",
 			"    provider: true",
+			"sub_agent:",
+			"  enabled: false",
 			"",
 		].join("\n"),
 	);
@@ -548,6 +552,7 @@ test("buildProbeConfig emits the diagnostics streams without a threshold", () =>
 		].join("\n"),
 	);
 	assert.ok(!yaml.includes("compaction_threshold_tokens"), "a probe config must not override the threshold");
+	assert.ok(!yaml.includes("sub_agent"), "a probe config must not disable delegation");
 	assert.throws(() => buildProbeConfig({ diagnosticsDir: "" }), /diagnosticsDir/);
 });
 
@@ -555,6 +560,7 @@ test("buildProbeConfig pins a synthesized alias's provider and id without limits
 	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/diag", alias: "bench--p--m", provider: "p", id: "m" });
 	assert.match(yaml, /^models:\n  definitions:\n    bench--p--m:\n      provider: p\n      id: "m"\ndiagnostics:/);
 	assert.ok(!yaml.includes("limits:"), "a probe config must not set limits");
+	assert.ok(!yaml.includes("sub_agent"), "a probe config must not disable delegation");
 });
 
 test("buildBenchConfig quotes a provider id that holds YAML syntax", () => {
