@@ -11,6 +11,7 @@ package provider
 // skipped: its bytes change on the next request, so a cache entry written there
 // would never be read back. The per-request breakpoint budget is respected.
 func markSegmentBoundaryBreakpoint(wire *anthropicRequest, boundaryMsg, boundaryBlock, numBreakpoints int, cacheControl *anthropicCacheControl) {
+	// Defensive guard: at most three breakpoints exist here, but keep the cap in case placements change.
 	if boundaryMsg < 0 || boundaryMsg >= len(wire.Messages) || numBreakpoints >= anthropicMaxCacheBreakpoints {
 		return
 	}
