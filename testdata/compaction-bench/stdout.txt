@@ -1,8 +1,10 @@
 status: run started mode=build model=test-alias turn_limit=80
+input: mode=build content=Read the notes in notes/ one file at a time.
+api: model=test-alias
 assistant> read notes/f01.txt
-tool: read notes/f01.txt 412 bytes
-assistant: turn 1 role assistant content Starting at notes/f01.txt.
-assistant: turn 8 role assistant content f01: K7-QX42
+tool: turn=1 end tool=read id=call_1 result={"path":"notes/f01.txt","output":"CODE: K7-QX42\nNEXT: f02.txt\n"}
+assistant: turn=1 role=assistant content=Starting at notes/f01.txt.
+assistant: turn=8 role=assistant content=f01: K7-QX42
 f02: A1-BC23
 f03: E3-FG67
 status: stopped after 80 turns: reached the max turn limit next: increase limits.max_turns or continue in a new prompt
