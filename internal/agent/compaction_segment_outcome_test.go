@@ -290,11 +290,11 @@ func TestSegmentEmergencyZeroSourceFallsBackToPlain(t *testing.T) {
 		t.Fatalf("summary calls = %d, want normal then emergency", got)
 	}
 	normalMessages := providerStub.requests[0].Messages
-	if got, want := normalMessages[len(normalMessages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal); got != want {
+	if got, want := normalMessages[len(normalMessages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, ""); got != want {
 		t.Fatalf("normal instruction = %q, want the ordinary normal instruction", got)
 	}
 	emergencyMessages := providerStub.requests[1].Messages
-	if got, want := emergencyMessages[len(emergencyMessages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeEmergency); got != want {
+	if got, want := emergencyMessages[len(emergencyMessages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeEmergency, ""); got != want {
 		t.Fatalf("emergency instruction = %q, want the ordinary emergency instruction", got)
 	}
 	if messageContentsContain(outcomeNonSystemMessages(emergencyMessages), "retained request") {

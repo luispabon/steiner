@@ -618,7 +618,7 @@ func TestSegmentedCompactionAppendsSegment(t *testing.T) {
 	}
 	request := providerStub.requests[0]
 	instruction := request.Messages[len(request.Messages)-1]
-	if want := prompt.RenderSegmentAppendInstruction(""); instruction.Content != want {
+	if want := prompt.RenderSegmentAppendInstruction("", ""); instruction.Content != want {
 		t.Fatalf("instruction = %q, want the append instruction %q", instruction.Content, want)
 	}
 	if !messageContentsContain(request.Messages, "span request") {
@@ -706,7 +706,7 @@ func TestSegmentedCompactionPlainFallbackThenChainStart(t *testing.T) {
 		t.Fatalf("first compaction calls = %d, want %d", got, want)
 	}
 	instruction := providerStub.requests[0].Messages[len(providerStub.requests[0].Messages)-1]
-	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal); instruction.Content != want {
+	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, ""); instruction.Content != want {
 		t.Fatalf("first instruction = %q, want the ordinary instruction", instruction.Content)
 	}
 	first := state.Lineage.Generations[len(state.Lineage.Generations)-1]
@@ -762,7 +762,7 @@ func TestSegmentedCompactionFlagOffStoresPlainSummary(t *testing.T) {
 	}
 	request := providerStub.requests[0]
 	instruction := request.Messages[len(request.Messages)-1]
-	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal); instruction.Content != want {
+	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, ""); instruction.Content != want {
 		t.Fatalf("instruction = %q, want the ordinary instruction", instruction.Content)
 	}
 	if boundaries := providerCacheBoundaries(request.Messages); len(boundaries) != 0 {
@@ -819,7 +819,7 @@ func TestSegmentedCompactionEmergencyRebases(t *testing.T) {
 	}
 	emergency := providerStub.requests[1].Messages
 	instruction := emergency[len(emergency)-1].Content
-	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeEmergency); instruction != want {
+	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeEmergency, ""); instruction != want {
 		t.Fatalf("emergency instruction = %q, want the ordinary emergency instruction", instruction)
 	}
 	if outcome.segmentDecision == nil {
@@ -1174,7 +1174,7 @@ func TestSegmentedCompactionStrippedViewRebases(t *testing.T) {
 		t.Fatalf("compaction calls = %d, want %d", got, want)
 	}
 	instruction := providerStub.requests[0].Messages[len(providerStub.requests[0].Messages)-1]
-	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal); instruction.Content != want {
+	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, ""); instruction.Content != want {
 		t.Fatalf("instruction = %q, want the ordinary instruction", instruction.Content)
 	}
 	if messageContentsContain(providerStub.requests[0].Messages, "first facts") {

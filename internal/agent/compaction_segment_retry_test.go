@@ -31,11 +31,11 @@ func TestSegmentedAppendRetryRebuildsAndAdoptsRebase(t *testing.T) {
 	if len(providerStub.requests) != 2 {
 		t.Fatalf("ChatCompletion calls = %d, want 2", len(providerStub.requests))
 	}
-	if got, want := providerStub.requests[0].Messages[len(providerStub.requests[0].Messages)-1].Content, prompt.RenderSegmentAppendInstruction(""); got != want {
+	if got, want := providerStub.requests[0].Messages[len(providerStub.requests[0].Messages)-1].Content, prompt.RenderSegmentAppendInstruction("", ""); got != want {
 		t.Fatalf("first instruction = %q, want append instruction %q", got, want)
 	}
 	retry := providerStub.requests[1]
-	if got, want := retry.Messages[len(retry.Messages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)+"\n\n"+prompt.RenderCompactionRetryInstruction(prompt.CompactionRetry{}); got != want {
+	if got, want := retry.Messages[len(retry.Messages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "")+"\n\n"+prompt.RenderCompactionRetryInstruction(prompt.CompactionRetry{}); got != want {
 		t.Fatalf("retry instruction = %q, want ordinary rebase instruction with retry steering %q", got, want)
 	}
 	if !messageContentsContain(retry.Messages, "first facts") || !messageContentsContain(retry.Messages, "second facts") {

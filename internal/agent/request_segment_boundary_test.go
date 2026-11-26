@@ -149,7 +149,7 @@ func TestCompactionRequestMarksImmutableSegmentBoundary(t *testing.T) {
 	candidate := ConversationCandidate{GenerationID: 1, View: ConversationViewFull, Messages: conversation}
 
 	chatRequest, _, _, err := buildCompactionRequestWithMode(
-		context.Background(), segmentBoundaryRequest(), state, candidate, prompt.CompactionModeNormal, 64,
+		context.Background(), segmentBoundaryRequest(), state, candidate, prompt.CompactionModeNormal, 64, "",
 	)
 	if err != nil {
 		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -162,7 +162,7 @@ func TestCompactionRequestMarksImmutableSegmentBoundary(t *testing.T) {
 	if got := chatRequest.Messages[indexes[0]].Content; got != want {
 		t.Fatalf("marked message content = %q, want %q", got, want)
 	}
-	if last := chatRequest.Messages[len(chatRequest.Messages)-1]; last.Content != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal) {
+	if last := chatRequest.Messages[len(chatRequest.Messages)-1]; last.Content != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "") {
 		t.Fatalf("compaction instruction changed: %q", last.Content)
 	}
 }
@@ -218,7 +218,7 @@ func TestCompactionRequestFlagOffLeavesSegmentsUnmarked(t *testing.T) {
 		state := RunState{Conversation: conversation, Lineage: newConversationLineage(conversation)}
 		candidate := ConversationCandidate{GenerationID: 1, View: ConversationViewFull, Messages: conversation}
 		chatRequest, _, _, err := buildCompactionRequestWithMode(
-			context.Background(), request, state, candidate, prompt.CompactionModeNormal, 64,
+			context.Background(), request, state, candidate, prompt.CompactionModeNormal, 64, "",
 		)
 		if err != nil {
 			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)

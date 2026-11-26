@@ -410,7 +410,7 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 	if got, want := finalMessage.Role, provider.MessageRoleUser; got != want {
 		t.Fatalf("final compaction message role = %q, want %q", got, want)
 	}
-	if got := finalMessage.Content; got != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal) {
+	if got := finalMessage.Content; got != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "") {
 		t.Fatalf("final compaction message = %q, want compaction instruction", got)
 	}
 	if !messageContentsContain(promptMessages, "turn 1 user") {
@@ -1489,7 +1489,7 @@ func TestNormalAndCompactionRequests_ShareResolvedReasoning(t *testing.T) {
 
 			compactionReq, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 128,
+				prompt.CompactionModeNormal, 128, "",
 			)
 			if err != nil {
 				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -1561,7 +1561,7 @@ func TestBuildCompactionRequestWithMode_ReasoningHandling(t *testing.T) {
 
 			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 256,
+				prompt.CompactionModeNormal, 256, "",
 			)
 			if err != nil {
 				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -1636,7 +1636,7 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 
 			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 128,
+				prompt.CompactionModeNormal, 128, "",
 			)
 			if err != nil {
 				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -1676,7 +1676,7 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 			if lastMsg.Role != provider.MessageRoleUser {
 				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
 			}
-			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)) {
+			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "")) {
 				t.Fatalf("last message content = %q, want compaction instruction", lastMsg.Content)
 			}
 
@@ -1731,7 +1731,7 @@ func TestBuildCompactionRequestWithMode_MaxTokens(t *testing.T) {
 
 			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, tt.maxTokens,
+				prompt.CompactionModeNormal, tt.maxTokens, "",
 			)
 			if err != nil {
 				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -1791,7 +1791,7 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 
 			chatRequest, _, _, err := buildCompactionRequestWithMode(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 128,
+				prompt.CompactionModeNormal, 128, "",
 			)
 			if err != nil {
 				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -1819,7 +1819,7 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 			if lastMsg.Role != provider.MessageRoleUser {
 				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
 			}
-			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)) {
+			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "")) {
 				t.Fatalf("last message missing compaction instruction: %q", lastMsg.Content)
 			}
 			if !strings.Contains(lastMsg.Content, tt.suffix) {
@@ -1878,7 +1878,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 		// Compaction request
 		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, "",
 		)
 		if err != nil {
 			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -1967,7 +1967,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 
 		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, "",
 		)
 		if err != nil {
 			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -2080,7 +2080,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 
 		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, "",
 		)
 		if err != nil {
 			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -2164,7 +2164,7 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 
 		compactionReq, _, _, err := buildCompactionRequestWithMode(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, "",
 		)
 		if err != nil {
 			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
@@ -2351,7 +2351,7 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 
 	autoRequest, blocks, _, err := buildCompactionRequestWithMode(
 		context.Background(), req, state, candidate,
-		prompt.CompactionModeNormal, 128,
+		prompt.CompactionModeNormal, 128, "",
 	)
 	if err != nil {
 		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)

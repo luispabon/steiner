@@ -166,8 +166,8 @@ func buildSummarizedCompactionState(state RunState, summaryText string, retained
 	return nextState
 }
 
-func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steerings ...string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
-	return buildCompactionRequest(ctx, req, state, candidate, mode, maxTokens, false, steerings)
+func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
+	return buildCompactionRequest(ctx, req, state, candidate, mode, maxTokens, false, steering)
 }
 
 // buildSegmentAppendRequest builds the summarizer request of an append. The
@@ -176,17 +176,13 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 // after the last segment instead of a full handoff summary. mode is accepted so
 // it is interchangeable with buildCompactionRequestWithMode; an append is always
 // normal mode, because emergency, retry and fallback stages rebase.
-func buildSegmentAppendRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, _ prompt.CompactionMode, maxTokens int, steerings ...string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
-	return buildCompactionRequest(ctx, req, state, candidate, prompt.CompactionModeNormal, maxTokens, true, steerings)
+func buildSegmentAppendRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, _ prompt.CompactionMode, maxTokens int, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
+	return buildCompactionRequest(ctx, req, state, candidate, prompt.CompactionModeNormal, maxTokens, true, steering)
 }
 
 // buildCompactionRequest builds a compaction request with either the ordinary
 // compaction instruction or the segment append instruction.
-func buildCompactionRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, appendInstruction bool, steerings []string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
-	steering := ""
-	if len(steerings) > 0 {
-		steering = steerings[0]
-	}
+func buildCompactionRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, appendInstruction bool, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
 	basePrompt := prepareBasePrompt(req)
 	sourceState := state.WithConversation(candidate.Messages)
 	assembly, err := prompt.Assemble(ctx, requestAssemblyOptions(basePrompt, sourceState, req.SegmentedCompaction.Enabled))

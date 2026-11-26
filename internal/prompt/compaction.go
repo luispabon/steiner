@@ -3,11 +3,12 @@ package prompt
 import "strings"
 
 const (
-	templateCompactionSystem        = "compaction_system.md.tmpl"
-	templateCompactionEmergency     = "compaction_emergency.md.tmpl"
-	templateCompactionDefaultBody   = "compaction_default_body.md.tmpl"
-	templateCompactionSegmentAppend = "compaction_segment_append.md.tmpl"
-	templateCompactionRetry         = "compaction_retry.md.tmpl"
+	templateCompactionSystem             = "compaction_system.md.tmpl"
+	templateCompactionEmergency          = "compaction_emergency.md.tmpl"
+	templateCompactionDefaultBody        = "compaction_default_body.md.tmpl"
+	templateCompactionSegmentAppendIntro = "compaction_segment_append_intro.md.tmpl"
+	templateCompactionSegmentAppendRules = "compaction_segment_append_rules.md.tmpl"
+	templateCompactionRetry              = "compaction_retry.md.tmpl"
 )
 
 func compactionPromptSystemInstruction() string {
@@ -22,8 +23,16 @@ func compactionPromptInstructionBody() string {
 	return strings.TrimSpace(renderTemplate(templateCompactionDefaultBody, nil))
 }
 
-func compactionPromptSegmentAppendInstruction() string {
-	return strings.TrimSpace(renderTemplate(templateCompactionSegmentAppend, nil))
+// segmentAppendIntro renders the segment append template's opening generic
+// guidance, which a compaction override replaces.
+func segmentAppendIntro() string {
+	return strings.TrimSpace(renderTemplate(templateCompactionSegmentAppendIntro, nil))
+}
+
+// segmentAppendRules renders the segment append rules, which always stay in the
+// instruction: a custom prompt cannot make segments mutable.
+func segmentAppendRules() string {
+	return strings.TrimSpace(renderTemplate(templateCompactionSegmentAppendRules, nil))
 }
 
 // CompactionMode selects the summarization style for a compaction request.
@@ -38,8 +47,12 @@ const (
 
 // RenderConversationCompactionInstruction renders the final instruction used to
 // ask a model to compact the already-assembled conversation context.
-func RenderConversationCompactionInstruction(override string, mode CompactionMode, steerings ...string) string {
-	content := compactionInstruction(compactionPromptSystem(), override, firstSteering(steerings))
+func RenderConversationCompactionInstruction(override string, mode CompactionMode, steering string) string {
+	base := compactionPromptSystem()
+	if override != "" {
+		base = override
+	}
+	content := applyCompactionSteering(base, steering)
 	if mode == CompactionModeEmergency {
 		content += "\n\n" + compactionPromptEmergencyInstruction()
 	}
@@ -51,36 +64,21 @@ func RenderConversationCompactionInstruction(override string, mode CompactionMod
 // compaction override replaces the template's opening generic guidance; the
 // append rules always follow it, so a custom prompt cannot make segments
 // mutable. Steering follows the rules, as in the conversation instruction.
-func RenderSegmentAppendInstruction(override string, steerings ...string) string {
-	rules := compactionPromptSegmentAppendInstruction()
+func RenderSegmentAppendInstruction(override, steering string) string {
+	intro := segmentAppendIntro()
 	if override != "" {
-		// The template holds its generic guidance as the opening paragraph, and
-		// the append rules after the first blank line.
-		if _, rest, ok := strings.Cut(rules, "\n\n"); ok {
-			rules = rest
-		}
-		rules = override + "\n\n" + rules
+		intro = override
 	}
-	return compactionInstruction(rules, "", firstSteering(steerings))
+	return applyCompactionSteering(intro+"\n\n"+segmentAppendRules(), steering)
 }
 
-// compactionInstruction applies a model compaction override and user steering
-// to a base instruction. The override replaces the base; steering follows it.
-func compactionInstruction(base, override, steering string) string {
-	if override != "" {
-		base = override
+// applyCompactionSteering appends user steering after a rendered compaction
+// instruction.
+func applyCompactionSteering(base, steering string) string {
+	if steering == "" {
+		return base
 	}
-	if steering != "" {
-		base += "\n\nAdditional user steering for this compaction:\n\n" + steering
-	}
-	return base
-}
-
-func firstSteering(steerings []string) string {
-	if len(steerings) == 0 {
-		return ""
-	}
-	return steerings[0]
+	return base + "\n\nAdditional user steering for this compaction:\n\n" + steering
 }
 
 func compactionPromptSystem() string {
