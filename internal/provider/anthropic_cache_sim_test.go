@@ -241,7 +241,7 @@ func simUnits(t *testing.T, wire anthropicRequest) []simUnit {
 	}
 	for i, msg := range wire.Messages {
 		for j, block := range msg.Content {
-			boundary := wire.hasSegmentBoundary && i == wire.segmentBoundaryMsg && j == wire.segmentBoundaryBlock
+			boundary := wire.segmentBoundary != nil && wire.segmentBoundary.msg == i && wire.segmentBoundary.block == j
 			add(simCanonicalBlock(block), block.CacheControl != nil, boundary, simCoalesceRun(block), true)
 		}
 	}

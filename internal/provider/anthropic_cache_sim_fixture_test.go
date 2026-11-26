@@ -105,13 +105,7 @@ func capturedSimLoadRequests(t *testing.T, name string) ([]ChatRequest, int) {
 func capturedSimClearBoundaries(reqs []ChatRequest) []ChatRequest {
 	cleared := make([]ChatRequest, len(reqs))
 	for i, req := range reqs {
-		messages := make([]Message, len(req.Messages))
-		copy(messages, req.Messages)
-		for j := range messages {
-			messages[j].CacheBoundary = false
-		}
-		req.Messages = messages
-		cleared[i] = req
+		cleared[i] = clearCacheBoundary(req)
 	}
 	return cleared
 }

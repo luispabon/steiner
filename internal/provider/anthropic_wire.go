@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// anthropicBlockRef locates one content block of the wire request.
+type anthropicBlockRef struct {
+	msg   int
+	block int
+}
+
 type anthropicRequest struct {
 	Model       string                  `json:"model"`
 	System      []anthropicContentBlock `json:"system,omitempty"`
@@ -17,16 +23,12 @@ type anthropicRequest struct {
 	Params      map[string]any          `json:"-"`
 	ExtraParams map[string]any          `json:"-"`
 
-	// segmentBoundaryMsg and segmentBoundaryBlock locate the content block of
-	// the last input message carrying Message.CacheBoundary;
-	// hasSegmentBoundary distinguishes "none" from index 0. A coalesced
+	// segmentBoundary locates the content block of the last input message
+	// carrying Message.CacheBoundary, nil when there is none. A coalesced
 	// tool-result batch packs several input messages into one wire message, so
-	// the block index is tracked exactly rather than assumed to be the last
-	// block. None of these fields is marshalled: MarshalJSON builds the payload
-	// explicitly.
-	segmentBoundaryMsg   int
-	segmentBoundaryBlock int
-	hasSegmentBoundary   bool
+	// the block index is recorded exactly rather than re-derived from the last
+	// block. Not marshalled: MarshalJSON builds the payload explicitly.
+	segmentBoundary *anthropicBlockRef
 }
 
 func (r anthropicRequest) MarshalJSON() ([]byte, error) {
@@ -224,6 +226,7 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 	// user message, so a contiguous run of tool messages is coalesced.
 	inToolBatch := false
 	for _, msg := range request.Messages {
+		wroteBlock := false
 		switch msg.Role {
 		case MessageRoleTool:
 			block := toolMessageToAnthropicBlock(msg)
@@ -234,12 +237,7 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 				wire.Messages = append(wire.Messages, anthropicMessage{Role: "user", Content: []anthropicContentBlock{block}})
 				inToolBatch = true
 			}
-			if msg.CacheBoundary {
-				msgIndex := len(wire.Messages) - 1
-				wire.segmentBoundaryMsg = msgIndex
-				wire.segmentBoundaryBlock = len(wire.Messages[msgIndex].Content) - 1
-				wire.hasSegmentBoundary = true
-			}
+			wroteBlock = true
 		case MessageRoleSystem:
 			if strings.TrimSpace(msg.Content) == "" {
 				continue
@@ -253,12 +251,12 @@ func anthropicRequestWire(request ChatRequest, defaultModel string, stream bool)
 			if wireMsg != nil {
 				wire.Messages = append(wire.Messages, *wireMsg)
 				inToolBatch = false
-				if msg.CacheBoundary {
-					wire.segmentBoundaryMsg = len(wire.Messages) - 1
-					wire.segmentBoundaryBlock = len(wireMsg.Content) - 1
-					wire.hasSegmentBoundary = true
-				}
+				wroteBlock = true
 			}
+		}
+		if wroteBlock && msg.CacheBoundary {
+			last := len(wire.Messages) - 1
+			wire.segmentBoundary = &anthropicBlockRef{msg: last, block: len(wire.Messages[last].Content) - 1}
 		}
 	}
 
@@ -294,7 +292,9 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 		return
 	}
 
-	finalMsg, finalBlock, limitMsg, limitBlock := rollingBreakpointTarget(wire.Messages)
+	volatile := firstVolatileBlock(wire.Messages)
+
+	finalMsg, finalBlock := rollingBreakpointTarget(wire.Messages, volatile)
 	if finalMsg >= 0 && finalBlock >= 0 && numBreakpoints < anthropicMaxCacheBreakpoints {
 		wire.Messages[finalMsg].Content[finalBlock].CacheControl = cacheControl
 		numBreakpoints++
@@ -304,8 +304,8 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	if len(userMsgIndices) >= 2 && numBreakpoints < anthropicMaxCacheBreakpoints {
 		userMsg := userMsgIndices[0]
 		userBlock := len(wire.Messages[userMsg].Content) - 1
-		beforeLimit := userMsg < limitMsg || (userMsg == limitMsg && userBlock < limitBlock)
-		if userBlock >= 0 && beforeLimit && (userMsg != finalMsg || userBlock != finalBlock) {
+		candidate := anthropicBlockRef{msg: userMsg, block: userBlock}
+		if userBlock >= 0 && blockBefore(candidate, volatile) && (userMsg != finalMsg || userBlock != finalBlock) {
 			wire.Messages[userMsg].Content[userBlock].CacheControl = cacheControl
 			numBreakpoints++
 		}
@@ -314,41 +314,49 @@ func assignCacheBreakpoints(wire *anthropicRequest) {
 	// SEGMENT BOUNDARY: the remaining slot goes on the block that ends the
 	// immutable segment prefix, tracked during wire construction. It never
 	// displaces a rolling breakpoint.
-	if wire.hasSegmentBoundary {
-		markSegmentBoundaryBreakpoint(wire, wire.segmentBoundaryMsg, wire.segmentBoundaryBlock, numBreakpoints, cacheControl)
+	if wire.segmentBoundary != nil {
+		markSegmentBoundaryBreakpoint(wire, wire.segmentBoundary, volatile, numBreakpoints, cacheControl)
 	}
 }
 
 // rollingBreakpointTarget returns the block for the rolling breakpoint (-1
-// when none) and the first block position that is not eligible for any
-// breakpoint (one past the final block when nothing is volatile).
-func rollingBreakpointTarget(messages []anthropicMessage) (msg, block, limitMsg, limitBlock int) {
+// when none), given the first volatile block (nil when nothing is volatile).
+func rollingBreakpointTarget(messages []anthropicMessage, volatile *anthropicBlockRef) (msg, block int) {
 	msg = len(messages) - 1
 	block = len(messages[msg].Content) - 1
-	i, j, ok := firstVolatileBlock(messages)
-	if !ok {
-		return msg, block, msg, block + 1
+	if volatile == nil {
+		return msg, block
 	}
-	msg, block = i, j-1
+	msg, block = volatile.msg, volatile.block-1
 	if block < 0 {
 		msg--
 		if msg >= 0 {
 			block = len(messages[msg].Content) - 1
 		}
 	}
-	return msg, block, i, j
+	return msg, block
 }
 
-// firstVolatileBlock returns the position of the first block marked volatile.
-func firstVolatileBlock(messages []anthropicMessage) (int, int, bool) {
+// firstVolatileBlock returns the position of the first block marked volatile,
+// or nil when no block is volatile.
+func firstVolatileBlock(messages []anthropicMessage) *anthropicBlockRef {
 	for i, msg := range messages {
 		for j, block := range msg.Content {
 			if block.volatile {
-				return i, j, true
+				return &anthropicBlockRef{msg: i, block: j}
 			}
 		}
 	}
-	return 0, 0, false
+	return nil
+}
+
+// blockBefore reports whether ref precedes the first volatile block; a nil
+// limit means no block is volatile, so every position qualifies.
+func blockBefore(ref anthropicBlockRef, limit *anthropicBlockRef) bool {
+	if limit == nil {
+		return true
+	}
+	return ref.msg < limit.msg || (ref.msg == limit.msg && ref.block < limit.block)
 }
 
 // assignAdvisorCacheBreakpoints places cache breakpoints for advisor-shaped
