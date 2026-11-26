@@ -159,6 +159,24 @@ func TestAdvisorCanonicalMessageFallbackHidesCacheBoundary(t *testing.T) {
 	}
 }
 
+func TestAdvisorCanonicalMessageIgnoresCacheBoundary(t *testing.T) {
+	unmarked := provider.Message{
+		Role:      provider.MessageRoleAssistant,
+		Content:   "answer",
+		ToolCalls: []provider.ToolCall{{ID: "call-1", Name: "read", Arguments: map[string]any{"path": "a.go"}}},
+	}
+	marked := unmarked
+	marked.CacheBoundary = true
+
+	canonical := canonicalMessage(unmarked)
+	if canonical == "" || strings.HasPrefix(canonical, "json-marshal-error:") {
+		t.Fatalf("canonicalMessage() did not take the success path: %s", canonical)
+	}
+	if got := canonicalMessage(marked); got != canonical {
+		t.Fatalf("canonical message changed with CacheBoundary:\n got %s\nwant %s", got, canonical)
+	}
+}
+
 func TestAdvisorCachePrefixHashHandlesMarshalFailure(t *testing.T) {
 	first := []provider.Message{{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func() {}}}}}}
 	second := []provider.Message{{Role: provider.MessageRoleUser, ToolCalls: []provider.ToolCall{{Arguments: map[string]any{"bad": func(int) {}}}}}}
