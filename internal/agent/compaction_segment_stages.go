@@ -34,7 +34,7 @@ func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunStat
 	summary := compactionSummaryRequest(req, setup.params.summaryReq)
 	// The retry ladder owns the retirement signal of each call, so this stage only
 	// reads the cumulative result.
-	calls, err := summarizeStageCalls(ctx, req, summary, turn, state, candidate, params, setup.requestBlock, setup.plan, onFallback)
+	calls, err := summarizeStageCalls(ctx, req, summary, turn, state, candidate, setup.skills, params, setup.requestBlock, setup.plan, onFallback)
 	if calls.cleared {
 		// An in-place summary retired the generation's live process, so the
 		// generation's stored backend state no longer names a live transcript.
@@ -168,11 +168,11 @@ func finishCompactionStage(ctx context.Context, req RunRequest, state RunState, 
 	}, nil
 }
 
-func summarizeStageCalls(ctx context.Context, req, summary RunRequest, turn int, state RunState, candidate ConversationCandidate, retryParams summarizeCompactionStageParams, requestBlock string, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
+func summarizeStageCalls(ctx context.Context, req, summary RunRequest, turn int, state RunState, candidate ConversationCandidate, skills []prompt.SkillBlock, retryParams summarizeCompactionStageParams, requestBlock string, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
 	var builder retryPlanBuilder
 	if req.SegmentedCompaction.Enabled && !onFallback {
 		builder = func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
-			return buildSegmentRetryPlan(ctx, req, state, candidate, retryParams, requestBlock)
+			return buildSegmentRetryPlan(ctx, req, state, candidate, retryParams, requestBlock, skills)
 		}
 	}
 	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, builder)

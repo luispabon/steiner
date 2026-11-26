@@ -129,8 +129,9 @@ func prepareSegmentPlan(ctx context.Context, req RunRequest, state RunState, in 
 }
 
 // buildSegmentRetryPlan rebuilds a stage plan for a summarizer retry, adopting
-// the segmented shape that retry decides.
-func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams, requestBlock string) (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
+// the segmented shape that retry decides. skills is the stage's active skill
+// blocks, computed once before the retry ran.
+func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams, requestBlock string, skills []prompt.SkillBlock) (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
 	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
 	if err != nil {
 		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
@@ -138,7 +139,7 @@ func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, 
 	prep, err := prepareSegmentPlan(ctx, req, state, segmentPlanInput{
 		Candidate:    candidate,
 		RetainedFit:  retainedFit,
-		Skills:       activeSkillBlocks(state),
+		Skills:       skills,
 		Params:       params,
 		RequestBlock: requestBlock,
 		Retry:        true,

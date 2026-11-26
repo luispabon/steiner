@@ -234,27 +234,20 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn, attempt i
 	}
 	var response provider.ChatResponse
 	var err error
-	call := func(logger *CompactionLogger) error {
-		if logger != nil {
-			if logErr := logger.LogRequest(chatRequest, attempt); logErr != nil {
-				slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", logErr)
-			}
-		}
+	send := func() {
 		response, _, err = executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
-		if logger == nil {
-			return nil
+	}
+	logged := func(logger *CompactionLogger) error {
+		if logErr := logger.LogRequest(chatRequest, attempt); logErr != nil {
+			slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", logErr)
 		}
+		send()
 		return logger.LogResponse(response)
 	}
-	logged := false
-	if req.CompactionLogPath != "" {
-		withCompactionLogger(req.CompactionLogPath, "response", func(logger *CompactionLogger) error {
-			logged = true
-			return call(logger)
-		})
-	}
-	if !logged {
-		_ = call(nil) // the request runs even when the compaction log is unavailable
+	// The request runs exactly once: through the log when one opens, and directly
+	// when the log is off or cannot open.
+	if !withCompactionLogger(req.CompactionLogPath, "response", logged) {
+		send()
 	}
 	if err == nil {
 		recordModelUsage(req, response.Usage, usagestats.CallKindCompaction)

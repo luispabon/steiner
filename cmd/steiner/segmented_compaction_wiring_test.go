@@ -103,10 +103,10 @@ models:
 func isolateSegmentedCompactionEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
-		"STEINER_EXPERIMENT_SEGMENTED_COMPACTION",
-		"STEINER_EXPERIMENT_SEGMENT_MAX_COUNT",
-		"STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT",
-		"STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT",
+		config.SegmentedCompactionEnv,
+		config.SegmentMaxCountEnv,
+		config.SegmentMaxChainPercentEnv,
+		config.SegmentMaxPostPercentEnv,
 	} {
 		t.Setenv(name, "")
 		if err := os.Unsetenv(name); err != nil {
@@ -134,8 +134,8 @@ func segmentedEnabledFromEnv(t *testing.T) config.SegmentedCompactionPolicy {
 // constructor) carries the policy parsed from the environment.
 func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 	isolateSegmentedCompactionEnv(t)
-	t.Setenv("STEINER_EXPERIMENT_SEGMENTED_COMPACTION", "1")
-	t.Setenv("STEINER_EXPERIMENT_SEGMENT_MAX_COUNT", "3")
+	t.Setenv(config.SegmentedCompactionEnv, "1")
+	t.Setenv(config.SegmentMaxCountEnv, "3")
 	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
 
 	phase, err := newPhaseRunner(context.Background(), cmd, flags, phaseRunnerParams{
@@ -167,8 +167,8 @@ func TestPhaseRunnerRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 // buildInteractiveRuntime rewiring.
 func TestInteractiveRuntimeCarriesParsedSegmentedCompaction(t *testing.T) {
 	isolateSegmentedCompactionEnv(t)
-	t.Setenv("STEINER_EXPERIMENT_SEGMENTED_COMPACTION", "1")
-	t.Setenv("STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT", "20")
+	t.Setenv(config.SegmentedCompactionEnv, "1")
+	t.Setenv(config.SegmentMaxChainPercentEnv, "20")
 	cmd, flags, projectRoot := segmentedCompactionRuntimeFixture(t)
 
 	rt, err := buildRuntimeWithRoots(context.Background(), cmd, flags, projectRoot, projectRoot, "")
@@ -201,10 +201,10 @@ func TestBuildRuntimeRejectsInvalidSegmentedCompactionEnv(t *testing.T) {
 		env   string
 		value string
 	}{
-		{name: "enabled", env: "STEINER_EXPERIMENT_SEGMENTED_COMPACTION", value: "maybe"},
-		{name: "max segment count", env: "STEINER_EXPERIMENT_SEGMENT_MAX_COUNT", value: "0"},
-		{name: "max chain percent", env: "STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT", value: "0"},
-		{name: "max post percent", env: "STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT", value: "101"},
+		{name: "enabled", env: config.SegmentedCompactionEnv, value: "maybe"},
+		{name: "max segment count", env: config.SegmentMaxCountEnv, value: "0"},
+		{name: "max chain percent", env: config.SegmentMaxChainPercentEnv, value: "0"},
+		{name: "max post percent", env: config.SegmentMaxPostPercentEnv, value: "101"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			isolateSegmentedCompactionEnv(t)

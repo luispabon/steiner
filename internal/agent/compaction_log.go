@@ -115,17 +115,18 @@ func (l *CompactionLogger) LogSegmentDecision(d segmentDecision) error {
 	return err
 }
 
-// withCompactionLogger opens the compaction log at path and runs fn with it. An
-// empty path skips fn. Open, write and close failures warn and are otherwise
-// ignored, because the log is best-effort: label names the write in the warning.
-func withCompactionLogger(path, label string, fn func(*CompactionLogger) error) {
+// withCompactionLogger opens the compaction log at path and runs fn with it,
+// reporting whether fn ran. An empty path or a failed open skips fn. Open,
+// write and close failures warn and are otherwise ignored, because the log is
+// best-effort: label names the write in the warning.
+func withCompactionLogger(path, label string, fn func(*CompactionLogger) error) bool {
 	if path == "" {
-		return
+		return false
 	}
 	logger, err := NewCompactionLogger(path)
 	if err != nil {
 		slog.Warn("compaction logger unavailable", "path", path, "error", err)
-		return
+		return false
 	}
 	defer func() {
 		if err := logger.Close(); err != nil {
@@ -135,11 +136,12 @@ func withCompactionLogger(path, label string, fn func(*CompactionLogger) error) 
 	if err := fn(logger); err != nil {
 		slog.Warn("compaction "+label+" log failed", "path", path, "error", err)
 	}
+	return true
 }
 
-// logSegmentDecisionFile appends one adopted segmented compaction decision to
-// the compaction log at path. An empty path or no decision logs nothing.
-func logSegmentDecisionFile(path string, decision *segmentDecision) {
+// logCompactionSegmentDecision appends one adopted segmented compaction decision
+// to the compaction log at path. An empty path or no decision logs nothing.
+func logCompactionSegmentDecision(path string, decision *segmentDecision) {
 	if decision == nil {
 		return
 	}

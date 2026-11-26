@@ -230,8 +230,6 @@ const (
 	// dropEmpty removes a message left without text, so no blank summary is
 	// stored.
 	dropEmpty
-	// keepEmptyQuiet keeps the message but reports only a non-empty body.
-	keepEmptyQuiet
 )
 
 // summaryPrefixRewrite selects how rewriteLatestSummaryPrefix edits the latest
@@ -254,11 +252,11 @@ func rewriteLatestSummaryPrefix(state RunState, opts summaryPrefixRewrite) (RunS
 		return state, "", false
 	}
 	latest := &next.Lineage.Generations[len(next.Lineage.Generations)-1]
-	matches := summaryPrefixBlockMatches(latest.SummaryPrefix, opts.backward)
-	if len(matches) == 0 {
+	blocks := summaryPrefixBlocks(latest.SummaryPrefix, opts.backward)
+	if len(blocks) == 0 {
 		return state, "", false
 	}
-	summaryText := rewriteSummaryPrefixBlocks(latest.SummaryPrefix, matches, opts.empty)
+	summaryText := rewriteSummaryPrefixBlocks(latest.SummaryPrefix, blocks, opts.empty)
 	if opts.empty == dropEmpty {
 		latest.SummaryPrefix = withoutEmptySummaries(latest.SummaryPrefix)
 	}
@@ -266,44 +264,46 @@ func rewriteLatestSummaryPrefix(state RunState, opts summaryPrefixRewrite) (RunS
 	return next, summaryText, true
 }
 
-// summaryPrefixBlockMatches returns the indexes of summary messages without
-// segment metadata that carry a latest-request trailer, keeping only the last
-// one when backward is set.
-func summaryPrefixBlockMatches(prefix []Message, backward bool) []int {
-	matches := make([]int, 0, len(prefix))
+// summaryPrefixBlock is a summary message without segment metadata that carries
+// a latest-request trailer: its index and the body behind the trailer.
+type summaryPrefixBlock struct {
+	index int
+	body  string
+}
+
+// summaryPrefixBlocks returns the summary messages without segment metadata that
+// carry a latest-request trailer, keeping only the last one when backward is
+// set. Each content is split once, so the rewrite stores the body it matched.
+func summaryPrefixBlocks(prefix []Message, backward bool) []summaryPrefixBlock {
+	blocks := make([]summaryPrefixBlock, 0, len(prefix))
 	for i, message := range prefix {
 		if message.Role != MessageRoleSummary || message.Segment != nil {
 			continue
 		}
-		if _, _, ok := SplitRequestBlock(message.Content); ok {
-			matches = append(matches, i)
+		if body, _, ok := SplitRequestBlock(message.Content); ok {
+			blocks = append(blocks, summaryPrefixBlock{index: i, body: body})
 		}
 	}
-	if backward && len(matches) > 0 {
-		return matches[len(matches)-1:]
+	if backward && len(blocks) > 0 {
+		return blocks[len(blocks)-1:]
 	}
-	return matches
+	return blocks
 }
 
-// rewriteSummaryPrefixBlocks removes the trailer from each matching summary and
+// rewriteSummaryPrefixBlocks removes the trailer from each matched summary and
 // returns the text the rewrite reports, following empty for an empty body.
-func rewriteSummaryPrefixBlocks(prefix []Message, matches []int, empty emptyRewrite) string {
+func rewriteSummaryPrefixBlocks(prefix []Message, blocks []summaryPrefixBlock, empty emptyRewrite) string {
 	summaryText := ""
-	for _, i := range matches {
-		body, _, _ := SplitRequestBlock(prefix[i].Content)
-		prefix[i].Content = body
+	for _, block := range blocks {
+		prefix[block.index].Content = block.body
 		switch empty {
 		case dropEmpty:
-			if body == "" {
+			if block.body == "" {
 				continue
 			}
-			summaryText = body
-		case keepEmptyQuiet:
-			if body != "" {
-				summaryText = body
-			}
+			summaryText = block.body
 		default:
-			summaryText = body
+			summaryText = block.body
 		}
 	}
 	return summaryText
@@ -334,7 +334,7 @@ func dropRequestBlockState(state RunState) (RunState, string, bool) {
 // reports the outcome's own summary text without its trailer, keeping it when it
 // carries none.
 func dropPlainSegmentRequestBlock(state RunState, summaryText string) (RunState, string, bool) {
-	next, _, dropped := rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{backward: true, empty: keepEmptyQuiet})
+	next, _, dropped := rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{backward: true, empty: keepEmpty})
 	if !dropped {
 		return state, "", false
 	}

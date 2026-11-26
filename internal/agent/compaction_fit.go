@@ -8,10 +8,10 @@ import (
 )
 
 // compactionStageRetention strips skill blocks and elides old tool output in the
-// retained messages a stage stores, keeping the comments' intent: the emitted
-// RetainedMessages are the retained source messages that were actually persisted,
-// and elision markers are what the new generation freezes. recomputeFit refits the
-// tail when it is not the one the stage already fit.
+// retained messages a stage stores, so the emitted RetainedMessages are the
+// messages actually persisted and the elision markers are what the new
+// generation freezes. recomputeFit refits the tail when it is not the one the
+// stage already fit.
 func compactionStageRetention(ctx context.Context, req RunRequest, state RunState, recomputeFit bool, fit prompt.RequestTokenBudget, retained []Message) ([]Message, prompt.RequestTokenBudget, error) {
 	retained, elided := buildCompactedRetention(ctx, req, state, cloneMessages(retained))
 	if !elided && !recomputeFit {

@@ -284,7 +284,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	archiveRecallEntries(ctx, req.RecallArchive, req.Events, outcome.pendingRecall)
 	*state = outcome.State
 	if req.SegmentedCompaction.Enabled {
-		logSegmentDecisionFile(req.CompactionLogPath, outcome.segmentDecision)
+		logCompactionSegmentDecision(req.CompactionLogPath, outcome.segmentDecision)
 	}
 	commitHistoryArchive(ctx, req, outcome.pendingArchive)
 	appendPendingSubAgentsLine(req, state)

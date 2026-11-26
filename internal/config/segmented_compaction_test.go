@@ -46,16 +46,16 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		{
 			name: "blank values keep defaults",
 			env: map[string]string{
-				segmentedCompactionEnv:    "   ",
-				segmentMaxCountEnv:        "\t",
-				segmentMaxChainPercentEnv: " ",
-				segmentMaxPostPercentEnv:  "",
+				SegmentedCompactionEnv:    "   ",
+				SegmentMaxCountEnv:        "\t",
+				SegmentMaxChainPercentEnv: " ",
+				SegmentMaxPostPercentEnv:  "",
 			},
 			want: defaultSegmentedCompactionPolicy(),
 		},
 		{
 			name: "enabled true",
-			env:  map[string]string{segmentedCompactionEnv: "true"},
+			env:  map[string]string{SegmentedCompactionEnv: "true"},
 			want: func() SegmentedCompactionPolicy {
 				p := defaultSegmentedCompactionPolicy()
 				p.Enabled = true
@@ -64,7 +64,7 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name: "enabled 1 with surrounding space",
-			env:  map[string]string{segmentedCompactionEnv: " 1 "},
+			env:  map[string]string{SegmentedCompactionEnv: " 1 "},
 			want: func() SegmentedCompactionPolicy {
 				p := defaultSegmentedCompactionPolicy()
 				p.Enabled = true
@@ -73,16 +73,16 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name: "enabled 0",
-			env:  map[string]string{segmentedCompactionEnv: "0"},
+			env:  map[string]string{SegmentedCompactionEnv: "0"},
 			want: defaultSegmentedCompactionPolicy(),
 		},
 		{
 			name: "all thresholds overridden",
 			env: map[string]string{
-				segmentedCompactionEnv:    "1",
-				segmentMaxCountEnv:        "16",
-				segmentMaxChainPercentEnv: "20",
-				segmentMaxPostPercentEnv:  "75.5",
+				SegmentedCompactionEnv:    "1",
+				SegmentMaxCountEnv:        "16",
+				SegmentMaxChainPercentEnv: "20",
+				SegmentMaxPostPercentEnv:  "75.5",
 			},
 			want: SegmentedCompactionPolicy{
 				Enabled:                  true,
@@ -93,7 +93,7 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name: "lower count bound",
-			env:  map[string]string{segmentMaxCountEnv: "1"},
+			env:  map[string]string{SegmentMaxCountEnv: "1"},
 			want: func() SegmentedCompactionPolicy {
 				p := defaultSegmentedCompactionPolicy()
 				p.MaxSegments = 1
@@ -102,7 +102,7 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name: "upper count bound",
-			env:  map[string]string{segmentMaxCountEnv: "64"},
+			env:  map[string]string{SegmentMaxCountEnv: "64"},
 			want: func() SegmentedCompactionPolicy {
 				p := defaultSegmentedCompactionPolicy()
 				p.MaxSegments = 64
@@ -111,7 +111,7 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name: "upper percent bound",
-			env:  map[string]string{segmentMaxChainPercentEnv: "100", segmentMaxPostPercentEnv: "100"},
+			env:  map[string]string{SegmentMaxChainPercentEnv: "100", SegmentMaxPostPercentEnv: "100"},
 			want: func() SegmentedCompactionPolicy {
 				p := defaultSegmentedCompactionPolicy()
 				p.MaxChainPercent = 100
@@ -121,7 +121,7 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name: "tiny positive percent",
-			env:  map[string]string{segmentMaxChainPercentEnv: "0.01", segmentMaxPostPercentEnv: "1e-09"},
+			env:  map[string]string{SegmentMaxChainPercentEnv: "0.01", SegmentMaxPostPercentEnv: "1e-09"},
 			want: func() SegmentedCompactionPolicy {
 				p := defaultSegmentedCompactionPolicy()
 				p.MaxChainPercent = 0.01
@@ -131,83 +131,83 @@ func TestSegmentedCompactionPolicyParsing(t *testing.T) {
 		},
 		{
 			name:    "enabled not a bool",
-			env:     map[string]string{segmentedCompactionEnv: "yes"},
-			wantErr: "parse " + segmentedCompactionEnv,
+			env:     map[string]string{SegmentedCompactionEnv: "yes"},
+			wantErr: "parse " + SegmentedCompactionEnv,
 		},
 		{
 			name:    "count not a number",
-			env:     map[string]string{segmentMaxCountEnv: "eight"},
-			wantErr: "parse " + segmentMaxCountEnv,
+			env:     map[string]string{SegmentMaxCountEnv: "eight"},
+			wantErr: "parse " + SegmentMaxCountEnv,
 		},
 		{
 			name:    "count below range",
-			env:     map[string]string{segmentMaxCountEnv: "0"},
-			wantErr: segmentMaxCountEnv + " must be between 1 and 64, got 0",
+			env:     map[string]string{SegmentMaxCountEnv: "0"},
+			wantErr: SegmentMaxCountEnv + " must be between 1 and 64, got 0",
 		},
 		{
 			name:    "count above range",
-			env:     map[string]string{segmentMaxCountEnv: "65"},
-			wantErr: segmentMaxCountEnv + " must be between 1 and 64, got 65",
+			env:     map[string]string{SegmentMaxCountEnv: "65"},
+			wantErr: SegmentMaxCountEnv + " must be between 1 and 64, got 65",
 		},
 		{
 			name:    "chain percent not a number",
-			env:     map[string]string{segmentMaxChainPercentEnv: "half"},
-			wantErr: "parse " + segmentMaxChainPercentEnv,
+			env:     map[string]string{SegmentMaxChainPercentEnv: "half"},
+			wantErr: "parse " + SegmentMaxChainPercentEnv,
 		},
 		{
 			name:    "chain percent zero",
-			env:     map[string]string{segmentMaxChainPercentEnv: "0"},
-			wantErr: segmentMaxChainPercentEnv + " must be in (0, 100], got \"0\"",
+			env:     map[string]string{SegmentMaxChainPercentEnv: "0"},
+			wantErr: SegmentMaxChainPercentEnv + " must be in (0, 100], got \"0\"",
 		},
 		{
 			name:    "chain percent negative",
-			env:     map[string]string{segmentMaxChainPercentEnv: "-1"},
-			wantErr: segmentMaxChainPercentEnv + " must be in (0, 100], got \"-1\"",
+			env:     map[string]string{SegmentMaxChainPercentEnv: "-1"},
+			wantErr: SegmentMaxChainPercentEnv + " must be in (0, 100], got \"-1\"",
 		},
 		{
 			name:    "chain percent above range",
-			env:     map[string]string{segmentMaxChainPercentEnv: "100.1"},
-			wantErr: segmentMaxChainPercentEnv + " must be in (0, 100], got \"100.1\"",
+			env:     map[string]string{SegmentMaxChainPercentEnv: "100.1"},
+			wantErr: SegmentMaxChainPercentEnv + " must be in (0, 100], got \"100.1\"",
 		},
 		{
 			name:    "chain percent NaN",
-			env:     map[string]string{segmentMaxChainPercentEnv: "NaN"},
-			wantErr: segmentMaxChainPercentEnv + " must be in (0, 100], got \"NaN\"",
+			env:     map[string]string{SegmentMaxChainPercentEnv: "NaN"},
+			wantErr: SegmentMaxChainPercentEnv + " must be in (0, 100], got \"NaN\"",
 		},
 		{
 			name:    "chain percent Inf",
-			env:     map[string]string{segmentMaxChainPercentEnv: "Inf"},
-			wantErr: segmentMaxChainPercentEnv + " must be in (0, 100], got \"Inf\"",
+			env:     map[string]string{SegmentMaxChainPercentEnv: "Inf"},
+			wantErr: SegmentMaxChainPercentEnv + " must be in (0, 100], got \"Inf\"",
 		},
 		{
 			name:    "post percent not a number",
-			env:     map[string]string{segmentMaxPostPercentEnv: "half"},
-			wantErr: "parse " + segmentMaxPostPercentEnv,
+			env:     map[string]string{SegmentMaxPostPercentEnv: "half"},
+			wantErr: "parse " + SegmentMaxPostPercentEnv,
 		},
 		{
 			name:    "post percent zero",
-			env:     map[string]string{segmentMaxPostPercentEnv: "0"},
-			wantErr: segmentMaxPostPercentEnv + " must be in (0, 100], got \"0\"",
+			env:     map[string]string{SegmentMaxPostPercentEnv: "0"},
+			wantErr: SegmentMaxPostPercentEnv + " must be in (0, 100], got \"0\"",
 		},
 		{
 			name:    "post percent negative",
-			env:     map[string]string{segmentMaxPostPercentEnv: "-0.5"},
-			wantErr: segmentMaxPostPercentEnv + " must be in (0, 100], got \"-0.5\"",
+			env:     map[string]string{SegmentMaxPostPercentEnv: "-0.5"},
+			wantErr: SegmentMaxPostPercentEnv + " must be in (0, 100], got \"-0.5\"",
 		},
 		{
 			name:    "post percent above range",
-			env:     map[string]string{segmentMaxPostPercentEnv: "100.5"},
-			wantErr: segmentMaxPostPercentEnv + " must be in (0, 100], got \"100.5\"",
+			env:     map[string]string{SegmentMaxPostPercentEnv: "100.5"},
+			wantErr: SegmentMaxPostPercentEnv + " must be in (0, 100], got \"100.5\"",
 		},
 		{
 			name:    "post percent NaN",
-			env:     map[string]string{segmentMaxPostPercentEnv: "NaN"},
-			wantErr: segmentMaxPostPercentEnv + " must be in (0, 100], got \"NaN\"",
+			env:     map[string]string{SegmentMaxPostPercentEnv: "NaN"},
+			wantErr: SegmentMaxPostPercentEnv + " must be in (0, 100], got \"NaN\"",
 		},
 		{
 			name:    "invalid thresholds fail while disabled",
-			env:     map[string]string{segmentedCompactionEnv: "false", segmentMaxCountEnv: "99"},
-			wantErr: segmentMaxCountEnv + " must be between 1 and 64, got 99",
+			env:     map[string]string{SegmentedCompactionEnv: "false", SegmentMaxCountEnv: "99"},
+			wantErr: SegmentMaxCountEnv + " must be between 1 and 64, got 99",
 		},
 	}
 
@@ -268,10 +268,10 @@ func TestSegmentedCompactionEnvDistListsPolicyEnvNames(t *testing.T) {
 	}
 
 	wantNames := []string{
-		segmentedCompactionEnv,
-		segmentMaxCountEnv,
-		segmentMaxChainPercentEnv,
-		segmentMaxPostPercentEnv,
+		SegmentedCompactionEnv,
+		SegmentMaxCountEnv,
+		SegmentMaxChainPercentEnv,
+		SegmentMaxPostPercentEnv,
 	}
 	if len(values) != len(wantNames) {
 		t.Fatalf(".env.dist defines %d variables, want exactly %d: %v", len(values), len(wantNames), values)
