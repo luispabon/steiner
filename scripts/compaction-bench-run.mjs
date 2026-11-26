@@ -256,10 +256,27 @@ async function gitInit(spawnRun, dir, env, timeoutMs) {
 	if (init.code !== 0) throw new Error(`git init failed: ${init.error ?? `exit ${init.code}`}`);
 }
 
-async function createScratchRepo(spawnRun, env, timeoutMs) {
+/**
+ * Pick the parent for scratch repos and report which one is used. The work tree
+ * is the default because the sandbox rewrites every /tmp path into the project
+ * root, so a scratch repo under the host tmp dir is unreachable from sandboxed
+ * tools. A work tree that cannot host the directory falls back to the host tmp
+ * dir, which sandboxed tools cannot read.
+ */
+export async function resolveScratchParent(root) {
+	const parent = join(root, ".steiner", "tmp");
+	try {
+		await mkdir(parent, { recursive: true });
+		return { parent, scratchBase: "worktree" };
+	} catch {
+		return { parent: tmpdir(), scratchBase: "tmp" };
+	}
+}
+
+async function createScratchRepo(spawnRun, env, timeoutMs, scratchParent) {
 	// Register before git init can fail, so a scratch repo that never becomes
 	// usable is still removed by signal cleanup.
-	const dir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-repo-")));
+	const dir = registerTempDir(await mkdtemp(join(scratchParent, "compaction-bench-repo-")));
 	try {
 		await gitInit(spawnRun, dir, env, timeoutMs);
 	} catch (error) {
@@ -274,11 +291,11 @@ async function createScratchRepo(spawnRun, env, timeoutMs) {
 // Create the scratch repo and the private dir with its diagnostics dir, then
 // remove both once `body` settles, so a probe or run that fails part-way leaves
 // nothing behind. Both stay registered until removed, so a signal still cleans up.
-async function withBenchDirs({ spawnRun, env, timeoutMs }, body) {
+async function withBenchDirs({ spawnRun, env, timeoutMs, scratchParent }, body) {
 	let repoDir = null;
 	let privDir = null;
 	try {
-		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
+		repoDir = await createScratchRepo(spawnRun, env, timeoutMs, scratchParent);
 		privDir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-priv-")));
 		const diagDir = join(privDir, "diag");
 		await mkdir(diagDir, { recursive: true });
@@ -309,11 +326,11 @@ function steinerExecArgs({ alias, maxTurns, compactionPath, logPath, configPath,
 }
 
 /** Probe cache control for one Anthropic model: two one-turn calls with one shared prompt. */
-export async function runProbe({ opts, entry, env, spawnRun, newId }) {
+export async function runProbe({ opts, entry, env, spawnRun, newId, scratchParent }) {
 	const timeoutMs = opts.runTimeoutMinutes * 60_000;
 	const { alias, provider, id } = entry;
 	try {
-		return await withBenchDirs({ spawnRun, env, timeoutMs }, async ({ repoDir, privDir, diagDir }) => {
+		return await withBenchDirs({ spawnRun, env, timeoutMs, scratchParent }, async ({ repoDir, privDir, diagDir }) => {
 			const probeText = probePrompt(newId());
 			const configPath = join(privDir, "probe.yaml");
 			await writeFile(configPath, buildProbeConfig({ diagnosticsDir: diagDir, alias, provider, id }));
@@ -354,13 +371,13 @@ export async function runProbe({ opts, entry, env, spawnRun, newId }) {
 }
 
 /** Run one mode/repeat: write the notes chain and config, exec steiner, then analyse its artefacts. */
-export async function runOnce({ opts, entry, family, mode, repeat, runId, fixtures, out, env, spawnRun }) {
+export async function runOnce({ opts, entry, family, mode, repeat, runId, fixtures, out, env, spawnRun, scratchParent }) {
 	const timeoutMs = opts.runTimeoutMinutes * 60_000;
 	const base = `${mode}-r${repeat}`;
 	const runOutDir = join(out, entry.alias);
 	await mkdir(runOutDir, { recursive: true });
 	try {
-		return await withBenchDirs({ spawnRun, env, timeoutMs }, async ({ repoDir, privDir, diagDir }) => {
+		return await withBenchDirs({ spawnRun, env, timeoutMs, scratchParent }, async ({ repoDir, privDir, diagDir }) => {
 			await mkdir(join(repoDir, "notes"));
 			for (const file of fixtures.files) {
 				await writeFile(join(repoDir, file.name), file.content);

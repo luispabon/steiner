@@ -29,7 +29,7 @@ import { checkGuard, experimentEnv, parseArgs, USAGE } from "./compaction-bench-
 import { generateFixtures } from "./compaction-bench-fixtures.mjs";
 import { renderResults, SANDBOX_NOTE, verdict } from "./compaction-bench-report.mjs";
 import { aggregateMode } from "./compaction-bench-score.mjs";
-import { defaultSpawnRun, detectSandbox, installSignalHandlers, runOnce, runProbe } from "./compaction-bench-run.mjs";
+import { defaultSpawnRun, detectSandbox, installSignalHandlers, resolveScratchParent, runOnce, runProbe } from "./compaction-bench-run.mjs";
 
 export * from "./compaction-bench-args.mjs";
 export * from "./compaction-bench-fixtures.mjs";
@@ -45,6 +45,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 	const spawnRun = deps.spawnRun ?? defaultSpawnRun;
 	const now = deps.now ?? (() => new Date());
 	const newId = deps.newId ?? (() => randomUUID());
+	const workTree = deps.cwd ?? (() => process.cwd());
 	let opts;
 	try {
 		opts = parseArgs(argv);
@@ -64,12 +65,13 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 
 	const out = opts.out ?? (await mkdtemp(join(tmpdir(), "compaction-bench-")));
 	await mkdir(out, { recursive: true });
+	const scratch = await resolveScratchParent(workTree());
 	const results = [];
 	for (const entry of opts.modelEntries) {
 		const { alias, ref, provider, id } = entry;
 		const family = opts.anthropicAliases.includes(ref) ? "anthropic" : "openai";
 		const informational = opts.informationalAliases.includes(ref);
-		const probe = family === "anthropic" ? await runProbe({ opts, entry, env, spawnRun, newId }) : null;
+		const probe = family === "anthropic" ? await runProbe({ opts, entry, env, spawnRun, newId, scratchParent: scratch.parent }) : null;
 		if (probe) log(`probe ${alias}: ${probe.ok ? "ok" : `failed (${probe.reason})`}`);
 		const runs = { off: [], on: [] };
 		for (let repeat = 1; repeat <= opts.repeat; repeat++) {
@@ -81,7 +83,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 			// a cache entry the first mode just warmed.
 			const modes = repeat % 2 === 1 ? opts.modes : [...opts.modes].reverse();
 			for (const mode of modes) {
-				const run = await runOnce({ opts, entry, family, mode, repeat, runId: newId(), fixtures, out, env, spawnRun });
+				const run = await runOnce({ opts, entry, family, mode, repeat, runId: newId(), fixtures, out, env, spawnRun, scratchParent: scratch.parent });
 				runs[mode].push(run);
 				const exit = run.timedOut ? "timeout" : run.exitCode === null ? "error" : run.exitCode;
 				log(`${alias} mode ${mode} r${repeat} exit ${exit} compactions ${run.compactions ?? "n/a"} exact ${run.exact ?? "n/a"}/${run.total ?? "n/a"}`);
@@ -121,6 +123,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 		informationalAliases: opts.informationalAliases,
 		experimentEnv: experiment,
 		sandbox,
+		scratchBase: scratch.scratchBase,
 		aliases: results.map(({ alias, ref, provider, id, family, informational, probe, runs }) => ({ alias, ref, provider, id, family, informational, probe, runs })),
 	};
 	await writeFile(join(out, "raw.json"), `${JSON.stringify(raw, null, 2)}\n`);

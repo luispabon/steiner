@@ -1285,7 +1285,7 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 	const probeAttempts = new Map();
 	let normalRuns = 0;
 	async function runner(call) {
-		invocations.push({ command: call.command, args: call.args, env: call.env });
+		invocations.push({ command: call.command, args: call.args, cwd: call.cwd, env: call.env });
 		await mkdir(dirname(call.stdoutPath), { recursive: true });
 		await mkdir(dirname(call.stderrPath), { recursive: true });
 		if (call.command === "git") {
@@ -1638,6 +1638,7 @@ test("main derives each repeat's fixture seed from --seed and the repeat number"
 test("a failed git init removes its scratch repo instead of leaving it for signal cleanup", async () => {
 	const root = await mkdtemp(join(tmpdir(), "compaction-bench-gitinit-"));
 	const benchTmp = join(root, "tmp");
+	const worktreeTmp = join(root, ".steiner", "tmp");
 	const outDir = join(root, "out");
 	const savedTmp = process.env.TMPDIR;
 	cleanupLiveResources();
@@ -1654,13 +1655,75 @@ test("a failed git init removes its scratch repo instead of leaving it for signa
 		const code = await main(
 			["--model", "gpt-test", "--files", "4", "--pad-tokens", "1", "--out", outDir],
 			{ STEINER_LIVE_BENCH: "1" },
-			{ spawnRun: failingGit, log: () => {}, stdout: () => {} },
+			{ spawnRun: failingGit, cwd: () => root, log: () => {}, stdout: () => {} },
 		);
 		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
 		assert.equal(code, 3);
 		assert.match(raw.aliases[0].runs.off[0].invalidReason, /setup failed: git init failed: exit 1/);
-		assert.deepEqual(readdirSync(benchTmp), [], "a scratch repo whose git init failed is removed right away");
+		assert.deepEqual(readdirSync(worktreeTmp), [], "a scratch repo whose git init failed is removed right away");
+		assert.deepEqual(readdirSync(benchTmp), [], "no private dir survives the failed setup");
 		assert.equal(cleanupLiveResources().dirs, 0, "no scratch dir stays registered after a failed git init");
+	} finally {
+		if (savedTmp === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = savedTmp;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("main creates scratch repos under the work tree and records scratchBase", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-scratch-"));
+	const tree = join(root, "tree");
+	const outDir = join(root, "out");
+	const worktreeTmp = join(tree, ".steiner", "tmp");
+	await mkdir(tree);
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		const code = await main(
+			["--model", "gpt-test", "--modes", "off", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, cwd: () => tree, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.scratchBase, "worktree");
+		const gitCalls = fake.invocations.filter((call) => call.command === "git");
+		assert.equal(gitCalls.length, 1, "one run inits one scratch repo");
+		assert.equal(dirname(gitCalls[0].cwd), worktreeTmp, "git init runs in a scratch repo under the work tree");
+		assert.ok(gitCalls[0].cwd.includes("compaction-bench-repo-"), "the work tree parent keeps the scratch prefix");
+		const runs = fake.invocations.filter((call) => call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION !== undefined);
+		assert.equal(runs.length, 1);
+		assert.equal(dirname(runs[0].cwd), worktreeTmp, "the sandboxed run's project root sits under the work tree");
+		assert.deepEqual(readdirSync(worktreeTmp), [], "the scratch repo is removed after the run");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("main falls back to the host tmp dir when the work tree cannot host scratch repos", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-scratch-fallback-"));
+	const tree = join(root, "tree");
+	const hostTmp = join(root, "host-tmp");
+	const outDir = join(root, "out");
+	const savedTmp = process.env.TMPDIR;
+	await mkdir(tree);
+	await mkdir(hostTmp);
+	// A file where .steiner should be makes the work-tree mkdir fail with ENOTDIR.
+	await writeFile(join(tree, ".steiner"), "not a directory\n");
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		process.env.TMPDIR = hostTmp;
+		const code = await main(
+			["--model", "gpt-test", "--modes", "off", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, cwd: () => tree, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.scratchBase, "tmp");
+		const gitCalls = fake.invocations.filter((call) => call.command === "git");
+		assert.equal(gitCalls.length, 1);
+		assert.equal(dirname(gitCalls[0].cwd), hostTmp, "the scratch repo falls back to the host tmp dir");
+		assert.deepEqual(readdirSync(hostTmp), [], "the fallback scratch repo is removed after the run");
 	} finally {
 		if (savedTmp === undefined) delete process.env.TMPDIR;
 		else process.env.TMPDIR = savedTmp;
