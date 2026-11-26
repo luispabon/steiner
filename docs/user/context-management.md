@@ -36,6 +36,25 @@ Compaction summaries are delivered as user-role historical context, not as syste
 
 Everything else is reduced to the summary, so details can be lost. Each compaction loses a little more. If Steiner warns that a session is likely lossy, start a fresh session and carry over what matters. Keep important state in files or git, not only in the conversation.
 
+### Immutable summary segments (experimental)
+
+This opt-in mode keeps earlier summary segments unchanged when it can append a summary of newer conversation. The stable prefix can improve cache reuse across compactions, making continuation cheaper or faster on providers with prompt caching; results depend on the provider and cache state.
+
+Set these environment variables before starting Steiner. They are not config-file fields.
+
+| Variable | Default | Valid values |
+| --- | --- | --- |
+| `STEINER_EXPERIMENT_SEGMENTED_COMPACTION` | `false` | Boolean, such as `true` or `1` to enable |
+| `STEINER_EXPERIMENT_SEGMENT_MAX_COUNT` | `8` | Integer from 1 to 64 |
+| `STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT` | `12.5` | Greater than 0 and at most 100 |
+| `STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT` | `50` | Greater than 0 and at most 100 |
+
+The percentages refer to the compaction budget, the smaller of the context window and the effective compaction threshold. Unset or blank values use defaults. Invalid values fail runtime startup, even when the experiment is disabled.
+
+Steiner starts a fresh chain with a rebase when there is no valid chain, in emergency compaction or on a summary retry or fallback model, when retention or the source cannot safely extend the chain, or when segment count, token limits or lack of progress prevent an append. If the rebase has no non-summary source, it stores a plain summary instead.
+
+For an append, a configured compaction prompt override replaces the generic intro, but the segment rules still follow it. `/compact` focus text is added after those rules. The [live compaction bench](../../scripts/compaction-bench.md) compares the mode off and on using real model calls.
+
 ### Manual compaction
 
 `/compact` compacts now. Add focus text to steer the summary:

@@ -18,6 +18,8 @@ Env expansion runs per file before decoding. `readConfigPatch` returns the first
 
 `--config` sets `allowMissing` to false on the project layer, so a missing file fails.
 
+`buildRuntimeWithRoots` (`cmd/steiner/runtime_build.go`) calls `config.ParseSegmentedCompactionPolicy` (`internal/config/segmented_compaction.go`) with `os.LookupEnv` before creating resources. The experimental segment environment variables are parsed outside `config.Load` and are not config-file fields. Invalid values fail runtime startup. See [experimental summary segments](../user/context-management.md#immutable-summary-segments-experimental).
+
 ## Project trust
 
 `checkProjectTrust` returns `ErrProjectUntrusted` only when the project file exists and `LoadOptions.ProjectTrust` is not `ProjectTrustTrusted`. The zero value is untrusted. `Load` never reads the trust store; the caller supplies the decision.
