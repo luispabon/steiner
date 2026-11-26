@@ -574,14 +574,15 @@ const peak = (files, extra = []) => run(["peak", ...files, "--json", ...extra]);
 //   run-new:  main 150000, 1000000; child-2 2000000
 //   run-mid:  main 199999; child-3 600000
 //   run-tel:  telemetry parent 500000, sub_agent 900000
-//   (no run_id): telemetry parent 20000
-// 9 groups over 5 runs. run-mid's 199999 sits one token under the 200k
-// bucket on purpose, and 500000/1000000 sit exactly on their buckets.
+//   unattributed: one telemetry parent line, 20000, with no run_id
+// 8 attributed groups over 4 runs plus 1 unattributed observation. run-mid's
+// 199999 sits one token under the 200k bucket on purpose, and
+// 500000/1000000 sit exactly on their buckets.
 test("peak: combines rotated generations and telemetry lines into run/agent groups", () => {
 	const out = peak(PEAK_FILES);
 	assert.equal(out.files, 3);
-	assert.equal(out.runs, 5);
-	assert.equal(out.by_run_agent.length, 9);
+	assert.equal(out.runs, 4);
+	assert.equal(out.by_run_agent.length, 8);
 
 	const group = (key) => out.by_run_agent.find((r) => r.key === key);
 	assert.deepEqual(group("run-old/main"), { key: "run-old/main", n: 2, metrics: { peakPromptTokens: 240000 } });
@@ -591,8 +592,34 @@ test("peak: combines rotated generations and telemetry lines into run/agent grou
 	// Telemetry has no agent id: source stands in for it, and parent is main.
 	assert.deepEqual(group("run-tel/main"), { key: "run-tel/main", n: 1, metrics: { peakPromptTokens: 500000 } });
 	assert.equal(group("run-tel/sub_agent").metrics.peakPromptTokens, 900000);
-	// Without STEINER_USAGE_TELEMETRY_RUN the run id is absent and lines collapse.
-	assert.deepEqual(group("(no run_id)/main"), { key: "(no run_id)/main", n: 1, metrics: { peakPromptTokens: 20000 } });
+	// Without STEINER_USAGE_TELEMETRY_RUN the line has no run id: it is an
+	// unattributed observation, not a run of its own.
+	assert.equal(group("(unattributed)/main"), undefined);
+	assert.equal(out.unattributed_observations, 1);
+	assert.deepEqual(out.unattributed, [{ key: "(unattributed)/main", n: 1, metrics: { peakPromptTokens: 20000 } }]);
+});
+
+test("peak: telemetry without a run id is reported separately, never as runs", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-"));
+	try {
+		writeFileSync(
+			join(dir, "telemetry.jsonl"),
+			[
+				{ kind: "usage", ts: "2026-09-04T10:00:00Z", seq: 1, source: "parent", prompt_tokens: 300000 },
+				{ kind: "usage", ts: "2026-09-04T10:01:00Z", seq: 2, source: "parent", prompt_tokens: 400000 },
+			]
+				.map((line) => JSON.stringify(line))
+				.join("\n") + "\n",
+		);
+		const out = peak([join(dir, "telemetry.jsonl")]);
+		assert.equal(out.runs, 0);
+		assert.deepEqual(out.by_run_agent, []);
+		assert.deepEqual(out.main_peak_at_least, { 200000: 0, 500000: 0, 1000000: 0 });
+		assert.equal(out.unattributed_observations, 2);
+		assert.deepEqual(out.unattributed, [{ key: "(unattributed)/main", n: 2, metrics: { peakPromptTokens: 400000 } }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("peak: a single rotated generation stands on its own", () => {
@@ -604,34 +631,66 @@ test("peak: a single rotated generation stands on its own", () => {
 	const active = peak([PEAK_SESSION]);
 	assert.equal(active.runs, 2);
 	assert.deepEqual(active.main_peak_at_least, { 200000: 1, 500000: 1, 1000000: 1 });
+	assert.deepEqual(active.unattributed, []);
 });
 
 test("peak: main-agent buckets count at-or-above and ignore sub-agent peaks", () => {
 	const out = peak(PEAK_FILES);
 	// run-old 240000, run-new 1000000, run-tel 500000 clear 200k; run-mid
-	// (199999) and (no run_id) (20000) do not. child-1/child-2/child-3 and
-	// run-tel/sub_agent are above their run's main peak but never counted.
+	// (199999) does not. child-1/child-2/child-3 and run-tel/sub_agent are
+	// above their run's main peak but never counted, and the unattributed
+	// 20000 line is not a run at all.
 	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
 });
 
 test("peak: --top caps the group listing, not the run summary", () => {
 	const out = peak(PEAK_FILES, ["--top", "2"]);
 	assert.equal(out.by_run_agent.length, 2);
-	assert.equal(out.runs, 5);
+	assert.equal(out.runs, 4);
+	assert.equal(out.unattributed.length, 1);
+	assert.equal(out.unattributed_observations, 1);
 	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
 });
 
-test("peak: a flag value is not read as an input file", () => {
-	// With no files but a value-taking flag, the old positional handling would
-	// treat "1" as a path and print an empty result instead of the usage error.
+test("peak: --top needs a value and no files is a usage error", () => {
 	assert.throws(
-		() => execFileSync("node", [SCRIPT, "peak", "--top", "1", "--json"], { encoding: "utf8", stdio: "pipe" }),
+		() => execFileSync("node", [SCRIPT, "peak", "--top", "--json"], { encoding: "utf8", stdio: "pipe" }),
+		/--top requires a value/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", "--json"], { encoding: "utf8", stdio: "pipe" }),
 		/USAGE_TELEMETRY/,
 	);
 	assert.throws(
 		() => execFileSync("node", [SCRIPT, "peak"], { encoding: "utf8", stdio: "pipe" }),
 		/usage: node scripts\/diagnostics\.mjs peak/,
 	);
+});
+
+test("peak: a nonexistent or non-file input is rejected, not read as empty", () => {
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, join(PEAK_FIXTURES, "missing.jsonl")], { encoding: "utf8", stdio: "pipe" }),
+		(err) => err.stderr.includes("peak mode: input is not a file:") && err.stderr.includes("missing.jsonl"),
+	);
+	// A directory exists but is not a readable input.
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", PEAK_FIXTURES], { encoding: "utf8", stdio: "pipe" }),
+		(err) => err.stderr.includes("peak mode: input is not a file:") && err.stderr.includes(PEAK_FIXTURES),
+	);
+});
+
+test("peak: unsupported flags are rejected rather than silently ignored", () => {
+	for (const [flag, value] of [
+		["--since", "2026-09-01"],
+		["--dir", FIXTURES],
+		["--sha", "aaaa1111"],
+		["--min-n", "5"],
+	]) {
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, flag, value], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.stderr.includes(`peak mode: does not accept ${flag}`),
+		);
+	}
 });
 
 test("peak: --compare is refused rather than silently ignored", () => {
@@ -644,7 +703,9 @@ test("peak: --compare is refused rather than silently ignored", () => {
 test("peak: the text tables print the summary and per-group peak", () => {
 	const out = execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES], { encoding: "utf8" });
 	assert.match(out, /peak main-agent threshold counts/);
-	assert.match(out, /main peak >= 200k\s+3\s+60\.0%/);
+	assert.match(out, /main peak >= 200k\s+3\s+75\.0%/);
 	assert.match(out, /peak prompt tokens by run\/agent \(3 files\)/);
 	assert.match(out, /run-new\/main\s+2\s+1000000/);
+	assert.match(out, /peak unattributed observations \(no run_id\)/);
+	assert.match(out, /\(unattributed\)\/main\s+1\s+20000/);
 });

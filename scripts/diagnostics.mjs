@@ -26,8 +26,13 @@
 // default, so peak also accepts STEINER_USAGE_TELEMETRY files. The format is
 // detected per line; a telemetry line is kind: "usage" and carries
 // prompt_tokens but no agent id (source stands in) and no run id unless
-// STEINER_USAGE_TELEMETRY_RUN was set, so lines from unlabelled runs collapse
-// into one group.
+// STEINER_USAGE_TELEMETRY_RUN was set, so lines without a run id are reported
+// as unattributed observations and never counted as runs. Telemetry records
+// compaction calls too, and its lines carry no call kind, so a telemetry
+// compaction call looks like a parent call; session-log model_call_finished
+// events cover turn calls only, so the two sources measure different peaks for
+// the same run. peak accepts --json and --top only, and a missing input file
+// or any other flag is an error.
 //
 // Flags:
 //   --dir <path>          diagnostics directory (default: $XDG_STATE_HOME/steiner/diagnostics,
@@ -102,7 +107,7 @@
 //                    BREAK-AT-N means the common prefix is only N messages
 //                    long, so something before the tail changed.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runMutate } from "./diagnostics_mutate.mjs";
@@ -882,21 +887,25 @@ const PEAK_BUCKETS = [
 // source: "parent".
 const MAIN_AGENT = "main";
 
-// FLAGS_WITH_VALUE are the flags whose next token is a value, so peak does
-// not read a flag value as an input file.
-const FLAGS_WITH_VALUE = new Set(["--dir", "--since", "--until", "--sha", "--top", "--min-n", "--baseline-sha", "--exclude-run", "--model", "--samples", "--cause"]);
+// peakFiles separates file arguments from flags. peak accepts --json and
+// --top only: any other flag is an error rather than a silent no-op, so a
+// mistyped filter cannot look like a narrower result.
+const PEAK_FLAGS_WITH_VALUE = new Set(["--top"]);
 
-function positionalArgs(args) {
-	const out = [];
+function peakFiles(args) {
+	const files = [];
 	for (let i = 0; i < args.length; i++) {
-		if (FLAGS_WITH_VALUE.has(args[i])) {
+		const arg = args[i];
+		if (arg === "--json") continue;
+		if (PEAK_FLAGS_WITH_VALUE.has(arg)) {
+			if (args[i + 1] === undefined || args[i + 1].startsWith("-")) return { error: `${arg} requires a value` };
 			i++;
 			continue;
 		}
-		if (args[i].startsWith("--")) continue;
-		out.push(args[i]);
+		if (arg.startsWith("-")) return { error: `does not accept ${arg}; it takes --json and --top <n> only` };
+		files.push(arg);
 	}
-	return out;
+	return { files };
 }
 
 // peakObservation converts one input line to {runID, agent, tokens}, or null
@@ -920,22 +929,29 @@ function peakObservation(line) {
 function peakGroups(observations) {
 	const groups = new Map();
 	for (const o of observations) {
-		const key = `${o.runID || "(no run_id)"}/${o.agent}`;
-		const group = groups.get(key) ?? { key, runID: o.runID, agent: o.agent, calls: 0, peak: 0 };
+		const id = `${o.runID}/${o.agent}`;
+		const group = groups.get(id) ?? { id, runID: o.runID, agent: o.agent, calls: 0, peak: 0 };
 		group.calls++;
 		group.peak = Math.max(group.peak, o.tokens);
-		groups.set(key, group);
+		groups.set(id, group);
 	}
-	return [...groups.values()].sort((a, b) => b.peak - a.peak || a.key.localeCompare(b.key));
+	return [...groups.values()].sort((a, b) => b.peak - a.peak || a.id.localeCompare(b.id));
 }
 
-// peakSummary counts runs and the runs whose main-agent peak reaches each
-// bucket. A run whose only measured calls are sub-agent ones still counts as
-// a run, but contributes no main-agent peak.
+// peakRow labels a group for display. An empty run id belongs to telemetry
+// written without STEINER_USAGE_TELEMETRY_RUN: those lines cannot be told
+// apart by run, so they are reported as unattributed observations.
+const peakRow = (g) => ({ key: `${g.runID || "(unattributed)"}/${g.agent}`, n: g.calls, metrics: { peakPromptTokens: g.peak } });
+
+// peakSummary counts attributed runs and the runs whose main-agent peak
+// reaches each bucket. A run whose only measured calls are sub-agent ones
+// still counts as a run, but contributes no main-agent peak. Observations
+// without a run id are not runs and stay out of every count here.
 function peakSummary(groups) {
-	const runs = new Set(groups.map((g) => g.runID));
+	const attributed = groups.filter((g) => g.runID !== "");
+	const runs = new Set(attributed.map((g) => g.runID));
 	const mainPeaks = new Map();
-	for (const g of groups) {
+	for (const g of attributed) {
 		if (g.agent !== MAIN_AGENT) continue;
 		mainPeaks.set(g.runID, Math.max(mainPeaks.get(g.runID) ?? 0, g.peak));
 	}
@@ -957,13 +973,23 @@ function runPeak(files) {
 	const observations = files.flatMap((file) => readJsonl(file).map(peakObservation)).filter(Boolean);
 	const groups = peakGroups(observations);
 	const summary = peakSummary(groups);
-	const rows = capTop(groups).map((g) => ({ key: g.key, n: g.calls, metrics: { peakPromptTokens: g.peak } }));
+	const attributed = capTop(groups.filter((g) => g.runID !== "").map(peakRow));
+	const unattributedGroups = groups.filter((g) => g.runID === "");
+	const unattributed = capTop(unattributedGroups.map(peakRow));
+	const unattributedObservations = unattributedGroups.reduce((n, g) => n + g.calls, 0);
 	if (AS_JSON) {
-		console.log(JSON.stringify({ files: files.length, runs: summary.runs, main_peak_at_least: summary.atLeast, by_run_agent: rows }, null, 1));
+		console.log(
+			JSON.stringify(
+				{ files: files.length, runs: summary.runs, main_peak_at_least: summary.atLeast, unattributed_observations: unattributedObservations, by_run_agent: attributed, unattributed },
+				null,
+				1,
+			),
+		);
 		return;
 	}
 	printTable("peak main-agent threshold counts", summary.rows, PEAK_SHARE_COLUMNS);
-	printTable(`peak prompt tokens by run/agent (${files.length} file${files.length === 1 ? "" : "s"})`, rows, PEAK_COLUMNS);
+	printTable(`peak prompt tokens by run/agent (${files.length} file${files.length === 1 ? "" : "s"})`, attributed, PEAK_COLUMNS);
+	printTable("peak unattributed observations (no run_id)", unattributed, PEAK_COLUMNS);
 }
 
 // ------------------------------------------------------------- prefix mode
@@ -1047,15 +1073,26 @@ function main() {
 			console.error("--compare does not apply to peak mode, which reads session logs and telemetry files");
 			process.exit(1);
 		}
-		const files = positionalArgs(argv.slice(1));
+		const { files, error } = peakFiles(argv.slice(1));
+		if (error) {
+			console.error(`peak mode: ${error}`);
+			process.exit(1);
+		}
 		if (files.length === 0) {
-			console.error("usage: node scripts/diagnostics.mjs peak <file...> [--json]");
+			console.error("usage: node scripts/diagnostics.mjs peak <file...> [--json] [--top N]");
 			console.error("       <file> is a session log (JSONL with model_call_finished events) or a");
 			console.error("       STEINER_USAGE_TELEMETRY file; the format is detected per line, so");
 			console.error("       rotated generations and both formats may be passed together.");
-			console.error("       A session log exists only with --log-file or logging.enabled.");
-			console.error("       Telemetry lines carry no agent id (source stands in) and share one run");
-			console.error("       unless STEINER_USAGE_TELEMETRY_RUN was set.");
+			console.error("       A session log exists only with --log-file or logging.enabled, and every");
+			console.error("       input file must exist. Telemetry lines carry no agent id (source stands");
+			console.error("       in) and, without STEINER_USAGE_TELEMETRY_RUN, no run id: those lines are");
+			console.error("       reported as unattributed observations, never as runs. Telemetry also");
+			console.error("       records compaction calls that session logs omit, so their peaks differ.");
+			process.exit(1);
+		}
+		const notFiles = files.filter((file) => !statSync(file, { throwIfNoEntry: false })?.isFile());
+		if (notFiles.length > 0) {
+			console.error(`peak mode: input is not a file: ${notFiles.join(", ")}`);
 			process.exit(1);
 		}
 		runPeak(files);
