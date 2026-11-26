@@ -8,7 +8,7 @@
 
 The bench refuses to run without `STEINER_LIVE_BENCH=1`. Provider calls spend real tokens, including two extra probe calls per Anthropic alias. Runs use fresh scratch git repositories and never pass `--unsafe`. `--trust-project-config` applies to the run; it does not persist trust or disable the sandbox. The report shows the sandbox setting from `steiner config`, or `not verified` if it could not be read.
 
-Run artifacts can contain prompts and model output. Keep the output directory private and review artifacts before sharing them. The bench report includes only the experiment environment values, not the full environment; child logs and output can still contain sensitive data.
+Run artifacts can contain prompts and model output. Keep the output directory private and review artifacts before sharing them. The bench report includes only the experiment environment values, not the full environment; child logs and output can still contain sensitive data. A run that exceeds `--run-timeout-minutes` is killed with `SIGKILL` together with its whole process group, so no descendant keeps running.
 
 ## Prerequisites
 
@@ -54,39 +54,39 @@ Replace the example aliases with configured aliases. `--model` is required and a
 | `--out <dir>` | Output directory | a temporary directory |
 | `--help` | Print usage | |
 
-Exit codes are 0 for completion, 1 for the live-call guard, 2 for usage errors, and 3 if a benchmark run failed. A failing verdict or probe alone does not set exit code 3.
+Exit codes are 0 for completion, 1 for the live-call guard or an uncaught error, 2 for usage errors, and 3 if a benchmark run failed. A failing verdict or probe alone does not set exit code 3. Values of `--anthropic-alias` and `--informational-alias` must also appear in `--model`; anything else is a usage error.
 
 ## How a run works
 
-For each alias, repeat, and selected mode, the bench generates a seeded chain in a fresh scratch repository and starts one `steiner --exec` without `--resume`. Off and on use the same seed for each repeat. The invocation passes `--model`, `--max-turns`, `--compaction-log-file`, `--log-file`, `--config`, and `--trust-project-config`. Its private config sets the alias's `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` and enables the cache diagnostics stream outside the project root.
+For each alias, repeat, and selected mode, the bench generates a seeded chain in a fresh scratch repository and starts one `steiner --exec` without `--resume`. Off and on use the same seed for each repeat. Mode order alternates per repeat: repeat 1 runs off then on, repeat 2 runs on then off, and so on, so the second mode of a repeat does not start from a cache entry the first mode just warmed. Every run's task prompt opens with `Run id: <nonce>`, so no two runs send a byte-identical first request. The invocation passes `--model`, `--max-turns`, `--compaction-log-file`, `--log-file`, `--config`, and `--trust-project-config`. Its private config sets the alias's `models.definitions.<alias>.advanced.limits.compaction_threshold_tokens` and enables the cache diagnostics stream outside the project root.
 
-Files `notes/f01.txt` through `notes/fNN.txt` each contain a code, a `NEXT` pointer, and filler. One file in the second half corrects the code for `f03`. The task asks the model to follow the chain one file at a time, never re-read, list, or search the directory, and answer with `fNN: CODE` lines applying corrections.
+Files `notes/f01.txt` through `notes/fNN.txt` each contain a code, a `NEXT` pointer, and filler. One file after `f03` in the second half corrects the code for `f03`, so the correction never lands in `f01` to `f03`. The task asks the model to follow the chain one file at a time, never re-read, list, or search the directory, and answer with `fNN: CODE` lines applying corrections.
 
 ## Scoring and validity
 
-Continuity counts exact code matches per file. `f03` only counts if the corrected code is present and the old code is absent from the answer. Each lost code is attributed to the first compaction after its file was read, as `fNN@cN`, or marked unattributed. Recall is invalid if a file is re-read after a compaction between its first and second reads.
+Continuity counts exact code matches per file. `f03` only counts if the corrected code is present and the old code is absent from the answer. Each lost code is attributed to the first compaction after its file was read, as `fNN@cN`, or marked unattributed. Recall is invalid if any read of a file follows a compaction that came after that file's first read, so context dropped between the reads cannot be recovered from a re-read.
 
-The bench reads file paths, model-call usage, and applied compactions from the session log, and `segment_decision` records from the compaction log. Rebases exclude `chain-start`; a `plain` decision counts as both a rebase and a plain fallback.
+The bench reads file paths, model-call usage, and applied compactions from the session log, and `segment_decision` records from the compaction log. Failed model calls (`success` not true) and sub-agent scoped calls and reads are skipped, since they are not part of the main conversation's cache economics. Rebases exclude `chain-start`; a `plain` decision counts as both a rebase and a plain fallback.
 
-An on run is invalid with fewer than four compactions or no append decision. The off and on medians are incomparable if their compaction counts differ by more than one. A single-mode run is also incomparable. Repeat metrics are medians of reported numeric values; loss points are combined across runs.
+An on run is invalid with fewer than four compactions or no append decision. A failed or invalid run on either side makes the verdict `INVALID`, with reasons prefixed `off: ` or `on: `. The off and on medians are incomparable if their compaction counts differ by more than one. A single-mode run is also incomparable. Repeat metrics are medians of reported numeric values; loss points are combined across runs. A run stopped by `--max-turns` stays scored: its table row counts it and the verdict lists how many runs stopped that way, without invalidating them.
 
-Cache data is reported for a run only when every model call reports it. Otherwise its cache metrics are unavailable. The per-turn cost proxy uses `uncached + 1.25*write + 0.1*read` for Anthropic aliases and `uncached + 0.1*read` for other aliases. This is a relative token estimate, not billing.
+Cache data is reported for a run only when every model call reports it. Otherwise its cache metrics are unavailable. Cost and cached tokens fold in the summarizer calls of applied compactions alongside the main turns, and per-turn cost divides by the main-turn count. The cost proxy uses `uncached + 1.25*write + 0.1*read` for Anthropic aliases and `uncached + 0.1*read` for other aliases. This is a relative token estimate, not billing.
 
-For each `--anthropic-alias`, two identical one-turn probe calls test cache control. The probe passes if the first reports cache creation and the second reports a cache read. A failed probe reports a reason and prevents a cache verdict for that alias. Failure evidence can include an exit status and a stderr line that contains no full environment value.
+For each `--anthropic-alias`, two one-turn probe calls with one shared prompt test cache control. The prompt opens with a per-probe nonce, so the first call writes cache even when a recent run or a second alias already warmed identical probe text. The probe passes if the first call reports cache creation and the second reports a cache read. A failed probe reports `probe calls failed: exit <code>` plus, when the stderr text matches, one fixed classification: `auth error (401)`, `forbidden (403)`, `not found (404)`, `bad request (400)`, or `timeout`. Raw stderr text never reaches the report, progress output, or `raw.json`. A failed probe prevents a cache verdict for that alias.
 
 ## Output and verdicts
 
-`results.md` is written to the output directory and printed to stdout. Its header records the UTC timestamp, binary path, settings, on-mode experiment environment, and sandbox status. Per-alias tables show turns, compactions, rebases, plain fallbacks, maximum segments, cached tokens, cost proxy per turn, and continuity, followed by verdict reasons and an Anthropic probe line when applicable. Progress goes to stderr.
+`results.md` is written to the output directory and printed to stdout. Its header records the UTC timestamp, binary path, settings, on-mode experiment environment, and sandbox status. Per-alias tables show turns, max turns hit, compactions, rebases, plain fallbacks, maximum segments, cached tokens, cost proxy per turn, and continuity, followed by verdict reasons and an Anthropic probe line when applicable. Progress goes to stderr.
 
 `raw.json` contains run records and settings. Per-run stdout, stderr, session log, and compaction log copies are under `<out>/<alias>/` when available. The report includes the on-mode flag and only limit variables set in the environment.
 
-Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL` or `PASS`. An invalid on run or invalid recall yields `INVALID`. After validity and comparability checks, an informational alias gets no pass or fail. Otherwise `FAIL` means on continuity is below off by more than the tolerance, or, when cache is checked, on cost per turn exceeds off by more than the tolerance. Missing cache reporting or a failed Anthropic probe gives `no cache verdict`; cost is not judged.
+Verdict precedence is `INVALID`, `INCOMPARABLE`, `INFORMATIONAL`, then `FAIL` or `PASS`. A failed or invalid run, or invalid recall, on either side yields `INVALID`. After validity and comparability checks, an informational alias gets no pass or fail. Otherwise `FAIL` means on continuity is below off by more than the tolerance, or, when cache is checked, on cost per turn exceeds off by more than the tolerance. Missing cache reporting or a failed Anthropic probe gives `no cache verdict`; cost is not judged.
 
 ## Provider notes
 
 Mark aliases using Anthropic cache accounting with `--anthropic-alias`; all other aliases use the other cost formula. The probe tests the actual route rather than assuming cache support. Use `--informational-alias` for `claude_subscription`: the Claude CLI manages the session and its caching, so its results should not be judged as a pass or fail.
 
-Setup guidance from the prototype's provider research (confirm details with your provider):
+Provider setup guidance (confirm details with your provider):
 
 - Anthropic route: define a provider with `type: anthropic`, `base_url: https://opencode.ai/inference/go/anthropic/v1`, the OpenCode Go key via `api_key_env`, and an `X-Opencode-Session` header. Add an `Authorization: Bearer` header only if the route rejects `x-api-key`. Pass the alias with `--anthropic-alias`.
 - OpenCode Zen pay-as-you-go is the fallback Anthropic route if the Go route does not honour `cache_control` (the probe reports this).
@@ -108,4 +108,4 @@ node --test scripts/compaction-bench_test.mjs
 make test-scripts
 ```
 
-The bench tests use a fake runner and do not make live provider calls.
+The bench tests use a fake runner plus local `node` subprocesses; they do not make live provider calls.
