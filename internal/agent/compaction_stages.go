@@ -332,22 +332,7 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	if !outcome.Applied || outcome.RequestBlock == "" || outcome.RequestBlock == output.RequestBlockNone || outcome.RequestBlock == output.RequestBlockDropped {
 		return CompactionOutcome{}, false
 	}
-	// A segmented segment keeps immutable bytes; a plain fallback must keep its
-	// ordinary summary even when dropping the block empties its mutable tail.
-	var state RunState
-	var summaryText string
-	var dropped bool
-	switch {
-	case outcome.segmentDecision == nil:
-		state, summaryText, dropped = dropRequestBlockState(outcome.State)
-	case outcome.segmentDecision.Plain:
-		state, summaryText, dropped = dropPlainSegmentRequestBlock(outcome.State, outcome.SummaryText)
-	default:
-		state, summaryText, dropped = dropTailRequestBlockState(outcome.State)
-		if body, _, ok := SplitRequestBlock(outcome.SummaryText); ok {
-			summaryText = body
-		}
-	}
+	state, summaryText, dropped := dropOutcomeRequestBlock(outcome)
 	if !dropped {
 		return CompactionOutcome{}, false
 	}
@@ -361,6 +346,25 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	outcome.RequestBlock = output.RequestBlockDropped
 	outcome.RequestBlockBytes = 0
 	return outcome, true
+}
+
+// dropOutcomeRequestBlock rewrites the adopted outcome's stored request block
+// out of the latest generation and reports the summary text to show. A segmented
+// segment keeps immutable bytes; a plain fallback must keep its ordinary summary
+// even when dropping the block empties its mutable tail.
+func dropOutcomeRequestBlock(outcome CompactionOutcome) (RunState, string, bool) {
+	switch {
+	case outcome.segmentDecision == nil:
+		return dropRequestBlockState(outcome.State)
+	case outcome.segmentDecision.Plain:
+		return dropPlainSegmentRequestBlock(outcome.State, outcome.SummaryText)
+	default:
+		state, summaryText, dropped := dropTailRequestBlockState(outcome.State)
+		if body, _, ok := SplitRequestBlock(outcome.SummaryText); ok {
+			summaryText = body
+		}
+		return state, summaryText, dropped
+	}
 }
 
 // compactionStageRetention strips skill blocks and elides old tool output in the

@@ -166,18 +166,13 @@ func buildSummarizedCompactionState(state RunState, summaryText string, retained
 	return nextState
 }
 
+// buildCompactionRequestWithMode builds a compaction request without the segment
+// append instruction. Tests drive the builder through it and name the mode
+// explicitly, so the request shape they pin stays readable at each call site.
+//
+//nolint:unparam // mode is fixed at normal today but names the instruction form at every test call site.
 func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
 	return buildCompactionRequest(ctx, req, state, candidate, mode, maxTokens, false, steering)
-}
-
-// buildSegmentAppendRequest builds the summarizer request of an append. The
-// projected conversation is the same one a main request replays, so the shared
-// prefix keeps its cache hit, and only the final instruction asks for the span
-// after the last segment instead of a full handoff summary. mode is accepted so
-// it is interchangeable with buildCompactionRequestWithMode; an append is always
-// normal mode, because emergency, retry and fallback stages rebase.
-func buildSegmentAppendRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, _ prompt.CompactionMode, maxTokens int, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
-	return buildCompactionRequest(ctx, req, state, candidate, prompt.CompactionModeNormal, maxTokens, true, steering)
 }
 
 // buildCompactionRequest builds a compaction request with either the ordinary
@@ -240,34 +235,38 @@ func buildCompactionRequest(ctx context.Context, req RunRequest, state RunState,
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn, attempt int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget, blocks []prompt.ContextBlock) (provider.ChatResponse, error) {
-	var logger *CompactionLogger
-	if req.CompactionLogPath != "" {
-		var err error
-		logger, err = NewCompactionLogger(req.CompactionLogPath)
-		if err != nil {
-			slog.Warn("compaction logger unavailable", "path", req.CompactionLogPath, "error", err)
-		} else {
-			if err := logger.LogRequest(chatRequest, attempt); err != nil {
-				slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", err)
-			}
-			defer func() {
-				if err := logger.Close(); err != nil {
-					slog.Warn("compaction logger close failed", "path", req.CompactionLogPath, "error", err)
-				}
-			}()
-		}
-	}
 	stats := requestCacheStats{}
 	opts := chatExecOptions{}
 	if req.Diagnostics.Enabled(diagnostics.KindCache) {
 		stats = computeRequestCacheStats(req, chatRequest.Messages)
 		opts.onSend = wireCacheSendHook(ctx, req, &stats)
 	}
-	response, _, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
-	if logger != nil {
-		if logErr := logger.LogResponse(response); logErr != nil {
-			slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)
+	var response provider.ChatResponse
+	var err error
+	//nolint:unparam // log failures warn inline against their own keys; the closure itself never fails.
+	call := func(logger *CompactionLogger) error {
+		if logger != nil {
+			if logErr := logger.LogRequest(chatRequest, attempt); logErr != nil {
+				slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", logErr)
+			}
 		}
+		response, _, err = executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
+		if logger != nil {
+			if logErr := logger.LogResponse(response); logErr != nil {
+				slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)
+			}
+		}
+		return nil
+	}
+	logged := false
+	if req.CompactionLogPath != "" {
+		withCompactionLogger(req.CompactionLogPath, "compaction", func(logger *CompactionLogger) error {
+			logged = true
+			return call(logger)
+		})
+	}
+	if !logged {
+		_ = call(nil) // the request runs even when the compaction log is unavailable
 	}
 	if err == nil {
 		recordModelUsage(req, response.Usage, usagestats.CallKindCompaction)

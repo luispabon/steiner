@@ -32,6 +32,8 @@ type segmentStateInput struct {
 	// Source is the span the new segment covers. Its non-summary messages
 	// become the segment's SourceMessageCount.
 	Source []Message
+	// Skills is the state's active skill blocks, computed once by the caller.
+	Skills []prompt.SkillBlock
 	// Summary is the summarizer body, before header, history note and request
 	// block handling.
 	Summary string
@@ -64,13 +66,14 @@ func segmentRetentionStart(fullMessages, retained []Message) (int, bool) {
 // segmentAppendSourceCount returns the number of messages the next segment
 // would summarize in the append span messages[scan.End:retentionStart]. It
 // counts the way buildSegmentCompactionState does, so a span holding only the
-// active skill replay counts zero and the decision rebases as empty-span. It
-// reports false when the boundary does not line up with the scanned slice.
-func segmentAppendSourceCount(state RunState, messages []Message, scan segmentChainScan, retentionStart int) (int, bool) {
+// active skill replay counts zero and the decision rebases as empty-span. skills
+// is the state's active skill blocks, computed once by the caller. It reports
+// false when the boundary does not line up with the scanned slice.
+func segmentAppendSourceCount(skills []prompt.SkillBlock, messages []Message, scan segmentChainScan, retentionStart int) (int, bool) {
 	if retentionStart < scan.End || retentionStart > len(messages) {
 		return 0, false
 	}
-	return countSummarizedMessages(messages[scan.End:retentionStart], activeSkillBlocks(state)), true
+	return countSummarizedMessages(messages[scan.End:retentionStart], skills), true
 }
 
 // buildSegmentCompactionState returns the state of a segmented compaction: a
@@ -85,7 +88,7 @@ func segmentAppendSourceCount(state RunState, messages []Message, scan segmentCh
 // SourceMessageCount 0, and errSegmentAppendChainInvalid for an append whose
 // chain did not validate. Callers treat both as a reason to rebase or fail.
 func buildSegmentCompactionState(state RunState, in segmentStateInput) (RunState, error) {
-	count := countSummarizedMessages(in.Source, activeSkillBlocks(state))
+	count := countSummarizedMessages(in.Source, in.Skills)
 	if count == 0 {
 		return RunState{}, errSegmentSourceEmpty
 	}
@@ -112,7 +115,7 @@ func buildSegmentCompactionState(state RunState, in segmentStateInput) (RunState
 	}
 
 	retained := stripRetainedSkillBlocks(cloneMessages(in.Retained))
-	if replay, ok := replayedSkillMessage(activeSkillBlocks(state)); ok {
+	if replay, ok := replayedSkillMessage(in.Skills); ok {
 		retained = append([]Message{replay}, retained...)
 	}
 
@@ -126,12 +129,11 @@ func buildSegmentCompactionState(state RunState, in segmentStateInput) (RunState
 // without its latest-request trailer and history notes, trimmed. Stale notes
 // and blocks belong to the regenerated tail, never to an immutable segment.
 func segmentBody(summary string) string {
-	// Neutralize header-like text before parsing, so a summarizer reply that
-	// quotes a trailer-shaped block keeps every byte of its text and never stores
-	// a detectable request block.
-	body := strings.ReplaceAll(summary, requestBlockMarker, requestBlockSanitizedMarker)
-	body, _, _ = SplitRequestBlock(body)
-	return strings.TrimSpace(StripHistoryNotes(body))
+	// withRequestBlock with no request neutralizes header-like text, so a
+	// summarizer reply that quotes a trailer-shaped block keeps every byte of its
+	// text and never stores a detectable request block. Nothing parses after that
+	// sanitizing, because no header prefix survives it.
+	return strings.TrimSpace(StripHistoryNotes(withRequestBlock(summary, "")))
 }
 
 // segmentStageInput carries what one compaction stage needs to decide and
@@ -145,6 +147,8 @@ type segmentStageInput struct {
 	Source []Message
 	// Retained is the selected retained tail, a suffix of Full.
 	Retained []Message
+	// Skills is the state's active skill blocks, computed once by the caller.
+	Skills []prompt.SkillBlock
 	// StrippedView reports a candidate view without the summary prefix.
 	StrippedView bool
 	Mode         prompt.CompactionMode
@@ -179,6 +183,47 @@ type segmentStage struct {
 	Recall []Message
 }
 
+// segmentPlanInput carries what prepareSegmentPlan needs beyond ctx, req and
+// state.
+type segmentPlanInput struct {
+	Candidate ConversationCandidate
+	// RetainedFit is the fit of the selected retained tail.
+	RetainedFit prompt.RequestTokenBudget
+	// Skills is the state's active skill blocks, computed once by the caller.
+	Skills []prompt.SkillBlock
+	Params summarizeCompactionStageParams
+	// RequestBlock is the verbatim latest request the stage carries.
+	RequestBlock string
+	// Retry asks for the shape a summarizer retry adopts.
+	Retry bool
+}
+
+// segmentPlanPrep is a prepared segmented stage: the shape it decided, the
+// params after that shape, the plan built from them and its fit verdict.
+type segmentPlanPrep struct {
+	Segment *segmentStage
+	Params  summarizeCompactionStageParams
+	Plan    compactionExecutionPlan
+	OK      bool
+}
+
+// prepareSegmentPlan decides the segmented shape of a stage and builds its
+// execution plan. A stage and its summarizer retry differ only in the retry
+// flag, so both adopt the same shape rules and request.
+func prepareSegmentPlan(ctx context.Context, req RunRequest, state RunState, in segmentPlanInput) (segmentPlanPrep, error) {
+	segment, err := segmentStageFor(ctx, req, state, in.Candidate, in.RetainedFit, in.Skills, in.Params, in.RequestBlock, in.Retry)
+	if err != nil {
+		return segmentPlanPrep{}, err
+	}
+	params := in.Params
+	applySegmentStage(&params, segment)
+	plan, ok, err := compactionStagePlan(ctx, req, state, in.Candidate, params)
+	if err != nil {
+		return segmentPlanPrep{}, err
+	}
+	return segmentPlanPrep{Segment: segment, Params: params, Plan: plan, OK: ok}, nil
+}
+
 // buildSegmentRetryPlan rebuilds a stage plan for a summarizer retry, adopting
 // the segmented shape that retry decides.
 func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, params summarizeCompactionStageParams, requestBlock string) (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
@@ -186,22 +231,21 @@ func buildSegmentRetryPlan(ctx context.Context, req RunRequest, state RunState, 
 	if err != nil {
 		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
 	}
-	segment, err := segmentStageFor(ctx, req, state, candidate, retainedFit, params, requestBlock, true)
+	prep, err := prepareSegmentPlan(ctx, req, state, segmentPlanInput{
+		Candidate:    candidate,
+		RetainedFit:  retainedFit,
+		Skills:       activeSkillBlocks(state),
+		Params:       params,
+		RequestBlock: requestBlock,
+		Retry:        true,
+	})
 	if err != nil {
 		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
 	}
-	effective := params
-	// applySegmentStage sets the retry plan's source and clamped tail only; the
-	// request block is re-derived when the stage adopts these params.
-	applySegmentStage(req, &effective, segment, "", "")
-	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, effective)
-	if err != nil {
-		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, err
-	}
-	if !ok {
+	if !prep.OK {
 		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, errCompactionFallbackNotFit
 	}
-	return plan, segment, effective, nil
+	return prep.Plan, prep.Segment, prep.Params, nil
 }
 
 // newSegmentStage decides the segmented shape of one stage. It scans the latest
@@ -220,7 +264,7 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 	appendCount := 0
 	projected := 0
 	if mapped {
-		appendCount, _ = segmentAppendSourceCount(state, in.Full, scan, retentionStart)
+		appendCount, _ = segmentAppendSourceCount(in.Skills, in.Full, scan, retentionStart)
 		projected, err = segmentProjectedPostTokens(ctx, req, state, scan, in.Retained, in.RequestBlock, in.MaxTokens)
 		if err != nil {
 			return segmentStage{}, err
@@ -274,7 +318,7 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 			stage.ClampRetained = true
 		}
 	}
-	if stage.Decision.Rebase && countSummarizedMessages(stage.Source, activeSkillBlocks(state)) == 0 {
+	if stage.Decision.Rebase && countSummarizedMessages(stage.Source, in.Skills) == 0 {
 		stage.Decision = segmentPlainDecision(decision, segmentReasonEmptySource)
 	}
 	stage.Recall = stripRequestBlocks(stage.Source)
@@ -345,55 +389,11 @@ func segmentTailPlaceholder(scan segmentChainScan, requestBlock string) string {
 	return withRequestBlock(note, requestBlock)
 }
 
-// segmentNoteText joins a summary body and its history note, omitting either
-// part when empty. The plain fallback copies withHistoryNote exactly instead, so
-// it keeps today's bytes.
-func segmentNoteText(body, note string) string {
-	switch {
-	case note == "":
-		return body
-	case body == "":
-		return note
-	default:
-		return body + "\n\n" + note
-	}
-}
-
 // dropTailRequestBlockState rewrites the latest generation's mutable tail to
 // its body without the latest-request trailer, reporting the rewritten text.
 // Segments keep their bytes; only a summary with no Segment metadata changes.
 // A tail that held nothing but the block is removed, the way
 // buildSegmentCompactionState omits an empty tail instead of storing one.
 func dropTailRequestBlockState(state RunState) (RunState, string, bool) {
-	next := state.Clone()
-	if len(next.Lineage.Generations) == 0 {
-		return state, "", false
-	}
-	latest := &next.Lineage.Generations[len(next.Lineage.Generations)-1]
-	summaryText := ""
-	dropped := false
-	prefix := make([]Message, 0, len(latest.SummaryPrefix))
-	for _, message := range latest.SummaryPrefix {
-		if message.Role != MessageRoleSummary || message.Segment != nil {
-			prefix = append(prefix, message)
-			continue
-		}
-		if body, _, ok := SplitRequestBlock(message.Content); ok {
-			message.Content = body
-			dropped = true
-			if body != "" {
-				summaryText = body
-			}
-		}
-		if message.Content == "" {
-			continue
-		}
-		prefix = append(prefix, message)
-	}
-	if !dropped {
-		return state, "", false
-	}
-	latest.SummaryPrefix = prefix
-	next.Conversation = next.Lineage.FullMessages()
-	return next, summaryText, true
+	return rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{empty: dropEmpty})
 }

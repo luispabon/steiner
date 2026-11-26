@@ -220,33 +220,112 @@ func stripRequestBlocks(messages []Message) []Message {
 	return out
 }
 
-// dropRequestBlockState rewrites the latest generation's plain summary messages
-// to their body without the latest-request trailer, reporting the rewritten
-// summary text. Segments are immutable, so they keep their bytes, matching
-// dropTailRequestBlockState.
-func dropRequestBlockState(state RunState) (RunState, string, bool) {
+// emptyRewrite selects what a summary message whose rewritten body is empty does
+// in rewriteLatestSummaryPrefix.
+type emptyRewrite int
+
+const (
+	// keepEmpty keeps the message and reports the empty body.
+	keepEmpty emptyRewrite = iota
+	// dropEmpty removes a message left without text, so no blank summary is
+	// stored.
+	dropEmpty
+	// keepEmptyQuiet keeps the message but reports only a non-empty body.
+	keepEmptyQuiet
+)
+
+// summaryPrefixRewrite selects how rewriteLatestSummaryPrefix edits the latest
+// generation's summary prefix.
+type summaryPrefixRewrite struct {
+	// backward rewrites only the last matching summary message.
+	backward bool
+	// empty selects what a rewritten-to-empty body does.
+	empty emptyRewrite
+}
+
+// rewriteLatestSummaryPrefix removes the latest-request trailer from the latest
+// generation's summary messages and returns the state, the rewritten summary
+// text and whether anything changed. A segment is immutable, so it keeps its
+// bytes; only a summary without segment metadata loses a trailer. The options
+// choose the search direction and what a body that rewrites to empty does.
+func rewriteLatestSummaryPrefix(state RunState, opts summaryPrefixRewrite) (RunState, string, bool) {
 	next := state.Clone()
 	if len(next.Lineage.Generations) == 0 {
 		return state, "", false
 	}
 	latest := &next.Lineage.Generations[len(next.Lineage.Generations)-1]
-	summaryText := ""
-	dropped := false
-	for i := range latest.SummaryPrefix {
-		message := &latest.SummaryPrefix[i]
-		// Segments are never rewritten; only a plain summary loses its trailer.
-		if message.Role != MessageRoleSummary || message.Segment != nil {
-			continue
-		}
-		if body, _, ok := SplitRequestBlock(message.Content); ok {
-			message.Content = body
-			summaryText = body
-			dropped = true
-		}
-	}
-	if !dropped {
+	matches := summaryPrefixBlockMatches(latest.SummaryPrefix, opts.backward)
+	if len(matches) == 0 {
 		return state, "", false
+	}
+	summaryText := rewriteSummaryPrefixBlocks(latest.SummaryPrefix, matches, opts.empty)
+	if opts.empty == dropEmpty {
+		latest.SummaryPrefix = withoutEmptySummaries(latest.SummaryPrefix)
 	}
 	next.Conversation = next.Lineage.FullMessages()
 	return next, summaryText, true
+}
+
+// summaryPrefixBlockMatches returns the indexes of summary messages without
+// segment metadata that carry a latest-request trailer, keeping only the last
+// one when backward is set.
+func summaryPrefixBlockMatches(prefix []Message, backward bool) []int {
+	matches := make([]int, 0, len(prefix))
+	for i, message := range prefix {
+		if message.Role != MessageRoleSummary || message.Segment != nil {
+			continue
+		}
+		if _, _, ok := SplitRequestBlock(message.Content); ok {
+			matches = append(matches, i)
+		}
+	}
+	if backward && len(matches) > 0 {
+		return matches[len(matches)-1:]
+	}
+	return matches
+}
+
+// rewriteSummaryPrefixBlocks removes the trailer from each matching summary and
+// returns the text the rewrite reports, following empty for an empty body.
+func rewriteSummaryPrefixBlocks(prefix []Message, matches []int, empty emptyRewrite) string {
+	summaryText := ""
+	for _, i := range matches {
+		body, _, _ := SplitRequestBlock(prefix[i].Content)
+		prefix[i].Content = body
+		switch empty {
+		case dropEmpty:
+			if body == "" {
+				continue
+			}
+			summaryText = body
+		case keepEmptyQuiet:
+			if body != "" {
+				summaryText = body
+			}
+		default:
+			summaryText = body
+		}
+	}
+	return summaryText
+}
+
+// withoutEmptySummaries drops summary messages without segment metadata that
+// hold no text, so an emptied mutable tail is omitted instead of stored blank.
+func withoutEmptySummaries(prefix []Message) []Message {
+	kept := make([]Message, 0, len(prefix))
+	for _, message := range prefix {
+		if message.Role == MessageRoleSummary && message.Segment == nil && message.Content == "" {
+			continue
+		}
+		kept = append(kept, message)
+	}
+	return kept
+}
+
+// dropRequestBlockState rewrites the latest generation's plain summary messages
+// to their body without the latest-request trailer, reporting the rewritten
+// summary text. Segments are immutable, so they keep their bytes, matching
+// dropTailRequestBlockState.
+func dropRequestBlockState(state RunState) (RunState, string, bool) {
+	return rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{empty: keepEmpty})
 }

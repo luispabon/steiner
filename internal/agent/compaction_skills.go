@@ -14,10 +14,7 @@ const MessageSourceSkillReplay = "skill_replay"
 // generation. The scan covers the full generation, so it sees early activation
 // messages alongside any late switch retained in the tail.
 func activeSkillBlocks(state RunState) []prompt.SkillBlock {
-	scan := state.Lineage.FullMessages()
-	if len(scan) == 0 {
-		scan = state.Conversation
-	}
+	scan := conversationForProjection(state)
 	contents := make([]string, 0, len(scan))
 	for _, msg := range scan {
 		if msg.Role == MessageRoleUser {

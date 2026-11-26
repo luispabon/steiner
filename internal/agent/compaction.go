@@ -398,13 +398,11 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
 	summary := compactionSummaryRequest(req, params.summaryReq)
-	buildRequest := buildCompactionRequestWithMode
-	if params.segment != nil && !params.segment.Decision.Rebase {
-		// An append keeps the same projected conversation and asks only for the
-		// span after the last segment.
-		buildRequest = buildSegmentAppendRequest
-	}
-	request, blocks, promptText, err := buildRequest(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, params.steering)
+	// An append keeps the same projected conversation and asks only for the span
+	// after the last segment. An append is always normal mode, because emergency,
+	// retry and fallback stages rebase.
+	appendInstruction := params.segment != nil && !params.segment.Decision.Rebase
+	request, blocks, promptText, err := buildCompactionRequest(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, appendInstruction, params.steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}

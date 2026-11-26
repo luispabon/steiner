@@ -36,20 +36,27 @@ func StripHistoryNotes(summary string) string {
 	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
-// withHistoryNote strips stale history notes from summaryText and appends the
-// note for source. It returns the sources to append once the outcome is
-// adopted. A Note error emits a warning and leaves the summary without a note.
-func withHistoryNote(req RunRequest, summaryText string, source []Message) (string, [][]Message) {
-	summaryText = StripHistoryNotes(summaryText)
+// historyNoteText returns the note for source and the sources to append once the
+// outcome is adopted. A Note error emits a warning and reports no note.
+func historyNoteText(req RunRequest, source []Message) (string, [][]Message) {
 	note, err := req.HistoryArchive.Note(source)
 	if err != nil {
 		emitEvent(req.Events, historyArchiveWarning(err))
-		return summaryText, nil
+		return "", nil
 	}
 	if note == "" {
-		return summaryText, nil
+		return "", nil
 	}
-	return summaryText + "\n\n" + note, [][]Message{source}
+	return note, [][]Message{source}
+}
+
+// joinHistoryNote places note after a blank line that follows body. An empty
+// note leaves body alone; callers pass a body whose stale notes are stripped.
+func joinHistoryNote(body, note string) string {
+	if note == "" {
+		return body
+	}
+	return body + "\n\n" + note
 }
 
 // commitHistoryArchive appends each pending source to the archive, in order. It

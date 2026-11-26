@@ -115,30 +115,10 @@ func (l *CompactionLogger) LogSegmentDecision(d segmentDecision) error {
 	return err
 }
 
-// logSegmentDecisionFile appends one adopted segmented compaction decision to
-// the compaction log at path. An empty path or no decision logs nothing.
-func logSegmentDecisionFile(path string, decision *segmentDecision) {
-	if path == "" || decision == nil {
-		return
-	}
-	logger, err := NewCompactionLogger(path)
-	if err != nil {
-		slog.Warn("compaction logger unavailable", "path", path, "error", err)
-		return
-	}
-	defer func() {
-		if err := logger.Close(); err != nil {
-			slog.Warn("compaction logger close failed", "path", path, "error", err)
-		}
-	}()
-	if err := logger.LogSegmentDecision(*decision); err != nil {
-		slog.Warn("compaction segment decision log failed", "path", path, "error", err)
-	}
-}
-
-// logCompactionStageSizes appends the sizes of an applied stage to the compaction
-// log at path. An empty path logs nothing.
-func logCompactionStageSizes(path string, stage output.ContextCompactionStage) {
+// withCompactionLogger opens the compaction log at path and runs fn with it. An
+// empty path skips fn. Open, write and close failures warn and are otherwise
+// ignored, because the log is best-effort: label names the write in the warning.
+func withCompactionLogger(path, label string, fn func(*CompactionLogger) error) {
 	if path == "" {
 		return
 	}
@@ -152,9 +132,28 @@ func logCompactionStageSizes(path string, stage output.ContextCompactionStage) {
 			slog.Warn("compaction logger close failed", "path", path, "error", err)
 		}
 	}()
-	if err := logger.LogSizes(stage); err != nil {
-		slog.Warn("compaction sizes log failed", "path", path, "error", err)
+	if err := fn(logger); err != nil {
+		slog.Warn("compaction "+label+" log failed", "path", path, "error", err)
 	}
+}
+
+// logSegmentDecisionFile appends one adopted segmented compaction decision to
+// the compaction log at path. An empty path or no decision logs nothing.
+func logSegmentDecisionFile(path string, decision *segmentDecision) {
+	if decision == nil {
+		return
+	}
+	withCompactionLogger(path, "segment decision", func(logger *CompactionLogger) error {
+		return logger.LogSegmentDecision(*decision)
+	})
+}
+
+// logCompactionStageSizes appends the sizes of an applied stage to the compaction
+// log at path. An empty path logs nothing.
+func logCompactionStageSizes(path string, stage output.ContextCompactionStage) {
+	withCompactionLogger(path, "sizes", func(logger *CompactionLogger) error {
+		return logger.LogSizes(stage)
+	})
 }
 
 // Close closes the underlying file.

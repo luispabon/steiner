@@ -269,9 +269,11 @@ func TestBuildSegmentCompactionStateReplaysSkills(t *testing.T) {
 		{Role: MessageRoleAssistant, Content: "span reply"},
 		{Role: MessageRoleUser, Content: prompt.PrependSkillBlocks([]string{activation}, "current request")},
 	}
-	next, err := buildSegmentCompactionState(stateFromMessages(full), segmentStateInput{
+	state := stateFromMessages(full)
+	next, err := buildSegmentCompactionState(state, segmentStateInput{
 		Scan:     scanSegmentChain(full),
 		Source:   full[1:3],
+		Skills:   activeSkillBlocks(state),
 		Summary:  "new facts",
 		Retained: full[3:],
 	})
@@ -351,7 +353,7 @@ func TestSegmentRetentionStartFromStrippedCandidate(t *testing.T) {
 	if !sameMessages(fullMessages[start:], retained) {
 		t.Fatal("mapped suffix does not match the retained messages")
 	}
-	if count, ok := segmentAppendSourceCount(stateFromMessages(fullMessages), fullMessages, scan, start); !ok || count == 0 {
+	if count, ok := segmentAppendSourceCount(activeSkillBlocks(stateFromMessages(fullMessages)), fullMessages, scan, start); !ok || count == 0 {
 		t.Fatalf("append source count = %d, %t, want a counted non-empty span", count, ok)
 	}
 
@@ -403,7 +405,7 @@ func TestSegmentAppendSourceCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := segmentAppendSourceCount(state, full, scan, tt.retentionStart)
+			got, ok := segmentAppendSourceCount(activeSkillBlocks(state), full, scan, tt.retentionStart)
 			if ok != tt.wantOK || got != tt.want {
 				t.Fatalf("segmentAppendSourceCount() = %d, %t, want %d, %t", got, ok, tt.want, tt.wantOK)
 			}
@@ -424,7 +426,7 @@ func TestSegmentAppendSourceCountSkipsReplayOnlySpan(t *testing.T) {
 		t.Fatalf("scan end = %d, want 1", scan.End)
 	}
 
-	count, ok := segmentAppendSourceCount(state, full, scan, 2)
+	count, ok := segmentAppendSourceCount(activeSkillBlocks(state), full, scan, 2)
 	if !ok || count != 0 {
 		t.Fatalf("replay-only span count = %d, %t, want 0, true", count, ok)
 	}
@@ -441,7 +443,7 @@ func TestSegmentAppendSourceCountSkipsReplayOnlySpan(t *testing.T) {
 		t.Fatalf("decision = %+v, want a rebase with reason empty-span", decision)
 	}
 
-	count, ok = segmentAppendSourceCount(state, full, scan, len(full))
+	count, ok = segmentAppendSourceCount(activeSkillBlocks(state), full, scan, len(full))
 	if !ok || count != 1 {
 		t.Fatalf("span with the request count = %d, %t, want 1, true", count, ok)
 	}
@@ -1061,7 +1063,7 @@ func TestSegmentEmptySpanImpliesEmptySource(t *testing.T) {
 			state := stateFromMessages(full)
 			scan := scanSegmentChain(full)
 			for start := scan.End; start <= len(full); start++ {
-				span, ok := segmentAppendSourceCount(state, full, scan, start)
+				span, ok := segmentAppendSourceCount(activeSkillBlocks(state), full, scan, start)
 				if !ok {
 					t.Fatalf("segmentAppendSourceCount(%d) not ok", start)
 				}

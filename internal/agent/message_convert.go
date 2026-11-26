@@ -224,12 +224,7 @@ func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.Assembl
 }
 
 func assemblyOptionsWith(base prompt.AssemblyOptions, state RunState, convert func([]Message) []provider.Message) prompt.AssemblyOptions {
-	conversation := state.Lineage.FullMessages()
-	if len(conversation) == 0 {
-		conversation = state.Conversation
-	}
-
-	base.Conversation = convert(conversation)
+	base.Conversation = convert(conversationForProjection(state))
 	return base
 }
 
