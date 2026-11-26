@@ -148,8 +148,8 @@ func canonicalMessage(message provider.Message) string {
 	if err == nil {
 		return string(data)
 	}
-	// The %#v fallback would otherwise print json-ignored fields, so a marker
-	// such as CacheBoundary would change the hash of bytes no provider sees.
+	// The %#v fallback would print json:"-" fields, so clear the transport
+	// hint: the hash must cover only bytes a provider serializes.
 	message.CacheBoundary = false
 	return fmt.Sprintf("json-marshal-error:%v;message:%T:%#v", err, message, message)
 }

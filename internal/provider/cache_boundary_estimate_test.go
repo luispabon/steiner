@@ -9,10 +9,7 @@ import (
 // message, the projection of a flag-off run.
 func clearCacheBoundary(request ChatRequest) ChatRequest {
 	unmarked := request
-	unmarked.Messages = append([]Message(nil), request.Messages...)
-	for i := range unmarked.Messages {
-		unmarked.Messages[i].CacheBoundary = false
-	}
+	unmarked.Messages = withoutCacheBoundary(request.Messages)
 	return unmarked
 }
 
