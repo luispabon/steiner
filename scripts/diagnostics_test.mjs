@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -652,10 +652,18 @@ test("peak: --top caps the group listing, not the run summary", () => {
 	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
 });
 
-test("peak: --top needs a value and no files is a usage error", () => {
+test("peak: --top must be a non-negative integer and no files is a usage error", () => {
 	assert.throws(
 		() => execFileSync("node", [SCRIPT, "peak", "--top", "--json"], { encoding: "utf8", stdio: "pipe" }),
-		/--top requires a value/,
+		/--top requires a non-negative integer/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, "--top", "abc"], { encoding: "utf8", stdio: "pipe" }),
+		/--top requires a non-negative integer/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, "--top", "-1"], { encoding: "utf8", stdio: "pipe" }),
+		/--top requires a non-negative integer/,
 	);
 	assert.throws(
 		() => execFileSync("node", [SCRIPT, "peak", "--json"], { encoding: "utf8", stdio: "pipe" }),
@@ -670,13 +678,37 @@ test("peak: --top needs a value and no files is a usage error", () => {
 test("peak: a nonexistent or non-file input is rejected, not read as empty", () => {
 	assert.throws(
 		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, join(PEAK_FIXTURES, "missing.jsonl")], { encoding: "utf8", stdio: "pipe" }),
-		(err) => err.stderr.includes("peak mode: input is not a file:") && err.stderr.includes("missing.jsonl"),
+		(err) => err.stderr.includes("peak mode: no such file:") && err.stderr.includes("missing.jsonl"),
 	);
 	// A directory exists but is not a readable input.
 	assert.throws(
 		() => execFileSync("node", [SCRIPT, "peak", PEAK_FIXTURES], { encoding: "utf8", stdio: "pipe" }),
-		(err) => err.stderr.includes("peak mode: input is not a file:") && err.stderr.includes(PEAK_FIXTURES),
+		(err) => err.stderr.includes("peak mode: not a regular file:") && err.stderr.includes(PEAK_FIXTURES),
 	);
+});
+
+test("peak: an unreadable input is a clean error, not a stack trace", (t) => {
+	if (process.getuid?.() === 0) {
+		t.skip("root ignores mode 0o000");
+		return;
+	}
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-unreadable-"));
+	const file = join(dir, "unreadable.jsonl");
+	try {
+		writeFileSync(file, JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 1000 }, run_id: "run-1" }) + "\n");
+		chmodSync(file, 0o000);
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8", stdio: "pipe" }),
+			(err) =>
+				err.stderr.includes("peak mode: cannot read") &&
+				err.stderr.includes("unreadable.jsonl") &&
+				err.stderr.includes("EACCES") &&
+				!err.stderr.includes("    at "),
+		);
+	} finally {
+		chmodSync(file, 0o600);
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("peak: unsupported flags are rejected rather than silently ignored", () => {
@@ -704,6 +736,7 @@ test("peak: the text tables print the summary and per-group peak", () => {
 	const out = execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES], { encoding: "utf8" });
 	assert.match(out, /peak main-agent threshold counts/);
 	assert.match(out, /main peak >= 200k\s+3\s+75\.0%/);
+	assert.match(out, /excluded unattributed observations\s+1\s+-/);
 	assert.match(out, /peak prompt tokens by run\/agent \(3 files\)/);
 	assert.match(out, /run-new\/main\s+2\s+1000000/);
 	assert.match(out, /peak unattributed observations \(no run_id\)/);

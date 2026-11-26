@@ -31,8 +31,9 @@
 // compaction calls too, and its lines carry no call kind, so a telemetry
 // compaction call looks like a parent call; session-log model_call_finished
 // events cover turn calls only, so the two sources measure different peaks for
-// the same run. peak accepts --json and --top only, and a missing input file
-// or any other flag is an error.
+// the same run. peak accepts --json and --top <n> only (a non-negative
+// integer), and a missing or unreadable input file or any other flag is an
+// error.
 //
 // Flags:
 //   --dir <path>          diagnostics directory (default: $XDG_STATE_HOME/steiner/diagnostics,
@@ -898,7 +899,7 @@ function peakFiles(args) {
 		const arg = args[i];
 		if (arg === "--json") continue;
 		if (PEAK_FLAGS_WITH_VALUE.has(arg)) {
-			if (args[i + 1] === undefined || args[i + 1].startsWith("-")) return { error: `${arg} requires a value` };
+			if (!/^\d+$/.test(args[i + 1] ?? "")) return { error: `${arg} requires a non-negative integer` };
 			i++;
 			continue;
 		}
@@ -906,6 +907,29 @@ function peakFiles(args) {
 		files.push(arg);
 	}
 	return { files };
+}
+
+// peakInput checks every input is a readable file and reads its lines. Read
+// and stat failures become errors instead of stack traces: a bad path and an
+// unreadable one both mean the input was not usable.
+function peakInput(files) {
+	const lines = [];
+	for (const file of files) {
+		let stats;
+		try {
+			stats = statSync(file, { throwIfNoEntry: false });
+		} catch (err) {
+			return { error: `cannot stat ${file}: ${err.code ?? err.message}` };
+		}
+		if (!stats) return { error: `no such file: ${file}` };
+		if (!stats.isFile()) return { error: `not a regular file: ${file}` };
+		try {
+			lines.push(...readJsonl(file));
+		} catch (err) {
+			return { error: `cannot read ${file}: ${err.code ?? err.message}` };
+		}
+	}
+	return { lines };
 }
 
 // peakObservation converts one input line to {runID, agent, tokens}, or null
@@ -946,9 +970,11 @@ const peakRow = (g) => ({ key: `${g.runID || "(unattributed)"}/${g.agent}`, n: g
 // peakSummary counts attributed runs and the runs whose main-agent peak
 // reaches each bucket. A run whose only measured calls are sub-agent ones
 // still counts as a run, but contributes no main-agent peak. Observations
-// without a run id are not runs and stay out of every count here.
+// without a run id are not runs: they are counted separately, reported as a
+// summary row and as unattributed rows, and stay out of every bucket.
 function peakSummary(groups) {
 	const attributed = groups.filter((g) => g.runID !== "");
+	const unattributedObservations = groups.filter((g) => g.runID === "").reduce((n, g) => n + g.calls, 0);
 	const runs = new Set(attributed.map((g) => g.runID));
 	const mainPeaks = new Map();
 	for (const g of attributed) {
@@ -962,25 +988,25 @@ function peakSummary(groups) {
 		atLeast[String(bucket.min)] = count;
 		rows.push({ key: `main peak ${bucket.label}`, n: count, metrics: { share: runs.size ? count / runs.size : 0 } });
 	}
-	return { runs: runs.size, atLeast, rows };
+	// No share: these observations are not part of the run denominator.
+	rows.push({ key: "excluded unattributed observations", n: unattributedObservations, metrics: { share: null } });
+	return { runs: runs.size, atLeast, unattributedObservations, rows };
 }
 
 const PEAK_COLUMNS = [{ name: "peak_prompt_tokens", value: (r) => r.metrics.peakPromptTokens, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) }];
 
-const PEAK_SHARE_COLUMNS = [{ name: "share", value: (r) => r.metrics.share, fmt: (v) => (v * 100).toFixed(1) + "%", fmtDelta: (d) => (d * 100).toFixed(1) + "pp" }];
+const PEAK_SHARE_COLUMNS = [{ name: "share", value: (r) => r.metrics.share, fmt: (v) => (v === null ? "-" : (v * 100).toFixed(1) + "%"), fmtDelta: (d) => (d * 100).toFixed(1) + "pp" }];
 
-function runPeak(files) {
-	const observations = files.flatMap((file) => readJsonl(file).map(peakObservation)).filter(Boolean);
+function runPeak(files, lines) {
+	const observations = lines.map(peakObservation).filter(Boolean);
 	const groups = peakGroups(observations);
 	const summary = peakSummary(groups);
 	const attributed = capTop(groups.filter((g) => g.runID !== "").map(peakRow));
-	const unattributedGroups = groups.filter((g) => g.runID === "");
-	const unattributed = capTop(unattributedGroups.map(peakRow));
-	const unattributedObservations = unattributedGroups.reduce((n, g) => n + g.calls, 0);
+	const unattributed = capTop(groups.filter((g) => g.runID === "").map(peakRow));
 	if (AS_JSON) {
 		console.log(
 			JSON.stringify(
-				{ files: files.length, runs: summary.runs, main_peak_at_least: summary.atLeast, unattributed_observations: unattributedObservations, by_run_agent: attributed, unattributed },
+				{ files: files.length, runs: summary.runs, main_peak_at_least: summary.atLeast, unattributed_observations: summary.unattributedObservations, by_run_agent: attributed, unattributed },
 				null,
 				1,
 			),
@@ -1090,12 +1116,12 @@ function main() {
 			console.error("       records compaction calls that session logs omit, so their peaks differ.");
 			process.exit(1);
 		}
-		const notFiles = files.filter((file) => !statSync(file, { throwIfNoEntry: false })?.isFile());
-		if (notFiles.length > 0) {
-			console.error(`peak mode: input is not a file: ${notFiles.join(", ")}`);
+		const input = peakInput(files);
+		if (input.error) {
+			console.error(`peak mode: ${input.error}`);
 			process.exit(1);
 		}
-		runPeak(files);
+		runPeak(files, input.lines);
 		return;
 	}
 
