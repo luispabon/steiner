@@ -1,6 +1,7 @@
 .opencode
 .claude/
 .codex
+.env
 bin
 *.log
 test_config.yaml

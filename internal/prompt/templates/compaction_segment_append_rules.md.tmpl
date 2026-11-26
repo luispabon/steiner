@@ -1,0 +1,28 @@
+Earlier summary messages that contain a "Segment N." header are immutable segments. Steiner wraps them in its own summary framing, so read the header inside the message. They are read-only records: reuse them as written, and do not repeat their facts. The last summary message that contains a "Segment N." header is the newest segment. The conversation after it, up to the retained recent turns, is the new span. Summarize only the new span.
+
+Ignore [steiner:history] lines and [steiner:latest-request ...] blocks. Steiner rebuilds them after this summary.
+
+Cover the new span with these labels, and omit a label when the new span has nothing for it:
+Task and Goal: progress on the user request, end state, success criteria, constraints, assumptions.
+Current Repository State: files changed, code structure, uncommitted changes, external services.
+Work Completed: what was implemented, commands run, tests executed, results, commits.
+Key Findings and Decisions: technical discoveries, design choices, tradeoffs, dependencies.
+Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.
+Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.
+Verification and Acceptance: commands that prove completion, expected outcomes, verification limits.
+User Preferences and Interaction Context: style, conventions, promises, things to avoid repeating.
+
+Rules:
+- Be factual and specific.
+- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions and decisions.
+- Do not repeat facts that an earlier segment already records.
+- Do not expose secrets. Refer by purpose only.
+- Do not include hidden reasoning. Summarize conclusions only.
+- Do not claim completion unless implemented and verified.
+- Reply with the summary body only. Do not write a Segment header; it is added for you.
+- Write for immediate continuation by coding agent.
+
+Supersession:
+- If a fact in an earlier segment is now wrong or superseded, end the reply with a "## Corrections" heading.
+- Under the heading, write one line per correction: "Segment K: <old fact> -> <new fact>", where K is the number in that segment's "Segment K." header.
+- Omit the "## Corrections" heading when nothing needs correcting.

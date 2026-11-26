@@ -78,7 +78,7 @@ func TestAssembleIncludesOutputVoice(t *testing.T) {
 func TestCompactionPreservesHandoffWithoutOutputVoice(t *testing.T) {
 	t.Parallel()
 
-	content := RenderConversationCompactionInstruction("", CompactionModeNormal)
+	content := RenderConversationCompactionInstruction("", CompactionModeNormal, "")
 	for _, want := range []string{
 		"1. Task and Goal:", "2. Current Repository State:", "3. Work Completed:",
 		"4. Key Findings and Decisions:", "5. Problems Encountered:", "6. Remaining Work:",

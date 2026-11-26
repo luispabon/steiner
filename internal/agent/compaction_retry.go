@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -30,10 +31,21 @@ const (
 	maxQuotedArgChars  = 120
 )
 
+// retryAdoption is the segmented shape and params a rebuilt retry plan adopts.
+// Both fields are set together, only when a retry rebuilt the plan.
+type retryAdoption struct {
+	segment *segmentStage
+	params  summarizeCompactionStageParams
+}
+
 // summaryCalls is the accumulated result of the summary calls of one stage.
 type summaryCalls struct {
 	// response is the reply whose text is the summary. It is set only on success.
 	response provider.ChatResponse
+	// plan is the effective plan of a successful retry, and adoption the
+	// segmented shape it adopted.
+	plan     *compactionExecutionPlan
+	adoption *retryAdoption
 	// usage and cacheReported sum every call of the stage, empty replies included.
 	usage         *provider.UsageStats
 	cacheReported int
@@ -47,13 +59,19 @@ type summaryCalls struct {
 	attempts []output.CompactionSummaryAttempt
 }
 
-// summarizeCompactionCalls runs the summary calls of one stage. The first call is
-// plan.request unchanged. A reply with no summary text is retried with tail-only
-// steering: the retry keeps the tools, params, cache key, history and (unless a
-// call retired it) the backend state, and only the final instruction changes. The
-// failed reply is never replayed. A fallback target gets no retry, so its empty
-// reply fails the stage and the operation reruns on main.
-func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool) (summaryCalls, error) {
+// retryPlanBuilder rebuilds a stage's plan after a failed reply. It reports the
+// plan, the segmented stage and the params the retry adopts; a nil builder keeps
+// the plan and retries the same request.
+type retryPlanBuilder func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error)
+
+// summarizeCompactionCallsWithRetryPlan runs the summary calls of one stage. The
+// first call is plan.request unchanged. A reply with no summary text is retried
+// with tail-only steering: the retry keeps the tools, params, cache key, history
+// and (unless a call retired it) the backend state, and only the final
+// instruction changes. The failed reply is never replayed. A fallback target
+// gets no retry, so its empty reply fails the stage and the operation reruns on
+// main.
+func summarizeCompactionCallsWithRetryPlan(ctx context.Context, summary RunRequest, turn int, plan compactionExecutionPlan, onFallback bool, builder retryPlanBuilder) (summaryCalls, error) {
 	maxAttempts := maxSummaryAttempts
 	if onFallback {
 		maxAttempts = 1
@@ -87,6 +105,7 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 				}
 			} else {
 				calls.response = response
+				calls.plan = &plan
 			}
 			// Only the ladder attempts belong in the note: the condense call is not one.
 			noteSummaryReply(summary.Events, turn, calls.attempts[:draftIndex+1], calls.response)
@@ -102,6 +121,11 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 			Final:     attempt+1 == maxAttempts,
 			Attempted: quoteAttemptedToolCalls(response.Message.ToolCalls),
 		}
+		if builder != nil {
+			if err := adoptRetryPlan(builder, attempt, &plan, &calls); err != nil {
+				return calls, err
+			}
+		}
 		request = retryCompactionRequest(plan.request, retry, calls.cleared)
 		fit, err := summary.ModelBudget.FitCompactionRequest(ctx, request)
 		if err != nil {
@@ -111,6 +135,23 @@ func summarizeCompactionCalls(ctx context.Context, summary RunRequest, turn int,
 			return calls, &compactionSummaryError{Reason: summaryFailRetryNoFit, Attempts: attempt, Details: calls.attempts}
 		}
 	}
+}
+
+// adoptRetryPlan replaces plan with the plan builder rebuilt and records the
+// segmented shape it adopts. A builder reporting no fitting plan maps to the
+// retry no-fit error.
+func adoptRetryPlan(builder retryPlanBuilder, attempt int, plan *compactionExecutionPlan, calls *summaryCalls) error {
+	retryPlan, segment, params, err := builder()
+	if errors.Is(err, errCompactionFallbackNotFit) {
+		return &compactionSummaryError{Reason: summaryFailRetryNoFit, Attempts: attempt, Details: calls.attempts}
+	}
+	if err != nil {
+		return err
+	}
+	*plan = retryPlan
+	calls.plan = plan
+	calls.adoption = &retryAdoption{segment: segment, params: params}
+	return nil
 }
 
 // emptySummaryReason returns why response has no summary text, or "" when it has

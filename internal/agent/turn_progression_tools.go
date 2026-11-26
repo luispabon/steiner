@@ -290,11 +290,7 @@ func (p *turnProgressor) finalizeCancelledTurn(ctx context.Context, state RunSta
 }
 
 func liveConversationSnapshot(state RunState) []provider.Message {
-	conversation := state.Lineage.FullMessages()
-	if len(conversation) == 0 {
-		conversation = state.Conversation
-	}
-	return ToReplaySafeProviderMessages(conversation)
+	return ToReplaySafeProviderMessages(conversationForProjection(state))
 }
 
 func (p *turnProgressor) finalizeToolTurn(_ context.Context, state RunState, _ int, _ provider.ChatResponse) turnOutcome {

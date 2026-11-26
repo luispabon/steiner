@@ -60,9 +60,9 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if !ok {
 		t.Fatal("selectCompactionCandidate() ok = false, want true")
 	}
-	firstReq, _, _, err := buildCompactionRequestWithMode(context.Background(), req, state, candidate, prompt.CompactionModeNormal, 64)
+	firstReq, _, _, err := buildCompactionRequest(context.Background(), req, state, candidate, prompt.CompactionModeNormal, 64, false, "")
 	if err != nil {
-		t.Fatalf("first buildCompactionRequestWithMode() error = %v", err)
+		t.Fatalf("first buildCompactionRequest() error = %v", err)
 	}
 	if strings.Contains(messagesText(firstReq.Messages), summaryText) {
 		t.Fatal("first compaction request contains a summary before one exists")
@@ -104,9 +104,9 @@ func TestCompactionSummaryUserRoleStableAcrossRequests(t *testing.T) {
 	if !ok {
 		t.Fatal("selectCompactionCandidate() after compaction ok = false, want true")
 	}
-	secondReq, _, _, err := buildCompactionRequestWithMode(context.Background(), req, outcome.State, nextCandidate, prompt.CompactionModeNormal, 64)
+	secondReq, _, _, err := buildCompactionRequest(context.Background(), req, outcome.State, nextCandidate, prompt.CompactionModeNormal, 64, false, "")
 	if err != nil {
-		t.Fatalf("second buildCompactionRequestWithMode() error = %v", err)
+		t.Fatalf("second buildCompactionRequest() error = %v", err)
 	}
 
 	prefix := secondReq.Messages[:len(secondReq.Messages)-1]
@@ -276,7 +276,7 @@ func assertCompactionInstruction(t *testing.T, req provider.ChatRequest, mode pr
 	if got, want := last.Role, provider.MessageRoleUser; got != want {
 		t.Fatalf("compaction instruction role = %q, want %q", got, want)
 	}
-	want := prompt.RenderConversationCompactionInstruction(override, mode)
+	want := prompt.RenderConversationCompactionInstruction(override, mode, "")
 	if last.Content != want {
 		t.Fatalf("compaction instruction content = %q, want %q", last.Content, want)
 	}

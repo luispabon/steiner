@@ -1,0 +1,1 @@
+{"max_tokens":4096,"messages":[{"role":"user","content":[{"text":"What does this screenshot show?","type":"text"},{"source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="},"type":"image"}]},{"role":"assistant","content":[{"text":"It shows a chart.","type":"text"}]},{"role":"user","content":[{"text":"And the trend?","type":"text"}]}],"model":"claude-3-5-sonnet"}

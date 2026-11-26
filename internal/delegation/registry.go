@@ -49,6 +49,9 @@ type DelegateDeps struct {
 	MaxTokens int
 	// StreamingPreferred reports whether child runs should prefer streaming.
 	StreamingPreferred bool
+	// SegmentedCompaction is the experimental segment policy forwarded to every
+	// child run.
+	SegmentedCompaction config.SegmentedCompactionPolicy
 	// TraceLogger receives delegation trace output.
 	TraceLogger *TraceLogger
 	// Diagnostics is the process diagnostics writer, threaded to child runs and
@@ -375,6 +378,7 @@ func BuildDelegateRegistry(deps DelegateDeps) (*tool.Registry, error) {
 		ResolvedModel:         deps.ResolvedModel,
 		MaxTokens:             &mt,
 		StreamingPreferred:    deps.StreamingPreferred,
+		SegmentedCompaction:   deps.SegmentedCompaction,
 		TraceLogger:           deps.TraceLogger,
 		Diagnostics:           deps.Diagnostics,
 		SessionStore:          store,

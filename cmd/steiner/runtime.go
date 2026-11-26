@@ -139,9 +139,12 @@ type cliRuntime struct {
 	claudeSubPool                *provider.ClaudeSubscriptionPool
 	// quotaService is the process-wide subscription usage service. Nil
 	// disables passive quota observation and MarkUsed.
-	quotaService          *quota.Service
-	diagnostics           *diagnostics.Writer
-	compactionLogFile     string
+	quotaService      *quota.Service
+	diagnostics       *diagnostics.Writer
+	compactionLogFile string
+	// segmentedCompaction is the experimental segment policy, parsed once at
+	// startup and threaded into every run request this process builds.
+	segmentedCompaction   config.SegmentedCompactionPolicy
 	usageRecorder         *usagestats.Recorder
 	imageStore            *agent.ImageStore
 	visionCapabilities    *agent.VisionCapabilities

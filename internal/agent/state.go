@@ -160,6 +160,17 @@ func (l ConversationLineage) FullMessages() []Message {
 	return l.Generations[len(l.Generations)-1].FullMessages()
 }
 
+// conversationForProjection returns the conversation a projection or estimate
+// reads: the latest generation's full messages, or the stored conversation when
+// the lineage holds no generation.
+func conversationForProjection(state RunState) []Message {
+	conversation := state.Lineage.FullMessages()
+	if len(conversation) == 0 {
+		return state.Conversation
+	}
+	return conversation
+}
+
 // SummaryPrefixStrippedMessages returns only the raw messages from the latest generation.
 func (l ConversationLineage) SummaryPrefixStrippedMessages() []Message {
 	if len(l.Generations) == 0 {

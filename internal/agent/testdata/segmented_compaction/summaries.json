@@ -1,0 +1,16 @@
+{
+  "summaries": [
+    "error E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.",
+    "error E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nDownloader and archive writer fixed. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nRegression table guards the retry contract. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nOperator timeline and corrections block recorded. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nHandoff note lists changed files and the deferred follow up. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nRelease checks passed and drift compared. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nOperator summary written without the superseded identifier. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nFinal consistency pass complete. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nInvestigation archived and release package complete. ruled out: sqlite.",
+    "## Corrections\nSegment 1: error E-4471 -> error E-4472\n\nNo code change pending. ruled out: sqlite."
+  ]
+}

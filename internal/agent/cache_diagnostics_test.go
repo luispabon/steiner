@@ -427,12 +427,12 @@ func TestBuildCompactionRequestWithModeCarriesCacheRouting(t *testing.T) {
 		Messages:     conversation,
 	}
 
-	chatRequest, _, _, err := buildCompactionRequestWithMode(
+	chatRequest, _, _, err := buildCompactionRequest(
 		context.Background(), req, state, candidate,
-		prompt.CompactionModeNormal, 128,
+		prompt.CompactionModeNormal, 128, false, "",
 	)
 	if err != nil {
-		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		t.Fatalf("buildCompactionRequest() error = %v", err)
 	}
 	if chatRequest.PromptCacheKey != req.PromptCacheKey {
 		t.Fatalf("PromptCacheKey = %q, want %q", chatRequest.PromptCacheKey, req.PromptCacheKey)

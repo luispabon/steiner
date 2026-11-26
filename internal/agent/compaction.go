@@ -104,6 +104,10 @@ type CompactionOutcome struct {
 	// is independent of pendingArchive, which is conditional on the history
 	// archive reporting a note.
 	pendingRecall []Message
+	// segmentDecision is the append, rebase or plain decision of the segmented
+	// compaction this outcome adopted. It is nil with the policy off, and only
+	// the adopted outcome logs it.
+	segmentDecision *segmentDecision
 }
 
 // compactionBackendStateRetiredError marks an error that followed a summary
@@ -203,10 +207,7 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
 		return nil, false, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
 	}
-	steering := ""
-	if len(steerings) > 0 {
-		steering = steerings[0]
-	}
+	steering := firstSteering(steerings)
 	state := RunState{
 		Conversation:    currentConv,
 		Lineage:         newConversationLineage(currentConv),
@@ -282,6 +283,9 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	// outcome drops, and a recall write failure must not abort the compaction.
 	archiveRecallEntries(ctx, req.RecallArchive, req.Events, outcome.pendingRecall)
 	*state = outcome.State
+	if req.SegmentedCompaction.Enabled {
+		logCompactionSegmentDecision(req.CompactionLogPath, outcome.segmentDecision)
+	}
 	commitHistoryArchive(ctx, req, outcome.pendingArchive)
 	appendPendingSubAgentsLine(req, state)
 	if compactionCount != nil {
@@ -394,7 +398,11 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 	workingCandidate := candidate
 	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
 	summary := compactionSummaryRequest(req, params.summaryReq)
-	request, blocks, promptText, err := buildCompactionRequestWithMode(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, params.steering)
+	// An append keeps the same projected conversation and asks only for the span
+	// after the last segment. An append is always normal mode, because emergency,
+	// retry and fallback stages rebase.
+	appendInstruction := params.segment != nil && !params.segment.Decision.Rebase
+	request, blocks, promptText, err := buildCompactionRequest(ctx, summary, state, workingCandidate, params.mode, params.maxTokens, appendInstruction, params.steering)
 	if err != nil {
 		return compactionExecutionPlan{}, err
 	}

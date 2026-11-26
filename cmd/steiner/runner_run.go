@@ -233,18 +233,19 @@ func (r cliRunner) CompactWithLineage(ctx context.Context, conversation []agent.
 func (r cliRunner) compactionRunRequest(setup runnerSetup, tools []provider.ToolSpec, lastMainRequest agent.LastMainRequest) agent.RunRequest {
 	cfg := r.liveConfig()
 	req := agent.RunRequest{
-		Provider:          setup.provider,
-		Tools:             provider.CloneTools(tools),
-		Prompt:            setup.assembly,
-		ModelBudget:       setup.modelBudget,
-		ResolvedModel:     setup.resolvedModel,
-		Events:            r.runtime.events,
-		CompactionLogPath: r.runtime.compactionLogFile,
-		HistoryArchive:    r.historyArchive,
-		RecallArchive:     r.recallArchive,
-		PromptCacheKey:    r.promptCacheKey(),
-		TransportSession:  r.sessionID(),
-		Diagnostics:       r.runtime.diagnostics,
+		Provider:            setup.provider,
+		Tools:               provider.CloneTools(tools),
+		Prompt:              setup.assembly,
+		ModelBudget:         setup.modelBudget,
+		ResolvedModel:       setup.resolvedModel,
+		Events:              r.runtime.events,
+		CompactionLogPath:   r.runtime.compactionLogFile,
+		SegmentedCompaction: r.runtime.segmentedCompaction,
+		HistoryArchive:      r.historyArchive,
+		RecallArchive:       r.recallArchive,
+		PromptCacheKey:      r.promptCacheKey(),
+		TransportSession:    r.sessionID(),
+		Diagnostics:         r.runtime.diagnostics,
 		// Compaction shares the session's cache baseline so its diagnostics can
 		// report the shared prefix with the parent's last accepted request. It
 		// never promotes the baseline (see completeCompactionCall), so a normal
@@ -410,6 +411,7 @@ func buildRunRequest(r cliRunner, setup runnerSetup, activeRegistry *tool.Regist
 		ContextManager:      agent.NewContextStateManager(r.runtime.cfg.ContextManagement),
 		StreamingPreferred:  r.streamingPreferred,
 		CompactionLogPath:   r.runtime.compactionLogFile,
+		SegmentedCompaction: r.runtime.segmentedCompaction,
 		HistoryArchive:      r.historyArchive,
 		RecallArchive:       r.recallArchive,
 		DrainInbox:          hooks.drainInbox,

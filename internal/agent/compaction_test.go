@@ -410,7 +410,7 @@ func TestSummarizeCompactorCutsSourceBeforeRecentTurns(t *testing.T) {
 	if got, want := finalMessage.Role, provider.MessageRoleUser; got != want {
 		t.Fatalf("final compaction message role = %q, want %q", got, want)
 	}
-	if got := finalMessage.Content; got != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal) {
+	if got := finalMessage.Content; got != prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "") {
 		t.Fatalf("final compaction message = %q, want compaction instruction", got)
 	}
 	if !messageContentsContain(promptMessages, "turn 1 user") {
@@ -1487,12 +1487,12 @@ func TestNormalAndCompactionRequests_ShareResolvedReasoning(t *testing.T) {
 				t.Fatalf("prepareTurn() error = %v", err)
 			}
 
-			compactionReq, _, _, err := buildCompactionRequestWithMode(
+			compactionReq, _, _, err := buildCompactionRequest(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 128,
+				prompt.CompactionModeNormal, 128, false, "",
 			)
 			if err != nil {
-				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+				t.Fatalf("buildCompactionRequest() error = %v", err)
 			}
 
 			if !reflect.DeepEqual(normalReq.Reasoning, tt.wantReasoning) {
@@ -1559,12 +1559,12 @@ func TestBuildCompactionRequestWithMode_ReasoningHandling(t *testing.T) {
 				Lineage:      newConversationLineage(messages),
 			}
 
-			chatRequest, _, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequest(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 256,
+				prompt.CompactionModeNormal, 256, false, "",
 			)
 			if err != nil {
-				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+				t.Fatalf("buildCompactionRequest() error = %v", err)
 			}
 
 			if got, want := chatRequest.IncludeEmptyReasoning, tt.wantIncludeEmpty; got != want {
@@ -1634,12 +1634,12 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 				Lineage:      newConversationLineage(messages),
 			}
 
-			chatRequest, _, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequest(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 128,
+				prompt.CompactionModeNormal, 128, false, "",
 			)
 			if err != nil {
-				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+				t.Fatalf("buildCompactionRequest() error = %v", err)
 			}
 
 			// Model
@@ -1676,7 +1676,7 @@ func TestBuildCompactionRequestWithMode_CacheFields(t *testing.T) {
 			if lastMsg.Role != provider.MessageRoleUser {
 				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
 			}
-			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)) {
+			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "")) {
 				t.Fatalf("last message content = %q, want compaction instruction", lastMsg.Content)
 			}
 
@@ -1729,12 +1729,12 @@ func TestBuildCompactionRequestWithMode_MaxTokens(t *testing.T) {
 				Lineage:      newConversationLineage(candidate.Messages),
 			}
 
-			chatRequest, _, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequest(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, tt.maxTokens,
+				prompt.CompactionModeNormal, tt.maxTokens, false, "",
 			)
 			if err != nil {
-				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+				t.Fatalf("buildCompactionRequest() error = %v", err)
 			}
 
 			if tt.wantNil {
@@ -1789,12 +1789,12 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 				Lineage:      newConversationLineage(candidate.Messages),
 			}
 
-			chatRequest, _, _, err := buildCompactionRequestWithMode(
+			chatRequest, _, _, err := buildCompactionRequest(
 				context.Background(), req, state, candidate,
-				prompt.CompactionModeNormal, 128,
+				prompt.CompactionModeNormal, 128, false, "",
 			)
 			if err != nil {
-				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+				t.Fatalf("buildCompactionRequest() error = %v", err)
 			}
 
 			if len(chatRequest.Messages) < 2 {
@@ -1819,7 +1819,7 @@ func TestBuildCompactionRequestWithMode_PromptSuffix(t *testing.T) {
 			if lastMsg.Role != provider.MessageRoleUser {
 				t.Fatalf("last message role = %q, want %q", lastMsg.Role, provider.MessageRoleUser)
 			}
-			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal)) {
+			if !strings.Contains(lastMsg.Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, "")) {
 				t.Fatalf("last message missing compaction instruction: %q", lastMsg.Content)
 			}
 			if !strings.Contains(lastMsg.Content, tt.suffix) {
@@ -1876,12 +1876,12 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 		}
 
 		// Compaction request
-		compactionReq, _, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequest(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, false, "",
 		)
 		if err != nil {
-			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			t.Fatalf("buildCompactionRequest() error = %v", err)
 		}
 
 		// Length: compaction has one extra message (the instruction)
@@ -1965,12 +1965,12 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 			t.Fatalf("prepareTurn() error = %v", err)
 		}
 
-		compactionReq, _, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequest(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, false, "",
 		)
 		if err != nil {
-			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			t.Fatalf("buildCompactionRequest() error = %v", err)
 		}
 
 		if got, want := len(compactionReq.Messages), len(normalReq.Messages)+1; got != want {
@@ -2078,12 +2078,12 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 			t.Fatalf("prepareTurn() error = %v", err)
 		}
 
-		compactionReq, _, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequest(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, false, "",
 		)
 		if err != nil {
-			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			t.Fatalf("buildCompactionRequest() error = %v", err)
 		}
 
 		// Verify reasoning preserved identically
@@ -2162,12 +2162,12 @@ func TestCompactionRequestPrefixMatchesNormalTurnRequest(t *testing.T) {
 			t.Fatalf("prepareTurn() error = %v", err)
 		}
 
-		compactionReq, _, _, err := buildCompactionRequestWithMode(
+		compactionReq, _, _, err := buildCompactionRequest(
 			context.Background(), req, state, candidate,
-			prompt.CompactionModeNormal, 128,
+			prompt.CompactionModeNormal, 128, false, "",
 		)
 		if err != nil {
-			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			t.Fatalf("buildCompactionRequest() error = %v", err)
 		}
 
 		if got, want := len(compactionReq.Messages), len(normalReq.Messages)+1; got != want {
@@ -2349,12 +2349,12 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 		Messages:     messages,
 	}
 
-	autoRequest, blocks, _, err := buildCompactionRequestWithMode(
+	autoRequest, blocks, _, err := buildCompactionRequest(
 		context.Background(), req, state, candidate,
-		prompt.CompactionModeNormal, 128,
+		prompt.CompactionModeNormal, 128, false, "",
 	)
 	if err != nil {
-		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		t.Fatalf("buildCompactionRequest() error = %v", err)
 	}
 	const steeringParagraph = "Additional user steering for this compaction"
 	autoContent := autoRequest.Messages[len(autoRequest.Messages)-1].Content
@@ -2362,7 +2362,7 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 		t.Fatalf("auto compaction final message = %q, unexpectedly contains steering paragraph", autoContent)
 	}
 	if len(blocks) == 0 {
-		t.Fatal("buildCompactionRequestWithMode() returned no context blocks")
+		t.Fatal("buildCompactionRequest() returned no context blocks")
 	}
 
 	foundPreamble := false
@@ -2372,12 +2372,12 @@ func TestBuildCompactionRequestWithModeReturnsBlocks(t *testing.T) {
 			break
 		}
 	}
-	request, _, _, err := buildCompactionRequestWithMode(
+	request, _, _, err := buildCompactionRequest(
 		context.Background(), req, state, candidate,
-		prompt.CompactionModeNormal, 128, "focus on auth refactor",
+		prompt.CompactionModeNormal, 128, false, "focus on auth refactor",
 	)
 	if err != nil {
-		t.Fatalf("steered buildCompactionRequestWithMode() error = %v", err)
+		t.Fatalf("steered buildCompactionRequest() error = %v", err)
 	}
 	content := request.Messages[len(request.Messages)-1].Content
 	const marker = "Additional user steering for this compaction:\n\nfocus on auth refactor"

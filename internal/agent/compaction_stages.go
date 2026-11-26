@@ -3,12 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
-	"github.com/luispabon/steiner/internal/provider"
 )
 
 type summarizeCompactor struct{}
@@ -19,6 +16,9 @@ type summarizeCompactionStageParams struct {
 	mode             prompt.CompactionMode
 	maxTokens        int
 	steering         string
+	// segment is the decided segmented shape of the stage. Nil with the
+	// segmented policy off.
+	segment *segmentStage
 	// summaryReq is the request the summary call runs on. Nil means main.
 	summaryReq *RunRequest
 	// announce emits the selected fallback event once the fit check passes. Nil on main.
@@ -26,11 +26,15 @@ type summarizeCompactionStageParams struct {
 }
 
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
-	steering := ""
-	if len(steerings) > 0 {
-		steering = steerings[0]
+	return twoStageSummarizeCompaction(ctx, req, state, turn, candidate, firstSteering(steerings))
+}
+
+// firstSteering returns the first steering message, or "" when none was given.
+func firstSteering(steerings []string) string {
+	if len(steerings) == 0 {
+		return ""
 	}
-	return twoStageSummarizeCompaction(ctx, req, state, turn, candidate, steering)
+	return steerings[0]
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {
@@ -268,53 +272,6 @@ func isCompactionBudgetMiss(err error) bool {
 	return errors.As(err, &miss)
 }
 
-// sumUsageStats returns the token accounting of two summary calls. A nil record
-// adds nothing, and two nil records stay nil, so a stage that issued no call is
-// not reported as usage.
-func sumUsageStats(a, b *provider.UsageStats) *provider.UsageStats {
-	if a == nil && b == nil {
-		return nil
-	}
-	out := provider.UsageStats{}
-	if a != nil {
-		out = *a
-	}
-	if b != nil {
-		out.PromptTokens += b.PromptTokens
-		out.CompletionTokens += b.CompletionTokens
-		out.TotalTokens += b.TotalTokens
-		out.CacheCreationInputTokens += b.CacheCreationInputTokens
-		out.CacheReadInputTokens += b.CacheReadInputTokens
-		out.ReasoningTokens += b.ReasoningTokens
-		out.CacheReported = out.CacheReported || b.CacheReported
-		out.CostUSD = sumCostUSD(out.CostUSD, b.CostUSD)
-	}
-	return &out
-}
-
-// sumCompactionUsage returns the token accounting and reported-cache input
-// total of two stage outcomes. A nil usage record adds nothing, matching
-// sumUsageStats.
-func sumCompactionUsage(a, b CompactionOutcome) (*provider.UsageStats, int) {
-	return sumUsageStats(a.Usage, b.Usage), a.CacheReportedInputTokens + b.CacheReportedInputTokens
-}
-
-// sumCostUSD adds two provider-reported costs, treating a nil cost as zero and
-// keeping nil only when neither side reported a cost.
-func sumCostUSD(a, b *float64) *float64 {
-	if a == nil && b == nil {
-		return nil
-	}
-	var sum float64
-	if a != nil {
-		sum += *a
-	}
-	if b != nil {
-		sum += *b
-	}
-	return &sum
-}
-
 // adoptWithoutRequestBlock retries an applied stage without its stored
 // latest-request block: it rewrites the stored summary text, issues no model
 // call, and refits with the stage's fit runner. It reports false when cause is
@@ -327,7 +284,7 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	if !outcome.Applied || outcome.RequestBlock == "" || outcome.RequestBlock == output.RequestBlockNone || outcome.RequestBlock == output.RequestBlockDropped {
 		return CompactionOutcome{}, false
 	}
-	state, summaryText, dropped := dropRequestBlockState(outcome.State)
+	state, summaryText, dropped := dropOutcomeRequestBlock(outcome)
 	if !dropped {
 		return CompactionOutcome{}, false
 	}
@@ -343,110 +300,23 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	return outcome, true
 }
 
-func summarizeCompactionStage(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, params summarizeCompactionStageParams) (CompactionOutcome, error) {
-	onFallback := params.summaryReq != nil
-	retainedFit, err := fitConversationState(ctx, req, state.WithConversation(params.retainedMessages))
-	if err != nil {
-		return CompactionOutcome{}, err
-	}
-	if !retainedFit.Fits {
-		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s", summarizeCompactionPrompt(candidate), params.mode), params.mode, params.maxTokens), compactionCannotSolveError(retainedFit)
-	}
-	if len(params.sourceMessages) == 0 {
-		return compactionNotAppliedOutcome(candidate, retainedFit, fmt.Sprintf("%s mode=%s no_source=true", summarizeCompactionPrompt(candidate), params.mode), params.mode, params.maxTokens), nil
-	}
-
-	requestBlock, requestBlockStatus := latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
-
-	plan, ok, err := compactionStagePlan(ctx, req, state, candidate, params)
-	if err != nil {
-		return CompactionOutcome{}, err
-	}
-	if !ok {
-		if onFallback {
-			return CompactionOutcome{}, errCompactionFallbackNotFit
+// dropOutcomeRequestBlock rewrites the adopted outcome's stored request block
+// out of the latest generation and reports the summary text to show. A segmented
+// segment keeps immutable bytes; a plain fallback must keep its ordinary summary
+// even when dropping the block empties its mutable tail.
+func dropOutcomeRequestBlock(outcome CompactionOutcome) (RunState, string, bool) {
+	switch {
+	case outcome.segmentDecision == nil:
+		return dropRequestBlockState(outcome.State)
+	case outcome.segmentDecision.Plain:
+		return dropPlainSegmentRequestBlock(outcome.State, outcome.SummaryText)
+	default:
+		state, summaryText, dropped := dropTailRequestBlockState(outcome.State)
+		if body, _, ok := SplitRequestBlock(outcome.SummaryText); ok {
+			summaryText = body
 		}
-		return compactionNotAppliedOutcome(candidate, plan.fit, plan.promptText, params.mode, params.maxTokens), nil
+		return state, summaryText, dropped
 	}
-
-	// The fallback selection is announced only once its fit check passed. Nil
-	// announce on main makes this a no-op.
-	params.announce.announce()
-	summary := compactionSummaryRequest(req, params.summaryReq)
-	// The retry ladder owns the retirement signal of each call, so this stage only
-	// reads the cumulative result.
-	calls, err := summarizeCompactionCalls(ctx, summary, turn, plan, onFallback)
-	cleared := calls.cleared
-	if cleared {
-		// An in-place summary retired the generation's live process, so the
-		// generation's stored backend state no longer names a live transcript.
-		state.Lineage = state.Lineage.withBackendState(state.Lineage.latestGenerationID(), nil, true)
-	}
-	if err != nil {
-		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
-	}
-	summaryText := strings.TrimSpace(calls.response.Message.Content)
-
-	removedSource := stripRequestBlocks(params.sourceMessages)
-	var pendingArchive [][]Message
-	if req.HistoryArchive != nil {
-		// The archive note must not re-quote the verbatim request. The summary
-		// request itself keeps the block, because it replays this conversation
-		// exactly as a main request projects it, so the shared prefix stays cached.
-		summaryText, pendingArchive = withHistoryNote(req, summaryText, removedSource)
-	}
-	if calls.truncated {
-		// The marker ends the body, before the request block, so a later drop of
-		// the block keeps it.
-		summaryText += "\n\n" + summaryTruncatedMarker
-	}
-	summaryText = withRequestBlock(summaryText, requestBlock)
-
-	retained := cloneMessages(plan.retainedMessages)
-	// buildSummarizedCompactionState strips skill blocks and drops skill-only
-	// retained messages before persisting them. Apply the same transformation here
-	// so the emitted RetainedMessages reflects the retained source messages that
-	// were actually persisted; the synthetic active-skill re-injection that
-	// buildSummarizedCompactionState prepends is not a retained source message.
-	// Elision runs on that stripped retention, so the markers it writes are what
-	// the new generation freezes until the next compaction.
-	retained, elided := buildCompactedRetention(ctx, req, state, retained)
-	if elided {
-		// The stage's token attribution measures the tail the generation keeps.
-		if retainedFit, err = fitConversationState(ctx, req, state.WithConversation(retained)); err != nil {
-			return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
-		}
-	}
-	params.retainedMessages = retained
-	nextState := buildSummarizedCompactionState(state, summaryText, retained)
-	latestFit, stage, err := fitAppliedStage(ctx, req, state, nextState, params, retainedFit, plan.fit.EstimatedPromptTokens, summaryText)
-	if err != nil {
-		return compactionFailedOutcome(CompactionOutcome{BackendStateCleared: cleared}, err)
-	}
-	logCompactionStageSizes(summary.CompactionLogPath, stage)
-
-	return CompactionOutcome{
-		State:                    nextState,
-		Applied:                  true,
-		Candidate:                candidate,
-		Fit:                      latestFit,
-		Mode:                     params.mode,
-		SummaryTokenBudget:       params.maxTokens,
-		SummarizedMessages:       countSummarizedMessages(params.sourceMessages, activeSkillBlocks(state)),
-		RetainedMessages:         retained,
-		SummaryText:              summaryText,
-		SummaryTruncated:         calls.truncated,
-		SummaryCondensed:         calls.condensed,
-		PromptText:               plan.promptText,
-		RequestBlock:             requestBlockStatus,
-		RequestBlockBytes:        len(requestBlock),
-		Usage:                    calls.usage,
-		CacheReportedInputTokens: calls.cacheReported,
-		BackendStateCleared:      cleared,
-		pendingArchive:           pendingArchive,
-		pendingRecall:            removedSource,
-		StageSizes:               []output.ContextCompactionStage{stage},
-	}, nil
 }
 
 // compactionStagePlan builds the summary plan for a stage. The plan normally
@@ -471,25 +341,4 @@ func compactionStagePlan(ctx context.Context, req RunRequest, state RunState, ca
 		return plan, false, err
 	}
 	return strippedPlan, true, nil
-}
-
-func fitConversationState(ctx context.Context, req RunRequest, state RunState) (prompt.RequestTokenBudget, error) {
-	basePrompt := prepareBasePrompt(req)
-	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, state))
-	if err != nil {
-		return prompt.RequestTokenBudget{}, err
-	}
-
-	// Reasoning is intentionally omitted here: this request is only used to
-	// estimate token counts against the budget (FitRequest), never sent to a
-	// provider, and reasoning effort does not affect token estimation.
-	chatRequest := provider.ChatRequest{
-		Model:       req.ResolvedModel.BackendModelID,
-		Messages:    assembly.Messages,
-		Tools:       provider.CloneTools(req.Tools),
-		Params:      req.ResolvedModel.Params,
-		ExtraParams: req.ResolvedModel.ExtraParams,
-	}
-	chatRequest = applyPromptSuffix(req.ResolvedModel.PromptSuffix, chatRequest)
-	return req.ModelBudget.FitRequest(ctx, chatRequest)
 }

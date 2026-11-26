@@ -101,6 +101,12 @@ func selectionModelSource(cfg config.Config, flags *cliFlags) string {
 }
 
 func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFlags, projectRoot, workDir, modelAlias string) (cliRuntime, error) {
+	// Parse the experimental segmented compaction policy before any resource
+	// is created, so a bad value fails startup instead of the first compaction.
+	segmentedCompaction, err := config.ParseSegmentedCompactionPolicy(os.LookupEnv)
+	if err != nil {
+		return cliRuntime{}, fmt.Errorf("load segmented compaction policy: %w", err)
+	}
 	sl := flags.startupLog
 	if err := session.EnsureSteinerProjectDir(projectRoot); err != nil {
 		return cliRuntime{}, err
@@ -297,6 +303,7 @@ func buildRuntimeWithRoots(ctx context.Context, cmd *cobra.Command, flags *cliFl
 		delegationAdvisorBudgetStore: delegation.NewAdvisorBudgetStore(),
 		advisorState:                 advisor.NewSharedState(),
 		compactionLogFile:            compactionLogFile,
+		segmentedCompaction:          segmentedCompaction,
 		usageRecorder:                usageRecorder,
 		imageStore:                   agent.NewImageStore(filepath.Join(workDir, ".steiner", "tmp", "images")),
 		visionCapabilities:           agent.NewVisionCapabilities(cfg.Models.Effective.SubAgents["vision"] != ""),

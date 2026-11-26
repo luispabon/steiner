@@ -24,7 +24,7 @@ Unknown structured configuration fields are rejected. Map entries have their own
 
 ## Environment variables
 
-Only the variables below override configuration; there is no generic `STEINER_` prefix mapping. Integer variables that do not parse make config loading fail. Steiner reads a few other variables outside config loading: `STEINER_GITHUB_TOKEN` for update checks (see [Installation](installation.md)), `STEINER_USAGE_TELEMETRY` and `STEINER_USAGE_TELEMETRY_RUN` for usage telemetry (see [Usage and cache statistics](usage.md)), the variable named by `providers.<name>.api_key_env`, and any variable referenced by `${VAR}` expansion below.
+Only the variables below override configuration; there is no generic `STEINER_` prefix mapping. Integer variables that do not parse make config loading fail. Steiner reads a few other variables outside config loading: `STEINER_GITHUB_TOKEN` for update checks (see [Installation](installation.md)), `STEINER_USAGE_TELEMETRY` and `STEINER_USAGE_TELEMETRY_RUN` for usage telemetry (see [Usage and cache statistics](usage.md)), `STEINER_EXPERIMENT_SEGMENTED_COMPACTION`, `STEINER_EXPERIMENT_SEGMENT_MAX_COUNT`, `STEINER_EXPERIMENT_SEGMENT_MAX_CHAIN_PERCENT`, and `STEINER_EXPERIMENT_SEGMENT_MAX_POST_PERCENT` for [experimental summary segments](context-management.md#immutable-summary-segments-experimental), the variable named by `providers.<name>.api_key_env`, and any variable referenced by `${VAR}` expansion below.
 
 | Variable | Effect |
 | --- | --- |

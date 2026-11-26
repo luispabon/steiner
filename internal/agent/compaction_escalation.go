@@ -166,14 +166,12 @@ func buildSummarizedCompactionState(state RunState, summaryText string, retained
 	return nextState
 }
 
-func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steerings ...string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
-	steering := ""
-	if len(steerings) > 0 {
-		steering = steerings[0]
-	}
+// buildCompactionRequest builds a compaction request with either the ordinary
+// compaction instruction or the segment append instruction.
+func buildCompactionRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, appendInstruction bool, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
 	basePrompt := prepareBasePrompt(req)
 	sourceState := state.WithConversation(candidate.Messages)
-	assembly, err := prompt.Assemble(ctx, assemblyOptions(basePrompt, sourceState))
+	assembly, err := prompt.Assemble(ctx, requestAssemblyOptions(basePrompt, sourceState, req.SegmentedCompaction.Enabled))
 	if err != nil {
 		return provider.ChatRequest{}, nil, "", err
 	}
@@ -183,9 +181,13 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 			sourceMessages++
 		}
 	}
+	instruction := prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, steering)
+	if appendInstruction {
+		instruction = prompt.RenderSegmentAppendInstruction(basePrompt.PromptOverrides.Compaction, steering)
+	}
 	messages := append(provider.CloneMessages(assembly.Messages), provider.Message{
 		Role:    provider.MessageRoleUser,
-		Content: prompt.RenderConversationCompactionInstruction(basePrompt.PromptOverrides.Compaction, mode, steering),
+		Content: instruction,
 	})
 	// Mirror the normal-turn request shape (same Tools and Params) so the
 	// compaction call replays the identical cached prefix (system + tools +
@@ -224,34 +226,28 @@ func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state R
 }
 
 func completeCompactionCall(ctx context.Context, req RunRequest, turn, attempt int, chatRequest provider.ChatRequest, budget prompt.ModelTokenBudget, blocks []prompt.ContextBlock) (provider.ChatResponse, error) {
-	var logger *CompactionLogger
-	if req.CompactionLogPath != "" {
-		var err error
-		logger, err = NewCompactionLogger(req.CompactionLogPath)
-		if err != nil {
-			slog.Warn("compaction logger unavailable", "path", req.CompactionLogPath, "error", err)
-		} else {
-			if err := logger.LogRequest(chatRequest, attempt); err != nil {
-				slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", err)
-			}
-			defer func() {
-				if err := logger.Close(); err != nil {
-					slog.Warn("compaction logger close failed", "path", req.CompactionLogPath, "error", err)
-				}
-			}()
-		}
-	}
 	stats := requestCacheStats{}
 	opts := chatExecOptions{}
 	if req.Diagnostics.Enabled(diagnostics.KindCache) {
 		stats = computeRequestCacheStats(req, chatRequest.Messages)
 		opts.onSend = wireCacheSendHook(ctx, req, &stats)
 	}
-	response, _, err := executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
-	if logger != nil {
-		if logErr := logger.LogResponse(response); logErr != nil {
-			slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)
+	var response provider.ChatResponse
+	var err error
+	send := func() {
+		response, _, err = executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
+	}
+	logged := func(logger *CompactionLogger) error {
+		if logErr := logger.LogRequest(chatRequest, attempt); logErr != nil {
+			slog.Warn("compaction request log failed", "path", req.CompactionLogPath, "error", logErr)
 		}
+		send()
+		return logger.LogResponse(response)
+	}
+	// The request runs exactly once: through the log when one opens, and directly
+	// when the log is off or cannot open.
+	if !withCompactionLogger(req.CompactionLogPath, "response", logged) {
+		send()
 	}
 	if err == nil {
 		recordModelUsage(req, response.Usage, usagestats.CallKindCompaction)

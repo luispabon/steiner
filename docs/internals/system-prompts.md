@@ -292,7 +292,7 @@ An empty result means the server found nothing, not that the tool is broken.
 
 ## Compactor
 
-`buildCompactionRequestWithMode` in `internal/agent/compaction_escalation.go` appends the instruction as a final user message, not a system message, after cloned assembled parent messages including the system preamble. The request uses the parent's tools and parameters.
+`buildCompactionRequest` in `internal/agent/compaction_escalation.go` appends the instruction as a final user message, not a system message, after cloned assembled parent messages including the system preamble. The request uses the parent's tools and parameters.
 
 `RenderConversationCompactionInstruction` in `internal/prompt/compaction.go` joins `internal/prompt/templates/compaction_system.md.tmpl` and `internal/prompt/templates/compaction_default_body.md.tmpl` for the normal instruction:
 

@@ -36,20 +36,43 @@ func StripHistoryNotes(summary string) string {
 	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
-// withHistoryNote strips stale history notes from summaryText and appends the
-// note for source. It returns the sources to append once the outcome is
-// adopted. A Note error emits a warning and leaves the summary without a note.
-func withHistoryNote(req RunRequest, summaryText string, source []Message) (string, [][]Message) {
-	summaryText = StripHistoryNotes(summaryText)
+// historyNoteText returns the note for source and the sources to append once the
+// outcome is adopted. A Note error emits a warning and reports no note.
+func historyNoteText(req RunRequest, source []Message) (string, [][]Message) {
 	note, err := req.HistoryArchive.Note(source)
 	if err != nil {
 		emitEvent(req.Events, historyArchiveWarning(err))
-		return summaryText, nil
+		return "", nil
 	}
 	if note == "" {
-		return summaryText, nil
+		return "", nil
 	}
-	return summaryText + "\n\n" + note, [][]Message{source}
+	return note, [][]Message{source}
+}
+
+// historyNoteSeparator selects how joinHistoryNote separates body and note.
+type historyNoteSeparator int
+
+const (
+	// separatorAlways keeps the blank line before the note even when body is
+	// empty, the stored plain-summary shape.
+	separatorAlways historyNoteSeparator = iota
+	// separatorOmitEmpty drops it when body is empty, the segmented display shape.
+	separatorOmitEmpty
+)
+
+// joinHistoryNote places note after body. The note follows a blank line unless
+// the body is empty and separator omits it. An empty note leaves body alone;
+// callers pass a body whose stale notes are stripped.
+func joinHistoryNote(body, note string, separator historyNoteSeparator) string {
+	switch {
+	case note == "":
+		return body
+	case body == "" && separator == separatorOmitEmpty:
+		return note
+	default:
+		return body + "\n\n" + note
+	}
 }
 
 // commitHistoryArchive appends each pending source to the archive, in order. It

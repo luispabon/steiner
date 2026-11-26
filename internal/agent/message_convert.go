@@ -217,15 +217,14 @@ func fromProviderMessageMetadata(metadata *provider.MessageProviderMetadata) *Me
 	return out
 }
 
+// assemblyOptions builds prompt assembly options for a token estimation or
+// snapshot path, whose projection stays unmarked.
 func assemblyOptions(base prompt.AssemblyOptions, state RunState) prompt.AssemblyOptions {
-	conversation := state.Lineage.FullMessages()
-	if len(conversation) == 0 {
-		conversation = state.Conversation
-	}
+	return assemblyOptionsWith(base, state, ToReplaySafeProviderMessages)
+}
 
-	providerMsgs := ToReplaySafeProviderMessages(conversation)
-
-	base.Conversation = providerMsgs
+func assemblyOptionsWith(base prompt.AssemblyOptions, state RunState, convert func([]Message) []provider.Message) prompt.AssemblyOptions {
+	base.Conversation = convert(conversationForProjection(state))
 	return base
 }
 

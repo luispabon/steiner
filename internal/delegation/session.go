@@ -31,7 +31,10 @@ type SubAgentHandlerDeps struct {
 	ResolvedModel      provider.ResolvedModel
 	MaxTokens          *int
 	StreamingPreferred bool
-	TraceLogger        *TraceLogger
+	// SegmentedCompaction is the experimental segment policy forwarded unchanged
+	// to every child run request.
+	SegmentedCompaction config.SegmentedCompactionPolicy
+	TraceLogger         *TraceLogger
 	// Diagnostics is the process diagnostics writer, threaded to child runs and
 	// child executors so delegated work lands in the same streams as the
 	// parent. Emission is added by stages 2-4 of the unified-diagnostics plan

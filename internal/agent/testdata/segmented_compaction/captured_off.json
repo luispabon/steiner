@@ -1,0 +1,1090 @@
+[
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the failure times and the operator report. I read the ingest entrypoint, listed the retry wrapper and the sqlite staging layer as the two prime suspects, and noted that the wrapper logs nothing between attempts. Next I plan to replay a single failed batch.",
+          "turn": 1
+        },
+        {
+          "role": "user",
+          "content": "Replay one failed batch with the staging layer left in place. Capture the exit status, the retry count, and the first line of stderr for each attempt. Do not change the retry wrapper yet and do not clear the staging database between attempts."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the failure times and the operator report. I read the ingest entrypoint, listed the retry wrapper and the sqlite staging layer as the two prime suspects, and noted that the wrapper logs nothing between attempts. Next I plan to replay a single failed batch.",
+          "turn": 1
+        },
+        {
+          "role": "user",
+          "content": "Replay one failed batch with the staging layer left in place. Capture the exit status, the retry count, and the first line of stderr for each attempt. Do not change the retry wrapper yet and do not clear the staging database between attempts."
+        },
+        {
+          "role": "assistant",
+          "content": "Replayed batch 4102 three times. Every attempt exits with status 3 after the second retry, and stderr always begins with the same importer trace. The staging database kept its rows between attempts, so the failure is reproducible without any cleanup step in between.",
+          "turn": 2
+        },
+        {
+          "role": "user",
+          "content": "Now separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the failure times and the operator report. I read the ingest entrypoint, listed the retry wrapper and the sqlite staging layer as the two prime suspects, and noted that the wrapper logs nothing between attempts. Next I plan to replay a single failed batch.",
+          "turn": 1
+        },
+        {
+          "role": "user",
+          "content": "Replay one failed batch with the staging layer left in place. Capture the exit status, the retry count, and the first line of stderr for each attempt. Do not change the retry wrapper yet and do not clear the staging database between attempts."
+        },
+        {
+          "role": "assistant",
+          "content": "Replayed batch 4102 three times. Every attempt exits with status 3 after the second retry, and stderr always begins with the same importer trace. The staging database kept its rows between attempts, so the failure is reproducible without any cleanup step in between.",
+          "turn": 2
+        },
+        {
+          "role": "user",
+          "content": "Now separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay."
+        },
+        {
+          "role": "assistant",
+          "content": "With staging disabled the importer still fails on the second retry, so the staging layer is not required to reproduce. The recorded commands differ only in the staging flag. That points the investigation at the retry wrapper and the importer contract rather than the database layer.",
+          "turn": 3
+        },
+        {
+          "role": "user",
+          "content": "Instrument the retry wrapper so each attempt prints its attempt number, the deadline it was given, and the error it received. Run the replay once more and compare the deadline printed on the first attempt with the one printed on the second."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the failure times and the operator report. I read the ingest entrypoint, listed the retry wrapper and the sqlite staging layer as the two prime suspects, and noted that the wrapper logs nothing between attempts. Next I plan to replay a single failed batch.",
+          "turn": 1
+        },
+        {
+          "role": "user",
+          "content": "Replay one failed batch with the staging layer left in place. Capture the exit status, the retry count, and the first line of stderr for each attempt. Do not change the retry wrapper yet and do not clear the staging database between attempts."
+        },
+        {
+          "role": "assistant",
+          "content": "Replayed batch 4102 three times. Every attempt exits with status 3 after the second retry, and stderr always begins with the same importer trace. The staging database kept its rows between attempts, so the failure is reproducible without any cleanup step in between.",
+          "turn": 2
+        },
+        {
+          "role": "user",
+          "content": "Now separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay."
+        },
+        {
+          "role": "assistant",
+          "content": "With staging disabled the importer still fails on the second retry, so the staging layer is not required to reproduce. The recorded commands differ only in the staging flag. That points the investigation at the retry wrapper and the importer contract rather than the database layer.",
+          "turn": 3
+        },
+        {
+          "role": "user",
+          "content": "Instrument the retry wrapper so each attempt prints its attempt number, the deadline it was given, and the error it received. Run the replay once more and compare the deadline printed on the first attempt with the one printed on the second."
+        },
+        {
+          "role": "assistant",
+          "content": "Attempt one receives a deadline two seconds after start. Attempt two receives a deadline that has already passed, because the wrapper reuses a single context for every attempt. The wrapper then reports an exhaustion error whose text hides the real importer failure.",
+          "turn": 4
+        },
+        {
+          "role": "user",
+          "content": "Confirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the failure times and the operator report. I read the ingest entrypoint, listed the retry wrapper and the sqlite staging layer as the two prime suspects, and noted that the wrapper logs nothing between attempts. Next I plan to replay a single failed batch.",
+          "turn": 1
+        },
+        {
+          "role": "user",
+          "content": "Replay one failed batch with the staging layer left in place. Capture the exit status, the retry count, and the first line of stderr for each attempt. Do not change the retry wrapper yet and do not clear the staging database between attempts."
+        },
+        {
+          "role": "assistant",
+          "content": "Replayed batch 4102 three times. Every attempt exits with status 3 after the second retry, and stderr always begins with the same importer trace. The staging database kept its rows between attempts, so the failure is reproducible without any cleanup step in between.",
+          "turn": 2
+        },
+        {
+          "role": "user",
+          "content": "Now separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay."
+        },
+        {
+          "role": "assistant",
+          "content": "With staging disabled the importer still fails on the second retry, so the staging layer is not required to reproduce. The recorded commands differ only in the staging flag. That points the investigation at the retry wrapper and the importer contract rather than the database layer.",
+          "turn": 3
+        },
+        {
+          "role": "user",
+          "content": "Instrument the retry wrapper so each attempt prints its attempt number, the deadline it was given, and the error it received. Run the replay once more and compare the deadline printed on the first attempt with the one printed on the second."
+        },
+        {
+          "role": "assistant",
+          "content": "Attempt one receives a deadline two seconds after start. Attempt two receives a deadline that has already passed, because the wrapper reuses a single context for every attempt. The wrapper then reports an exhaustion error whose text hides the real importer failure.",
+          "turn": 4
+        },
+        {
+          "role": "user",
+          "content": "Confirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context."
+        },
+        {
+          "role": "assistant",
+          "content": "The scratch check reproduces the reported behaviour. The second attempt observes a cancelled context and returns the exhaustion error instead of the stub failure. The root cause is a single context created outside the retry loop and inherited by every attempt.",
+          "turn": 5
+        },
+        {
+          "role": "user",
+          "content": "Propose the smallest fix that keeps the retry semantics unchanged. State where the context should be created, what deadline each attempt should receive, and how the exhaustion error should preserve the last importer error so the operator can read it."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Start the import investigation. The nightly ingest job failed three times in a row and the operator wants a short written timeline before we touch anything. List what you checked so far and what you plan to check next, keeping every step reversible and recorded."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the failure times and the operator report. I read the ingest entrypoint, listed the retry wrapper and the sqlite staging layer as the two prime suspects, and noted that the wrapper logs nothing between attempts. Next I plan to replay a single failed batch.",
+          "turn": 1
+        },
+        {
+          "role": "user",
+          "content": "Replay one failed batch with the staging layer left in place. Capture the exit status, the retry count, and the first line of stderr for each attempt. Do not change the retry wrapper yet and do not clear the staging database between attempts."
+        },
+        {
+          "role": "assistant",
+          "content": "Replayed batch 4102 three times. Every attempt exits with status 3 after the second retry, and stderr always begins with the same importer trace. The staging database kept its rows between attempts, so the failure is reproducible without any cleanup step in between.",
+          "turn": 2
+        },
+        {
+          "role": "user",
+          "content": "Now separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay."
+        },
+        {
+          "role": "assistant",
+          "content": "With staging disabled the importer still fails on the second retry, so the staging layer is not required to reproduce. The recorded commands differ only in the staging flag. That points the investigation at the retry wrapper and the importer contract rather than the database layer.",
+          "turn": 3
+        },
+        {
+          "role": "user",
+          "content": "You compress conversation history for the next model call.\n\nYou compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.\n\nInclude:\n1. Task and Goal: user request, end state, success criteria, constraints, assumptions.\n2. Current Repository State: repo, branch, files changed, code structure, uncommitted changes, external services.\n3. Work Completed: what implemented, commands run, tests executed, results, commits.\n4. Key Findings and Decisions: technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.\n5. Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.\n6. Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.\n7. Verification and Acceptance: commands to prove completion, expected outcomes, manual checks, verification limitations.\n8. User Preferences and Interaction Context: style, tone, conventions, promises, things to avoid repeating.\n\nRules:\n- Be factual and specific.\n- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.\n- Prefer concrete detail over vague summaries.\n- Do not include irrelevant chat, pleasantries, or speculation.\n- Do not expose secrets. Refer by purpose only.\n- Do not include hidden reasoning. Summarize conclusions only.\n- Do not claim completion unless implemented and verified.\n- Steiner keeps the user's latest summarized request verbatim after this summary; mention it briefly, do not quote it.\n- If work partially complete, describe exact safest continuation point.\n- If uncertain, say what is uncertain and why.\n- Write for immediate continuation by coding agent.\n\nEncoding directives:\n- Drop articles where meaning survives.\n- Use compact clauses; semicolons are fine when clear. Keep full sentences where needed to avoid ambiguity.\n- Preserve paths and identifiers exactly. Remove repeated mentions rather than abbreviating them.\n- Use key=value notation for config/env/version facts.\n- No markdown headers: use \"label:\" prefix instead.\n- Omit a section entirely if it would be empty.\n- Preserve exact identifiers verbatim (paths, symbols, commands, error messages, config keys, versions)."
+        }
+      ],
+      "max_tokens": 32
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nNow separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Instrument the retry wrapper so each attempt prints its attempt number, the deadline it was given, and the error it received. Run the replay once more and compare the deadline printed on the first attempt with the one printed on the second."
+        },
+        {
+          "role": "assistant",
+          "content": "Attempt one receives a deadline two seconds after start. Attempt two receives a deadline that has already passed, because the wrapper reuses a single context for every attempt. The wrapper then reports an exhaustion error whose text hides the real importer failure.",
+          "turn": 4
+        },
+        {
+          "role": "user",
+          "content": "Confirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context."
+        },
+        {
+          "role": "assistant",
+          "content": "The scratch check reproduces the reported behaviour. The second attempt observes a cancelled context and returns the exhaustion error instead of the stub failure. The root cause is a single context created outside the retry loop and inherited by every attempt.",
+          "turn": 5
+        },
+        {
+          "role": "user",
+          "content": "Propose the smallest fix that keeps the retry semantics unchanged. State where the context should be created, what deadline each attempt should receive, and how the exhaustion error should preserve the last importer error so the operator can read it."
+        },
+        {
+          "role": "assistant",
+          "content": "Create the context inside the retry loop so each attempt owns a fresh deadline. Wrap the final importer error into the exhaustion error, keeping the original text readable. No other behaviour changes, and the attempt count stays the same for the existing tests.",
+          "turn": 6
+        },
+        {
+          "role": "user",
+          "content": "Apply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nNow separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Instrument the retry wrapper so each attempt prints its attempt number, the deadline it was given, and the error it received. Run the replay once more and compare the deadline printed on the first attempt with the one printed on the second."
+        },
+        {
+          "role": "assistant",
+          "content": "Attempt one receives a deadline two seconds after start. Attempt two receives a deadline that has already passed, because the wrapper reuses a single context for every attempt. The wrapper then reports an exhaustion error whose text hides the real importer failure.",
+          "turn": 4
+        },
+        {
+          "role": "user",
+          "content": "Confirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context."
+        },
+        {
+          "role": "assistant",
+          "content": "The scratch check reproduces the reported behaviour. The second attempt observes a cancelled context and returns the exhaustion error instead of the stub failure. The root cause is a single context created outside the retry loop and inherited by every attempt.",
+          "turn": 5
+        },
+        {
+          "role": "user",
+          "content": "Propose the smallest fix that keeps the retry semantics unchanged. State where the context should be created, what deadline each attempt should receive, and how the exhaustion error should preserve the last importer error so the operator can read it."
+        },
+        {
+          "role": "assistant",
+          "content": "Create the context inside the retry loop so each attempt owns a fresh deadline. Wrap the final importer error into the exhaustion error, keeping the original text readable. No other behaviour changes, and the attempt count stays the same for the existing tests.",
+          "turn": 6
+        },
+        {
+          "role": "user",
+          "content": "Apply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text."
+        },
+        {
+          "role": "assistant",
+          "content": "Applied the loop scoped context. The replay now shows attempt two reaching the importer and failing on the real import error. Two existing assertions matched the exhaustion text verbatim, so they now compare against the wrapped error while still checking the cause chain.",
+          "turn": 7
+        },
+        {
+          "role": "user",
+          "content": "Audit the other call sites that build a context before an internal loop. List them with the file and the loop they own, and mark which ones share the same defect. Do not edit them in this pass, we only want the inventory and a priority order."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nNow separate the two suspects. Disable the staging layer and send the replay straight to the importer, then repeat. Keep the retry wrapper untouched so the attempt count stays comparable, and write down the exact command you used for each replay.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Instrument the retry wrapper so each attempt prints its attempt number, the deadline it was given, and the error it received. Run the replay once more and compare the deadline printed on the first attempt with the one printed on the second."
+        },
+        {
+          "role": "assistant",
+          "content": "Attempt one receives a deadline two seconds after start. Attempt two receives a deadline that has already passed, because the wrapper reuses a single context for every attempt. The wrapper then reports an exhaustion error whose text hides the real importer failure.",
+          "turn": 4
+        },
+        {
+          "role": "user",
+          "content": "Confirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context."
+        },
+        {
+          "role": "assistant",
+          "content": "The scratch check reproduces the reported behaviour. The second attempt observes a cancelled context and returns the exhaustion error instead of the stub failure. The root cause is a single context created outside the retry loop and inherited by every attempt.",
+          "turn": 5
+        },
+        {
+          "role": "user",
+          "content": "You compress conversation history for the next model call.\n\nYou compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.\n\nInclude:\n1. Task and Goal: user request, end state, success criteria, constraints, assumptions.\n2. Current Repository State: repo, branch, files changed, code structure, uncommitted changes, external services.\n3. Work Completed: what implemented, commands run, tests executed, results, commits.\n4. Key Findings and Decisions: technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.\n5. Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.\n6. Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.\n7. Verification and Acceptance: commands to prove completion, expected outcomes, manual checks, verification limitations.\n8. User Preferences and Interaction Context: style, tone, conventions, promises, things to avoid repeating.\n\nRules:\n- Be factual and specific.\n- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.\n- Prefer concrete detail over vague summaries.\n- Do not include irrelevant chat, pleasantries, or speculation.\n- Do not expose secrets. Refer by purpose only.\n- Do not include hidden reasoning. Summarize conclusions only.\n- Do not claim completion unless implemented and verified.\n- Steiner keeps the user's latest summarized request verbatim after this summary; mention it briefly, do not quote it.\n- If work partially complete, describe exact safest continuation point.\n- If uncertain, say what is uncertain and why.\n- Write for immediate continuation by coding agent.\n\nEncoding directives:\n- Drop articles where meaning survives.\n- Use compact clauses; semicolons are fine when clear. Keep full sentences where needed to avoid ambiguity.\n- Preserve paths and identifiers exactly. Remove repeated mentions rather than abbreviating them.\n- Use key=value notation for config/env/version facts.\n- No markdown headers: use \"label:\" prefix instead.\n- Omit a section entirely if it would be empty.\n- Preserve exact identifiers verbatim (paths, symbols, commands, error messages, config keys, versions)."
+        }
+      ],
+      "max_tokens": 32
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nConfirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Propose the smallest fix that keeps the retry semantics unchanged. State where the context should be created, what deadline each attempt should receive, and how the exhaustion error should preserve the last importer error so the operator can read it."
+        },
+        {
+          "role": "assistant",
+          "content": "Create the context inside the retry loop so each attempt owns a fresh deadline. Wrap the final importer error into the exhaustion error, keeping the original text readable. No other behaviour changes, and the attempt count stays the same for the existing tests.",
+          "turn": 6
+        },
+        {
+          "role": "user",
+          "content": "Apply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text."
+        },
+        {
+          "role": "assistant",
+          "content": "Applied the loop scoped context. The replay now shows attempt two reaching the importer and failing on the real import error. Two existing assertions matched the exhaustion text verbatim, so they now compare against the wrapped error while still checking the cause chain.",
+          "turn": 7
+        },
+        {
+          "role": "user",
+          "content": "Audit the other call sites that build a context before an internal loop. List them with the file and the loop they own, and mark which ones share the same defect. Do not edit them in this pass, we only want the inventory and a priority order."
+        },
+        {
+          "role": "assistant",
+          "content": "Found four sites. Two share the defect: the batch downloader and the archive writer, both create the context above their retry loop. The other two create the context inside the loop already. Priority order is downloader, archive writer, then the reporting wrappers that only retry once.",
+          "turn": 8
+        },
+        {
+          "role": "user",
+          "content": "Fix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nConfirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Propose the smallest fix that keeps the retry semantics unchanged. State where the context should be created, what deadline each attempt should receive, and how the exhaustion error should preserve the last importer error so the operator can read it."
+        },
+        {
+          "role": "assistant",
+          "content": "Create the context inside the retry loop so each attempt owns a fresh deadline. Wrap the final importer error into the exhaustion error, keeping the original text readable. No other behaviour changes, and the attempt count stays the same for the existing tests.",
+          "turn": 6
+        },
+        {
+          "role": "user",
+          "content": "Apply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text."
+        },
+        {
+          "role": "assistant",
+          "content": "Applied the loop scoped context. The replay now shows attempt two reaching the importer and failing on the real import error. Two existing assertions matched the exhaustion text verbatim, so they now compare against the wrapped error while still checking the cause chain.",
+          "turn": 7
+        },
+        {
+          "role": "user",
+          "content": "Audit the other call sites that build a context before an internal loop. List them with the file and the loop they own, and mark which ones share the same defect. Do not edit them in this pass, we only want the inventory and a priority order."
+        },
+        {
+          "role": "assistant",
+          "content": "Found four sites. Two share the defect: the batch downloader and the archive writer, both create the context above their retry loop. The other two create the context inside the loop already. Priority order is downloader, archive writer, then the reporting wrappers that only retry once.",
+          "turn": 8
+        },
+        {
+          "role": "user",
+          "content": "Fix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context."
+        },
+        {
+          "role": "assistant",
+          "content": "Downloader fixed with a loop scoped context. Its retry test failed because it asserted a single deadline across attempts; the assertion now checks one deadline per attempt. The remaining downloader tests pass unchanged and the retry count is still covered.",
+          "turn": 9
+        },
+        {
+          "role": "user",
+          "content": "Add a regression test that fails if any retry loop shares one context across attempts. Keep it table driven over the wrapper kinds we know about, and make the failure message name the wrapper and the attempt where the context was already cancelled."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nConfirm the shared context theory with a unit level check before changing production code. Write a scratch check that runs the wrapper against a stub importer that fails on the first attempt, and show that the second attempt sees a cancelled context.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Propose the smallest fix that keeps the retry semantics unchanged. State where the context should be created, what deadline each attempt should receive, and how the exhaustion error should preserve the last importer error so the operator can read it."
+        },
+        {
+          "role": "assistant",
+          "content": "Create the context inside the retry loop so each attempt owns a fresh deadline. Wrap the final importer error into the exhaustion error, keeping the original text readable. No other behaviour changes, and the attempt count stays the same for the existing tests.",
+          "turn": 6
+        },
+        {
+          "role": "user",
+          "content": "Apply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text."
+        },
+        {
+          "role": "assistant",
+          "content": "Applied the loop scoped context. The replay now shows attempt two reaching the importer and failing on the real import error. Two existing assertions matched the exhaustion text verbatim, so they now compare against the wrapped error while still checking the cause chain.",
+          "turn": 7
+        },
+        {
+          "role": "user",
+          "content": "You compress conversation history for the next model call.\n\nYou compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.\n\nInclude:\n1. Task and Goal: user request, end state, success criteria, constraints, assumptions.\n2. Current Repository State: repo, branch, files changed, code structure, uncommitted changes, external services.\n3. Work Completed: what implemented, commands run, tests executed, results, commits.\n4. Key Findings and Decisions: technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.\n5. Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.\n6. Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.\n7. Verification and Acceptance: commands to prove completion, expected outcomes, manual checks, verification limitations.\n8. User Preferences and Interaction Context: style, tone, conventions, promises, things to avoid repeating.\n\nRules:\n- Be factual and specific.\n- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.\n- Prefer concrete detail over vague summaries.\n- Do not include irrelevant chat, pleasantries, or speculation.\n- Do not expose secrets. Refer by purpose only.\n- Do not include hidden reasoning. Summarize conclusions only.\n- Do not claim completion unless implemented and verified.\n- Steiner keeps the user's latest summarized request verbatim after this summary; mention it briefly, do not quote it.\n- If work partially complete, describe exact safest continuation point.\n- If uncertain, say what is uncertain and why.\n- Write for immediate continuation by coding agent.\n\nEncoding directives:\n- Drop articles where meaning survives.\n- Use compact clauses; semicolons are fine when clear. Keep full sentences where needed to avoid ambiguity.\n- Preserve paths and identifiers exactly. Remove repeated mentions rather than abbreviating them.\n- Use key=value notation for config/env/version facts.\n- No markdown headers: use \"label:\" prefix instead.\n- Omit a section entirely if it would be empty.\n- Preserve exact identifiers verbatim (paths, symbols, commands, error messages, config keys, versions)."
+        }
+      ],
+      "max_tokens": 32
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nApply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Audit the other call sites that build a context before an internal loop. List them with the file and the loop they own, and mark which ones share the same defect. Do not edit them in this pass, we only want the inventory and a priority order."
+        },
+        {
+          "role": "assistant",
+          "content": "Found four sites. Two share the defect: the batch downloader and the archive writer, both create the context above their retry loop. The other two create the context inside the loop already. Priority order is downloader, archive writer, then the reporting wrappers that only retry once.",
+          "turn": 8
+        },
+        {
+          "role": "user",
+          "content": "Fix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context."
+        },
+        {
+          "role": "assistant",
+          "content": "Downloader fixed with a loop scoped context. Its retry test failed because it asserted a single deadline across attempts; the assertion now checks one deadline per attempt. The remaining downloader tests pass unchanged and the retry count is still covered.",
+          "turn": 9
+        },
+        {
+          "role": "user",
+          "content": "Add a regression test that fails if any retry loop shares one context across attempts. Keep it table driven over the wrapper kinds we know about, and make the failure message name the wrapper and the attempt where the context was already cancelled."
+        },
+        {
+          "role": "assistant",
+          "content": "Added a table driven regression test over the ingest, downloader, and archive wrappers. Each case asserts that the context observed by attempt two is live, and the failure message names the wrapper and the attempt. Archive writer is skipped for now.",
+          "turn": 10
+        },
+        {
+          "role": "user",
+          "content": "Fix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nApply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Audit the other call sites that build a context before an internal loop. List them with the file and the loop they own, and mark which ones share the same defect. Do not edit them in this pass, we only want the inventory and a priority order."
+        },
+        {
+          "role": "assistant",
+          "content": "Found four sites. Two share the defect: the batch downloader and the archive writer, both create the context above their retry loop. The other two create the context inside the loop already. Priority order is downloader, archive writer, then the reporting wrappers that only retry once.",
+          "turn": 8
+        },
+        {
+          "role": "user",
+          "content": "Fix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context."
+        },
+        {
+          "role": "assistant",
+          "content": "Downloader fixed with a loop scoped context. Its retry test failed because it asserted a single deadline across attempts; the assertion now checks one deadline per attempt. The remaining downloader tests pass unchanged and the retry count is still covered.",
+          "turn": 9
+        },
+        {
+          "role": "user",
+          "content": "Add a regression test that fails if any retry loop shares one context across attempts. Keep it table driven over the wrapper kinds we know about, and make the failure message name the wrapper and the attempt where the context was already cancelled."
+        },
+        {
+          "role": "assistant",
+          "content": "Added a table driven regression test over the ingest, downloader, and archive wrappers. Each case asserts that the context observed by attempt two is live, and the failure message names the wrapper and the attempt. Archive writer is skipped for now.",
+          "turn": 10
+        },
+        {
+          "role": "user",
+          "content": "Fix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too."
+        },
+        {
+          "role": "assistant",
+          "content": "Archive writer now creates its context per attempt, and its table row is enabled. The retry package passes under the race detector. The writer still serialises work through its queue, and the loop scoped context removes the only long lived cancellation path.",
+          "turn": 11
+        },
+        {
+          "role": "user",
+          "content": "Document the retry contract in the package comment: one context per attempt, the last error preserved inside the exhaustion error, and the deadline source. Keep it to a short paragraph and mention that callers must not pre-cancel the parent context."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nApply the minimal fix and rerun the replay. Show the attempt output before and after, and confirm that the second attempt now reaches the importer instead of failing on a cancelled context. Note any test that still assumes the old error text.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Audit the other call sites that build a context before an internal loop. List them with the file and the loop they own, and mark which ones share the same defect. Do not edit them in this pass, we only want the inventory and a priority order."
+        },
+        {
+          "role": "assistant",
+          "content": "Found four sites. Two share the defect: the batch downloader and the archive writer, both create the context above their retry loop. The other two create the context inside the loop already. Priority order is downloader, archive writer, then the reporting wrappers that only retry once.",
+          "turn": 8
+        },
+        {
+          "role": "user",
+          "content": "Fix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context."
+        },
+        {
+          "role": "assistant",
+          "content": "Downloader fixed with a loop scoped context. Its retry test failed because it asserted a single deadline across attempts; the assertion now checks one deadline per attempt. The remaining downloader tests pass unchanged and the retry count is still covered.",
+          "turn": 9
+        },
+        {
+          "role": "user",
+          "content": "You compress conversation history for the next model call.\n\nYou compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.\n\nInclude:\n1. Task and Goal: user request, end state, success criteria, constraints, assumptions.\n2. Current Repository State: repo, branch, files changed, code structure, uncommitted changes, external services.\n3. Work Completed: what implemented, commands run, tests executed, results, commits.\n4. Key Findings and Decisions: technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.\n5. Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.\n6. Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.\n7. Verification and Acceptance: commands to prove completion, expected outcomes, manual checks, verification limitations.\n8. User Preferences and Interaction Context: style, tone, conventions, promises, things to avoid repeating.\n\nRules:\n- Be factual and specific.\n- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.\n- Prefer concrete detail over vague summaries.\n- Do not include irrelevant chat, pleasantries, or speculation.\n- Do not expose secrets. Refer by purpose only.\n- Do not include hidden reasoning. Summarize conclusions only.\n- Do not claim completion unless implemented and verified.\n- Steiner keeps the user's latest summarized request verbatim after this summary; mention it briefly, do not quote it.\n- If work partially complete, describe exact safest continuation point.\n- If uncertain, say what is uncertain and why.\n- Write for immediate continuation by coding agent.\n\nEncoding directives:\n- Drop articles where meaning survives.\n- Use compact clauses; semicolons are fine when clear. Keep full sentences where needed to avoid ambiguity.\n- Preserve paths and identifiers exactly. Remove repeated mentions rather than abbreviating them.\n- Use key=value notation for config/env/version facts.\n- No markdown headers: use \"label:\" prefix instead.\n- Omit a section entirely if it would be empty.\n- Preserve exact identifiers verbatim (paths, symbols, commands, error messages, config keys, versions)."
+        }
+      ],
+      "max_tokens": 32
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nDownloader and archive writer fixed. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nFix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Add a regression test that fails if any retry loop shares one context across attempts. Keep it table driven over the wrapper kinds we know about, and make the failure message name the wrapper and the attempt where the context was already cancelled."
+        },
+        {
+          "role": "assistant",
+          "content": "Added a table driven regression test over the ingest, downloader, and archive wrappers. Each case asserts that the context observed by attempt two is live, and the failure message names the wrapper and the attempt. Archive writer is skipped for now.",
+          "turn": 10
+        },
+        {
+          "role": "user",
+          "content": "Fix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too."
+        },
+        {
+          "role": "assistant",
+          "content": "Archive writer now creates its context per attempt, and its table row is enabled. The retry package passes under the race detector. The writer still serialises work through its queue, and the loop scoped context removes the only long lived cancellation path.",
+          "turn": 11
+        },
+        {
+          "role": "user",
+          "content": "Document the retry contract in the package comment: one context per attempt, the last error preserved inside the exhaustion error, and the deadline source. Keep it to a short paragraph and mention that callers must not pre-cancel the parent context."
+        },
+        {
+          "role": "assistant",
+          "content": "Package comment now states the retry contract in four lines, names the loop scoped context, and warns that a pre-cancelled parent ends the retry loop immediately. The archive and downloader packages link to that paragraph instead of repeating it.",
+          "turn": 12
+        },
+        {
+          "role": "user",
+          "content": "The correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nDownloader and archive writer fixed. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nFix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Add a regression test that fails if any retry loop shares one context across attempts. Keep it table driven over the wrapper kinds we know about, and make the failure message name the wrapper and the attempt where the context was already cancelled."
+        },
+        {
+          "role": "assistant",
+          "content": "Added a table driven regression test over the ingest, downloader, and archive wrappers. Each case asserts that the context observed by attempt two is live, and the failure message names the wrapper and the attempt. Archive writer is skipped for now.",
+          "turn": 10
+        },
+        {
+          "role": "user",
+          "content": "Fix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too."
+        },
+        {
+          "role": "assistant",
+          "content": "Archive writer now creates its context per attempt, and its table row is enabled. The retry package passes under the race detector. The writer still serialises work through its queue, and the loop scoped context removes the only long lived cancellation path.",
+          "turn": 11
+        },
+        {
+          "role": "user",
+          "content": "Document the retry contract in the package comment: one context per attempt, the last error preserved inside the exhaustion error, and the deadline source. Keep it to a short paragraph and mention that callers must not pre-cancel the parent context."
+        },
+        {
+          "role": "assistant",
+          "content": "Package comment now states the retry contract in four lines, names the loop scoped context, and warns that a pre-cancelled parent ends the retry loop immediately. The archive and downloader packages link to that paragraph instead of repeating it.",
+          "turn": 12
+        },
+        {
+          "role": "user",
+          "content": "The correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the correction as a corrections block: the earlier identifier stays visible as superseded, and every later section uses the corrected identifier. Release notes were updated to the corrected identifier only, with no mention of the superseded value.",
+          "turn": 13
+        },
+        {
+          "role": "user",
+          "content": "Review the operator timeline for continuity. It should read as one narrative from the failing nightly job through the loop scoped context fix, the inventory, and the regression test. Flag any step that appears out of order."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\nerror E-4471 reproduced from the nightly import. ruled out: sqlite staging corruption.\n\nerror E-4471 traced to the retry wrapper reusing one context. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nLoop scoped context fix verified. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nDownloader and archive writer fixed. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nFix the batch downloader with the same shape as the ingest fix and prove it with its existing retry tests. If a test encodes the old behaviour, explain why the new behaviour is correct and update only the assertion that depends on the shared context.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Add a regression test that fails if any retry loop shares one context across attempts. Keep it table driven over the wrapper kinds we know about, and make the failure message name the wrapper and the attempt where the context was already cancelled."
+        },
+        {
+          "role": "assistant",
+          "content": "Added a table driven regression test over the ingest, downloader, and archive wrappers. Each case asserts that the context observed by attempt two is live, and the failure message names the wrapper and the attempt. Archive writer is skipped for now.",
+          "turn": 10
+        },
+        {
+          "role": "user",
+          "content": "Fix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too."
+        },
+        {
+          "role": "assistant",
+          "content": "Archive writer now creates its context per attempt, and its table row is enabled. The retry package passes under the race detector. The writer still serialises work through its queue, and the loop scoped context removes the only long lived cancellation path.",
+          "turn": 11
+        },
+        {
+          "role": "user",
+          "content": "You compress conversation history for the next model call.\n\nYou compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.\n\nInclude:\n1. Task and Goal: user request, end state, success criteria, constraints, assumptions.\n2. Current Repository State: repo, branch, files changed, code structure, uncommitted changes, external services.\n3. Work Completed: what implemented, commands run, tests executed, results, commits.\n4. Key Findings and Decisions: technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.\n5. Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.\n6. Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.\n7. Verification and Acceptance: commands to prove completion, expected outcomes, manual checks, verification limitations.\n8. User Preferences and Interaction Context: style, tone, conventions, promises, things to avoid repeating.\n\nRules:\n- Be factual and specific.\n- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.\n- Prefer concrete detail over vague summaries.\n- Do not include irrelevant chat, pleasantries, or speculation.\n- Do not expose secrets. Refer by purpose only.\n- Do not include hidden reasoning. Summarize conclusions only.\n- Do not claim completion unless implemented and verified.\n- Steiner keeps the user's latest summarized request verbatim after this summary; mention it briefly, do not quote it.\n- If work partially complete, describe exact safest continuation point.\n- If uncertain, say what is uncertain and why.\n- Write for immediate continuation by coding agent.\n\nEncoding directives:\n- Drop articles where meaning survives.\n- Use compact clauses; semicolons are fine when clear. Keep full sentences where needed to avoid ambiguity.\n- Preserve paths and identifiers exactly. Remove repeated mentions rather than abbreviating them.\n- Use key=value notation for config/env/version facts.\n- No markdown headers: use \"label:\" prefix instead.\n- Omit a section entirely if it would be empty.\n- Preserve exact identifiers verbatim (paths, symbols, commands, error messages, config keys, versions)."
+        }
+      ],
+      "max_tokens": 32
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nRegression table guards the retry contract. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nFix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Document the retry contract in the package comment: one context per attempt, the last error preserved inside the exhaustion error, and the deadline source. Keep it to a short paragraph and mention that callers must not pre-cancel the parent context."
+        },
+        {
+          "role": "assistant",
+          "content": "Package comment now states the retry contract in four lines, names the loop scoped context, and warns that a pre-cancelled parent ends the retry loop immediately. The archive and downloader packages link to that paragraph instead of repeating it.",
+          "turn": 12
+        },
+        {
+          "role": "user",
+          "content": "The correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the correction as a corrections block: the earlier identifier stays visible as superseded, and every later section uses the corrected identifier. Release notes were updated to the corrected identifier only, with no mention of the superseded value.",
+          "turn": 13
+        },
+        {
+          "role": "user",
+          "content": "Review the operator timeline for continuity. It should read as one narrative from the failing nightly job through the loop scoped context fix, the inventory, and the regression test. Flag any step that appears out of order."
+        },
+        {
+          "role": "assistant",
+          "content": "Timeline reads in order: failure report, replay, staging elimination, instrumentation, root cause, fix, inventory, downloader fix, regression test, archive fix, documentation, correction. No step is out of order. The staging elimination step still names the ruled out component.",
+          "turn": 14
+        },
+        {
+          "role": "user",
+          "content": "Prepare the handoff note for the next session. It must list the changed files, the tests that now guard the retry contract, and the one remaining follow up we deliberately deferred. Keep the note factual and free of speculation."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nRegression table guards the retry contract. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nFix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Document the retry contract in the package comment: one context per attempt, the last error preserved inside the exhaustion error, and the deadline source. Keep it to a short paragraph and mention that callers must not pre-cancel the parent context."
+        },
+        {
+          "role": "assistant",
+          "content": "Package comment now states the retry contract in four lines, names the loop scoped context, and warns that a pre-cancelled parent ends the retry loop immediately. The archive and downloader packages link to that paragraph instead of repeating it.",
+          "turn": 12
+        },
+        {
+          "role": "user",
+          "content": "The correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the correction as a corrections block: the earlier identifier stays visible as superseded, and every later section uses the corrected identifier. Release notes were updated to the corrected identifier only, with no mention of the superseded value.",
+          "turn": 13
+        },
+        {
+          "role": "user",
+          "content": "Review the operator timeline for continuity. It should read as one narrative from the failing nightly job through the loop scoped context fix, the inventory, and the regression test. Flag any step that appears out of order."
+        },
+        {
+          "role": "assistant",
+          "content": "Timeline reads in order: failure report, replay, staging elimination, instrumentation, root cause, fix, inventory, downloader fix, regression test, archive fix, documentation, correction. No step is out of order. The staging elimination step still names the ruled out component.",
+          "turn": 14
+        },
+        {
+          "role": "user",
+          "content": "Prepare the handoff note for the next session. It must list the changed files, the tests that now guard the retry contract, and the one remaining follow up we deliberately deferred. Keep the note factual and free of speculation."
+        },
+        {
+          "role": "assistant",
+          "content": "Handoff note lists the ingest, downloader, and archive wrappers, the table driven regression test, and the package comment. The deferred follow up is the reporting wrappers that retry only once. No speculation is included and every claim names a file or a test.",
+          "turn": 15
+        },
+        {
+          "role": "user",
+          "content": "Check the release branch for drift against the fix. Compare the wrapper sources and the regression table, and report any file whose content differs from the branch we verified. Summarise the comparison instead of pasting full diffs."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nRegression table guards the retry contract. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nFix the archive writer and enable its row in the regression table. Then run the whole retry package under the race detector, since the writer touches a background goroutine and we want the loop scoped context to be safe there too.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Document the retry contract in the package comment: one context per attempt, the last error preserved inside the exhaustion error, and the deadline source. Keep it to a short paragraph and mention that callers must not pre-cancel the parent context."
+        },
+        {
+          "role": "assistant",
+          "content": "Package comment now states the retry contract in four lines, names the loop scoped context, and warns that a pre-cancelled parent ends the retry loop immediately. The archive and downloader packages link to that paragraph instead of repeating it.",
+          "turn": 12
+        },
+        {
+          "role": "user",
+          "content": "The correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one."
+        },
+        {
+          "role": "assistant",
+          "content": "Recorded the correction as a corrections block: the earlier identifier stays visible as superseded, and every later section uses the corrected identifier. Release notes were updated to the corrected identifier only, with no mention of the superseded value.",
+          "turn": 13
+        },
+        {
+          "role": "user",
+          "content": "You compress conversation history for the next model call.\n\nYou compact working context for coding agent. Another agent must resume from your summary alone. Write handoff summary. Keep structured and readable. Do not omit important facts.\n\nInclude:\n1. Task and Goal: user request, end state, success criteria, constraints, assumptions.\n2. Current Repository State: repo, branch, files changed, code structure, uncommitted changes, external services.\n3. Work Completed: what implemented, commands run, tests executed, results, commits.\n4. Key Findings and Decisions: technical discoveries, design choices, tradeoffs, constraints, dependencies, user decisions.\n5. Problems Encountered: errors, root causes, fixes, workarounds, rejected approaches.\n6. Remaining Work: next actions, files to change, tests needed, blockers, open questions, risks.\n7. Verification and Acceptance: commands to prove completion, expected outcomes, manual checks, verification limitations.\n8. User Preferences and Interaction Context: style, tone, conventions, promises, things to avoid repeating.\n\nRules:\n- Be factual and specific.\n- Preserve exact paths, filenames, symbols, commands, error messages, config keys, API names, versions, decisions.\n- Prefer concrete detail over vague summaries.\n- Do not include irrelevant chat, pleasantries, or speculation.\n- Do not expose secrets. Refer by purpose only.\n- Do not include hidden reasoning. Summarize conclusions only.\n- Do not claim completion unless implemented and verified.\n- Steiner keeps the user's latest summarized request verbatim after this summary; mention it briefly, do not quote it.\n- If work partially complete, describe exact safest continuation point.\n- If uncertain, say what is uncertain and why.\n- Write for immediate continuation by coding agent.\n\nEncoding directives:\n- Drop articles where meaning survives.\n- Use compact clauses; semicolons are fine when clear. Keep full sentences where needed to avoid ambiguity.\n- Preserve paths and identifiers exactly. Remove repeated mentions rather than abbreviating them.\n- Use key=value notation for config/env/version facts.\n- No markdown headers: use \"label:\" prefix instead.\n- Omit a section entirely if it would be empty.\n- Preserve exact identifiers verbatim (paths, symbols, commands, error messages, config keys, versions)."
+        }
+      ],
+      "max_tokens": 32
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nRegression table guards the retry contract. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nOperator timeline and corrections block recorded. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nThe correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Review the operator timeline for continuity. It should read as one narrative from the failing nightly job through the loop scoped context fix, the inventory, and the regression test. Flag any step that appears out of order."
+        },
+        {
+          "role": "assistant",
+          "content": "Timeline reads in order: failure report, replay, staging elimination, instrumentation, root cause, fix, inventory, downloader fix, regression test, archive fix, documentation, correction. No step is out of order. The staging elimination step still names the ruled out component.",
+          "turn": 14
+        },
+        {
+          "role": "user",
+          "content": "Prepare the handoff note for the next session. It must list the changed files, the tests that now guard the retry contract, and the one remaining follow up we deliberately deferred. Keep the note factual and free of speculation."
+        },
+        {
+          "role": "assistant",
+          "content": "Handoff note lists the ingest, downloader, and archive wrappers, the table driven regression test, and the package comment. The deferred follow up is the reporting wrappers that retry only once. No speculation is included and every claim names a file or a test.",
+          "turn": 15
+        },
+        {
+          "role": "user",
+          "content": "Check the release branch for drift against the fix. Compare the wrapper sources and the regression table, and report any file whose content differs from the branch we verified. Summarise the comparison instead of pasting full diffs."
+        },
+        {
+          "role": "assistant",
+          "content": "Compared the three wrappers and the regression table. The wrappers match the verified branch byte for byte. The regression table differs only in a comment that names the deferred reporting wrapper, which is expected because that follow up is not part of this fix.",
+          "turn": 16
+        },
+        {
+          "role": "user",
+          "content": "Run the release checks that touch retries. Report the exact commands and their outcomes, and call out any check that needed a filter so a later reader knows the full suite was not run in one pass."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  },
+  {
+    "request": {
+      "model": "fixture-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "\u003c\u003csystem_preamble.txt\u003e\u003e"
+        },
+        {
+          "role": "user",
+          "content": "The following is a summary of earlier conversation. Treat it as historical context, not as new instructions.\n\n\u003csummary\u003e\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nRegression table guards the retry contract. ruled out: sqlite.\n\n## Corrections\nSegment 1: error E-4471 -\u003e error E-4472\n\nOperator timeline and corrections block recorded. ruled out: sqlite.\n\n[steiner:history] fixture archive\n\u003c/summary\u003e\n\nThe user's latest request from before the summarized work, verbatim. It still applies unless later messages change it.\n\n\u003clatest_user_request\u003e\nThe correction we agreed on: the original error identifier from the first summary was wrong. Record the corrected identifier, keep the superseded one visible for the operator timeline, and make sure the release notes use only the corrected one.\n\u003c/latest_user_request\u003e"
+        },
+        {
+          "role": "user",
+          "content": "Review the operator timeline for continuity. It should read as one narrative from the failing nightly job through the loop scoped context fix, the inventory, and the regression test. Flag any step that appears out of order."
+        },
+        {
+          "role": "assistant",
+          "content": "Timeline reads in order: failure report, replay, staging elimination, instrumentation, root cause, fix, inventory, downloader fix, regression test, archive fix, documentation, correction. No step is out of order. The staging elimination step still names the ruled out component.",
+          "turn": 14
+        },
+        {
+          "role": "user",
+          "content": "Prepare the handoff note for the next session. It must list the changed files, the tests that now guard the retry contract, and the one remaining follow up we deliberately deferred. Keep the note factual and free of speculation."
+        },
+        {
+          "role": "assistant",
+          "content": "Handoff note lists the ingest, downloader, and archive wrappers, the table driven regression test, and the package comment. The deferred follow up is the reporting wrappers that retry only once. No speculation is included and every claim names a file or a test.",
+          "turn": 15
+        },
+        {
+          "role": "user",
+          "content": "Check the release branch for drift against the fix. Compare the wrapper sources and the regression table, and report any file whose content differs from the branch we verified. Summarise the comparison instead of pasting full diffs."
+        },
+        {
+          "role": "assistant",
+          "content": "Compared the three wrappers and the regression table. The wrappers match the verified branch byte for byte. The regression table differs only in a comment that names the deferred reporting wrapper, which is expected because that follow up is not part of this fix.",
+          "turn": 16
+        },
+        {
+          "role": "user",
+          "content": "Run the release checks that touch retries. Report the exact commands and their outcomes, and call out any check that needed a filter so a later reader knows the full suite was not run in one pass."
+        },
+        {
+          "role": "assistant",
+          "content": "Ran the retry package tests, the race detector variant, and the vet pass. All pass. The integration filter was needed for the archive writer suite because it depends on a local queue binary, and that filter is recorded in the handoff note.",
+          "turn": 17
+        },
+        {
+          "role": "user",
+          "content": "Write the operator facing summary. One paragraph on the cause, one on the fix, one on the guard against recurrence. Avoid jargon where a plain phrase works and keep the superseded identifier out of the operator summary."
+        }
+      ]
+    },
+    "cache_boundary_indices": []
+  }
+]

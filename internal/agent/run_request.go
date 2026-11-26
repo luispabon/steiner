@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/luispabon/steiner/internal/config"
 	"github.com/luispabon/steiner/internal/diagnostics"
 	"github.com/luispabon/steiner/internal/output"
 	"github.com/luispabon/steiner/internal/prompt"
@@ -58,6 +59,9 @@ type RunRequest struct {
 	// CompactionLogPath is an optional file path for logging compaction request/response pairs.
 	// When non-empty, compaction calls write their full API request and final response to this file.
 	CompactionLogPath string
+
+	// SegmentedCompaction is the experimental segment policy for this run.
+	SegmentedCompaction config.SegmentedCompactionPolicy
 
 	// HistoryArchive receives the messages each compaction removes from the
 	// conversation, once the compaction is adopted. Nil disables archiving
