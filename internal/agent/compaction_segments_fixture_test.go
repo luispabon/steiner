@@ -23,6 +23,13 @@ var fixtureUpdateGoldens = flag.Bool("update-segment-goldens", false, "rewrite s
 
 const (
 	fixtureGoldenDir = "testdata/segmented_compaction"
+	// fixtureSystemPreambleFile holds the session system preamble every captured
+	// request shares, so a preamble change rewrites one small file instead of
+	// every golden.
+	fixtureSystemPreambleFile = "system_preamble.txt"
+	// fixtureSystemPreamblePlaceholder stands in for the system message content
+	// in the goldens.
+	fixtureSystemPreamblePlaceholder = "<<system_preamble.txt>>"
 	// fixtureHeaderFormat is the literal segment header the fixture expects. It
 	// is deliberately not derived from segmentHeader, so a change to the header
 	// text shows up here as well as in the goldens.
@@ -347,6 +354,42 @@ func fixtureParseDecision(t *testing.T, line string) fixtureDecision {
 	return d
 }
 
+// fixtureGoldenCaptures replaces the session system preamble, which every
+// captured request shares, with fixtureSystemPreamblePlaceholder so the goldens
+// store it once. It returns the substituted captures and the preamble itself.
+func fixtureGoldenCaptures(t *testing.T, captures []fixtureCapture) ([]fixtureCapture, string) {
+	t.Helper()
+	if len(captures) == 0 || len(captures[0].Request.Messages) == 0 {
+		t.Fatal("no captured requests to store")
+	}
+	preamble := captures[0].Request.Messages[0].Content
+	if captures[0].Request.Messages[0].Role != provider.MessageRoleSystem {
+		t.Fatal("first captured request does not start with the system preamble")
+	}
+	out := make([]fixtureCapture, len(captures))
+	for i, entry := range captures {
+		messages := make([]provider.Message, len(entry.Request.Messages))
+		copy(messages, entry.Request.Messages)
+		replaced := false
+		for j := range messages {
+			if messages[j].Role != provider.MessageRoleSystem {
+				continue
+			}
+			if messages[j].Content != preamble {
+				t.Fatalf("entry %d: system message %d differs from the first captured system preamble\nregenerate with:\n  go test ./internal/agent -run SegmentsFixture -update-segment-goldens", i, j)
+			}
+			messages[j].Content = fixtureSystemPreamblePlaceholder
+			replaced = true
+		}
+		if !replaced {
+			t.Fatalf("entry %d: request carries no system preamble", i)
+		}
+		entry.Request.Messages = messages
+		out[i] = entry
+	}
+	return out, preamble
+}
+
 // fixtureEncodeGoldens renders the captures with stable formatting.
 func fixtureEncodeGoldens(t *testing.T, captures []fixtureCapture) []byte {
 	t.Helper()
@@ -360,19 +403,30 @@ func fixtureEncodeGoldens(t *testing.T, captures []fixtureCapture) []byte {
 	return append(data, '\n')
 }
 
-// fixtureCheckGolden compares encoded with the stored golden, or rewrites it
-// when -update-segment-goldens is set.
-func fixtureCheckGolden(t *testing.T, mode string, encoded []byte) {
+// fixtureCheckGolden compares encoded with the stored golden and its shared
+// system preamble, or rewrites both when -update-segment-goldens is set.
+func fixtureCheckGolden(t *testing.T, mode, preamble string, encoded []byte) {
 	t.Helper()
+	preamblePath := filepath.Join(fixtureGoldenDir, fixtureSystemPreambleFile)
 	name := "captured_" + mode + ".json"
 	path := filepath.Join(fixtureGoldenDir, name)
 	if *fixtureUpdateGoldens {
 		if err := os.MkdirAll(fixtureGoldenDir, 0o755); err != nil {
 			t.Fatalf("create golden dir: %v", err)
 		}
+		if err := os.WriteFile(preamblePath, []byte(preamble), 0o644); err != nil {
+			t.Fatalf("write system preamble %s: %v", preamblePath, err)
+		}
 		if err := os.WriteFile(path, encoded, 0o644); err != nil {
 			t.Fatalf("write golden %s: %v", path, err)
 		}
+	}
+	storedPreamble, err := os.ReadFile(preamblePath)
+	if err != nil {
+		t.Fatalf("read system preamble %s: %v\nregenerate with:\n  go test ./internal/agent -run SegmentsFixture -update-segment-goldens", preamblePath, err)
+	}
+	if string(storedPreamble) != preamble {
+		t.Fatalf("live system preamble does not match %s\nregenerate with:\n  go test ./internal/agent -run SegmentsFixture -update-segment-goldens", preamblePath)
 	}
 	stored, err := os.ReadFile(path)
 	if err != nil {
@@ -384,8 +438,9 @@ func fixtureCheckGolden(t *testing.T, mode string, encoded []byte) {
 }
 
 // fixtureAssertRoundTrip proves a golden entry rebuilds the exact request that
-// was sent, including the CacheBoundary flags restored from the indices.
-func fixtureAssertRoundTrip(t *testing.T, encoded []byte, sent []provider.ChatRequest) {
+// was sent, including the CacheBoundary flags restored from the indices and the
+// shared system preamble expanded from its placeholder.
+func fixtureAssertRoundTrip(t *testing.T, preamble string, encoded []byte, sent []provider.ChatRequest) {
 	t.Helper()
 	var decoded []fixtureCapture
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
@@ -423,6 +478,11 @@ func fixtureAssertRoundTrip(t *testing.T, encoded []byte, sent []provider.ChatRe
 				t.Fatalf("entry %d: cache boundary index %d is out of range", i, index)
 			}
 			rebuilt.Messages[index].CacheBoundary = true
+		}
+		for j := range rebuilt.Messages {
+			if rebuilt.Messages[j].Content == fixtureSystemPreamblePlaceholder {
+				rebuilt.Messages[j].Content = preamble
+			}
 		}
 		// CacheBoundary never marshals, so the rebuilt struct and the sent
 		// request agree on every field of the wire payload. Local-only fields
@@ -735,16 +795,18 @@ func fixtureAppliedEpisode(decisions []fixtureDecision, applied int) int {
 func TestSegmentsFixture(t *testing.T) {
 	t.Run("Off", func(t *testing.T) {
 		result := fixtureRunConversation(t, fixturePolicy(false))
-		encoded := fixtureEncodeGoldens(t, result.Goldens)
-		fixtureCheckGolden(t, "off", encoded)
-		fixtureAssertRoundTrip(t, encoded, result.Requests)
+		captures, preamble := fixtureGoldenCaptures(t, result.Goldens)
+		encoded := fixtureEncodeGoldens(t, captures)
+		fixtureCheckGolden(t, "off", preamble, encoded)
+		fixtureAssertRoundTrip(t, preamble, encoded, result.Requests)
 		fixtureAssertPlain(t, result)
 	})
 	t.Run("On", func(t *testing.T) {
 		result := fixtureRunConversation(t, fixturePolicy(true))
-		encoded := fixtureEncodeGoldens(t, result.Goldens)
-		fixtureCheckGolden(t, "on", encoded)
-		fixtureAssertRoundTrip(t, encoded, result.Requests)
+		captures, preamble := fixtureGoldenCaptures(t, result.Goldens)
+		encoded := fixtureEncodeGoldens(t, captures)
+		fixtureCheckGolden(t, "on", preamble, encoded)
+		fixtureAssertRoundTrip(t, preamble, encoded, result.Requests)
 		fixtureAssertSegmented(t, result)
 	})
 }

@@ -16,6 +16,12 @@ const (
 	// capturedSimFixtureDir is the captured-request golden directory written by
 	// the agent segmented compaction fixture.
 	capturedSimFixtureDir = "../agent/testdata/segmented_compaction"
+	// capturedSimSystemPreambleFile holds the session system preamble the agent
+	// fixture stores once instead of repeating it in every captured request.
+	capturedSimSystemPreambleFile = "system_preamble.txt"
+	// capturedSimSystemPreamblePlaceholder is the marker the agent fixture writes
+	// in place of that preamble; keep it in sync with the agent fixture.
+	capturedSimSystemPreamblePlaceholder = "<<system_preamble.txt>>"
 	// capturedSimCostTolerancePercent is the live bench's default cost band: the
 	// offline proxy cannot resolve small differences such as per-segment framing
 	// overhead, and the live bench decides within the same band.
@@ -37,11 +43,20 @@ type capturedSimTotals struct {
 	uncached  int
 }
 
-// capturedSimLoadRequests decodes one captured-request golden and restores the
-// CacheBoundary flags the JSON encoding drops. It also returns how many
-// boundaries it restored.
+// capturedSimLoadRequests decodes one captured-request golden, expands the
+// shared session preamble stored beside it, and restores the CacheBoundary
+// flags the JSON encoding drops. It also returns how many boundaries it
+// restored.
 func capturedSimLoadRequests(t *testing.T, name string) ([]ChatRequest, int) {
 	t.Helper()
+	preamblePath := filepath.Join(capturedSimFixtureDir, capturedSimSystemPreambleFile)
+	preamble, err := os.ReadFile(preamblePath)
+	if err != nil {
+		t.Fatalf("read captured system preamble %s: %v", preamblePath, err)
+	}
+	if len(preamble) == 0 {
+		t.Fatalf("captured system preamble %s is empty", preamblePath)
+	}
 	path := filepath.Join(capturedSimFixtureDir, name)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -57,6 +72,21 @@ func capturedSimLoadRequests(t *testing.T, name string) ([]ChatRequest, int) {
 	requests := make([]ChatRequest, 0, len(entries))
 	boundaries := 0
 	for i, entry := range entries {
+		replaced := 0
+		for j := range entry.Request.Messages {
+			message := &entry.Request.Messages[j]
+			if message.Role != MessageRoleSystem {
+				continue
+			}
+			if message.Content != capturedSimSystemPreamblePlaceholder {
+				t.Fatalf("captured requests %s entry %d: system message %d does not hold the stored preamble placeholder", path, i, j)
+			}
+			message.Content = string(preamble)
+			replaced++
+		}
+		if replaced == 0 {
+			t.Fatalf("captured requests %s entry %d: request carries no system preamble", path, i)
+		}
 		for _, idx := range entry.CacheBoundaryIndices {
 			if idx < 0 || idx >= len(entry.Request.Messages) {
 				t.Fatalf("captured requests %s entry %d: cache boundary index %d out of range for %d messages", path, i, idx, len(entry.Request.Messages))
