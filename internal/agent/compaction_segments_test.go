@@ -903,8 +903,12 @@ func TestSegmentedCompactionNoteStaysInTail(t *testing.T) {
 	if got, want := len(archive.notes), 1; got != want {
 		t.Fatalf("history notes = %d, want %d for one stage", got, want)
 	}
-	if !sameMessages(archive.notes[0], full[3:5]) {
-		t.Fatalf("history note source = %#v, want the append span only", archive.notes[0])
+	// The note source is the replaced tail, which carries the older pointer,
+	// followed by the append span: an append must not lose the pointers the tail
+	// it replaces held.
+	wantSource := append(stripRequestBlocks(full[2:3]), full[3:5]...)
+	if !sameMessages(archive.notes[0], wantSource) {
+		t.Fatalf("history note source = %#v, want the previous tail and the append span", archive.notes[0])
 	}
 	latest := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1]
 	prefix := latest.SummaryPrefix
@@ -918,10 +922,112 @@ func TestSegmentedCompactionNoteStaysInTail(t *testing.T) {
 		t.Fatalf("tail = %q (body %q block %q ok %t), want the note and span request", prefix[3].Content, body, block, ok)
 	}
 	if got, want := len(outcome.pendingArchive), 1; got != want {
-		t.Fatalf("pending archive = %d, want %d append span", got, want)
+		t.Fatalf("pending archive = %d, want %d append source", got, want)
 	}
-	if !sameMessages(outcome.pendingArchive[0], full[3:5]) {
-		t.Fatalf("pending archive source = %#v, want the append span only", outcome.pendingArchive[0])
+	if !sameMessages(outcome.pendingArchive[0], wantSource) {
+		t.Fatalf("pending archive source = %#v, want the previous tail and the append span", outcome.pendingArchive[0])
+	}
+}
+
+// sequencedHistoryArchive returns one note per Note call, so a test can tell the
+// pointers each compaction wrote and the order it wrote them in.
+type sequencedHistoryArchive struct {
+	notes   []string
+	sources [][]Message
+}
+
+func (a *sequencedHistoryArchive) Note(source []Message) (string, error) {
+	a.sources = append(a.sources, source)
+	if len(a.notes) == 0 {
+		return "", nil
+	}
+	note := a.notes[0]
+	a.notes = a.notes[1:]
+	return note, nil
+}
+
+func (a *sequencedHistoryArchive) Append(context.Context, []Message) error { return nil }
+
+// TestSegmentedCompactionAppendArchivesPreviousTailNote covers two appends in a
+// row: the tail the second append replaces carries the first append's history
+// pointer, so the second archive entry must carry that pointer instead of
+// dropping it with the replaced tail.
+func TestSegmentedCompactionAppendArchivesPreviousTailNote(t *testing.T) {
+	const firstNote = "[steiner:history] archived to sessions/one.jsonl"
+	const secondNote = "[steiner:history] archived to sessions/two.jsonl"
+	full := segmentStageConversation()
+	archive := &sequencedHistoryArchive{notes: []string{firstNote, secondNote}}
+	req := segmentedCompactionRequest(oneSummaryProvider("first append facts", "second append facts"), segmentedCompactionPolicy())
+	req.HistoryArchive = archive
+	ctx := context.Background()
+	state := stateFromMessages(full)
+
+	var pending [][]Message
+	compact := func(turn int, wantSequence int) {
+		t.Helper()
+		candidate, ok := selectCompactionCandidate(state.Lineage, nil)
+		if !ok {
+			t.Fatalf("selectCompactionCandidate() ok = false, want true")
+		}
+		outcome, err := summarizeCompactor{}.Compact(ctx, req, state, turn, candidate, "")
+		if err != nil {
+			t.Fatalf("Compact() error = %v", err)
+		}
+		if !outcome.Applied {
+			t.Fatal("Applied = false, want true")
+		}
+		decision := outcome.segmentDecision
+		if decision == nil || decision.Rebase || decision.Reason != "append" || decision.Sequence != wantSequence {
+			t.Fatalf("decision = %+v, want append sequence %d", decision, wantSequence)
+		}
+		if got, want := len(outcome.pendingArchive), 1; got != want {
+			t.Fatalf("pending archive = %d, want %d append source", got, want)
+		}
+		pending = outcome.pendingArchive
+		state = outcome.State
+	}
+	// appendTurns adds a user and assistant message the way a run does.
+	appendTurns := func(turns ...string) {
+		t.Helper()
+		var messages []Message
+		for i, content := range turns {
+			role := MessageRoleUser
+			if i%2 == 1 {
+				role = MessageRoleAssistant
+			}
+			messages = append(messages, Message{Role: role, Content: content})
+		}
+		state.Lineage = state.Lineage.WithAppendedMessages(messages)
+		state.Conversation = state.Lineage.FullMessages()
+	}
+
+	compact(4, 3)
+	firstWant := append(stripRequestBlocks(full[2:3]), full[3:5]...)
+	if !sameMessages(pending[0], firstWant) {
+		t.Fatalf("first archive source = %#v, want the previous tail and the first span", pending[0])
+	}
+
+	// New turns arrive, so the next compaction has a span to append.
+	appendTurns("newer request", "newer reply", "newest request", "newest reply")
+	compact(5, 4)
+
+	second := pending[0]
+	if len(second) == 0 {
+		t.Fatal("second archive source is empty")
+	}
+	if !strings.Contains(second[0].Content, firstNote) {
+		t.Fatalf("second archive source starts with %q, want the first tail's history pointer %q", second[0].Content, firstNote)
+	}
+	if strings.Contains(second[0].Content, requestBlockMarker) {
+		t.Fatalf("second archive source kept a request block: %q", second[0].Content)
+	}
+	latest := state.Lineage.Generations[len(state.Lineage.Generations)-1]
+	tail := latest.SummaryPrefix[len(latest.SummaryPrefix)-1]
+	if tail.Segment != nil {
+		t.Fatalf("newest summary message is a segment: %+v", tail.Segment)
+	}
+	if !strings.Contains(tail.Content, secondNote) {
+		t.Fatalf("new tail = %q, want the second history note", tail.Content)
 	}
 }
 

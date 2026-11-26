@@ -8,8 +8,9 @@ import (
 )
 
 // TestNewSegmentStageUnmappedRetentionKeepsRebaseReason covers the defensive
-// rebase an unmapped retention boundary forces: a decision that already rebased
-// keeps its own reason, and only an append decision takes retention-unmapped.
+// rebase an unmapped retention boundary forces: on a valid chain the boundary
+// reads as a split at the chain start, so that decision alone is relabelled
+// retention-unmapped, while every other rebase keeps its own reason.
 func TestNewSegmentStageUnmappedRetentionKeepsRebaseReason(t *testing.T) {
 	full := segmentStageConversation()
 	retained := full[4:9]
@@ -23,6 +24,7 @@ func TestNewSegmentStageUnmappedRetentionKeepsRebaseReason(t *testing.T) {
 		retry bool
 		want  string
 	}{
+		{name: "split in chain", mode: prompt.CompactionModeNormal, want: segmentReasonRetentionUnmapped},
 		{name: "emergency", mode: prompt.CompactionModeEmergency, want: "emergency"},
 		{name: "retry", mode: prompt.CompactionModeNormal, retry: true, want: "retry"},
 	}

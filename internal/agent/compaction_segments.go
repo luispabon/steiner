@@ -270,11 +270,13 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 		stage.Decision = segmentRebaseDecision(segmentReasonStrippedView, decision)
 		stage.Source = cloneMessages(in.Source)
 	case !mapped:
-		// The retained boundary cannot be proved. Rebase defensively over the
-		// selected source; the empty-source check below still decides whether a
-		// segment is stored. Every other rebase keeps its own reason, so an
-		// emergency, retry or chain rebase is not relabelled.
-		if !decision.Rebase || decision.Reason == segmentReasonSplitInChain {
+		// The retained boundary cannot be proved, so rebase defensively over the
+		// selected source and let the empty-source check below decide whether a
+		// segment is stored. Only the split-in-chain decision takes this reason:
+		// a valid chain makes an unmapped boundary read as a split at its start,
+		// and every other rebase keeps its own reason, so an emergency, retry or
+		// chain rebase is not relabelled.
+		if decision.Reason == segmentReasonSplitInChain {
 			stage.Decision = segmentRebaseDecision(segmentReasonRetentionUnmapped, decision)
 		}
 		stage.Source = cloneMessages(in.Source)

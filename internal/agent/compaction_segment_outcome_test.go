@@ -141,8 +141,8 @@ func TestSegmentEmergencyRetryAdoptsOnlyFinalEmergencyDecision(t *testing.T) {
 	if !sameMessages(archive.notes[1][4:], full[5:9]) {
 		t.Fatalf("emergency archive span = %+v, want the first two retained turns", archive.notes[1][4:])
 	}
-	if !sameMessages(archive.notes[0], full[3:5]) {
-		t.Fatalf("normal archive source = %+v, want the append span", archive.notes[0])
+	if !sameMessages(archive.notes[0], append(stripRequestBlocks(full[2:3]), full[3:5]...)) {
+		t.Fatalf("normal archive source = %+v, want the previous tail and the append span", archive.notes[0])
 	}
 }
 
@@ -251,8 +251,8 @@ func TestSegmentFallbackNormalResultIsDiscardedAfterEmergencyFailure(t *testing.
 	if len(archive.appends) != 1 {
 		t.Fatalf("archive Append calls = %d, want only the main rerun archive", len(archive.appends))
 	}
-	if !sameMessages(archive.appends[0], full[3:5]) {
-		t.Fatalf("archive Append source = %+v, want the append span", archive.appends[0])
+	if !sameMessages(archive.appends[0], append(stripRequestBlocks(full[2:3]), full[3:5]...)) {
+		t.Fatalf("archive Append source = %+v, want the previous tail and the append span", archive.appends[0])
 	}
 }
 

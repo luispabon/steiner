@@ -47,10 +47,21 @@ func RenderConversationCompactionInstruction(override string, mode CompactionMod
 }
 
 // RenderSegmentAppendInstruction renders the final instruction used to ask a
-// model to summarize only the span after the last immutable segment. The
-// override and steering semantics match RenderConversationCompactionInstruction.
+// model to summarize only the span after the last immutable segment. A
+// compaction override replaces the template's opening generic guidance; the
+// append rules always follow it, so a custom prompt cannot make segments
+// mutable. Steering follows the rules, as in the conversation instruction.
 func RenderSegmentAppendInstruction(override string, steerings ...string) string {
-	return compactionInstruction(compactionPromptSegmentAppendInstruction(), override, firstSteering(steerings))
+	rules := compactionPromptSegmentAppendInstruction()
+	if override != "" {
+		// The template holds its generic guidance as the opening paragraph, and
+		// the append rules after the first blank line.
+		if _, rest, ok := strings.Cut(rules, "\n\n"); ok {
+			rules = rest
+		}
+		rules = override + "\n\n" + rules
+	}
+	return compactionInstruction(rules, "", firstSteering(steerings))
 }
 
 // compactionInstruction applies a model compaction override and user steering
