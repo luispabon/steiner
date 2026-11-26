@@ -1,18 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
 	USAGE,
 	aggregateCache,
+	aggregateMode,
 	buildBenchConfig,
 	checkGuard,
 	costProxy,
 	evaluateProbe,
 	experimentEnv,
 	generateFixtures,
+	main,
 	median,
 	parseArgs,
 	parseRunLog,
@@ -94,6 +98,7 @@ test("parseArgs defaults", () => {
 		maxTurns: 80,
 		repeat: 1,
 		tolerance: 5,
+		runTimeoutMinutes: 30,
 		steiner: "steiner",
 		out: null,
 	});
@@ -112,6 +117,7 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 		"--max-turns", "12",
 		"--repeat", "2",
 		"--tolerance", "2.5",
+		"--run-timeout-minutes", "45",
 		"--steiner", "/opt/bin/steiner",
 		"--out", "bench.md",
 	]);
@@ -125,6 +131,7 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 	assert.equal(args.maxTurns, 12);
 	assert.equal(args.repeat, 2);
 	assert.equal(args.tolerance, 2.5);
+	assert.equal(args.runTimeoutMinutes, 45);
 	assert.equal(args.steiner, "/opt/bin/steiner");
 	assert.equal(args.out, "bench.md");
 });
@@ -147,6 +154,7 @@ test("parseArgs rejects invalid integers, tolerance, modes and unknown flags", (
 		["--model", "a", "--threshold", "-3"],
 		["--model", "a", "--files", "x"],
 		["--model", "a", "--repeat", "0"],
+		["--model", "a", "--run-timeout-minutes", "0"],
 		["--model", "a", "--max-turns", ""],
 		["--model", "a", "--pad-tokens", "1e3"],
 		["--model", "a", "--tolerance", "-1"],
@@ -609,6 +617,291 @@ test("renderTable prints metric rows, not reported cells, verdict and probe line
 	assert.match(md, /- cost proxy not judged: no cache reporting on one side/);
 	assert.equal((md.match(/Probe:/g) ?? []).length, 1);
 	assert.match(md, /Probe: ok/);
+});
+
+function runRecord(over = {}) {
+	return {
+		turns: 10,
+		compactions: 4,
+		rebases: 1,
+		plainFallbacks: 0,
+		maxSegments: 2,
+		cachedTokens: 100,
+		costPerTurn: 10,
+		exact: 24,
+		lost: 0,
+		total: 24,
+		recallInvalid: false,
+		lostAt: [],
+		failed: false,
+		valid: true,
+		invalidReason: null,
+		...over,
+	};
+}
+
+test("aggregateMode takes medians, unions loss points and ignores unreported values", () => {
+	const agg = aggregateMode([
+		runRecord(),
+		runRecord({
+			turns: 12,
+			compactions: 6,
+			rebases: 2,
+			plainFallbacks: 1,
+			maxSegments: 3,
+			cachedTokens: null,
+			costPerTurn: null,
+			exact: 22,
+			lost: 2,
+			lostAt: ["f05@c2", "f09@unattributed"],
+		}),
+		runRecord({
+			turns: 14,
+			compactions: 5,
+			rebases: 0,
+			maxSegments: 4,
+			cachedTokens: 300,
+			costPerTurn: 20,
+			exact: 20,
+			lost: 4,
+			recallInvalid: true,
+			lostAt: ["f05@c2", "f11@c1"],
+		}),
+	]);
+	assert.equal(agg.turns, 12);
+	assert.equal(agg.compactions, 5);
+	assert.equal(agg.rebases, 1);
+	assert.equal(agg.plainFallbacks, 0);
+	assert.equal(agg.maxSegments, 3);
+	assert.equal(agg.cachedTokens, 200);
+	assert.equal(agg.costPerTurn, 15);
+	assert.equal(agg.exact, 22);
+	assert.equal(agg.lost, 2);
+	assert.equal(agg.total, 24);
+	assert.equal(agg.recallInvalid, true);
+	assert.equal(agg.valid, true);
+	assert.equal(agg.invalidReason, null);
+	assert.deepEqual(agg.lostAt, ["f05@c2", "f09@unattributed", "f11@c1"]);
+});
+
+test("aggregateMode reports a failed run and a validity failure as invalid", () => {
+	const failed = aggregateMode([runRecord(), runRecord({ failed: true, reason: "timeout", turns: null })]);
+	assert.equal(failed.valid, false);
+	assert.equal(failed.invalidReason, "run failed: timeout");
+	assert.equal(failed.turns, 10);
+
+	const invalid = aggregateMode([
+		runRecord(),
+		runRecord({ valid: false, invalidReason: "fewer than 4 compactions" }),
+	]);
+	assert.equal(invalid.valid, false);
+	assert.equal(invalid.invalidReason, "fewer than 4 compactions");
+	assert.equal(aggregateMode([]).turns, null);
+});
+
+function fakeRunLog() {
+	const lines = [];
+	for (let n = 1; n <= 4; n++) {
+		lines.push(JSON.stringify({ type: "tool_call_started", payload: { turn: n * 2, tool: "read", call_id: `call_${n}`, arguments: { path: `notes/f0${n}.txt` } } }));
+		lines.push(JSON.stringify({ type: "model_call_finished", payload: { turn: n * 2, prompt_tokens: 1000, cache_read_tokens: 900 } }));
+		lines.push(JSON.stringify({ type: "context_diagnostics", payload: { kind: "compaction", severity: "done", compaction_count: n, scope: "conversation" } }));
+	}
+	return lines.join("\n");
+}
+
+function fakeStdout() {
+	const fixtures = generateFixtures(1, 4, 10);
+	const codes = { ...fixtures.codes, [fixtures.correction.target]: fixtures.correction.newCode };
+	const lines = fixtures.files.map((file) => {
+		const name = file.name.replace(/^notes\//, "").replace(/\.txt$/, "");
+		return `${name}: ${codes[name]}`;
+	});
+	return [`assistant: turn 8 role assistant content ${lines[0]}`, ...lines.slice(1), "status: run finished", ""].join("\n");
+}
+
+function makeFakeRunner({ failOn = null, failProbe = false, secret = "", sandbox = true } = {}) {
+	const invocations = [];
+	const probeAttempts = new Map();
+	let normalRuns = 0;
+	async function runner(call) {
+		invocations.push({ command: call.command, args: call.args, env: call.env });
+		await mkdir(dirname(call.stdoutPath), { recursive: true });
+		await mkdir(dirname(call.stderrPath), { recursive: true });
+		if (call.command === "git") {
+			await writeFile(call.stdoutPath, "");
+			await writeFile(call.stderrPath, "");
+			return { code: 0, timedOut: false };
+		}
+		if (call.args[0] === "config") {
+			await writeFile(call.stdoutPath, sandbox === "fail" ? "" : `sandbox:\n  enabled: ${sandbox}\n`);
+			await writeFile(call.stderrPath, "");
+			return { code: sandbox === "fail" ? 1 : 0, timedOut: false };
+		}
+		const flag = (name) => call.args[call.args.indexOf(name) + 1];
+		if (call.args[call.args.length - 1].includes("Reply with OK only.")) {
+			const alias = flag("--model");
+			const attempt = (probeAttempts.get(alias) ?? 0) + 1;
+			probeAttempts.set(alias, attempt);
+			if (failProbe) {
+				await writeFile(call.stdoutPath, "");
+				await writeFile(call.stderrPath, `error: auth ${secret} rejected\nprobe route unavailable\n`);
+				return { code: 2, timedOut: false };
+			}
+			const payload = attempt === 1
+				? { turn: 1, prompt_tokens: 3000, cache_create_tokens: 2500 }
+				: { turn: 1, prompt_tokens: 3000, cache_read_tokens: 2500 };
+			await writeFile(flag("--log-file"), `${JSON.stringify({ type: "model_call_finished", payload })}\n`);
+			await writeFile(call.stdoutPath, "assistant: turn 1 role assistant content OK\nstatus: run finished\n");
+			await writeFile(call.stderrPath, "");
+			return { code: 0, timedOut: false };
+		}
+		normalRuns++;
+		if (failOn && failOn(call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION)) {
+			await writeFile(call.stdoutPath, "");
+			await writeFile(call.stderrPath, "");
+			return { code: 2, timedOut: false };
+		}
+		await writeFile(flag("--log-file"), `${fakeRunLog()}\n`);
+		await writeFile(flag("--compaction-log-file"), fixture("compaction-log.txt"));
+		await writeFile(call.stdoutPath, fakeStdout());
+		await writeFile(call.stderrPath, "");
+		return { code: 0, timedOut: false };
+	}
+	return { runner, invocations, normalRuns: () => normalRuns };
+}
+
+test("main writes results.md and raw.json through a fake runner without leaking env values", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const secret = "hunter2-secret-value";
+	const env = { STEINER_LIVE_BENCH: "1", SECRET_TOKEN: secret, OPENAI_API_KEY: "sk-should-not-leak" };
+	const fake = makeFakeRunner();
+	const stderrLines = [];
+	const stdoutChunks = [];
+	try {
+		const code = await main(
+			[
+				"--model", "claude-test,gpt-test",
+				"--anthropic-alias", "claude-test",
+				"--files", "4",
+				"--pad-tokens", "10",
+				"--out", outDir,
+			],
+			env,
+			{
+				spawnRun: fake.runner,
+				log: (line) => stderrLines.push(line),
+				stdout: (text) => stdoutChunks.push(text),
+				now: () => new Date("2026-11-26T12:00:00Z"),
+			},
+		);
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+
+		assert.equal(code, 0);
+		assert.match(markdown, /^# Compaction bench/);
+		assert.match(markdown, /generated: 2026-11-26T12:00:00\.000Z/);
+		assert.match(markdown, /- steiner: steiner/);
+		assert.match(markdown, /- sandbox: enabled/);
+		assert.match(markdown, /STEINER_EXPERIMENT_SEGMENTED_COMPACTION=1/);
+		assert.match(markdown, /### claude-test \(anthropic\)/);
+		assert.match(markdown, /### gpt-test \(openai\)/);
+		assert.match(markdown, /Verdict: PASS/);
+		assert.equal((markdown.match(/Probe:/g) ?? []).length, 1);
+		assert.match(markdown, /Probe: ok/);
+
+		assert.equal(raw.aliases.length, 2);
+		assert.equal(raw.aliases[0].probe.ok, true);
+		assert.equal(raw.aliases[1].probe, null);
+		assert.equal(raw.aliases[0].runs.off[0].compactions, 4);
+		assert.equal(raw.aliases[0].runs.on[0].exitCode, 0);
+		assert.equal(raw.aliases[0].runs.on[0].exact, 4);
+		assert.deepEqual(raw.experimentEnv, { STEINER_EXPERIMENT_SEGMENTED_COMPACTION: "1" });
+		assert.equal(raw.sandbox, "enabled");
+
+		const probeCalls = fake.invocations.filter((call) => call.args[call.args.length - 1].includes("Reply with OK only."));
+		assert.equal(probeCalls.length, 2, "the probe runs twice for one anthropic alias");
+		for (const call of probeCalls) {
+			assert.equal(call.args[call.args.indexOf("--model") + 1], "claude-test");
+		}
+		assert.equal(fake.normalRuns(), 4);
+
+		for (const text of [markdown, JSON.stringify(raw), stderrLines.join("\n"), stdoutChunks.join("\n")]) {
+			assert.ok(!text.includes(secret), "the secret env value must not appear in bench output");
+			assert.ok(!text.includes("sk-should-not-leak"), "the api key env value must not appear in bench output");
+		}
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("main returns 3 when a run fails", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ failOn: (flag) => flag === "1", sandbox: "fail" });
+	try {
+		const code = await main(
+			["--model", "claude-test", "--anthropic-alias", "claude-test", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 3);
+		assert.match(markdown, /- sandbox: not verified \(steiner exposes no read-only check\)/);
+		assert.match(markdown, /on run invalid: run failed: exit 2/);
+		assert.equal(raw.aliases[0].runs.on[0].failed, true);
+		assert.equal(raw.aliases[0].runs.on[0].reason, "exit 2");
+		assert.equal(raw.aliases[0].runs.off[0].failed, false);
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("main reports a failed probe with a stderr line that carries no env value", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const secret = "probe-secret-token";
+	const fake = makeFakeRunner({ failProbe: true, secret });
+	const stderrLines = [];
+	try {
+		const code = await main(
+			["--model", "claude-test", "--anthropic-alias", "claude-test", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1", SECRET_TOKEN: secret },
+			{ spawnRun: fake.runner, log: (line) => stderrLines.push(line), stdout: () => {} },
+		);
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.aliases[0].probe.ok, false);
+		assert.equal(raw.aliases[0].probe.reason, "probe calls failed: exit 2: probe route unavailable");
+		assert.match(markdown, /Probe: failed \(probe calls failed: exit 2: probe route unavailable\)/);
+		assert.ok(!markdown.includes(secret));
+		assert.ok(!JSON.stringify(raw).includes(secret));
+		assert.ok(!stderrLines.join("\n").includes(secret));
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("main skips the verdict for a single mode", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		const code = await main(
+			["--model", "gpt-test", "--modes", "on", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.aliases[0].runs.off.length, 0);
+		assert.equal(raw.sandbox, "disabled");
+		assert.match(markdown, /- sandbox: disabled/);
+		assert.match(markdown, /Verdict: INCOMPARABLE \(cache: no cache verdict\)/);
+		assert.match(markdown, /- single mode/);
+		assert.match(markdown, /\| turns \| not run \| 4 \|/);
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
 });
 
 
