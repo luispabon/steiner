@@ -175,6 +175,16 @@ export function parseArgs(argv) {
 			throw usageError(`invalid --modes value: ${JSON.stringify(mode)} (allowed: off,on)`);
 		}
 	}
+	for (const [flag, aliases] of [
+		["--anthropic-alias", args.anthropicAliases],
+		["--informational-alias", args.informationalAliases],
+	]) {
+		for (const alias of aliases) {
+			if (!args.models.includes(alias)) {
+				throw usageError(`${flag} value ${JSON.stringify(alias)} is not in --model`);
+			}
+		}
+	}
 	return args;
 }
 
@@ -255,8 +265,10 @@ export function generateFixtures(seed, files, padTokens) {
 	const codes = {};
 	for (const name of names) codes[name] = nextCode(rand, used);
 
-	const secondHalfStart = Math.floor(files / 2);
-	const inFile = names[secondHalfStart + Math.floor(rand() * (files - secondHalfStart))];
+	// The correction must land strictly after its target f03 and in the second
+	// half, so a small chain (files=4) still carries it in f04 and never f01-f03.
+	const firstCandidate = Math.max(3, Math.floor(files / 2));
+	const inFile = names[firstCandidate + Math.floor(rand() * (files - firstCandidate))];
 	const newCode = nextCode(rand, used);
 	const correction = { inFile, target: "f03", oldCode: codes.f03, newCode };
 
@@ -384,10 +396,27 @@ function parseModelCall(payload) {
 	};
 }
 
-/** Parse a session log JSONL into ordered reads and applied compactions, with model-call cache usage. */
+function parseCompactionCall(payload) {
+	const hasRead = payload.cache_read_tokens !== undefined;
+	const hasCreate = payload.cache_create_tokens !== undefined;
+	const cacheReported = payload.cache_reported_input_tokens !== undefined || hasRead || hasCreate;
+	// The applied compaction payload's prompt_tokens is the post-compaction prompt
+	// estimate, not the summarizer's input (internal/agent/events.go sets it from
+	// afterFit). The summary call total is uncached input plus both cache counters.
+	const promptTokens = (payload.input_tokens ?? 0) + (payload.cache_read_tokens ?? 0) + (payload.cache_create_tokens ?? 0);
+	return {
+		promptTokens,
+		cacheReported,
+		cacheReadTokens: payload.cache_read_tokens ?? 0,
+		cacheCreateTokens: payload.cache_create_tokens ?? 0,
+	};
+}
+
+/** Parse a session log JSONL into ordered reads, applied compactions and model-call cache usage. */
 export function parseRunLog(text) {
 	const events = [];
 	const modelCalls = [];
+	const compactionCalls = [];
 	let compactions = 0;
 	let malformed = 0;
 
@@ -416,6 +445,11 @@ export function parseRunLog(text) {
 			continue;
 		}
 		if (record.type === "model_call_finished") {
+			// Failed calls carry no usable usage and sub-agent calls are not part of the
+			// main conversation's cache economics; both stay out, as they do for reads
+			// and compactions.
+			if (payload.success !== true) continue;
+			if (scopedToSubAgent(record)) continue;
 			modelCalls.push(parseModelCall(payload));
 			continue;
 		}
@@ -425,10 +459,11 @@ export function parseRunLog(text) {
 			if (scopedToSubAgent(record)) continue;
 			compactions++;
 			events.push({ kind: "compaction", index: compactions });
+			compactionCalls.push(parseCompactionCall(payload));
 		}
 	}
 
-	return { events, modelCalls, compactions, malformed };
+	return { events, modelCalls, compactionCalls, compactions, malformed };
 }
 
 /** Return only the ordered read events from a session log. */
@@ -507,8 +542,12 @@ export function scoreRecall({ answer, fixtures, events }) {
 			if (event.kind === "read" && event.file === name) reads.push(position);
 		});
 		if (reads.length < 2) continue;
-		const between = events.slice(reads[0] + 1, reads[1]).find((event) => event.kind === "compaction");
-		if (between) invalidReasons.push(`${name} read again after compaction ${between.index}`);
+		// Any later read of the file counts, not just the second one: a compaction
+		// between the first read and a later one still drops the file from context.
+		const firstCompaction = events.findIndex((event, position) => position > reads[0] && event.kind === "compaction");
+		if (firstCompaction === -1) continue;
+		if (!reads.some((position) => position > firstCompaction)) continue;
+		invalidReasons.push(`${name} read again after compaction ${events[firstCompaction].index}`);
 	}
 
 	return {
@@ -610,6 +649,7 @@ export function aggregateMode(runs) {
 		lost: median(numbers(runs, "lost")),
 		total: median(numbers(runs, "total")),
 		recallInvalid: runs.some((run) => run.recallInvalid === true),
+		maxTurnsHitRuns: runs.filter((run) => run.maxTurnsHit === true).length,
 		valid: !failed && !invalid,
 		invalidReason: failed ? `run failed: ${failed.reason ?? "unknown"}` : (invalid?.invalidReason ?? null),
 		lostAt,
@@ -637,10 +677,11 @@ export function verdict({ off, on, tolerance, informational, probeOk, family }) 
 	const cache = cacheChecked ? "checked" : "no cache verdict";
 	const reasons = [];
 
-	if (!on.valid || off.recallInvalid || on.recallInvalid) {
-		if (!on.valid) reasons.push(`on run invalid: ${on.invalidReason ?? "unknown reason"}`);
-		if (off.recallInvalid) reasons.push("off run invalid: a fixture file was read again after a compaction");
-		if (on.recallInvalid) reasons.push("on run invalid: a fixture file was read again after a compaction");
+	if (!off.valid || !on.valid || off.recallInvalid || on.recallInvalid) {
+		if (!off.valid) reasons.push(`off: ${off.invalidReason ?? "run invalid"}`);
+		if (!on.valid) reasons.push(`on: ${on.invalidReason ?? "run invalid"}`);
+		if (off.recallInvalid) reasons.push("off: a fixture file was read again after a compaction");
+		if (on.recallInvalid) reasons.push("on: a fixture file was read again after a compaction");
 		return { label: "INVALID", cache, reasons };
 	}
 
@@ -655,6 +696,10 @@ export function verdict({ off, on, tolerance, informational, probeOk, family }) 
 	}
 
 	if (!cacheChecked) reasons.push(cacheNote(off, on, family, probeOk));
+
+	// A max-turn stop stays scored, so name it here rather than invalidating the run.
+	const maxTurnsRuns = (off.maxTurnsHitRuns ?? 0) + (on.maxTurnsHitRuns ?? 0);
+	if (maxTurnsRuns > 0) reasons.push(`max turns hit in ${maxTurnsRuns} run(s)`);
 
 	let failed = false;
 	if (on.exact < off.exact * (1 - tolerance / 100)) {
@@ -703,6 +748,7 @@ function renderAlias(result) {
 		"| metric | off | on |",
 		"| --- | --- | --- |",
 		`| turns | ${cell(off, (agg) => numText(agg.turns))} | ${cell(on, (agg) => numText(agg.turns))} |`,
+		`| max turns hit | ${cell(off, (agg) => numText(agg.maxTurnsHitRuns))} | ${cell(on, (agg) => numText(agg.maxTurnsHitRuns))} |`,
 		`| compactions | ${cell(off, (agg) => numText(agg.compactions))} | ${cell(on, (agg) => numText(agg.compactions))} |`,
 		`| rebases | ${cell(off, (agg) => numText(agg.rebases))} | ${cell(on, (agg) => numText(agg.rebases))} |`,
 		`| plain fallbacks | ${cell(off, (agg) => numText(agg.plainFallbacks))} | ${cell(on, (agg) => numText(agg.plainFallbacks))} |`,
@@ -862,7 +908,9 @@ function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode, famil
 	const runLog = parseRunLog(logText);
 	const decisionSummary = summarizeDecisions(parseSegmentDecisions(compactionText));
 	const recall = scoreRecall({ answer: stdout.finalAnswer, fixtures, events: runLog.events });
-	const agg = aggregateCache(runLog.modelCalls);
+	// Compaction summary calls cost real tokens, so the cost and cache totals fold
+	// them in; turns stays the main-call count that costPerTurn divides by.
+	const agg = aggregateCache([...runLog.modelCalls, ...runLog.compactionCalls]);
 	const cost = costProxy(agg, family);
 	const turns = runLog.modelCalls.length;
 	const validity = runValidity({ mode, compactions: runLog.compactions, decisionSummary });
