@@ -321,7 +321,7 @@ func fixtureRunConversation(t *testing.T, policy config.SegmentedCompactionPolic
 	}
 	result.Goldens = make([]fixtureCapture, len(result.Requests))
 	for i, request := range result.Requests {
-		indices := providerCacheBoundaries(request.Messages)
+		indices := cacheBoundaryIndexes(request.Messages)
 		if indices == nil {
 			indices = []int{}
 		}
@@ -534,7 +534,7 @@ func fixtureAssertRoundTrip(t *testing.T, preamble string, encoded []byte, sent 
 		if got, want := fixtureJSON(t, rebuilt), fixtureJSON(t, sent[i]); !bytes.Equal(got, want) {
 			t.Fatalf("entry %d: golden does not rebuild the request that was sent:\n got %s\nwant %s", i, got, want)
 		}
-		if got, want := providerCacheBoundaries(rebuilt.Messages), entry.CacheBoundaryIndices; !slices.Equal(got, want) {
+		if got, want := cacheBoundaryIndexes(rebuilt.Messages), entry.CacheBoundaryIndices; !slices.Equal(got, want) {
 			t.Fatalf("entry %d: restored cache boundaries = %v, want %v", i, got, want)
 		}
 	}
@@ -660,7 +660,7 @@ func fixtureAssertSegmented(t *testing.T, result fixtureResult) {
 				t.Fatalf("main request %d segment %d carries a latest-request block: %q", i, segment.Sequence, actual.Content)
 			}
 		}
-		boundaries := providerCacheBoundaries(request.Messages)
+		boundaries := cacheBoundaryIndexes(request.Messages)
 		if len(chain) == 0 {
 			if len(boundaries) != 0 {
 				t.Fatalf("main request %d cache boundaries = %v, want none before the first compaction", i, boundaries)
@@ -728,7 +728,7 @@ func fixtureAssertPlain(t *testing.T, result fixtureResult) {
 		t.Fatalf("flag-off compactions = %d, want at least 6", result.SummaryCalls)
 	}
 	for i, request := range result.Requests {
-		if boundaries := providerCacheBoundaries(request.Messages); len(boundaries) != 0 {
+		if boundaries := cacheBoundaryIndexes(request.Messages); len(boundaries) != 0 {
 			t.Fatalf("flag-off request %d cache boundaries = %v, want none", i, boundaries)
 		}
 	}

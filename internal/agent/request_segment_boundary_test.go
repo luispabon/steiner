@@ -148,11 +148,11 @@ func TestCompactionRequestMarksImmutableSegmentBoundary(t *testing.T) {
 	state := RunState{Conversation: conversation, Lineage: newConversationLineage(conversation)}
 	candidate := ConversationCandidate{GenerationID: 1, View: ConversationViewFull, Messages: conversation}
 
-	chatRequest, _, _, err := buildCompactionRequestWithMode(
-		context.Background(), segmentBoundaryRequest(), state, candidate, prompt.CompactionModeNormal, 64, "",
+	chatRequest, _, _, err := buildCompactionRequest(
+		context.Background(), segmentBoundaryRequest(), state, candidate, prompt.CompactionModeNormal, 64, false, "",
 	)
 	if err != nil {
-		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+		t.Fatalf("buildCompactionRequest() error = %v", err)
 	}
 	indexes := cacheBoundaryIndexes(chatRequest.Messages)
 	if len(indexes) != 1 {
@@ -217,11 +217,11 @@ func TestCompactionRequestFlagOffLeavesSegmentsUnmarked(t *testing.T) {
 	build := func(conversation []Message) []byte {
 		state := RunState{Conversation: conversation, Lineage: newConversationLineage(conversation)}
 		candidate := ConversationCandidate{GenerationID: 1, View: ConversationViewFull, Messages: conversation}
-		chatRequest, _, _, err := buildCompactionRequestWithMode(
-			context.Background(), request, state, candidate, prompt.CompactionModeNormal, 64, "",
+		chatRequest, _, _, err := buildCompactionRequest(
+			context.Background(), request, state, candidate, prompt.CompactionModeNormal, 64, false, "",
 		)
 		if err != nil {
-			t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
+			t.Fatalf("buildCompactionRequest() error = %v", err)
 		}
 		if indexes := cacheBoundaryIndexes(chatRequest.Messages); len(indexes) != 0 {
 			t.Fatalf("cache boundaries = %v, want none with the flag off", indexes)

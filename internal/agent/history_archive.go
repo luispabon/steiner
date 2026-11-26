@@ -50,13 +50,29 @@ func historyNoteText(req RunRequest, source []Message) (string, [][]Message) {
 	return note, [][]Message{source}
 }
 
-// joinHistoryNote places note after a blank line that follows body. An empty
-// note leaves body alone; callers pass a body whose stale notes are stripped.
-func joinHistoryNote(body, note string) string {
-	if note == "" {
+// historyNoteSeparator selects how joinHistoryNote separates body and note.
+type historyNoteSeparator int
+
+const (
+	// separatorAlways keeps the blank line before the note even when body is
+	// empty, the stored plain-summary shape.
+	separatorAlways historyNoteSeparator = iota
+	// separatorOmitEmpty drops it when body is empty, the segmented display shape.
+	separatorOmitEmpty
+)
+
+// joinHistoryNote places note after body. The note follows a blank line unless
+// the body is empty and separator omits it. An empty note leaves body alone;
+// callers pass a body whose stale notes are stripped.
+func joinHistoryNote(body, note string, separator historyNoteSeparator) string {
+	switch {
+	case note == "":
 		return body
+	case body == "" && separator == separatorOmitEmpty:
+		return note
+	default:
+		return body + "\n\n" + note
 	}
-	return body + "\n\n" + note
 }
 
 // commitHistoryArchive appends each pending source to the archive, in order. It

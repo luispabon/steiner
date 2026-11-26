@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -10,41 +9,6 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 	"github.com/luispabon/steiner/internal/provider"
 )
-
-// errSegmentSourceEmpty reports a segmented compaction whose summarized source
-// holds no non-summary message. A segment with SourceMessageCount 0 would
-// invalidate the chain on the next scan, so the builder refuses instead of
-// storing one.
-var errSegmentSourceEmpty = errors.New("segmented compaction source has no non-summary messages")
-
-// errSegmentAppendChainInvalid reports an append build without a valid scanned
-// chain. Appending clones the scanned segments, so a broken chain must rebase.
-var errSegmentAppendChainInvalid = errors.New("segmented append requires a valid segment chain")
-
-// segmentStateInput carries the inputs buildSegmentCompactionState needs. The
-// history note is computed by the caller, for the source it selected, so the
-// builder performs no archive write and a stage keeps one Note call.
-type segmentStateInput struct {
-	// Scan is the chain read from the conversation this compaction replaces.
-	Scan segmentChainScan
-	// Rebase writes a fresh sequence 1 segment instead of appending to Scan.
-	Rebase bool
-	// Source is the span the new segment covers. Its non-summary messages
-	// become the segment's SourceMessageCount.
-	Source []Message
-	// Skills is the state's active skill blocks, computed once by the caller.
-	Skills []prompt.SkillBlock
-	// Summary is the summarizer body, before header, history note and request
-	// block handling.
-	Summary string
-	// HistoryNote is the archive note for Source. It goes to the tail only.
-	HistoryNote string
-	// RequestBlock is the verbatim latest-request block for the tail. Empty
-	// omits it.
-	RequestBlock string
-	// Retained is the retained tail, before skill stripping and replay.
-	Retained []Message
-}
 
 // segmentRetentionStart maps retained, the suffix selectRetention chose, to the
 // index in fullMessages where those messages begin. Retention can be selected
@@ -74,66 +38,6 @@ func segmentAppendSourceCount(skills []prompt.SkillBlock, messages []Message, sc
 		return 0, false
 	}
 	return countSummarizedMessages(messages[scan.End:retentionStart], skills), true
-}
-
-// buildSegmentCompactionState returns the state of a segmented compaction: a
-// chain of immutable segments plus a mutable tail, followed by the retained
-// messages. Append clones the scanned segments verbatim; rebase starts a new
-// chain at sequence 1. Only the tail carries the history note and the latest
-// request block, and an empty tail is omitted. The retained handling matches
-// buildSummarizedCompactionState (skill blocks stripped, active skills
-// replayed), so the two paths persist the same tail.
-//
-// It returns errSegmentSourceEmpty rather than storing a segment with
-// SourceMessageCount 0, and errSegmentAppendChainInvalid for an append whose
-// chain did not validate. Callers treat both as a reason to rebase or fail.
-func buildSegmentCompactionState(state RunState, in segmentStateInput) (RunState, error) {
-	count := countSummarizedMessages(in.Source, in.Skills)
-	if count == 0 {
-		return RunState{}, errSegmentSourceEmpty
-	}
-
-	sequence := 1
-	var segments []Message
-	if !in.Rebase {
-		if in.Scan.Status != chainValid {
-			return RunState{}, errSegmentAppendChainInvalid
-		}
-		sequence = len(in.Scan.Segments) + 1
-		segments = in.Scan.Segments
-	}
-
-	prefix := make([]Message, 0, len(segments)+2)
-	prefix = append(prefix, cloneMessages(segments)...)
-	prefix = append(prefix, Message{
-		Role:    MessageRoleSummary,
-		Content: segmentHeader(sequence) + segmentBody(in.Summary),
-		Segment: &SummarySegment{Sequence: sequence, SourceMessageCount: count},
-	})
-	if tail := withRequestBlock(in.HistoryNote, in.RequestBlock); tail != "" {
-		prefix = append(prefix, Message{Role: MessageRoleSummary, Content: tail})
-	}
-
-	retained := stripRetainedSkillBlocks(cloneMessages(in.Retained))
-	if replay, ok := replayedSkillMessage(in.Skills); ok {
-		retained = append([]Message{replay}, retained...)
-	}
-
-	next := state.Clone()
-	next.Lineage = state.Lineage.WithNewGeneration(prefix, retained)
-	next.Conversation = next.Lineage.FullMessages()
-	return next, nil
-}
-
-// segmentBody returns the storing form of a segment summary: the stored body
-// without its latest-request trailer and history notes, trimmed. Stale notes
-// and blocks belong to the regenerated tail, never to an immutable segment.
-func segmentBody(summary string) string {
-	// withRequestBlock with no request neutralizes header-like text, so a
-	// summarizer reply that quotes a trailer-shaped block keeps every byte of its
-	// text and never stores a detectable request block. Nothing parses after that
-	// sanitizing, because no header prefix survives it.
-	return strings.TrimSpace(StripHistoryNotes(withRequestBlock(summary, "")))
 }
 
 // segmentStageInput carries what one compaction stage needs to decide and
@@ -325,25 +229,6 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 	return stage, nil
 }
 
-// segmentRebaseDecision returns decision relabelled as a rebase that writes the
-// given sequence: 1 replaces the chain with a fresh segment and 0 is the plain
-// fallback's unused slot.
-func segmentRebaseDecision(decision segmentDecision, reason string, sequence int) segmentDecision {
-	decision.Rebase = true
-	decision.Reason = reason
-	decision.Sequence = sequence
-	return decision
-}
-
-// segmentPlainDecision returns decision as the plain summary fallback: no chain
-// is written and the flag-off state builder stores one summary message. Rebase
-// stays set so no lookup treats the fallback as an append.
-func segmentPlainDecision(decision segmentDecision, reason string) segmentDecision {
-	decision = segmentRebaseDecision(decision, reason, 0)
-	decision.Plain = true
-	return decision
-}
-
 // segmentChainTokens sums the projected tokens of the immutable segments, so a
 // budget rule measures what the chain costs a provider request.
 func segmentChainTokens(ctx context.Context, model string, segments []Message) (int, error) {
@@ -387,13 +272,4 @@ func segmentTailPlaceholder(scan segmentChainScan, requestBlock string) string {
 		note = strings.TrimSpace(body)
 	}
 	return withRequestBlock(note, requestBlock)
-}
-
-// dropTailRequestBlockState rewrites the latest generation's mutable tail to
-// its body without the latest-request trailer, reporting the rewritten text.
-// Segments keep their bytes; only a summary with no Segment metadata changes.
-// A tail that held nothing but the block is removed, the way
-// buildSegmentCompactionState omits an empty tail instead of storing one.
-func dropTailRequestBlockState(state RunState) (RunState, string, bool) {
-	return rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{empty: dropEmpty})
 }

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,23 +72,6 @@ func TestSegmentedAppendRetryRebuildsAndAdoptsRebase(t *testing.T) {
 	}
 	if got := len(segmentDecisionLines(t, req.CompactionLogPath)); got != 1 {
 		t.Fatalf("logged segment decisions = %d, want one final adopted retry decision", got)
-	}
-}
-
-func TestSegmentedRetryRebaseNoFitKeepsRetryError(t *testing.T) {
-	providerStub := &fakeProvider{responses: []provider.ChatResponse{retryEmptyReply()}}
-	req := segmentedCompactionRequest(providerStub, segmentedCompactionPolicy())
-	plan := compactionExecutionPlan{request: provider.ChatRequest{Messages: []provider.Message{{Role: provider.MessageRoleUser, Content: "append request"}}}}
-	summary := RunRequest{Provider: providerStub, ModelBudget: req.ModelBudget}
-	calls, err := summarizeCompactionCallsWithRetryPlan(context.Background(), summary, 1, plan, false, func() (compactionExecutionPlan, *segmentStage, summarizeCompactionStageParams, error) {
-		return compactionExecutionPlan{}, nil, summarizeCompactionStageParams{}, errCompactionFallbackNotFit
-	})
-	var summaryErr *compactionSummaryError
-	if !errors.As(err, &summaryErr) || summaryErr.Reason != summaryFailRetryNoFit || summaryErr.Attempts != 1 || len(summaryErr.Details) != 1 {
-		t.Fatalf("retry calls error = %v, want retry_does_not_fit with first attempt details", err)
-	}
-	if calls.response.Message.Content != "" || len(providerStub.requests) != 1 {
-		t.Fatalf("response = %q, provider calls = %d, want no adoption and one request", calls.response.Message.Content, len(providerStub.requests))
 	}
 }
 

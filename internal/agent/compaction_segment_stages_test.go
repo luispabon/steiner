@@ -569,18 +569,6 @@ func oneSummaryProvider(texts ...string) *fakeProvider {
 	return &fakeProvider{responses: responses}
 }
 
-// providerCacheBoundaries returns the indices of the request messages that
-// carry the segment cache boundary.
-func providerCacheBoundaries(messages []provider.Message) []int {
-	var indices []int
-	for i, message := range messages {
-		if message.CacheBoundary {
-			indices = append(indices, i)
-		}
-	}
-	return indices
-}
-
 func segmentDecisionLines(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -631,7 +619,7 @@ func TestSegmentedCompactionAppendsSegment(t *testing.T) {
 			t.Fatalf("summarizer request kept retained content %q", retained)
 		}
 	}
-	boundaries := providerCacheBoundaries(request.Messages)
+	boundaries := cacheBoundaryIndexes(request.Messages)
 	if len(boundaries) != 1 {
 		t.Fatalf("cache boundaries = %v, want exactly one on the last old segment", boundaries)
 	}
@@ -767,7 +755,7 @@ func TestSegmentedCompactionFlagOffStoresPlainSummary(t *testing.T) {
 	if want := prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeNormal, ""); instruction.Content != want {
 		t.Fatalf("instruction = %q, want the ordinary instruction", instruction.Content)
 	}
-	if boundaries := providerCacheBoundaries(request.Messages); len(boundaries) != 0 {
+	if boundaries := cacheBoundaryIndexes(request.Messages); len(boundaries) != 0 {
 		t.Fatalf("flag-off request cache boundaries = %v, want none", boundaries)
 	}
 	latest := state.Lineage.Generations[len(state.Lineage.Generations)-1]
@@ -1411,11 +1399,37 @@ func TestSegmentedAdoptWithoutRequestBlockRewritesOnlyTail(t *testing.T) {
 	if _, _, ok := SplitRequestBlock(adopted.SummaryText); ok {
 		t.Fatalf("SummaryText kept the block: %q", adopted.SummaryText)
 	}
-	wantSummary, _, _ := SplitRequestBlock(outcome.SummaryText)
-	if adopted.SummaryText != wantSummary {
-		t.Fatalf("SummaryText = %q, want the display text without the block %q", adopted.SummaryText, wantSummary)
+}
+
+// TestBuildCompactionStageStateNoteOnlySummary pins a summary whose text is only
+// a history note: the stored plain summary keeps the blank line before the note,
+// while the segmented display text omits it.
+func TestBuildCompactionStageStateNoteOnlySummary(t *testing.T) {
+	const note = "[steiner:history] archived to sessions/only.jsonl"
+	req := RunRequest{HistoryArchive: &fakeHistoryArchive{note: note}, Events: output.NoopSink{}}
+	noted, gotNote, _ := stageHistoryNote(req, note, []Message{{Role: MessageRoleUser, Content: "request"}})
+	if gotNote != note {
+		t.Fatalf("note = %q, want %q", gotNote, note)
 	}
-	if adopted.RequestBlock != output.RequestBlockDropped || adopted.RequestBlockBytes != 0 {
-		t.Fatalf("block status = %q bytes = %d, want the dropped marker", adopted.RequestBlock, adopted.RequestBlockBytes)
+	if want := "\n\n" + note; noted != want {
+		t.Fatalf("noted = %q, want the plain shape %q", noted, want)
+	}
+
+	state := stateFromMessages([]Message{{Role: MessageRoleUser, Content: "live"}})
+	segment := &segmentStage{Decision: segmentDecision{Rebase: true}, Source: []Message{{Role: MessageRoleUser, Content: "span"}}}
+	_, display, err := buildCompactionStageState(state, segment, nil, noted, gotNote, "", "", nil)
+	if err != nil {
+		t.Fatalf("buildCompactionStageState() error = %v", err)
+	}
+	if display != note {
+		t.Fatalf("segmented display = %q, want the note without a leading separator %q", display, note)
+	}
+
+	_, stored, err := buildCompactionStageState(state, nil, nil, noted, gotNote, "", "", nil)
+	if err != nil {
+		t.Fatalf("buildCompactionStageState() error = %v", err)
+	}
+	if want := "\n\n" + note; stored != want {
+		t.Fatalf("plain stored summary = %q, want %q", stored, want)
 	}
 }

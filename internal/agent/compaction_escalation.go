@@ -166,15 +166,6 @@ func buildSummarizedCompactionState(state RunState, summaryText string, retained
 	return nextState
 }
 
-// buildCompactionRequestWithMode builds a compaction request without the segment
-// append instruction. Tests drive the builder through it and name the mode
-// explicitly, so the request shape they pin stays readable at each call site.
-//
-//nolint:unparam // mode is fixed at normal today but names the instruction form at every test call site.
-func buildCompactionRequestWithMode(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
-	return buildCompactionRequest(ctx, req, state, candidate, mode, maxTokens, false, steering)
-}
-
 // buildCompactionRequest builds a compaction request with either the ordinary
 // compaction instruction or the segment append instruction.
 func buildCompactionRequest(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, mode prompt.CompactionMode, maxTokens int, appendInstruction bool, steering string) (provider.ChatRequest, []prompt.ContextBlock, string, error) {
@@ -243,7 +234,6 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn, attempt i
 	}
 	var response provider.ChatResponse
 	var err error
-	//nolint:unparam // log failures warn inline against their own keys; the closure itself never fails.
 	call := func(logger *CompactionLogger) error {
 		if logger != nil {
 			if logErr := logger.LogRequest(chatRequest, attempt); logErr != nil {
@@ -251,16 +241,14 @@ func completeCompactionCall(ctx context.Context, req RunRequest, turn, attempt i
 			}
 		}
 		response, _, err = executeChatRequestWithOptions(ctx, req.Provider, turn, chatRequest, budget, req.Events, blocks, true, true, nil, opts, nil)
-		if logger != nil {
-			if logErr := logger.LogResponse(response); logErr != nil {
-				slog.Warn("compaction response log failed", "path", req.CompactionLogPath, "error", logErr)
-			}
+		if logger == nil {
+			return nil
 		}
-		return nil
+		return logger.LogResponse(response)
 	}
 	logged := false
 	if req.CompactionLogPath != "" {
-		withCompactionLogger(req.CompactionLogPath, "compaction", func(logger *CompactionLogger) error {
+		withCompactionLogger(req.CompactionLogPath, "response", func(logger *CompactionLogger) error {
 			logged = true
 			return call(logger)
 		})

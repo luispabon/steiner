@@ -329,3 +329,26 @@ func withoutEmptySummaries(prefix []Message) []Message {
 func dropRequestBlockState(state RunState) (RunState, string, bool) {
 	return rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{empty: keepEmpty})
 }
+
+// dropPlainSegmentRequestBlock rewrites the plain fallback's summary message and
+// reports the outcome's own summary text without its trailer, keeping it when it
+// carries none.
+func dropPlainSegmentRequestBlock(state RunState, summaryText string) (RunState, string, bool) {
+	next, _, dropped := rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{backward: true, empty: keepEmptyQuiet})
+	if !dropped {
+		return state, "", false
+	}
+	if body, _, ok := SplitRequestBlock(summaryText); ok {
+		summaryText = body
+	}
+	return next, summaryText, true
+}
+
+// dropTailRequestBlockState rewrites the latest generation's mutable tail to
+// its body without the latest-request trailer, reporting the rewritten text.
+// Segments keep their bytes; only a summary with no Segment metadata changes.
+// A tail that held nothing but the block is removed, the way
+// buildSegmentCompactionState omits an empty tail instead of storing one.
+func dropTailRequestBlockState(state RunState) (RunState, string, bool) {
+	return rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{empty: dropEmpty})
+}

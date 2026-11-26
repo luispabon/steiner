@@ -112,3 +112,22 @@ func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 	decision.Sequence = len(segments) + 1
 	return decision
 }
+
+// segmentRebaseDecision returns decision relabelled as a rebase that writes the
+// given sequence: 1 replaces the chain with a fresh segment and 0 is the plain
+// fallback's unused slot.
+func segmentRebaseDecision(decision segmentDecision, reason string, sequence int) segmentDecision {
+	decision.Rebase = true
+	decision.Reason = reason
+	decision.Sequence = sequence
+	return decision
+}
+
+// segmentPlainDecision returns decision as the plain summary fallback: no chain
+// is written and the flag-off state builder stores one summary message. Rebase
+// stays set so no lookup treats the fallback as an append.
+func segmentPlainDecision(decision segmentDecision, reason string) segmentDecision {
+	decision = segmentRebaseDecision(decision, reason, 0)
+	decision.Plain = true
+	return decision
+}

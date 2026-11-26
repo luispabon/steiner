@@ -169,7 +169,7 @@ func TestSegmentedRetryFlagOffKeepsLegacyRequestAndAdoption(t *testing.T) {
 	if !reflect.DeepEqual(retry, wantRetry) {
 		t.Fatalf("retry request = %#v, want complete legacy request %#v", retry, wantRetry)
 	}
-	if len(providerCacheBoundaries(first.Messages)) != 0 || len(providerCacheBoundaries(retry.Messages)) != 0 {
+	if len(cacheBoundaryIndexes(first.Messages)) != 0 || len(cacheBoundaryIndexes(retry.Messages)) != 0 {
 		t.Fatal("flag-off legacy request has a segment cache boundary")
 	}
 	latest := state.Lineage.Generations[len(state.Lineage.Generations)-1]

@@ -12,7 +12,7 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-func outcomeNonSystemMessages(messages []provider.Message) []provider.Message {
+func nonSystemMessages(messages []provider.Message) []provider.Message {
 	var filtered []provider.Message
 	for _, message := range messages {
 		if message.Role != provider.MessageRoleSystem {
@@ -297,7 +297,7 @@ func TestSegmentEmergencyZeroSourceFallsBackToPlain(t *testing.T) {
 	if got, want := emergencyMessages[len(emergencyMessages)-1].Content, prompt.RenderConversationCompactionInstruction("", prompt.CompactionModeEmergency, ""); got != want {
 		t.Fatalf("emergency instruction = %q, want the ordinary emergency instruction", got)
 	}
-	if messageContentsContain(outcomeNonSystemMessages(emergencyMessages), "retained request") {
+	if messageContentsContain(nonSystemMessages(emergencyMessages), "retained request") {
 		t.Fatal("emergency request replayed the retained turn, want only the normal plain summary")
 	}
 

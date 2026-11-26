@@ -178,20 +178,6 @@ func summarizeStageCalls(ctx context.Context, req, summary RunRequest, turn int,
 	return summarizeCompactionCallsWithRetryPlan(ctx, summary, turn, plan, onFallback, builder)
 }
 
-// dropPlainSegmentRequestBlock rewrites the plain fallback's summary message and
-// reports the outcome's own summary text without its trailer, keeping it when it
-// carries none.
-func dropPlainSegmentRequestBlock(state RunState, summaryText string) (RunState, string, bool) {
-	next, _, dropped := rewriteLatestSummaryPrefix(state, summaryPrefixRewrite{backward: true, empty: keepEmptyQuiet})
-	if !dropped {
-		return state, "", false
-	}
-	if body, _, ok := SplitRequestBlock(summaryText); ok {
-		summaryText = body
-	}
-	return next, summaryText, true
-}
-
 // applySegmentStage makes the decided stage the one the request and note use: a
 // clamped retained tail replaces the selected one, and a rebase summarizes
 // exactly the source it stores. The caller derives the request block again after
@@ -266,38 +252,7 @@ func stageHistoryNote(req RunRequest, body string, removedSource []Message) (str
 	// request itself keeps the block, because it replays this conversation
 	// exactly as a main request projects it, so the shared prefix stays cached.
 	note, pendingArchive := historyNoteText(req, removedSource)
-	return joinHistoryNote(StripHistoryNotes(body), note), note, pendingArchive
-}
-
-// buildCompactionStageState stores the state a successful stage produces and
-// returns the summary text reported for it. noted is the summary body with its
-// history note, computed by stageHistoryNote for the source the stage replaces;
-// note is that note alone. With no segment stage, or a plain segmented decision,
-// the stored summary keeps the flag-off shape with the note and request block
-// inline. A segmented stage stores the summarizer body as the immutable segment
-// and moves the note and request block to the mutable tail. marker is the
-// truncation marker, which follows the history note and precedes the request
-// block.
-func buildCompactionStageState(state RunState, segment *segmentStage, skills []prompt.SkillBlock, noted, note, marker, requestBlock string, retained []Message) (RunState, string, error) {
-	if segment == nil || segment.Decision.Plain {
-		stored := withRequestBlock(noted+marker, requestBlock)
-		return buildSummarizedCompactionState(state, stored, retained), stored, nil
-	}
-	display := withRequestBlock(joinHistoryNote(StripHistoryNotes(noted+marker), note), requestBlock)
-	next, err := buildSegmentCompactionState(state, segmentStateInput{
-		Scan:         segment.Scan,
-		Rebase:       segment.Decision.Rebase,
-		Source:       segment.Source,
-		Skills:       skills,
-		Summary:      noted + marker,
-		HistoryNote:  note,
-		RequestBlock: requestBlock,
-		Retained:     retained,
-	})
-	if err != nil {
-		return RunState{}, "", err
-	}
-	return next, display, nil
+	return joinHistoryNote(StripHistoryNotes(body), note, separatorAlways), note, pendingArchive
 }
 
 // segmentDecisionOf returns the decision an adopted stage reports, or nil with
