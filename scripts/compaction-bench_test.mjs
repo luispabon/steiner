@@ -56,6 +56,7 @@ function modeAgg(over = {}) {
 		lost: 0,
 		total: 24,
 		recallInvalid: false,
+		maxTurnsHitRuns: 0,
 		lostAt: [],
 		...over,
 	};
@@ -69,6 +70,7 @@ function verdictSide(over = {}) {
 		costPerTurn: 100,
 		exact: 24,
 		recallInvalid: false,
+		maxTurnsHitRuns: 0,
 		...over,
 	};
 }
@@ -106,7 +108,7 @@ test("parseArgs defaults", () => {
 
 test("parseArgs reads every flag, comma lists and the --flag=value form", () => {
 	const args = parseArgs([
-		"--model=a,b",
+		"--model=a,b,c",
 		"--anthropic-alias", "a",
 		"--anthropic-alias", "c",
 		"--informational-alias", "b",
@@ -121,7 +123,7 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 		"--steiner", "/opt/bin/steiner",
 		"--out", "bench.md",
 	]);
-	assert.deepEqual(args.models, ["a", "b"]);
+	assert.deepEqual(args.models, ["a", "b", "c"]);
 	assert.deepEqual(args.anthropicAliases, ["a", "c"]);
 	assert.deepEqual(args.informationalAliases, ["b"]);
 	assert.deepEqual(args.modes, ["on"]);
@@ -167,6 +169,18 @@ test("parseArgs rejects invalid integers, tolerance, modes and unknown flags", (
 	]) {
 		assert.throws(() => parseArgs(argv), /usage:/, `argv ${JSON.stringify(argv)} should throw with usage`);
 	}
+});
+
+test("parseArgs rejects alias flags whose value is not in --model", () => {
+	assert.throws(
+		() => parseArgs(["--model", "a", "--anthropic-alias", "b"]),
+		/--anthropic-alias value "b" is not in --model/,
+	);
+	assert.throws(
+		() => parseArgs(["--model", "a", "--informational-alias", "b"]),
+		/--informational-alias value "b" is not in --model/,
+	);
+	assert.deepEqual(parseArgs(["--model", "a,b", "--anthropic-alias", "b"]).anthropicAliases, ["b"]);
 });
 
 test("parseArgs --help needs no model and prints usage", () => {
@@ -249,6 +263,20 @@ test("generateFixtures places the single correction in the second half", () => {
 		assert.equal(carriers.length, 1);
 		assert.equal(carriers[0].name, `notes/${correction.inFile}.txt`);
 		assert.ok(carriers[0].content.includes(`CORRECTION: the code in f03 is now ${correction.newCode}`));
+	}
+});
+
+test("generateFixtures keeps the correction out of f01..f03 on small chains", () => {
+	for (const seed of [1, 2, 3, 99]) {
+		const four = generateFixtures(seed, 4, 10);
+		assert.equal(four.correction.inFile, "f04");
+		const five = generateFixtures(seed, 5, 10);
+		assert.ok(["f04", "f05"].includes(five.correction.inFile), `${five.correction.inFile} comes after f03 and sits in the second half`);
+		for (const fixtures of [four, five]) {
+			const carriers = fixtures.files.filter((file) => file.content.includes("CORRECTION:"));
+			assert.equal(carriers.length, 1);
+			assert.equal(carriers[0].name, `notes/${fixtures.correction.inFile}.txt`);
+		}
 	}
 });
 
@@ -382,6 +410,33 @@ test("parseRunLog treats absent cache counters as unreported rather than zero", 
 	assert.equal(modelCalls[2].cacheReadTokens, 0);
 });
 
+test("parseRunLog collects summarizer usage from applied compactions", () => {
+	const run = parseRunLog(fixture("run.log.jsonl"));
+	// The payload's prompt_tokens (4500) is the post-compaction estimate, not the
+	// summary call input, so the total is input plus both cache counters.
+	assert.deepEqual(run.compactionCalls, [
+		{ promptTokens: 2000, cacheReported: true, cacheReadTokens: 500, cacheCreateTokens: 300 },
+		{ promptTokens: 0, cacheReported: false, cacheReadTokens: 0, cacheCreateTokens: 0 },
+	]);
+	assert.equal(parseRunLog("").compactionCalls.length, 0);
+});
+
+test("parseRunLog skips failed and sub-agent model calls", () => {
+	const lines = [
+		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 1000, cache_read_tokens: 900, success: true } },
+		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 1000, error: "rate limited" } },
+		{ type: "model_call_finished", payload: { turn: 3, prompt_tokens: 1000, cache_read_tokens: 900, success: false } },
+		{
+			type: "model_call_finished",
+			scope: { agent_id: "child-1", agent_type: "code" },
+			payload: { turn: 4, prompt_tokens: 1000, cache_read_tokens: 900, success: true },
+		},
+	];
+	const run = parseRunLog(lines.map((line) => JSON.stringify(line)).join("\n"));
+	assert.equal(run.modelCalls.length, 1);
+	assert.equal(run.modelCalls[0].turn, 1);
+});
+
 test("parseToolReads keeps only ordered read events", () => {
 	const reads = parseToolReads(fixture("run.log.jsonl"));
 	assert.deepEqual(
@@ -479,6 +534,26 @@ test("scoreRecall invalidates a run that re-reads a file after a compaction", ()
 	assert.match(score.invalidReason, /f02 read again after compaction 1/);
 });
 
+test("scoreRecall invalidates any later read after a compaction past the first read", () => {
+	const answer = "f01: A1-BC23\nf02: C2-DE45\nf03: Z9-YX87\nf04: G4-HI89";
+	const reread = [
+		{ kind: "read", file: "f02", turn: 1 },
+		{ kind: "read", file: "f02", turn: 2 },
+		{ kind: "compaction", index: 1 },
+		{ kind: "read", file: "f02", turn: 4 },
+	];
+	const score = scoreRecall({ answer, fixtures: recallFixtures(), events: reread });
+	assert.equal(score.invalid, true, "the third read follows a compaction that followed the first read");
+	assert.match(score.invalidReason, /f02 read again after compaction 1/);
+
+	const noCompactionAfter = [
+		{ kind: "read", file: "f02", turn: 1 },
+		{ kind: "read", file: "f02", turn: 2 },
+		{ kind: "compaction", index: 1 },
+	];
+	assert.equal(scoreRecall({ answer, fixtures: recallFixtures(), events: noCompactionAfter }).invalid, false);
+});
+
 function call(over = {}) {
 	return { turn: 1, promptTokens: 0, cacheReported: true, cacheReadTokens: 0, cacheCreateTokens: 0, ...over };
 }
@@ -540,7 +615,21 @@ test("verdict prefers INVALID over every other label", () => {
 	assert.match(invalid.reasons[0], /fewer than 4 compactions/);
 	const recallInvalid = verdictFor({ off: verdictSide({ recallInvalid: true }) });
 	assert.equal(recallInvalid.label, "INVALID");
-	assert.ok(recallInvalid.reasons.some((reason) => /off run invalid/.test(reason)));
+	assert.ok(recallInvalid.reasons.some((reason) => /off: a fixture file was read again after a compaction/.test(reason)));
+});
+
+test("verdict treats an invalid off run as INVALID, not INCOMPARABLE", () => {
+	const oneOffFailure = verdictFor({ off: verdictSide({ valid: false, invalidReason: "run failed: exit 2" }) });
+	assert.equal(oneOffFailure.label, "INVALID");
+	assert.ok(oneOffFailure.reasons.includes("off: run failed: exit 2"));
+
+	const allOffFailed = verdictFor({
+		off: verdictSide({ valid: false, invalidReason: "run failed: timeout", compactions: null, costPerTurn: null }),
+		on: verdictSide({ compactions: 5 }),
+	});
+	assert.equal(allOffFailed.label, "INVALID");
+	assert.notEqual(allOffFailed.label, "INCOMPARABLE");
+	assert.ok(allOffFailed.reasons.includes("off: run failed: timeout"));
 });
 
 test("verdict calls a compaction-count gap of two INCOMPARABLE but not one", () => {
@@ -562,6 +651,13 @@ test("verdict fails on continuity and on the cost proxy with named reasons", () 
 	const cost = verdictFor({ on: verdictSide({ costPerTurn: 106 }), family: "openai" });
 	assert.equal(cost.label, "FAIL");
 	assert.ok(cost.reasons.some((reason) => /cost proxy/.test(reason)));
+});
+
+test("verdict names max-turn stops without invalidating the run", () => {
+	const result = verdictFor({ off: verdictSide({ maxTurnsHitRuns: 1 }), on: verdictSide({ maxTurnsHitRuns: 1 }) });
+	assert.equal(result.label, "PASS");
+	assert.ok(result.reasons.includes("max turns hit in 2 run(s)"));
+	assert.ok(!verdictFor().reasons.some((reason) => /max turns/.test(reason)));
 });
 
 test("verdict passes at the tolerance boundary", () => {
@@ -588,7 +684,7 @@ test("renderTable prints metric rows, not reported cells, verdict and probe line
 			informational: false,
 			probe: { ok: true, reason: null },
 			off: modeAgg(),
-			on: modeAgg({ costPerTurn: null, exact: 22, lost: 2, lostAt: ["f05@c2", "f09@unattributed"] }),
+			on: modeAgg({ costPerTurn: null, exact: 22, lost: 2, lostAt: ["f05@c2", "f09@unattributed"], maxTurnsHitRuns: 1 }),
 			verdict: { label: "PASS", cache: "no cache verdict", reasons: ["cost proxy not judged: no cache reporting on one side"] },
 		},
 		{
@@ -606,6 +702,7 @@ test("renderTable prints metric rows, not reported cells, verdict and probe line
 	assert.match(md, /\| metric \| off \| on \|/);
 	assert.match(md, /\| --- \| --- \| --- \|/);
 	assert.match(md, /\| turns \| 10 \| 10 \|/);
+	assert.match(md, /\| max turns hit \| 0 \| 1 \|/);
 	assert.match(md, /\| plain fallbacks \| 0 \| 0 \|/);
 	assert.match(md, /\| cost proxy per turn \(uncached \+ 1\.25\*write \+ 0\.1\*read\) \| 100 \| not reported \|/);
 	assert.match(md, /cost proxy per turn \(uncached \+ 0\.1\*read\)/);
@@ -636,6 +733,7 @@ function runRecord(over = {}) {
 		failed: false,
 		valid: true,
 		invalidReason: null,
+		maxTurnsHit: false,
 		...over,
 	};
 }
@@ -699,12 +797,32 @@ test("aggregateMode reports a failed run and a validity failure as invalid", () 
 	assert.equal(aggregateMode([]).turns, null);
 });
 
+test("aggregateMode counts runs that hit the max-turn limit", () => {
+	assert.equal(aggregateMode([runRecord(), runRecord({ maxTurnsHit: true }), runRecord({ maxTurnsHit: true })]).maxTurnsHitRuns, 2);
+	assert.equal(aggregateMode([runRecord()]).maxTurnsHitRuns, 0);
+	assert.equal(aggregateMode([]).maxTurnsHitRuns, 0);
+});
+
 function fakeRunLog() {
 	const lines = [];
 	for (let n = 1; n <= 4; n++) {
 		lines.push(JSON.stringify({ type: "tool_call_started", payload: { turn: n * 2, tool: "read", call_id: `call_${n}`, arguments: { path: `notes/f0${n}.txt` } } }));
-		lines.push(JSON.stringify({ type: "model_call_finished", payload: { turn: n * 2, prompt_tokens: 1000, cache_read_tokens: 900 } }));
-		lines.push(JSON.stringify({ type: "context_diagnostics", payload: { kind: "compaction", severity: "done", compaction_count: n, scope: "conversation" } }));
+		lines.push(JSON.stringify({ type: "model_call_finished", payload: { turn: n * 2, prompt_tokens: 1000, cache_read_tokens: 900, success: true } }));
+		lines.push(
+			JSON.stringify({
+				type: "context_diagnostics",
+				payload: {
+					kind: "compaction",
+					severity: "done",
+					compaction_count: n,
+					scope: "conversation",
+					input_tokens: 100,
+					cache_read_tokens: 50,
+					cache_create_tokens: 50,
+					cache_reported_input_tokens: 200,
+				},
+			}),
+		);
 	}
 	return lines.join("\n");
 }
@@ -748,8 +866,8 @@ function makeFakeRunner({ failOn = null, failProbe = false, secret = "", sandbox
 				return { code: 2, timedOut: false };
 			}
 			const payload = attempt === 1
-				? { turn: 1, prompt_tokens: 3000, cache_create_tokens: 2500 }
-				: { turn: 1, prompt_tokens: 3000, cache_read_tokens: 2500 };
+				? { turn: 1, prompt_tokens: 3000, cache_create_tokens: 2500, success: true }
+				: { turn: 1, prompt_tokens: 3000, cache_read_tokens: 2500, success: true };
 			await writeFile(flag("--log-file"), `${JSON.stringify({ type: "model_call_finished", payload })}\n`);
 			await writeFile(call.stdoutPath, "assistant: turn 1 role assistant content OK\nstatus: run finished\n");
 			await writeFile(call.stderrPath, "");
@@ -813,6 +931,13 @@ test("main writes results.md and raw.json through a fake runner without leaking 
 		assert.equal(raw.aliases[0].probe.ok, true);
 		assert.equal(raw.aliases[1].probe, null);
 		assert.equal(raw.aliases[0].runs.off[0].compactions, 4);
+		// Main calls: 4 x (1000 prompt, 900 cache read). Compaction summary calls:
+		// 4 x (100 uncached + 50 read + 50 write), so the cache and cost totals fold
+		// both in while turns stays the main-call count.
+		assert.equal(raw.aliases[0].runs.off[0].turns, 4);
+		assert.equal(raw.aliases[0].runs.off[0].cachedTokens, 3800);
+		assert.equal(raw.aliases[0].runs.off[0].costPerTurn, 357.5);
+		assert.equal(raw.aliases[1].runs.on[0].costPerTurn, 345);
 		assert.equal(raw.aliases[0].runs.on[0].exitCode, 0);
 		assert.equal(raw.aliases[0].runs.on[0].exact, 4);
 		assert.deepEqual(raw.experimentEnv, { STEINER_EXPERIMENT_SEGMENTED_COMPACTION: "1" });
@@ -847,7 +972,7 @@ test("main returns 3 when a run fails", async () => {
 		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
 		assert.equal(code, 3);
 		assert.match(markdown, /- sandbox: not verified \(steiner exposes no read-only check\)/);
-		assert.match(markdown, /on run invalid: run failed: exit 2/);
+		assert.match(markdown, /on: run failed: exit 2/);
 		assert.equal(raw.aliases[0].runs.on[0].failed, true);
 		assert.equal(raw.aliases[0].runs.on[0].reason, "exit 2");
 		assert.equal(raw.aliases[0].runs.off[0].failed, false);
