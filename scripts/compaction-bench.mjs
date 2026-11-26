@@ -15,6 +15,7 @@
 // Usage: node scripts/compaction-bench.mjs --model <a,b> [flags]
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -286,15 +287,20 @@ export function generateFixtures(seed, files, padTokens) {
 }
 
 /** Render the task prompt that walks the generated notes chain one file at a time. */
-export function taskPrompt(files) {
-	return [
+export function taskPrompt(files, runId = null) {
+	const lines = [];
+	// A per-run first line keeps every run's first request byte-distinct, so no
+	// run starts from a cache entry warmed by another run.
+	if (runId !== null) lines.push(`Run id: ${runId}`);
+	lines.push(
 		`Read the notes in notes/ one file at a time. The chain has ${files.length} files.`,
 		"Start at notes/f01.txt. Each file starts with a CODE line and a NEXT line naming the next file.",
 		"Open only the file named by NEXT. Never read a file twice. Never list or search the notes directory.",
 		"Apply any CORRECTION line you find to the code it names.",
 		'When you reach NEXT: END, reply with one line per file in the form "fNN: CODE", using the corrected code where a correction applies.',
 		"Reply with those lines only.",
-	].join("\n");
+	);
+	return lines.join("\n");
 }
 
 const ALIAS_RE = /^[A-Za-z0-9._-]+$/;
@@ -772,25 +778,45 @@ export function renderTable(results) {
 
 const SANDBOX_NOTE = "not verified (steiner exposes no read-only check)";
 
-function defaultSpawnRun({ command, args, cwd, env, stdoutPath, stderrPath, timeoutMs }) {
+/**
+ * Spawn the run detached so a timeout can kill the whole process group, and turn
+ * a spawn failure into a failed result instead of an uncaught exception.
+ */
+export function defaultSpawnRun({ command, args, cwd, env, stdoutPath, stderrPath, timeoutMs }) {
 	return new Promise((resolve) => {
-		const stdoutFd = openSync(stdoutPath, "w", 0o600);
-		const stderrFd = openSync(stderrPath, "w", 0o600);
+		let stdoutFd = null;
+		let stderrFd = null;
+		let child = null;
+		let timer = null;
 		let timedOut = false;
 		let settled = false;
 		const finish = (result) => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(timer);
-			closeSync(stdoutFd);
-			closeSync(stderrFd);
+			if (timer !== null) clearTimeout(timer);
+			if (stdoutFd !== null) closeSync(stdoutFd);
+			if (stderrFd !== null) closeSync(stderrFd);
 			resolve({ timedOut, ...result });
 		};
-		const timer = setTimeout(() => {
+		try {
+			stdoutFd = openSync(stdoutPath, "w", 0o600);
+			stderrFd = openSync(stderrPath, "w", 0o600);
+			child = spawn(command, args, { cwd, env, detached: true, stdio: ["ignore", stdoutFd, stderrFd] });
+		} catch (error) {
+			finish({ code: null, error: error.message });
+			return;
+		}
+		// The timer is armed only after a live child exists, so a failed spawn never
+		// leaves a kill timer pointed at a missing pid.
+		timer = setTimeout(() => {
 			timedOut = true;
-			child.kill("SIGKILL");
+			try {
+				process.kill(-child.pid, "SIGKILL");
+			} catch {
+				// The group is already gone; fall back to the direct child handle.
+				child.kill("SIGKILL");
+			}
 		}, timeoutMs);
-		const child = spawn(command, args, { cwd, env, stdio: ["ignore", stdoutFd, stderrFd] });
 		child.on("error", (error) => finish({ code: null, error: error.message }));
 		child.on("close", (code) => finish({ code }));
 	});
@@ -828,6 +854,7 @@ async function detectSandbox({ opts, env, spawnRun }) {
 		if (child.timedOut || child.code !== 0) return null;
 		return parseSandboxEnabled(await readTextOrEmpty(stdoutPath));
 	} catch {
+		// Sandbox status is optional: an unreadable config is reported as not verified.
 		return null;
 	} finally {
 		await rm(dir, { recursive: true, force: true });
@@ -860,8 +887,10 @@ function lostEntries(recall) {
 	return entries;
 }
 
-function probePrompt() {
-	const lines = [];
+function probePrompt(nonce) {
+	// The nonce makes each probe's first call a cache write even when an earlier
+	// run or a second alias already warmed the identical probe text.
+	const lines = [`Probe id: ${nonce}`];
 	let chars = 0;
 	for (let i = 0; chars < 9000; i++) {
 		const line = `Probe line ${i}: the quick brown fox jumps over the lazy dog while the prompt cache warms up.`;
@@ -872,13 +901,19 @@ function probePrompt() {
 	return lines.join("\n");
 }
 
-function firstCleanStderrLine(text, env) {
-	const envValues = Object.values(env ?? {}).filter((value) => typeof value === "string" && value !== "");
-	for (const raw of String(text).split(/\r?\n/)) {
-		const line = raw.trim();
-		if (line === "") continue;
-		if (envValues.some((value) => line.includes(value))) continue;
-		return line.slice(0, 200);
+const PROBE_FAILURE_PATTERNS = [
+	[/\b401\b|unauthori[sz]ed/i, "auth error (401)"],
+	[/\b403\b|forbidden/i, "forbidden (403)"],
+	[/\b404\b|not found/i, "not found (404)"],
+	[/\b400\b/, "bad request (400)"],
+	[/timeout/i, "timeout"],
+];
+
+/** Map probe stderr to a fixed label; raw stderr text never reaches the report. */
+export function classifyProbeFailure(text) {
+	const body = String(text);
+	for (const [pattern, label] of PROBE_FAILURE_PATTERNS) {
+		if (pattern.test(body)) return label;
 	}
 	return null;
 }
@@ -963,11 +998,12 @@ function failedRun({ mode, repeat, reason, exitCode = null, timedOut = false }) 
 	};
 }
 
-async function runProbe({ opts, alias, env, spawnRun }) {
+async function runProbe({ opts, alias, env, spawnRun, newId }) {
 	const timeoutMs = opts.runTimeoutMinutes * 60_000;
 	let repoDir = null;
 	let privDir = null;
 	try {
+		const probeText = probePrompt(newId());
 		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
 		privDir = await mkdtemp(join(tmpdir(), "compaction-bench-priv-"));
 		const diagDir = join(privDir, "diag");
@@ -994,7 +1030,7 @@ async function runProbe({ opts, alias, env, spawnRun }) {
 					"--config",
 					configPath,
 					"--trust-project-config",
-					probePrompt(),
+					probeText,
 				],
 				cwd: repoDir,
 				env,
@@ -1004,11 +1040,9 @@ async function runProbe({ opts, alias, env, spawnRun }) {
 			});
 			exits.push(child.timedOut ? "timeout" : child.code);
 			if (child.timedOut || child.code !== 0) {
-				const base = child.timedOut
-					? "probe calls failed: timeout"
-					: `probe calls failed: ${child.error ?? `exit ${child.code}`}`;
-				const evidence = firstCleanStderrLine(await readTextOrEmpty(stderrPath), env);
-				return { ok: false, reason: evidence ? `${base}: ${evidence}` : base, exits };
+				const status = child.timedOut ? "timeout" : child.code === null ? "spawn error" : `exit ${child.code}`;
+				const kind = child.timedOut ? null : classifyProbeFailure(await readTextOrEmpty(stderrPath));
+				return { ok: false, reason: kind ? `probe calls failed: ${status}: ${kind}` : `probe calls failed: ${status}`, exits };
 			}
 			calls.push(parseRunLog(await readTextOrEmpty(logPath)).modelCalls);
 		}
@@ -1021,7 +1055,7 @@ async function runProbe({ opts, alias, env, spawnRun }) {
 	}
 }
 
-async function runOnce({ opts, alias, family, mode, repeat, fixtures, out, env, spawnRun }) {
+async function runOnce({ opts, alias, family, mode, repeat, runId, fixtures, out, env, spawnRun }) {
 	const timeoutMs = opts.runTimeoutMinutes * 60_000;
 	const base = `${mode}-r${repeat}`;
 	const runOutDir = join(out, alias);
@@ -1058,7 +1092,7 @@ async function runOnce({ opts, alias, family, mode, repeat, fixtures, out, env, 
 				"--config",
 				configPath,
 				"--trust-project-config",
-				taskPrompt(fixtures.files),
+				taskPrompt(fixtures.files, runId),
 			],
 			cwd: repoDir,
 			env: { ...env, ...experimentEnv(env, mode) },
@@ -1125,6 +1159,7 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 	const writeOut = deps.stdout ?? ((text) => process.stdout.write(text));
 	const spawnRun = deps.spawnRun ?? defaultSpawnRun;
 	const now = deps.now ?? (() => new Date());
+	const newId = deps.newId ?? (() => randomUUID());
 	let opts;
 	try {
 		opts = parseArgs(argv);
@@ -1148,13 +1183,16 @@ export async function main(argv = process.argv.slice(2), env = process.env, deps
 	for (const alias of opts.models) {
 		const family = opts.anthropicAliases.includes(alias) ? "anthropic" : "openai";
 		const informational = opts.informationalAliases.includes(alias);
-		const probe = family === "anthropic" ? await runProbe({ opts, alias, env, spawnRun }) : null;
+		const probe = family === "anthropic" ? await runProbe({ opts, alias, env, spawnRun, newId }) : null;
 		if (probe) log(`probe ${alias}: ${probe.ok ? "ok" : `failed (${probe.reason})`}`);
 		const runs = { off: [], on: [] };
 		for (let repeat = 1; repeat <= opts.repeat; repeat++) {
 			const fixtures = generateFixtures(repeat, opts.files, opts.padTokens);
-			for (const mode of opts.modes) {
-				const run = await runOnce({ opts, alias, family, mode, repeat, fixtures, out, env, spawnRun });
+			// Alternate the mode order per repeat so the second mode never starts from
+			// a cache entry the first mode just warmed.
+			const modes = repeat % 2 === 1 ? opts.modes : [...opts.modes].reverse();
+			for (const mode of modes) {
+				const run = await runOnce({ opts, alias, family, mode, repeat, runId: newId(), fixtures, out, env, spawnRun });
 				runs[mode].push(run);
 				const exit = run.timedOut ? "timeout" : run.exitCode === null ? "error" : run.exitCode;
 				log(`${alias} mode ${mode} r${repeat} exit ${exit} compactions ${run.compactions ?? "n/a"} exact ${run.exact ?? "n/a"}/${run.total ?? "n/a"}`);

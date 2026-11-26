@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -12,7 +12,9 @@ import {
 	aggregateMode,
 	buildBenchConfig,
 	checkGuard,
+	classifyProbeFailure,
 	costProxy,
+	defaultSpawnRun,
 	evaluateProbe,
 	experimentEnv,
 	generateFixtures,
@@ -289,6 +291,7 @@ test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN
 	const files = generateFixtures(5, 6, 10).files;
 	const prompt = taskPrompt(files);
 	assert.equal(prompt, taskPrompt(files));
+	assert.ok(!prompt.startsWith("Run id:"));
 	assert.match(prompt, /notes\/f01\.txt/);
 	assert.match(prompt, /NEXT/);
 	assert.match(prompt, /Never read a file twice/);
@@ -296,6 +299,14 @@ test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN
 	assert.match(prompt, /CORRECTION/);
 	assert.match(prompt, /"fNN: CODE"/);
 	assert.match(prompt, /6 files/);
+});
+
+test("taskPrompt puts a run id on the first line when one is supplied", () => {
+	const files = generateFixtures(5, 6, 10).files;
+	const base = taskPrompt(files);
+	const withId = taskPrompt(files, "run-abc");
+	assert.equal(withId, `Run id: run-abc\n${base}`);
+	assert.notEqual(taskPrompt(files, "run-def"), withId);
 });
 
 test("buildBenchConfig emits the threshold under the alias and the cache diagnostics stream", () => {
@@ -588,6 +599,18 @@ test("evaluateProbe distinguishes a cache miss from failed probe calls", () => {
 	assert.deepEqual(evaluateProbe([call({ cacheCreateTokens: 900 })], []), { ok: false, reason: "probe calls failed" });
 });
 
+test("classifyProbeFailure maps stderr to fixed labels and never echoes it", () => {
+	assert.equal(classifyProbeFailure("error: 401 Unauthorized: token rejected"), "auth error (401)");
+	assert.equal(classifyProbeFailure("request rejected: unauthorized"), "auth error (401)");
+	assert.equal(classifyProbeFailure("HTTP 403 forbidden"), "forbidden (403)");
+	assert.equal(classifyProbeFailure("model not found"), "not found (404)");
+	assert.equal(classifyProbeFailure("HTTP 404: missing"), "not found (404)");
+	assert.equal(classifyProbeFailure("HTTP 400 bad input"), "bad request (400)");
+	assert.equal(classifyProbeFailure("context deadline: timeout"), "timeout");
+	assert.equal(classifyProbeFailure("probe route unavailable"), null);
+	assert.equal(classifyProbeFailure(""), null);
+});
+
 test("median handles odd, even and empty input", () => {
 	assert.equal(median([3, 1, 2]), 2);
 	assert.equal(median([4, 1, 3, 2]), 2.5);
@@ -837,7 +860,7 @@ function fakeStdout() {
 	return [`assistant: turn 8 role assistant content ${lines[0]}`, ...lines.slice(1), "status: run finished", ""].join("\n");
 }
 
-function makeFakeRunner({ failOn = null, failProbe = false, secret = "", sandbox = true } = {}) {
+function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, secret = "", sandbox = true } = {}) {
 	const invocations = [];
 	const probeAttempts = new Map();
 	let normalRuns = 0;
@@ -862,7 +885,10 @@ function makeFakeRunner({ failOn = null, failProbe = false, secret = "", sandbox
 			probeAttempts.set(alias, attempt);
 			if (failProbe) {
 				await writeFile(call.stdoutPath, "");
-				await writeFile(call.stderrPath, `error: auth ${secret} rejected\nprobe route unavailable\n`);
+				await writeFile(
+					call.stderrPath,
+					probeStderr ?? `error: 401 Unauthorized: ${secret} rejected\nprobe route unavailable\n`,
+				);
 				return { code: 2, timedOut: false };
 			}
 			const payload = attempt === 1
@@ -948,6 +974,8 @@ test("main writes results.md and raw.json through a fake runner without leaking 
 		for (const call of probeCalls) {
 			assert.equal(call.args[call.args.indexOf("--model") + 1], "claude-test");
 		}
+		assert.equal(probeCalls[0].args.at(-1), probeCalls[1].args.at(-1), "both calls of one probe share the prompt");
+		assert.match(probeCalls[0].args.at(-1), /^Probe id: \S+\n/);
 		assert.equal(fake.normalRuns(), 4);
 
 		for (const text of [markdown, JSON.stringify(raw), stderrLines.join("\n"), stdoutChunks.join("\n")]) {
@@ -981,7 +1009,7 @@ test("main returns 3 when a run fails", async () => {
 	}
 });
 
-test("main reports a failed probe with a stderr line that carries no env value", async () => {
+test("main reports a failed probe reason classified from stderr, never the raw line", async () => {
 	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
 	const secret = "probe-secret-token";
 	const fake = makeFakeRunner({ failProbe: true, secret });
@@ -996,11 +1024,31 @@ test("main reports a failed probe with a stderr line that carries no env value",
 		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
 		assert.equal(code, 0);
 		assert.equal(raw.aliases[0].probe.ok, false);
-		assert.equal(raw.aliases[0].probe.reason, "probe calls failed: exit 2: probe route unavailable");
-		assert.match(markdown, /Probe: failed \(probe calls failed: exit 2: probe route unavailable\)/);
-		assert.ok(!markdown.includes(secret));
-		assert.ok(!JSON.stringify(raw).includes(secret));
-		assert.ok(!stderrLines.join("\n").includes(secret));
+		assert.equal(raw.aliases[0].probe.reason, "probe calls failed: exit 2: auth error (401)");
+		assert.match(markdown, /Probe: failed \(probe calls failed: exit 2: auth error \(401\)\)/);
+		for (const text of [markdown, JSON.stringify(raw), stderrLines.join("\n")]) {
+			assert.ok(!text.includes(secret), "the secret value must not appear");
+			assert.ok(!text.includes("Unauthorized"), "raw stderr must not appear");
+			assert.ok(!text.includes("probe route unavailable"), "raw stderr must not appear");
+		}
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("main drops an unrecognized probe stderr and reports only the exit code", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ failProbe: true, probeStderr: "probe route unavailable\n" });
+	try {
+		await main(
+			["--model", "claude-test", "--anthropic-alias", "claude-test", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(raw.aliases[0].probe.reason, "probe calls failed: exit 2");
+		assert.ok(!markdown.includes("probe route unavailable"));
 	} finally {
 		await rm(outDir, { recursive: true, force: true });
 	}
@@ -1026,6 +1074,163 @@ test("main skips the verdict for a single mode", async () => {
 		assert.match(markdown, /\| turns \| not run \| 4 \|/);
 	} finally {
 		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("main gives each probe its own nonce and reuses it for that probe's two calls", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ sandbox: false });
+	let next = 0;
+	try {
+		const code = await main(
+			[
+				"--model", "claude-one,claude-two",
+				"--anthropic-alias", "claude-one,claude-two",
+				"--files", "4",
+				"--pad-tokens", "10",
+				"--out", outDir,
+			],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {}, newId: () => `id-${++next}` },
+		);
+		assert.equal(code, 0);
+		const prompts = fake.invocations
+			.filter((call) => call.args.at(-1).includes("Reply with OK only."))
+			.map((call) => call.args.at(-1));
+		assert.equal(prompts.length, 4, "two calls per probe and one probe per anthropic alias");
+		assert.equal(prompts[0], prompts[1]);
+		assert.equal(prompts[2], prompts[3]);
+		assert.notEqual(prompts[0], prompts[2], "a second probe must not reuse the first probe's cached prompt");
+		assert.match(prompts[0], /^Probe id: id-1\n/);
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("main alternates mode order per repeat and gives every run its own first request", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ sandbox: false });
+	let next = 0;
+	try {
+		const code = await main(
+			["--model", "gpt-test", "--repeat", "2", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {}, newId: () => `run-${++next}` },
+		);
+		assert.equal(code, 0);
+		const runs = fake.invocations.filter((call) => call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION !== undefined);
+		assert.deepEqual(
+			runs.map((call) => call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION),
+			["0", "1", "1", "0"],
+			"repeat 2 reverses the mode order so on does not inherit off's warm cache",
+		);
+		const prompts = runs.map((call) => call.args.at(-1));
+		assert.deepEqual(
+			prompts.map((prompt) => prompt.split("\n")[0]),
+			["Run id: run-1", "Run id: run-2", "Run id: run-3", "Run id: run-4"],
+		);
+		assert.equal(new Set(prompts).size, 4, "no two runs share a byte-identical request");
+		for (const prompt of prompts) {
+			assert.match(prompt.split("\n")[1], /^Read the notes in notes\//);
+		}
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+test("defaultSpawnRun kills a timed-out child and returns quickly", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-spawn-"));
+	try {
+		const started = Date.now();
+		const result = await defaultSpawnRun({
+			command: process.execPath,
+			args: ["-e", "setTimeout(() => {}, 60000)"],
+			cwd: dir,
+			env: process.env,
+			stdoutPath: join(dir, "out.txt"),
+			stderrPath: join(dir, "err.txt"),
+			timeoutMs: 300,
+		});
+		assert.equal(result.timedOut, true);
+		assert.ok(Date.now() - started < 10_000, "the timeout kills the run instead of waiting it out");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("defaultSpawnRun kills the whole process group on timeout", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-group-"));
+	const marker = join(dir, "grandchild-heartbeat.txt");
+	try {
+		const grandchild = [
+			'const fs = require("node:fs");',
+			`const marker = ${JSON.stringify(marker)};`,
+			'fs.writeFileSync(marker, "start");',
+			'setInterval(() => fs.appendFileSync(marker, "."), 100);',
+		].join("\n");
+		const parent = [
+			'const { spawn } = require("node:child_process");',
+			`spawn(process.execPath, ["-e", ${JSON.stringify(grandchild)}]);`,
+			"setTimeout(() => {}, 60000);",
+		].join("\n");
+		const result = await defaultSpawnRun({
+			command: process.execPath,
+			args: ["-e", parent],
+			cwd: dir,
+			env: process.env,
+			stdoutPath: join(dir, "out.txt"),
+			stderrPath: join(dir, "err.txt"),
+			timeoutMs: 1500,
+		});
+		assert.equal(result.timedOut, true);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const beat = await readFile(marker, "utf8");
+		assert.ok(beat.startsWith("start"), "the grandchild started before the kill");
+		await rm(marker, { force: true });
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		assert.equal(existsSync(marker), false, "the grandchild must die with the group");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("defaultSpawnRun turns a missing command into a failed result", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-spawn-"));
+	try {
+		const result = await defaultSpawnRun({
+			command: join(dir, "no-such-steiner-binary"),
+			args: ["--help"],
+			cwd: dir,
+			env: process.env,
+			stdoutPath: join(dir, "out.txt"),
+			stderrPath: join(dir, "err.txt"),
+			timeoutMs: 5000,
+		});
+		assert.equal(result.timedOut, false);
+		assert.equal(result.code, null);
+		assert.match(result.error, /ENOENT/);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("defaultSpawnRun reports an unopenable output file as a failed result", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-spawn-"));
+	try {
+		const result = await defaultSpawnRun({
+			command: process.execPath,
+			args: ["-e", "0"],
+			cwd: dir,
+			env: process.env,
+			stdoutPath: join(dir, "missing-dir", "out.txt"),
+			stderrPath: join(dir, "err.txt"),
+			timeoutMs: 5000,
+		});
+		assert.equal(result.timedOut, false);
+		assert.equal(result.code, null);
+		assert.match(result.error, /ENOENT/);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
 	}
 });
 
