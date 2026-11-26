@@ -387,7 +387,7 @@ func TestAssemblePassesFullConversationUnfiltered(t *testing.T) {
 func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T) {
 	t.Parallel()
 
-	normal := RenderConversationCompactionInstruction("", CompactionModeNormal)
+	normal := RenderConversationCompactionInstruction("", CompactionModeNormal, "")
 	if !strings.Contains(normal, "You compact working context for coding agent.") {
 		t.Fatalf("normal compaction instruction = %q, want standard instruction body", normal)
 	}
@@ -395,7 +395,7 @@ func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T)
 		t.Fatalf("normal compaction instruction = %q, want no emergency guidance", normal)
 	}
 
-	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency)
+	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency, "")
 	if !strings.Contains(emergency, "You compact working context for coding agent.") {
 		t.Fatalf("emergency compaction instruction = %q, want standard instruction body", emergency)
 	}
@@ -407,7 +407,7 @@ func TestRenderConversationCompactionInstructionNormalAndEmergency(t *testing.T)
 func TestRenderConversationCompactionInstructionPreservesOverride(t *testing.T) {
 	t.Parallel()
 
-	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal)
+	override := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal, "")
 	if got, want := override, "custom compaction prompt"; got != want {
 		t.Fatalf("override compaction instruction = %q, want %q", got, want)
 	}
@@ -447,7 +447,7 @@ func TestRenderConversationCompactionInstructionSteering(t *testing.T) {
 			}
 		})
 	}
-	bare := RenderConversationCompactionInstruction("", CompactionModeNormal)
+	bare := RenderConversationCompactionInstruction("", CompactionModeNormal, "")
 	empty := RenderConversationCompactionInstruction("", CompactionModeNormal, "")
 	if bare != empty {
 		t.Fatalf("empty steering changed output: bare=%q empty=%q", bare, empty)

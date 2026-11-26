@@ -53,7 +53,7 @@ func segmentAppendRulesWant(t *testing.T) string {
 func TestRenderSegmentAppendInstructionExact(t *testing.T) {
 	t.Parallel()
 
-	if got := RenderSegmentAppendInstruction(""); got != segmentAppendInstructionWant {
+	if got := RenderSegmentAppendInstruction("", ""); got != segmentAppendInstructionWant {
 		t.Fatalf("RenderSegmentAppendInstruction() = %q, want %q", got, segmentAppendInstructionWant)
 	}
 }
@@ -64,7 +64,7 @@ func TestRenderSegmentAppendInstructionExact(t *testing.T) {
 func TestSegmentAppendInstructionSemantics(t *testing.T) {
 	t.Parallel()
 
-	got := RenderSegmentAppendInstruction("")
+	got := RenderSegmentAppendInstruction("", "")
 	for _, want := range []string{
 		"immutable segments",
 		"read-only records",
@@ -89,7 +89,7 @@ func TestRenderSegmentAppendInstructionOverrideKeepsAppendRules(t *testing.T) {
 	t.Parallel()
 
 	const override = "custom compaction prompt"
-	got := RenderSegmentAppendInstruction(override)
+	got := RenderSegmentAppendInstruction(override, "")
 	if want := override + "\n\n" + segmentAppendRulesWant(t); got != want {
 		t.Fatalf("override instruction = %q, want %q", got, want)
 	}
@@ -116,7 +116,7 @@ func TestRenderSegmentAppendInstructionSteering(t *testing.T) {
 	const steering = "focus on auth refactor"
 	const marker = "Additional user steering for this compaction:\n\n" + steering
 
-	bare := RenderSegmentAppendInstruction("")
+	bare := RenderSegmentAppendInstruction("", "")
 	if empty := RenderSegmentAppendInstruction("", ""); empty != bare {
 		t.Fatalf("empty steering changed output: bare=%q empty=%q", bare, empty)
 	}
@@ -139,7 +139,7 @@ func TestRenderConversationCompactionInstructionUnchangedByAppendTemplate(t *tes
 	t.Parallel()
 
 	base := compactionPromptSystemInstruction() + "\n\n" + compactionPromptInstructionBody()
-	normal := RenderConversationCompactionInstruction("", CompactionModeNormal)
+	normal := RenderConversationCompactionInstruction("", CompactionModeNormal, "")
 	if normal != base {
 		t.Fatalf("normal instruction = %q, want %q", normal, base)
 	}
@@ -147,12 +147,12 @@ func TestRenderConversationCompactionInstructionUnchangedByAppendTemplate(t *tes
 		t.Fatalf("normal instruction leaked append guidance: %q", normal)
 	}
 
-	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency)
+	emergency := RenderConversationCompactionInstruction("", CompactionModeEmergency, "")
 	if want := base + "\n\n" + compactionPromptEmergencyInstruction(); emergency != want {
 		t.Fatalf("emergency instruction = %q, want %q", emergency, want)
 	}
 
-	if got, want := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal), "custom compaction prompt"; got != want {
+	if got, want := RenderConversationCompactionInstruction("custom compaction prompt", CompactionModeNormal, ""), "custom compaction prompt"; got != want {
 		t.Fatalf("override normal instruction = %q, want %q", got, want)
 	}
 }

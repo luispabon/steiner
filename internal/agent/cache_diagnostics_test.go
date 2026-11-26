@@ -429,7 +429,7 @@ func TestBuildCompactionRequestWithModeCarriesCacheRouting(t *testing.T) {
 
 	chatRequest, _, _, err := buildCompactionRequestWithMode(
 		context.Background(), req, state, candidate,
-		prompt.CompactionModeNormal, 128,
+		prompt.CompactionModeNormal, 128, "",
 	)
 	if err != nil {
 		t.Fatalf("buildCompactionRequestWithMode() error = %v", err)

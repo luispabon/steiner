@@ -27,11 +27,15 @@ type summarizeCompactionStageParams struct {
 }
 
 func (summarizeCompactor) Compact(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steerings ...string) (CompactionOutcome, error) {
-	steering := ""
-	if len(steerings) > 0 {
-		steering = steerings[0]
+	return twoStageSummarizeCompaction(ctx, req, state, turn, candidate, firstSteering(steerings))
+}
+
+// firstSteering returns the first steering message, or "" when none was given.
+func firstSteering(steerings []string) string {
+	if len(steerings) == 0 {
+		return ""
 	}
-	return twoStageSummarizeCompaction(ctx, req, state, turn, candidate, steering)
+	return steerings[0]
 }
 
 func twoStageSummarizeCompaction(ctx context.Context, req RunRequest, state RunState, turn int, candidate ConversationCandidate, steering string) (CompactionOutcome, error) {

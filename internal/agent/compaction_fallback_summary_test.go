@@ -407,7 +407,7 @@ func TestBuildCompactionRequestFallbackOmitsBackendState(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			chatReq, _, _, err := buildCompactionRequestWithMode(context.Background(), tt.req, state, candidate, prompt.CompactionModeNormal, 128)
+			chatReq, _, _, err := buildCompactionRequestWithMode(context.Background(), tt.req, state, candidate, prompt.CompactionModeNormal, 128, "")
 			if err != nil {
 				t.Fatalf("buildCompactionRequestWithMode() error = %v", err)
 			}
