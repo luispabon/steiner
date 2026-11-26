@@ -18,13 +18,13 @@ func toRequestProviderMessages(messages []Message, segmentedCompaction bool) []p
 	if !segmentedCompaction {
 		return out
 	}
-	scan := scanSegmentChain(replay)
+	segments, _, status := scanSegmentChainShape(replay)
 	// Only a validated chain earns the boundary: a legacy or malformed chain
 	// leaves the request unmarked.
-	if scan.Status != chainValid {
+	if status != chainValid {
 		return out
 	}
-	out[len(scan.Segments)-1].CacheBoundary = true
+	out[segments-1].CacheBoundary = true
 	return out
 }
 

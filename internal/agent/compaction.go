@@ -207,10 +207,7 @@ func (r *Runner) CompactWithLineage(ctx context.Context, req RunRequest, lineage
 	if provider.IsStatefulTranscript(req.Provider) && !provider.SupportsStatefulCompaction(req.Provider) {
 		return nil, false, false, fmt.Errorf("compact conversation: %w", errStatefulCompaction)
 	}
-	steering := ""
-	if len(steerings) > 0 {
-		steering = steerings[0]
-	}
+	steering := firstSteering(steerings)
 	state := RunState{
 		Conversation:    currentConv,
 		Lineage:         newConversationLineage(currentConv),
@@ -287,7 +284,7 @@ func (r *Runner) compactConversationForBudgetWithSteering(ctx context.Context, r
 	archiveRecallEntries(ctx, req.RecallArchive, req.Events, outcome.pendingRecall)
 	*state = outcome.State
 	if req.SegmentedCompaction.Enabled {
-		logSegmentDecision(req.CompactionLogPath, outcome.segmentDecision)
+		logSegmentDecisionFile(req.CompactionLogPath, outcome.segmentDecision)
 	}
 	commitHistoryArchive(ctx, req, outcome.pendingArchive)
 	appendPendingSubAgentsLine(req, state)
@@ -402,7 +399,7 @@ func newCompactionExecutionPlanWithMode(ctx context.Context, req RunRequest, sta
 	workingCandidate.Messages = stripImages(cloneMessages(params.sourceMessages))
 	summary := compactionSummaryRequest(req, params.summaryReq)
 	buildRequest := buildCompactionRequestWithMode
-	if params.segment != nil && !params.segment.Decision.Rebase && !params.segment.Plain {
+	if params.segment != nil && !params.segment.Decision.Rebase {
 		// An append keeps the same projected conversation and asks only for the
 		// span after the last segment.
 		buildRequest = buildSegmentAppendRequest

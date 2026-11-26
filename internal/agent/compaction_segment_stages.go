@@ -176,15 +176,12 @@ func applySegmentStage(req RunRequest, params *summarizeCompactionStageParams, s
 	return latestRequestBlock(params.sourceMessages, req.ModelBudget.ContextSize)
 }
 
-// segmentStageFor returns the decided segmented shape of a stage, or nil when
-// the segmented policy is off. The chain is scanned from the latest generation's
-// FullMessages, never from the candidate view, so a stripped view cannot hide an
-// existing chain. It is split out of summarizeCompactionStage to keep that
-// stage's branching bounded.
+// segmentStageFor returns the decided segmented shape of a stage. Callers gate
+// on req.SegmentedCompaction.Enabled. The chain is scanned from the latest
+// generation's FullMessages, never from the candidate view, so a stripped view
+// cannot hide an existing chain. It is split out of summarizeCompactionStage to
+// keep that stage's branching bounded.
 func segmentStageFor(ctx context.Context, req RunRequest, state RunState, candidate ConversationCandidate, retainedFit prompt.RequestTokenBudget, params summarizeCompactionStageParams, requestBlock string, retry bool) (*segmentStage, error) {
-	if !req.SegmentedCompaction.Enabled {
-		return nil, nil
-	}
 	full := state.Lineage.FullMessages()
 	if len(full) == 0 {
 		full = state.Conversation
@@ -256,7 +253,7 @@ func stageHistoryNote(req RunRequest, body string, removedSource []Message) (str
 // truncation marker, which follows the history note and precedes the request
 // block.
 func buildCompactionStageState(state RunState, segment *segmentStage, noted, note, marker, requestBlock string, retained []Message) (RunState, string, error) {
-	if segment == nil || segment.Plain {
+	if segment == nil || segment.Decision.Plain {
 		stored := withRequestBlock(noted+marker, requestBlock)
 		return buildSummarizedCompactionState(state, stored, retained), stored, nil
 	}

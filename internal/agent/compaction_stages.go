@@ -340,7 +340,7 @@ func (s summarizeCompactionStages) adoptWithoutRequestBlock(ctx context.Context,
 	switch {
 	case outcome.segmentDecision == nil:
 		state, summaryText, dropped = dropRequestBlockState(outcome.State)
-	case segmentPlainReason(outcome.segmentDecision.Reason):
+	case outcome.segmentDecision.Plain:
 		state, summaryText, dropped = dropPlainSegmentRequestBlock(outcome.State, outcome.SummaryText)
 	default:
 		state, summaryText, dropped = dropTailRequestBlockState(outcome.State)

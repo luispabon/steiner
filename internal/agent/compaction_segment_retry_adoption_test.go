@@ -304,8 +304,8 @@ func TestSegmentRetryClampStageClampsRetainedSuffix(t *testing.T) {
 	if !sameMessages(stage.Retained, full[2:]) {
 		t.Fatalf("clamped retained = %#v, want everything after the chain %#v", stage.Retained, full[2:])
 	}
-	if !stage.Plain || !stage.Decision.Rebase || stage.Decision.Reason != segmentReasonEmptySource {
-		t.Fatalf("clamped decision = %+v plain=%t, want the plain empty-source fallback", stage.Decision, stage.Plain)
+	if !stage.Decision.Plain || !stage.Decision.Rebase || stage.Decision.Reason != segmentReasonEmptySource {
+		t.Fatalf("clamped decision = %+v plain=%t, want the plain empty-source fallback", stage.Decision, stage.Decision.Plain)
 	}
 }
 

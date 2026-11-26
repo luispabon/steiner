@@ -236,6 +236,38 @@ func TestScanSegmentChainIgnoresGenerationLayout(t *testing.T) {
 	}
 }
 
+// TestScanSegmentChainShape pins the clone-free validator that
+// scanSegmentChain and request projection share: its segment count, run end and
+// status must agree with the scanning form for every chain shape.
+func TestScanSegmentChainShape(t *testing.T) {
+	userTurn := Message{Role: MessageRoleUser, Content: "current request"}
+	tests := []struct {
+		name     string
+		messages []Message
+		segments int
+		end      int
+		status   segmentChainStatus
+	}{
+		{name: "no leading summary", messages: []Message{userTurn}, status: chainNone},
+		{name: "tail only", messages: []Message{summaryMessage("plain summary", nil), userTurn}, end: 1, status: chainNone},
+		{name: "valid chain with tail", messages: []Message{summaryMessage(segmentHeader(1), testSegment(1, 2)), summaryMessage("mutable tail", nil), userTurn}, segments: 1, end: 2, status: chainValid},
+		{name: "invalid source count", messages: []Message{summaryMessage(segmentHeader(1), testSegment(1, 0)), userTurn}, end: 1, status: chainInvalid},
+		{name: "empty segment text", messages: []Message{summaryMessage("  ", testSegment(1, 2)), userTurn}, end: 1, status: chainInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			segments, end, status := scanSegmentChainShape(tt.messages)
+			if segments != tt.segments || end != tt.end || status != tt.status {
+				t.Fatalf("scanSegmentChainShape() = (%d, %d, %v), want (%d, %d, %v)", segments, end, status, tt.segments, tt.end, tt.status)
+			}
+			scan := scanSegmentChain(tt.messages)
+			if scan.Status != status || scan.End != end || len(scan.Segments) != segments {
+				t.Fatalf("scanSegmentChain() = status %v end %d segments %d, want status %v end %d segments %d", scan.Status, scan.End, len(scan.Segments), status, end, segments)
+			}
+		})
+	}
+}
+
 func TestSegmentHeader(t *testing.T) {
 	if got, want := segmentHeader(3), "Segment 3. Later segments override earlier conflicting state.\n\n"; got != want {
 		t.Fatalf("segmentHeader(3) = %q, want %q", got, want)

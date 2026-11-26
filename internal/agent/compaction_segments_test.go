@@ -437,7 +437,7 @@ func TestSegmentAppendSourceCountSkipsReplayOnlySpan(t *testing.T) {
 		RetentionStart:       2,
 		AppendSourceMessages: count,
 	})
-	if !decision.Rebase || decision.Reason != "empty-span" {
+	if !decision.Rebase || decision.Reason != segmentReasonEmptySpan {
 		t.Fatalf("decision = %+v, want a rebase with reason empty-span", decision)
 	}
 
@@ -675,7 +675,7 @@ func TestSegmentedCompactionAppendsSegment(t *testing.T) {
 	if outcome.segmentDecision == nil {
 		t.Fatal("outcome carries no segment decision")
 	}
-	if got := *outcome.segmentDecision; got.Rebase || got.Reason != "append" || got.Sequence != 3 {
+	if got := *outcome.segmentDecision; got.Rebase || got.Reason != segmentReasonAppend || got.Sequence != 3 {
 		t.Fatalf("decision = %+v, want append reason append sequence 3", got)
 	}
 }
@@ -825,7 +825,7 @@ func TestSegmentedCompactionEmergencyRebases(t *testing.T) {
 	if outcome.segmentDecision == nil {
 		t.Fatal("outcome carries no segment decision")
 	}
-	if got := *outcome.segmentDecision; !got.Rebase || got.Reason != "emergency" || got.Sequence != 1 {
+	if got := *outcome.segmentDecision; !got.Rebase || got.Reason != segmentReasonEmergency || got.Sequence != 1 {
 		t.Fatalf("decision = %+v, want a rebase reason emergency sequence 1", got)
 	}
 	latest := outcome.State.Lineage.Generations[len(outcome.State.Lineage.Generations)-1]
@@ -866,8 +866,8 @@ func TestNewSegmentStageUnmappedRetentionRebases(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newSegmentStage() error = %v", err)
 			}
-			if stage.Plain != tt.wantPlain {
-				t.Fatalf("plain = %t, want %t", stage.Plain, tt.wantPlain)
+			if stage.Decision.Plain != tt.wantPlain {
+				t.Fatalf("plain = %t, want %t", stage.Decision.Plain, tt.wantPlain)
 			}
 			if got := stage.Decision.Reason; got != tt.wantReason {
 				t.Fatalf("reason = %q, want %q", got, tt.wantReason)
@@ -978,7 +978,7 @@ func TestSegmentedCompactionAppendArchivesPreviousTailNote(t *testing.T) {
 			t.Fatal("Applied = false, want true")
 		}
 		decision := outcome.segmentDecision
-		if decision == nil || decision.Rebase || decision.Reason != "append" || decision.Sequence != wantSequence {
+		if decision == nil || decision.Rebase || decision.Reason != segmentReasonAppend || decision.Sequence != wantSequence {
 			t.Fatalf("decision = %+v, want append sequence %d", decision, wantSequence)
 		}
 		if got, want := len(outcome.pendingArchive), 1; got != want {
@@ -1355,7 +1355,7 @@ func TestNewSegmentStageStrippedViewKeepsEmergencyReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSegmentStage() error = %v", err)
 	}
-	if !stage.Decision.Rebase || stage.Decision.Reason != "emergency" {
+	if !stage.Decision.Rebase || stage.Decision.Reason != segmentReasonEmergency {
 		t.Fatalf("decision = %+v, want the emergency rebase reason", stage.Decision)
 	}
 }

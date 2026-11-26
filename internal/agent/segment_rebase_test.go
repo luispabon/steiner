@@ -53,7 +53,7 @@ func TestDecideSegmentAction(t *testing.T) {
 		return in
 	}
 	appendDecision := func(sequence, chain, post, budget int) segmentDecision {
-		return segmentDecision{Reason: "append", Sequence: sequence, ChainTokens: chain, ProjectedPostTokens: post, Budget: budget}
+		return segmentDecision{Reason: segmentReasonAppend, Sequence: sequence, ChainTokens: chain, ProjectedPostTokens: post, Budget: budget}
 	}
 	rebaseDecision := func(reason string, chain, post, budget int) segmentDecision {
 		return segmentDecision{Rebase: true, Reason: reason, Sequence: 1, ChainTokens: chain, ProjectedPostTokens: post, Budget: budget}
@@ -81,7 +81,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Mode = prompt.CompactionModeEmergency
 				return in
 			}(),
-			want: rebaseDecision("emergency", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonEmergency, 900, 3000, 8000),
 		},
 		{
 			name: "retry rebases",
@@ -90,7 +90,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Retry = true
 				return in
 			}(),
-			want: rebaseDecision("retry", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonRetry, 900, 3000, 8000),
 		},
 		{
 			name: "emergency wins over retry",
@@ -100,7 +100,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Retry = true
 				return in
 			}(),
-			want: rebaseDecision("emergency", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonEmergency, 900, 3000, 8000),
 		},
 		{
 			name: "retry wins over a broken chain",
@@ -110,7 +110,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Chain = scanSegmentChain(nil)
 				return in
 			}(),
-			want: rebaseDecision("retry", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonRetry, 900, 3000, 8000),
 		},
 		{
 			name: "retry wins over a retention split inside the chain",
@@ -120,7 +120,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.RetentionStart = 1
 				return in
 			}(),
-			want: rebaseDecision("retry", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonRetry, 900, 3000, 8000),
 		},
 		{
 			name: "empty conversation starts a chain",
@@ -129,7 +129,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Chain = scanSegmentChain(nil)
 				return in
 			}(),
-			want: rebaseDecision("chain-start", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonChainStart, 900, 3000, 8000),
 		},
 		{
 			name: "legacy plain summary starts a chain",
@@ -138,7 +138,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Chain = scanSegmentChain([]Message{{Role: MessageRoleSummary, Content: "plain"}})
 				return in
 			}(),
-			want: rebaseDecision("chain-start", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonChainStart, 900, 3000, 8000),
 		},
 		{
 			name: "chain start wins over max segments",
@@ -148,7 +148,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Policy.MaxSegments = 1
 				return in
 			}(),
-			want: rebaseDecision("chain-start", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonChainStart, 900, 3000, 8000),
 		},
 		{
 			name: "chain start wins over a retention split inside the chain",
@@ -158,7 +158,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.RetentionStart = 0
 				return in
 			}(),
-			want: rebaseDecision("chain-start", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonChainStart, 900, 3000, 8000),
 		},
 		{
 			name: "sequence gap is an invalid chain",
@@ -166,7 +166,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 2}},
 				{Role: MessageRoleSummary, Content: "three", Segment: &SummarySegment{Sequence: 3, SourceMessageCount: 2}},
 			}),
-			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonInvalidChain, 900, 3000, 8000),
 		},
 		{
 			name: "segment after a plain summary is an invalid chain",
@@ -174,14 +174,14 @@ func TestDecideSegmentAction(t *testing.T) {
 				{Role: MessageRoleSummary, Content: "plain"},
 				{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 2}},
 			}),
-			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonInvalidChain, 900, 3000, 8000),
 		},
 		{
 			name: "zero source message count is an invalid chain",
 			input: invalidChain([]Message{
 				{Role: MessageRoleSummary, Content: "one", Segment: &SummarySegment{Sequence: 1, SourceMessageCount: 0}},
 			}),
-			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonInvalidChain, 900, 3000, 8000),
 		},
 		{
 			name: "invalid chain wins over max segments",
@@ -192,7 +192,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Policy.MaxSegments = 1
 				return in
 			}(),
-			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonInvalidChain, 900, 3000, 8000),
 		},
 		{
 			name: "invalid chain wins over a retention split inside the chain",
@@ -203,7 +203,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.RetentionStart = 0
 				return in
 			}(),
-			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonInvalidChain, 900, 3000, 8000),
 		},
 		{
 			name: "retention inside the chain rebases with split-in-chain",
@@ -212,7 +212,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.RetentionStart = 1
 				return in
 			}(),
-			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonSplitInChain, 900, 3000, 8000),
 		},
 		{
 			name: "retention inside the tail rebases with split-in-chain",
@@ -221,7 +221,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.RetentionStart = 2
 				return in
 			}(),
-			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonSplitInChain, 900, 3000, 8000),
 		},
 		{
 			name: "retention at the chain end rebases with empty-span",
@@ -231,7 +231,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.AppendSourceMessages = 0
 				return in
 			}(),
-			want: rebaseDecision("empty-span", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonEmptySpan, 900, 3000, 8000),
 		},
 		{
 			name: "one message after the chain end appends",
@@ -250,7 +250,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Policy.MaxSegments = 2
 				return in
 			}(),
-			want: rebaseDecision("empty-span", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonEmptySpan, 900, 3000, 8000),
 		},
 		{
 			name: "empty span wins over chain tokens",
@@ -260,7 +260,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ChainTokens = 5000
 				return in
 			}(),
-			want: rebaseDecision("empty-span", 5000, 3000, 8000),
+			want: rebaseDecision(segmentReasonEmptySpan, 5000, 3000, 8000),
 		},
 		{
 			name: "empty span wins over no-progress",
@@ -269,7 +269,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.AppendSourceMessages = 0
 				return in
 			}(),
-			want: rebaseDecision("empty-span", 500, 8000, 8000),
+			want: rebaseDecision(segmentReasonEmptySpan, 500, 8000, 8000),
 		},
 		{
 			name: "chain start wins over an empty span",
@@ -279,7 +279,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.AppendSourceMessages = 0
 				return in
 			}(),
-			want: rebaseDecision("chain-start", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonChainStart, 900, 3000, 8000),
 		},
 		{
 			name: "invalid chain wins over an empty span",
@@ -291,7 +291,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.AppendSourceMessages = 0
 				return in
 			}(),
-			want: rebaseDecision("invalid-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonInvalidChain, 900, 3000, 8000),
 		},
 		{
 			name: "split-in-chain wins over an empty span",
@@ -301,7 +301,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.AppendSourceMessages = 0
 				return in
 			}(),
-			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonSplitInChain, 900, 3000, 8000),
 		},
 		{
 			name: "split-in-chain wins over max segments",
@@ -311,7 +311,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Policy.MaxSegments = 2
 				return in
 			}(),
-			want: rebaseDecision("split-in-chain", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonSplitInChain, 900, 3000, 8000),
 		},
 		{
 			name: "max segments boundary still appends",
@@ -329,7 +329,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.Policy.MaxSegments = 2
 				return in
 			}(),
-			want: rebaseDecision("max-segments", 900, 3000, 8000),
+			want: rebaseDecision(segmentReasonMaxSegments, 900, 3000, 8000),
 		},
 		{
 			name: "max segments wins over chain tokens",
@@ -339,7 +339,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ChainTokens = 5000
 				return in
 			}(),
-			want: rebaseDecision("max-segments", 5000, 3000, 8000),
+			want: rebaseDecision(segmentReasonMaxSegments, 5000, 3000, 8000),
 		},
 		{
 			name: "chain tokens at the limit append",
@@ -357,7 +357,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ChainTokens = 1001
 				return in
 			}(),
-			want: rebaseDecision("chain-tokens", 1001, 3000, 8000),
+			want: rebaseDecision(segmentReasonChainTokens, 1001, 3000, 8000),
 		},
 		{
 			name: "chain tokens beat post-compaction tokens",
@@ -367,7 +367,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ProjectedPostTokens = 9000
 				return in
 			}(),
-			want: rebaseDecision("chain-tokens", 1001, 9000, 8000),
+			want: rebaseDecision(segmentReasonChainTokens, 1001, 9000, 8000),
 		},
 		{
 			name: "post-compaction tokens at the limit append",
@@ -385,7 +385,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ProjectedPostTokens = 4001
 				return in
 			}(),
-			want: rebaseDecision("post-compaction-tokens", 900, 4001, 8000),
+			want: rebaseDecision(segmentReasonPostCompactionTokens, 900, 4001, 8000),
 		},
 		{
 			name: "post-compaction tokens win over no-progress",
@@ -394,12 +394,12 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ProjectedPostTokens = 8001
 				return in
 			}(),
-			want: rebaseDecision("post-compaction-tokens", 500, 8001, 8000),
+			want: rebaseDecision(segmentReasonPostCompactionTokens, 500, 8001, 8000),
 		},
 		{
 			name:  "no-progress fires at the threshold",
 			input: noProgressInput(),
-			want:  rebaseDecision("no-progress", 500, 8000, 8000),
+			want:  rebaseDecision(segmentReasonNoProgress, 500, 8000, 8000),
 		},
 		{
 			name: "below the no-progress threshold appends",
@@ -429,7 +429,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ProjectedPostTokens = 0
 				return in
 			}(),
-			want: rebaseDecision("chain-tokens", 1001, 0, 8000),
+			want: rebaseDecision(segmentReasonChainTokens, 1001, 0, 8000),
 		},
 		{
 			name: "context size wins when it is the smaller budget",
@@ -439,7 +439,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ChainTokens = 501
 				return in
 			}(),
-			want: rebaseDecision("chain-tokens", 501, 3000, 4000),
+			want: rebaseDecision(segmentReasonChainTokens, 501, 3000, 4000),
 		},
 		{
 			name: "fractional chain limit at equality appends",
@@ -463,7 +463,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ProjectedPostTokens = 0
 				return in
 			}(),
-			want: rebaseDecision("chain-tokens", 126, 0, 1001),
+			want: rebaseDecision(segmentReasonChainTokens, 126, 0, 1001),
 		},
 		{
 			name: "fractional post-compaction limit at equality appends",
@@ -487,7 +487,7 @@ func TestDecideSegmentAction(t *testing.T) {
 				in.ProjectedPostTokens = 501
 				return in
 			}(),
-			want: rebaseDecision("post-compaction-tokens", 0, 501, 1001),
+			want: rebaseDecision(segmentReasonPostCompactionTokens, 0, 501, 1001),
 		},
 	}
 	for _, tt := range tests {

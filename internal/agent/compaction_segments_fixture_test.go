@@ -172,12 +172,12 @@ func fixturePolicy(enabled bool) config.SegmentedCompactionPolicy {
 // appends, a max-segments rebase, then one more append.
 func fixtureExpectedDecisions() []fixtureDecision {
 	return []fixtureDecision{
-		{Action: "rebase", Reason: "chain-start", Sequence: 1},
-		{Action: "append", Reason: "append", Sequence: 2},
-		{Action: "append", Reason: "append", Sequence: 3},
-		{Action: "append", Reason: "append", Sequence: 4},
-		{Action: "rebase", Reason: "max-segments", Sequence: 1},
-		{Action: "append", Reason: "append", Sequence: 2},
+		{Action: "rebase", Reason: segmentReasonChainStart, Sequence: 1},
+		{Action: "append", Reason: segmentReasonAppend, Sequence: 2},
+		{Action: "append", Reason: segmentReasonAppend, Sequence: 3},
+		{Action: "append", Reason: segmentReasonAppend, Sequence: 4},
+		{Action: "rebase", Reason: segmentReasonMaxSegments, Sequence: 1},
+		{Action: "append", Reason: segmentReasonAppend, Sequence: 2},
 	}
 }
 

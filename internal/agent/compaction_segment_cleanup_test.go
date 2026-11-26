@@ -25,8 +25,8 @@ func TestNewSegmentStageUnmappedRetentionKeepsRebaseReason(t *testing.T) {
 		want  string
 	}{
 		{name: "split in chain", mode: prompt.CompactionModeNormal, want: segmentReasonRetentionUnmapped},
-		{name: "emergency", mode: prompt.CompactionModeEmergency, want: "emergency"},
-		{name: "retry", mode: prompt.CompactionModeNormal, retry: true, want: "retry"},
+		{name: "emergency", mode: prompt.CompactionModeEmergency, want: segmentReasonEmergency},
+		{name: "retry", mode: prompt.CompactionModeNormal, retry: true, want: segmentReasonRetry},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

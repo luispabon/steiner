@@ -5,15 +5,35 @@ import (
 	"github.com/luispabon/steiner/internal/prompt"
 )
 
+// Reasons a segment decision reports. LogSegmentDecision prints these values
+// verbatim, so they are also the compaction-bench log vocabulary.
+const (
+	segmentReasonAppend               = "append"
+	segmentReasonChainStart           = "chain-start"
+	segmentReasonInvalidChain         = "invalid-chain"
+	segmentReasonSplitInChain         = "split-in-chain"
+	segmentReasonRetentionUnmapped    = "retention-unmapped"
+	segmentReasonStrippedView         = "stripped-view"
+	segmentReasonEmptySpan            = "empty-span"
+	segmentReasonEmptySource          = "empty-source"
+	segmentReasonEmergency            = "emergency"
+	segmentReasonMaxSegments          = "max-segments"
+	segmentReasonChainTokens          = "chain-tokens"
+	segmentReasonPostCompactionTokens = "post-compaction-tokens"
+	segmentReasonNoProgress           = "no-progress"
+	segmentReasonRetry                = "retry"
+)
+
 // segmentDecision is the append-or-rebase choice for one segmented compaction.
 type segmentDecision struct {
 	Rebase bool
-	// Reason labels the decision: append, chain-start, invalid-chain,
-	// split-in-chain, retention-unmapped, stripped-view, empty-span,
-	// empty-source, emergency, max-segments, chain-tokens,
-	// post-compaction-tokens, no-progress or retry.
-	Reason              string
-	Sequence            int // sequence of the segment this compaction will write
+	// Plain marks the plain summary fallback: no segment metadata is stored, so
+	// the summary keeps the flag-off shape. Rebase stays set with it.
+	Plain bool
+	// Reason names the rule that produced the decision.
+	Reason string
+	// Sequence is the segment this compaction writes, 0 for a plain fallback.
+	Sequence            int
 	ChainTokens         int
 	ProjectedPostTokens int
 	Budget              int
@@ -52,43 +72,41 @@ func decideSegmentAction(in segmentDecisionInput) segmentDecision {
 	}
 
 	decision := segmentDecision{
-		Reason:              "append",
+		Reason:              segmentReasonAppend,
 		Sequence:            1,
 		ChainTokens:         in.ChainTokens,
 		ProjectedPostTokens: in.ProjectedPostTokens,
 		Budget:              budget,
 	}
 	rebase := func(reason string) segmentDecision {
-		decision.Rebase = true
-		decision.Reason = reason
-		return decision
+		return segmentRebaseDecision(decision, reason, 1)
 	}
 
 	switch {
 	case in.Mode == prompt.CompactionModeEmergency:
-		return rebase("emergency")
+		return rebase(segmentReasonEmergency)
 	case in.Retry:
-		return rebase("retry")
+		return rebase(segmentReasonRetry)
 	case in.Chain.Status == chainNone:
-		return rebase("chain-start")
+		return rebase(segmentReasonChainStart)
 	case in.Chain.Status == chainInvalid:
-		return rebase("invalid-chain")
+		return rebase(segmentReasonInvalidChain)
 	case in.RetentionStart < in.Chain.End:
 		return rebase(segmentReasonSplitInChain)
 	case in.AppendSourceMessages == 0:
-		return rebase("empty-span")
+		return rebase(segmentReasonEmptySpan)
 	}
 
 	segments := in.Chain.Segments
 	switch {
 	case len(segments)+1 > in.Policy.MaxSegments:
-		return rebase("max-segments")
+		return rebase(segmentReasonMaxSegments)
 	case float64(in.ChainTokens) > float64(budget)*in.Policy.MaxChainPercent/100:
-		return rebase("chain-tokens")
+		return rebase(segmentReasonChainTokens)
 	case float64(in.ProjectedPostTokens) > float64(budget)*in.Policy.MaxPostCompactionPercent/100:
-		return rebase("post-compaction-tokens")
+		return rebase(segmentReasonPostCompactionTokens)
 	case in.CompactionThreshold > 0 && in.ProjectedPostTokens >= in.CompactionThreshold:
-		return rebase("no-progress")
+		return rebase(segmentReasonNoProgress)
 	}
 
 	decision.Sequence = len(segments) + 1

@@ -37,7 +37,7 @@ func TestSegmentPolicyRebasesAreAdoptedAndArchived(t *testing.T) {
 				p.MaxSegments = 2
 				return p
 			},
-			wantReason: "max-segments",
+			wantReason: segmentReasonMaxSegments,
 		},
 		{
 			name: "invalid chain",
@@ -48,7 +48,7 @@ func TestSegmentPolicyRebasesAreAdoptedAndArchived(t *testing.T) {
 				return messages
 			},
 			policy:     segmentedCompactionPolicy,
-			wantReason: "invalid-chain",
+			wantReason: segmentReasonInvalidChain,
 		},
 	}
 	for _, tt := range tests {

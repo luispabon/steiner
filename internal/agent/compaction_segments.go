@@ -134,24 +134,6 @@ func segmentBody(summary string) string {
 	return strings.TrimSpace(StripHistoryNotes(body))
 }
 
-// Reasons for a defensive rebase and for the plain summary fallback. The
-// decision log prints only the plain reason with action plain.
-const (
-	// segmentReasonEmptySource marks a rebase whose selected source holds only
-	// summary messages.
-	segmentReasonEmptySource = "empty-source"
-	// segmentReasonRetentionUnmapped marks a stage whose retained boundary could
-	// not be proved against the scanned conversation.
-	segmentReasonRetentionUnmapped = "retention-unmapped"
-	// segmentReasonSplitInChain marks a decision whose retention start falls
-	// inside the chain. An unmapped boundary reads as such a split at the start
-	// of the chain, so that decision is the one relabelled retention-unmapped.
-	segmentReasonSplitInChain = "split-in-chain"
-	// segmentReasonStrippedView marks a stage whose candidate view omits an
-	// existing chain, so its source cannot be split for an append.
-	segmentReasonStrippedView = "stripped-view"
-)
-
 // segmentStageInput carries what one compaction stage needs to decide and
 // describe its segmented shape.
 type segmentStageInput struct {
@@ -184,8 +166,6 @@ type segmentStageInput struct {
 type segmentStage struct {
 	Scan     segmentChainScan
 	Decision segmentDecision
-	// Plain reports the plain summary fallback: no segment metadata is stored.
-	Plain bool
 	// Source is the span the new segment covers: the append span, or the whole
 	// source a rebase summarizes and stores.
 	Source []Message
@@ -268,7 +248,7 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 		// not show. Rebase over the stripped source, the projection the fallback
 		// already uses. Emergency, retry and threshold rebases keep their own
 		// reason.
-		stage.Decision = segmentRebaseDecision(segmentReasonStrippedView, decision)
+		stage.Decision = segmentRebaseDecision(decision, segmentReasonStrippedView, 1)
 		stage.Source = cloneMessages(in.Source)
 	case !mapped:
 		// The retained boundary cannot be proved, so rebase defensively over the
@@ -278,7 +258,7 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 		// and every other rebase keeps its own reason, so an emergency, retry or
 		// chain rebase is not relabelled.
 		if decision.Reason == segmentReasonSplitInChain {
-			stage.Decision = segmentRebaseDecision(segmentReasonRetentionUnmapped, decision)
+			stage.Decision = segmentRebaseDecision(decision, segmentReasonRetentionUnmapped, 1)
 		}
 		stage.Source = cloneMessages(in.Source)
 	case !decision.Rebase:
@@ -295,36 +275,29 @@ func newSegmentStage(ctx context.Context, req RunRequest, state RunState, in seg
 		}
 	}
 	if stage.Decision.Rebase && countSummarizedMessages(stage.Source, activeSkillBlocks(state)) == 0 {
-		stage.Decision = segmentPlainDecision(segmentReasonEmptySource, decision)
-		stage.Plain = true
+		stage.Decision = segmentPlainDecision(decision, segmentReasonEmptySource)
 	}
 	stage.Recall = stripRequestBlocks(stage.Source)
 	return stage, nil
 }
 
-// segmentPlainDecision turns decision into the plain summary fallback: no chain
+// segmentRebaseDecision returns decision relabelled as a rebase that writes the
+// given sequence: 1 replaces the chain with a fresh segment and 0 is the plain
+// fallback's unused slot.
+func segmentRebaseDecision(decision segmentDecision, reason string, sequence int) segmentDecision {
+	decision.Rebase = true
+	decision.Reason = reason
+	decision.Sequence = sequence
+	return decision
+}
+
+// segmentPlainDecision returns decision as the plain summary fallback: no chain
 // is written and the flag-off state builder stores one summary message. Rebase
 // stays set so no lookup treats the fallback as an append.
-func segmentPlainDecision(reason string, decision segmentDecision) segmentDecision {
-	decision.Rebase = true
-	decision.Reason = reason
-	decision.Sequence = 0
+func segmentPlainDecision(decision segmentDecision, reason string) segmentDecision {
+	decision = segmentRebaseDecision(decision, reason, 0)
+	decision.Plain = true
 	return decision
-}
-
-// segmentRebaseDecision turns decision into a defensive rebase that replaces the
-// chain with a fresh segment 1.
-func segmentRebaseDecision(reason string, decision segmentDecision) segmentDecision {
-	decision.Rebase = true
-	decision.Reason = reason
-	decision.Sequence = 1
-	return decision
-}
-
-// segmentPlainReason reports whether a decision reason selects the plain
-// summary fallback rather than a segment chain.
-func segmentPlainReason(reason string) bool {
-	return reason == segmentReasonEmptySource
 }
 
 // segmentChainTokens sums the projected tokens of the immutable segments, so a

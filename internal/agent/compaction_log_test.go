@@ -219,17 +219,17 @@ func TestCompactionLogger_LogSegmentDecision(t *testing.T) {
 	}{
 		{
 			name:     "append",
-			decision: segmentDecision{Reason: "append", Sequence: 3, ChainTokens: 900, ProjectedPostTokens: 3000, Budget: 8000},
+			decision: segmentDecision{Reason: segmentReasonAppend, Sequence: 3, ChainTokens: 900, ProjectedPostTokens: 3000, Budget: 8000},
 			want:     "segment_decision action=append reason=append sequence=3 chain_tokens=900 projected_post_tokens=3000 budget=8000\n",
 		},
 		{
 			name:     "rebase",
-			decision: segmentDecision{Rebase: true, Reason: "chain-tokens", Sequence: 1, ChainTokens: 1001, ProjectedPostTokens: 9000, Budget: 8000},
+			decision: segmentDecision{Rebase: true, Reason: segmentReasonChainTokens, Sequence: 1, ChainTokens: 1001, ProjectedPostTokens: 9000, Budget: 8000},
 			want:     "segment_decision action=rebase reason=chain-tokens sequence=1 chain_tokens=1001 projected_post_tokens=9000 budget=8000\n",
 		},
 		{
 			name:     "plain empty source",
-			decision: segmentDecision{Rebase: true, Reason: segmentReasonEmptySource, Sequence: 0, ChainTokens: 700, ProjectedPostTokens: 2000, Budget: 8000},
+			decision: segmentDecision{Rebase: true, Plain: true, Reason: segmentReasonEmptySource, Sequence: 0, ChainTokens: 700, ProjectedPostTokens: 2000, Budget: 8000},
 			want:     "segment_decision action=plain reason=empty-source sequence=0 chain_tokens=700 projected_post_tokens=2000 budget=8000\n",
 		},
 		{
