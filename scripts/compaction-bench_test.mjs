@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -65,6 +65,24 @@ async function waitUntilGone(pid, timeoutMs = 5000) {
 	for (;;) {
 		if (processIsGone(pid)) return true;
 		if (Date.now() > deadline) return false;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
+// Wait for a CLI run child to announce its pid, failing early if the bench
+// process exits first instead of burning the whole timeout.
+async function waitForPidFile(pidPath, exited, timeoutMs = 30_000) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		try {
+			const text = readFileSync(pidPath, "utf8").trim();
+			if (/^\d+$/.test(text)) return Number(text);
+		} catch (error) {
+			if (error.code !== "ENOENT") throw error;
+		}
+		const exit = exited();
+		if (exit !== null) throw new Error(`the bench exited before its run child started: ${JSON.stringify(exit)}`);
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${pidPath}`);
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 }
@@ -247,7 +265,9 @@ test("parseArgs rejects alias flags whose value is not in --model", () => {
 });
 
 test("parseArgs caps --pad-tokens at the read tool's output size", () => {
+	assert.equal(parseArgs(["--model", "a", "--pad-tokens", "0"]).padTokens, 0, "no filler is a valid chain");
 	assert.equal(parseArgs(["--model", "a", "--pad-tokens", "16000"]).padTokens, 16000);
+	assert.throws(() => parseArgs(["--model", "a", "--pad-tokens", "-1"]), /expected a non-negative integer/);
 	assert.throws(
 		() => parseArgs(["--model", "a", "--pad-tokens", "16001"]),
 		(err) => {
@@ -257,6 +277,7 @@ test("parseArgs caps --pad-tokens at the read tool's output size", () => {
 			return true;
 		},
 	);
+	assert.throws(() => parseArgs(["--model", "a", "--files", "0"]), /expected a positive integer/);
 });
 
 test("parseArgs --help needs no model and prints usage", () => {
@@ -727,13 +748,57 @@ test("parseRunLog counts non-read tool access to the fixtures", () => {
 		},
 	];
 	const run = parseRunLog(lines.map((line) => JSON.stringify(line)).join("\n"));
-	assert.equal(run.nonReadFileAccess, 2, "grep and bash touching notes/ count, sub-agent and unrelated tools do not");
+	assert.equal(run.nonReadFileAccess, 4, "every tool call that reaches the fixtures counts, unrelated ones do not");
 	assert.deepEqual(
 		run.events.filter((event) => event.kind === "read").map((event) => event.file),
 		["f01"],
 	);
-	assert.equal(parseRunLog(fixture("run.log.jsonl")).nonReadFileAccess, 0);
+	assert.equal(
+		parseRunLog(fixture("run.log.jsonl")).nonReadFileAccess,
+		1,
+		"the fixture's sub-agent read of notes/f03.txt is access outside the main-agent read tool",
+	);
 	assert.equal(parseRunLog("").nonReadFileAccess, 0);
+});
+
+test("parseRunLog only counts fixture paths, not paths that merely contain notes", () => {
+	const access = (tool, args) =>
+		parseRunLog(JSON.stringify({ type: "tool_call_started", payload: { turn: 1, tool, arguments: args } })).nonReadFileAccess;
+	for (const [tool, args] of [
+		["bash", { command: "ls docs/release-notes/" }],
+		["grep", { pattern: "footnotes/", path: "docs" }],
+		["glob", { pattern: "docs/notes/*.md" }],
+		["bash", { command: "cat ~/work/notes/todo.txt" }],
+		["grep", { pattern: "TODO", path: "docs/notes/" }],
+	]) {
+		assert.equal(access(tool, args), 0, `${tool} ${JSON.stringify(args)} must not count as fixture access`);
+	}
+	for (const [tool, args] of [
+		["bash", { command: "cat notes/f05.txt" }],
+		["grep", { command: "grep -r CODE notes" }],
+		["bash", { command: "cat ./notes/f01.txt" }],
+		["glob", { pattern: "notes/*.txt" }],
+		["grep", { pattern: "CODE", path: "notes" }],
+	]) {
+		assert.equal(access(tool, args), 1, `${tool} ${JSON.stringify(args)} must count as fixture access`);
+	}
+});
+
+test("parseRunLog counts sub-agent fixture access, read tool included", () => {
+	const scope = { agent_id: "child-1", agent_type: "code" };
+	const lines = [
+		{ type: "tool_call_started", payload: { turn: 1, tool: "read", arguments: { path: "notes/f01.txt" } } },
+		{ type: "tool_call_started", scope, payload: { turn: 2, tool: "bash", arguments: { command: "cat notes/f03.txt" } } },
+		{ type: "tool_call_started", scope, payload: { turn: 3, tool: "read", arguments: { path: "notes/f02.txt" } } },
+		{ type: "tool_call_started", scope, payload: { turn: 4, tool: "grep", arguments: { pattern: "TODO", path: "docs" } } },
+	];
+	const run = parseRunLog(lines.map((line) => JSON.stringify(line)).join("\n"));
+	assert.equal(run.nonReadFileAccess, 2, "both sub-agent calls that reach the fixtures count");
+	assert.deepEqual(
+		run.events.filter((event) => event.kind === "read").map((event) => event.file),
+		["f01"],
+		"only the main agent's read is scored",
+	);
 });
 
 function call(over = {}) {
@@ -822,7 +887,7 @@ test("runValidity invalidates a run that reached the fixtures outside the read t
 			finalAnswer: "f01: A1-BC23",
 			nonReadFileAccess: 2,
 		}),
-		{ valid: false, reason: "fixture accessed outside read tool" },
+		{ valid: false, reason: "fixture accessed outside main-agent read tool" },
 	);
 	assert.deepEqual(
 		runValidity({ mode: "on", compactions: 4, decisionSummary: { appends: 1 }, finalAnswer: "f01: A1-BC23", nonReadFileAccess: 0 }),
@@ -927,7 +992,7 @@ test("renderTable prints metric rows, not reported cells, verdict and probe line
 			probe: { ok: true, reason: null },
 			off: modeAgg(),
 			on: modeAgg({ costPerTurn: null, exact: 22, lost: 2, lostAt: ["f05@c2", "f09@unattributed"], maxTurnsHitRuns: 1 }),
-			verdict: { label: "PASS", cache: "no cache verdict", reasons: ["cost proxy not judged: no cache reporting on one side"] },
+			verdict: { label: "CONTINUITY_ONLY", cache: "no cache verdict", reasons: ["cost proxy not judged: no cache reporting on one side"] },
 		},
 		{
 			alias: "gpt",
@@ -951,7 +1016,7 @@ test("renderTable prints metric rows, not reported cells, verdict and probe line
 	assert.match(md, /\| continuity \| 24\/24 \| 22\/24 \(lost: f05@c2, f09@unattributed\) \|/);
 	assert.match(md, /\| continuity \| 24\/24 \| invalid \|/);
 	assert.match(md, /\| cached tokens \| not reported \| 5000 \|/);
-	assert.match(md, /Verdict: PASS \(cache: no cache verdict\)/);
+	assert.match(md, /Verdict: CONTINUITY_ONLY \(cache: no cache verdict\)/);
 	assert.match(md, /Verdict: INFORMATIONAL \(cache: checked\)/);
 	assert.match(md, /- cost proxy not judged: no cache reporting on one side/);
 	assert.equal((md.match(/Probe:/g) ?? []).length, 1);
@@ -1398,6 +1463,101 @@ test("main alternates mode order per repeat and gives every run its own first re
 		await rm(outDir, { recursive: true, force: true });
 	}
 });
+
+test("a failed git init leaves its scratch repo registered for cleanup", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	cleanupLiveResources();
+	const repoDirsBefore = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("compaction-bench-repo-")));
+	const failingGit = async (call) => {
+		await mkdir(dirname(call.stdoutPath), { recursive: true });
+		await mkdir(dirname(call.stderrPath), { recursive: true });
+		await writeFile(call.stdoutPath, "");
+		await writeFile(call.stderrPath, "fatal: not a git repository\n");
+		return { code: 1, timedOut: false };
+	};
+	try {
+		const code = await main(
+			["--model", "gpt-test", "--files", "4", "--pad-tokens", "1", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: failingGit, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 3);
+		assert.match(raw.aliases[0].runs.off[0].invalidReason, /setup failed: git init failed: exit 1/);
+		const cleaned = cleanupLiveResources();
+		assert.ok(cleaned.dirs >= 1, "the abandoned scratch repo stays registered until cleanup removes it");
+		const leaked = readdirSync(tmpdir()).filter(
+			(name) => name.startsWith("compaction-bench-repo-") && !repoDirsBefore.has(name),
+		);
+		assert.deepEqual(leaked, [], "cleanup removes the scratch repo that git init could not use");
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
+	}
+});
+
+for (const [signal, exitCode] of [
+	["SIGINT", 130],
+	["SIGTERM", 143],
+]) {
+	test(`the CLI exits ${exitCode} on ${signal} after killing the run group and removing scratch dirs`, { timeout: 60_000 }, async () => {
+		const root = await mkdtemp(join(tmpdir(), "compaction-bench-signal-"));
+		const benchTmp = join(root, "tmp");
+		const outDir = join(root, "out");
+		const pidPath = join(root, "run-child.pid");
+		const steinerPath = join(root, "fake-steiner");
+		let bench = null;
+		let runPid = null;
+		try {
+			await mkdir(benchTmp);
+			await writeFile(
+				steinerPath,
+				[
+					"#!/bin/sh",
+					'if [ "$1" = "config" ]; then',
+					"  printf 'sandbox:\\n  enabled: true\\n'",
+					"  exit 0",
+					"fi",
+					`printf '%s' "$$" > ${JSON.stringify(pidPath)}`,
+					"exec sleep 300",
+					"",
+				].join("\n"),
+				{ mode: 0o755 },
+			);
+			let exited = null;
+			let resolveExit = null;
+			const exitPromise = new Promise((resolve) => {
+				resolveExit = resolve;
+			});
+			bench = spawn(
+				process.execPath,
+				[
+					join(here, "compaction-bench.mjs"),
+					"--model", "fake-model",
+					"--modes", "off",
+					"--files", "4",
+					"--pad-tokens", "1",
+					"--steiner", steinerPath,
+					"--out", outDir,
+				],
+				{ env: { ...process.env, TMPDIR: benchTmp, STEINER_LIVE_BENCH: "1" }, stdio: "ignore" },
+			);
+			bench.on("exit", (code, killedBy) => {
+				exited = { code, signal: killedBy };
+				resolveExit(exited);
+			});
+			runPid = await waitForPidFile(pidPath, () => exited);
+			bench.kill(signal);
+			assert.deepEqual(await exitPromise, { code: exitCode, signal: null });
+			assert.ok(await waitUntilGone(runPid), "the interrupted run's process group is killed");
+			assert.deepEqual(readdirSync(benchTmp), [], "no scratch dir from the interrupted run survives");
+		} finally {
+			if (bench !== null) killQuietly("SIGKILL", bench.pid);
+			if (runPid !== null) killQuietly("SIGKILL", -runPid);
+			if (runPid !== null) killQuietly("SIGKILL", runPid);
+			await rm(root, { recursive: true, force: true });
+		}
+	});
+}
 
 test("defaultSpawnRun kills a timed-out child and returns quickly", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-spawn-"));

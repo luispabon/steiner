@@ -62,6 +62,10 @@ const INT_FLAGS = {
 	"--run-timeout-minutes": "runTimeoutMinutes",
 };
 
+// --pad-tokens is the only count where zero is meaningful: the files keep their
+// CODE and NEXT lines and lose the filler.
+const ZERO_ALLOWED_INT_FLAGS = new Set(["--pad-tokens"]);
+
 const STRING_FLAGS = {
 	"--steiner": "steiner",
 	"--out": "out",
@@ -77,14 +81,12 @@ function usageError(message) {
 	return new Error(`${message}\n\n${USAGE}`);
 }
 
-function parsePositiveInt(flag, value) {
-	if (!/^\d+$/.test(value)) {
-		throw usageError(`invalid value for ${flag}: ${JSON.stringify(value)} (expected a positive integer)`);
-	}
+function parseIntFlag(flag, value, min) {
+	const expected = min === 0 ? "a non-negative integer" : "a positive integer";
+	const invalid = () => usageError(`invalid value for ${flag}: ${JSON.stringify(value)} (expected ${expected})`);
+	if (!/^\d+$/.test(value)) throw invalid();
 	const n = Number(value);
-	if (!Number.isSafeInteger(n) || n <= 0) {
-		throw usageError(`invalid value for ${flag}: ${JSON.stringify(value)} (expected a positive integer)`);
-	}
+	if (!Number.isSafeInteger(n) || n < min) throw invalid();
 	return n;
 }
 
@@ -158,7 +160,7 @@ export function parseArgs(argv) {
 			continue;
 		}
 		if (intKey) {
-			args[intKey] = parsePositiveInt(name, value);
+			args[intKey] = parseIntFlag(name, value, ZERO_ALLOWED_INT_FLAGS.has(name) ? 0 : 1);
 			continue;
 		}
 		if (isTolerance) {
@@ -409,12 +411,26 @@ export function summarizeDecisions(decisions) {
 
 const READ_NOTES_RE = /(?:^|\/)notes\/(f\d+)\.txt$/;
 const READ_BASENAME_RE = /(?:^|\/)(f\d+)\.txt$/;
-const FIXTURE_DIR_MARKER = "notes/";
+// A fixture path starts its value or follows a shell-ish boundary, so a value
+// that merely contains "notes" (release-notes/, footnotes/, docs/notes/) does
+// not count. A fixture file name is inside that same directory.
+const FIXTURE_PATH_RE = /(?:^|[\s"'=:(])(?:\.\/)?notes(?:\/|$|[\s"')])/;
 const COMPACTION_START_SEVERITIES = new Set(["compacting", "skipped"]);
 
 function readFileName(path) {
 	const match = READ_NOTES_RE.exec(path) ?? READ_BASENAME_RE.exec(path);
 	return match ? match[1] : null;
+}
+
+function stringValues(value, out = []) {
+	if (typeof value === "string") out.push(value);
+	else if (Array.isArray(value)) for (const item of value) stringValues(item, out);
+	else if (value !== null && typeof value === "object") for (const item of Object.values(value)) stringValues(item, out);
+	return out;
+}
+
+function referencesFixture(argumentValue) {
+	return stringValues(argumentValue).some((text) => FIXTURE_PATH_RE.test(text));
 }
 
 function scopedToSubAgent(record) {
@@ -476,11 +492,16 @@ export function parseRunLog(text) {
 		}
 		const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
 		if (record.type === "tool_call_started") {
-			if (scopedToSubAgent(record)) continue;
+			if (scopedToSubAgent(record)) {
+				// A sub-agent cannot carry the main conversation's context, so fixture
+				// access there scores nothing, not even through the read tool.
+				if (referencesFixture(payload.arguments)) nonReadFileAccess++;
+				continue;
+			}
 			if (payload.tool !== "read") {
-				// The task allows only the read tool; any other tool whose arguments
-				// name a fixture file wins the score outside the scored access path.
-				if (JSON.stringify(payload.arguments ?? {}).includes(FIXTURE_DIR_MARKER)) nonReadFileAccess++;
+				// The task allows only the read tool; any other tool that reaches the
+				// fixtures wins the score outside the scored access path.
+				if (referencesFixture(payload.arguments)) nonReadFileAccess++;
 				continue;
 			}
 			const path = payload.arguments && payload.arguments.path;
@@ -664,7 +685,7 @@ export function median(nums) {
 /** Judge a single run: it must answer, stay inside the read tool, and, when on, compact enough. */
 export function runValidity({ mode, compactions, decisionSummary, finalAnswer, nonReadFileAccess = 0 }) {
 	if (finalAnswer === null) return { valid: false, reason: "no final answer parsed" };
-	if (nonReadFileAccess > 0) return { valid: false, reason: "fixture accessed outside read tool" };
+	if (nonReadFileAccess > 0) return { valid: false, reason: "fixture accessed outside main-agent read tool" };
 	if (mode !== "on") return { valid: true, reason: null };
 	if (compactions < 4) return { valid: false, reason: "fewer than 4 compactions" };
 	if ((decisionSummary?.appends ?? 0) === 0) return { valid: false, reason: "no append decision" };
@@ -1045,7 +1066,9 @@ async function gitInit(spawnRun, dir, env, timeoutMs) {
 }
 
 async function createScratchRepo(spawnRun, env, timeoutMs) {
-	const dir = await mkdtemp(join(tmpdir(), "compaction-bench-repo-"));
+	// Register before git init can fail, so a scratch repo that never becomes
+	// usable is still removed by signal cleanup.
+	const dir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-repo-")));
 	await gitInit(spawnRun, dir, env, timeoutMs);
 	return dir;
 }
@@ -1122,7 +1145,7 @@ async function runProbe({ opts, alias, env, spawnRun, newId }) {
 	let privDir = null;
 	try {
 		const probeText = probePrompt(newId());
-		repoDir = registerTempDir(await createScratchRepo(spawnRun, env, timeoutMs));
+		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
 		privDir = registerTempDir(await mkdtemp(join(tmpdir(), "compaction-bench-priv-")));
 		const diagDir = join(privDir, "diag");
 		await mkdir(diagDir, { recursive: true });
@@ -1181,7 +1204,7 @@ async function runOnce({ opts, alias, family, mode, repeat, runId, fixtures, out
 	let repoDir = null;
 	let privDir = null;
 	try {
-		repoDir = registerTempDir(await createScratchRepo(spawnRun, env, timeoutMs));
+		repoDir = await createScratchRepo(spawnRun, env, timeoutMs);
 		await mkdir(join(repoDir, "notes"));
 		for (const file of fixtures.files) {
 			await writeFile(join(repoDir, file.name), file.content);
