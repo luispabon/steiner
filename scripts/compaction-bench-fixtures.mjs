@@ -106,6 +106,7 @@ export function taskPrompt(files, runId = null) {
 		"Start at notes/f01.txt. Each file starts with a CODE line and a NEXT line naming the next file.",
 		"Open only the file named by NEXT. Never read a file twice. Never list or search the notes directory.",
 		"Use only the read tool on each file. Do not use bash, grep, cat, sed or any other command to inspect files.",
+		"Read each file in full: call the read tool with only the path, no offset or limit.",
 		"Apply any CORRECTION line you find to the code it names.",
 		'When you reach NEXT: END, reply with one line per file in the form "fNN: CODE", using the corrected code where a correction applies.',
 		"Reply with those lines only.",

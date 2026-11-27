@@ -453,7 +453,7 @@ test("a default 200-line read of a padded file returns nearly all of its bytes",
 	}
 });
 
-test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN lines", () => {
+test("taskPrompt walks the chain, requires full reads, forbids re-reads and listing, and asks for fNN lines", () => {
 	const files = generateFixtures(5, 6, 10).files;
 	const prompt = taskPrompt(files);
 	assert.equal(prompt, taskPrompt(files));
@@ -463,6 +463,7 @@ test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN
 	assert.match(prompt, /Never read a file twice/);
 	assert.match(prompt, /Never list or search the notes directory/);
 	assert.match(prompt, /Use only the read tool on each file/);
+	assert.match(prompt, /Read each file in full: call the read tool with only the path, no offset or limit\./);
 	assert.match(prompt, /Do not use bash, grep, cat, sed or any other command to inspect files/);
 	assert.match(prompt, /CORRECTION/);
 	assert.match(prompt, /"fNN: CODE"/);
