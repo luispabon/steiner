@@ -9,8 +9,6 @@ import (
 	"github.com/luispabon/steiner/internal/provider"
 )
 
-const normalPromptCompactionThreshold = 0.70
-
 // minCompletionReserveTokens is the floor for a clamped completion reserve. It
 // is the max_tokens the Anthropic wire sends when a request sets none.
 const minCompletionReserveTokens = provider.DefaultMaxOutputTokens
@@ -137,7 +135,7 @@ func (m ModelTokenBudget) compactionThresholdPercent() float64 {
 	if m.CompactionThreshold > 0 {
 		return m.CompactionThreshold
 	}
-	return normalPromptCompactionThreshold
+	return provider.DefaultCompactionThreshold
 }
 
 func (m ModelTokenBudget) compactionThresholdTokens() int {

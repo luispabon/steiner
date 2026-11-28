@@ -276,7 +276,7 @@ func TestModelTokenBudgetFitRequestRequestsCompactionAtSeventyPercentUsage(t *te
 		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
 	}
 
-	contextSize := int(math.Floor(float64(promptTokens) / normalPromptCompactionThreshold))
+	contextSize := int(math.Floor(float64(promptTokens) / provider.DefaultCompactionThreshold))
 	budget := ModelTokenBudget{ContextSize: contextSize}
 
 	fit, err := budget.FitRequest(ctx, request)
@@ -308,8 +308,8 @@ func TestModelTokenBudgetFitRequestLeavesBelowThresholdPromptAlone(t *testing.T)
 		t.Fatalf("EstimateChatRequestTokens() error = %v", err)
 	}
 
-	contextSize := int(math.Ceil(float64(promptTokens) / normalPromptCompactionThreshold))
-	if promptUsage(promptTokens, contextSize) >= normalPromptCompactionThreshold {
+	contextSize := int(math.Ceil(float64(promptTokens) / provider.DefaultCompactionThreshold))
+	if promptUsage(promptTokens, contextSize) >= provider.DefaultCompactionThreshold {
 		contextSize++
 	}
 
@@ -325,8 +325,8 @@ func TestModelTokenBudgetFitRequestLeavesBelowThresholdPromptAlone(t *testing.T)
 	if !fit.Fits {
 		t.Fatalf("FitRequest() = %+v, want hard fit below the threshold", fit)
 	}
-	if fit.PromptUsage >= normalPromptCompactionThreshold {
-		t.Fatalf("FitRequest() prompt usage = %f, want below %f", fit.PromptUsage, normalPromptCompactionThreshold)
+	if fit.PromptUsage >= provider.DefaultCompactionThreshold {
+		t.Fatalf("FitRequest() prompt usage = %f, want below %f", fit.PromptUsage, provider.DefaultCompactionThreshold)
 	}
 }
 
@@ -360,8 +360,8 @@ func TestModelTokenBudgetFitRequestTriggersHardLimitPadBeforeThreshold(t *testin
 	if !fit.ShouldCompact {
 		t.Fatalf("FitRequest() = %+v, want compaction from the hard-limit pad", fit)
 	}
-	if fit.PromptUsage >= normalPromptCompactionThreshold {
-		t.Fatalf("FitRequest() prompt usage = %f, want below %f", fit.PromptUsage, normalPromptCompactionThreshold)
+	if fit.PromptUsage >= provider.DefaultCompactionThreshold {
+		t.Fatalf("FitRequest() prompt usage = %f, want below %f", fit.PromptUsage, provider.DefaultCompactionThreshold)
 	}
 	if fit.Fits {
 		t.Fatalf("FitRequest() = %+v, want hard-limit pad to force non-fit", fit)

@@ -108,6 +108,8 @@ function parseModelCall(payload) {
 	return {
 		turn: payload.turn ?? 0,
 		promptTokens: payload.prompt_tokens ?? 0,
+		durationMs: payload.duration_ms ?? 0,
+		ttftMs: payload.ttft_ms ?? 0,
 		...cacheFields(payload),
 	};
 }
@@ -117,7 +119,35 @@ function parseCompactionCall(payload) {
 	// estimate, not the summarizer's input (internal/agent/events.go sets it from
 	// afterFit). The summary call total is uncached input plus both cache counters.
 	const promptTokens = (payload.input_tokens ?? 0) + (payload.cache_read_tokens ?? 0) + (payload.cache_create_tokens ?? 0);
-	return { promptTokens, ...cacheFields(payload) };
+	return {
+		promptTokens,
+		// Applied compaction events report no call duration in the session log; the
+		// provider diagnostics stream carries it instead. A payload that gains one
+		// is still summed.
+		durationMs: payload.duration_ms ?? 0,
+		ttftMs: payload.ttft_ms ?? 0,
+		...cacheFields(payload),
+	};
+}
+
+// The retained tail is the retained_tokens of the last stage that applied. A
+// failed stage is appended after the applied ones, so it never supplies the tail.
+function finalAppliedStage(stages) {
+	if (!Array.isArray(stages)) return null;
+	for (let i = stages.length - 1; i >= 0; i--) {
+		const stage = stages[i];
+		if (stage === null || typeof stage !== "object" || stage.failed === true) continue;
+		return stage;
+	}
+	return null;
+}
+
+function stageNames(stages) {
+	if (!Array.isArray(stages)) return [];
+	return stages
+		.filter((stage) => stage !== null && typeof stage === "object")
+		.map((stage) => stage.stage)
+		.filter((name) => typeof name === "string");
 }
 
 /** Parse a session log JSONL into ordered reads, applied compactions and model-call cache usage. */
@@ -125,9 +155,15 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 	const events = [];
 	const modelCalls = [];
 	const compactionCalls = [];
+	const retainedTail = [];
 	let compactions = 0;
+	let emergencyCompactions = 0;
+	let compactionFailures = 0;
+	let emergencyFailures = 0;
 	let malformed = 0;
 	let nonReadFileAccess = 0;
+	let contextWindow = null;
+	let thresholdTokens = null;
 	const notesDirRe = notesDirPattern(notesDir);
 
 	for (const raw of String(text).split(/\r?\n/)) {
@@ -176,19 +212,83 @@ export function parseRunLog(text, { notesDir = null } = {}) {
 		}
 		if (record.type === "context_diagnostics") {
 			if (payload.kind !== "compaction") continue;
-			if (COMPACTION_START_SEVERITIES.has(payload.severity)) continue;
 			if (scopedToSubAgent(record)) continue;
+			// A failed compaction adopts no state and reuses the skipped severity, so
+			// count it separately from applied compactions rather than hiding it.
+			if (payload.severity === "skipped" && payload.compaction_result === "failed") {
+				compactionFailures++;
+				if (stageNames(payload.stages).includes("emergency")) emergencyFailures++;
+				continue;
+			}
+			if (COMPACTION_START_SEVERITIES.has(payload.severity)) continue;
 			compactions++;
 			events.push({ kind: "compaction", index: compactions });
 			compactionCalls.push(parseCompactionCall(payload));
+			if (stageNames(payload.stages).includes("emergency")) emergencyCompactions++;
+			const stage = finalAppliedStage(payload.stages);
+			// An applied stage always reports retained_tokens; a missing field is a
+			// zero-sized tail, not an absent measurement.
+			if (stage !== null) retainedTail.push(Number.isFinite(stage.retained_tokens) ? stage.retained_tokens : 0);
+			if (Number.isFinite(payload.context_window) && payload.context_window > 0) contextWindow = payload.context_window;
+			if (Number.isFinite(payload.compaction_threshold_tokens) && payload.compaction_threshold_tokens > 0) {
+				thresholdTokens = payload.compaction_threshold_tokens;
+			}
 		}
 	}
 
-	return { events, modelCalls, compactionCalls, compactions, malformed, nonReadFileAccess };
+	return {
+		events,
+		modelCalls,
+		compactionCalls,
+		compactions,
+		emergencyCompactions,
+		compactionFailures,
+		emergencyFailures,
+		retainedTail,
+		contextWindow,
+		thresholdTokens,
+		malformed,
+		nonReadFileAccess,
+	};
 }
 
 /** Return only the ordered read events from a session log. */
 export const parseToolReads = (text) => parseRunLog(text).events.filter((event) => event.kind === "read");
+
+/**
+ * Parse the provider diagnostics stream into per-call retry and outcome counts.
+ * Records come either wrapped in the diagnostics envelope (kind provider, with
+ * the call record under payload) or as the bare provider stream record.
+ */
+export function parseProviderLog(text) {
+	// durations and ttfts hold every call that reported one, including failed
+	// calls, compaction summaries and any delegated or advisor calls that share
+	// the stream. The record's duration covers the whole call, retry waits included.
+	const out = { calls: 0, retries: 0, rateLimited: 0, errors: 0, durations: [], ttfts: [] };
+	for (const raw of String(text).split(/\r?\n/)) {
+		const line = raw.trim();
+		if (line === "") continue;
+		let record;
+		try {
+			record = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (record === null || typeof record !== "object" || Array.isArray(record)) continue;
+		const payload = record.kind === "provider" && record.payload && typeof record.payload === "object" ? record.payload : record;
+		if (typeof payload.attempts !== "number" && typeof payload.outcome !== "string") continue;
+		out.calls++;
+		if (Number.isFinite(payload.attempts)) out.retries += Math.max(0, payload.attempts - 1);
+		// Only a final failure carries an error class: a call that retried and then
+		// succeeded reports outcome retried without one, so this counts final
+		// rate-limited failures, not every 429 the provider returned.
+		if (payload.error_class === "rate_limited") out.rateLimited++;
+		if (payload.outcome === "exhausted" || payload.outcome === "cancelled") out.errors++;
+		if (Number.isFinite(payload.duration_ms) && payload.duration_ms > 0) out.durations.push(payload.duration_ms);
+		if (Number.isFinite(payload.ttft_ms) && payload.ttft_ms > 0) out.ttfts.push(payload.ttft_ms);
+	}
+	return out;
+}
 
 const EVENT_LABEL_RE = /^[a-z_]+: /;
 const MAX_TURNS_RE = /^status: stopped after \d+ turns?: reached the max turn limit/;

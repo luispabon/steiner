@@ -11,11 +11,13 @@ import {
 	USAGE,
 	aggregateCache,
 	aggregateMode,
+	analyzeRun,
 	buildBenchConfig,
 	buildProbeConfig,
 	checkGuard,
 	classifyProbeFailure,
 	cleanupLiveResources,
+	copyLogGenerations,
 	costProxy,
 	defaultSpawnRun,
 	evaluateProbe,
@@ -24,12 +26,15 @@ import {
 	main,
 	median,
 	parseArgs,
+	parseProviderLog,
 	parseRunLog,
 	parseSegmentDecisions,
 	parseStdout,
 	parseToolReads,
+	percentile,
 	registerProcessGroup,
 	registerTempDir,
+	readLogGenerations,
 	renderTable,
 	runValidity,
 	scoreRecall,
@@ -173,10 +178,13 @@ test("parseArgs defaults", () => {
 	assert.deepEqual(parseArgs(["--model", "a"]), {
 		help: false,
 		models: ["a"],
+		modelEntries: [{ ref: "a", alias: "a", provider: null, id: null }],
 		anthropicAliases: [],
 		informationalAliases: [],
 		modes: ["off", "on"],
 		threshold: 15000,
+		contextWindow: null,
+		seed: null,
 		files: 24,
 		padTokens: 3000,
 		maxTurns: 80,
@@ -196,6 +204,8 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 		"--informational-alias", "b",
 		"--modes", "on",
 		"--threshold", "8000",
+		"--context-window", "1000000",
+		"--seed", "7",
 		"--files", "6",
 		"--pad-tokens", "50",
 		"--max-turns", "12",
@@ -210,6 +220,8 @@ test("parseArgs reads every flag, comma lists and the --flag=value form", () => 
 	assert.deepEqual(args.informationalAliases, ["b"]);
 	assert.deepEqual(args.modes, ["on"]);
 	assert.equal(args.threshold, 8000);
+	assert.equal(args.contextWindow, 1000000);
+	assert.equal(args.seed, 7);
 	assert.equal(args.files, 6);
 	assert.equal(args.padTokens, 50);
 	assert.equal(args.maxTurns, 12);
@@ -441,7 +453,7 @@ test("a default 200-line read of a padded file returns nearly all of its bytes",
 	}
 });
 
-test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN lines", () => {
+test("taskPrompt walks the chain, requires full reads, forbids re-reads and listing, and asks for fNN lines", () => {
 	const files = generateFixtures(5, 6, 10).files;
 	const prompt = taskPrompt(files);
 	assert.equal(prompt, taskPrompt(files));
@@ -451,6 +463,7 @@ test("taskPrompt walks the chain, forbids re-reads and listing, and asks for fNN
 	assert.match(prompt, /Never read a file twice/);
 	assert.match(prompt, /Never list or search the notes directory/);
 	assert.match(prompt, /Use only the read tool on each file/);
+	assert.match(prompt, /Read each file in full: call the read tool with only the path, no offset or limit\./);
 	assert.match(prompt, /Do not use bash, grep, cat, sed or any other command to inspect files/);
 	assert.match(prompt, /CORRECTION/);
 	assert.match(prompt, /"fNN: CODE"/);
@@ -465,7 +478,7 @@ test("taskPrompt puts a run id on the first line when one is supplied", () => {
 	assert.notEqual(taskPrompt(files, "run-def"), withId);
 });
 
-test("buildBenchConfig emits the threshold under the alias and the cache diagnostics stream", () => {
+test("buildBenchConfig emits the threshold under the alias, the cache and provider diagnostics streams and delegation off", () => {
 	const yaml = buildBenchConfig({ alias: "claude-test", threshold: 15000, diagnosticsDir: "/tmp/bench dir/\"x\"" });
 	assert.equal(
 		yaml,
@@ -481,12 +494,51 @@ test("buildBenchConfig emits the threshold under the alias and the cache diagnos
 			'  dir: "/tmp/bench dir/\\\"x\\\""',
 			"  streams:",
 			"    cache: true",
+			"    provider: true",
+			"sub_agent:",
+			"  enabled: false",
 			"",
 		].join("\n"),
 	);
 });
 
-test("buildProbeConfig emits only the cache diagnostics stream, with no threshold", () => {
+test("buildBenchConfig pins the provider and id of a synthesized alias and writes context_window", () => {
+	const yaml = buildBenchConfig({
+		alias: "bench--opencode-go--beam-free",
+		provider: "opencode-go",
+		id: "beam-free",
+		threshold: 560000,
+		contextWindow: 1000000,
+		diagnosticsDir: "/tmp/diag",
+	});
+	assert.equal(
+		yaml,
+		[
+			"models:",
+			"  definitions:",
+			"    bench--opencode-go--beam-free:",
+			"      provider: opencode-go",
+			'      id: "beam-free"',
+			"      advanced:",
+			"        limits:",
+			"          compaction_threshold_tokens: 560000",
+			"          context_window: 1000000",
+			"diagnostics:",
+			"  enabled: true",
+			'  dir: "/tmp/diag"',
+			"  streams:",
+			"    cache: true",
+			"    provider: true",
+			"sub_agent:",
+			"  enabled: false",
+			"",
+		].join("\n"),
+	);
+	assert.match(buildBenchConfig({ alias: "a", threshold: 10, diagnosticsDir: "/tmp/d" }), /compaction_threshold_tokens: 10\n/);
+	assert.throws(() => buildBenchConfig({ alias: "a", threshold: 10, contextWindow: 0, diagnosticsDir: "/tmp/d" }), /contextWindow/);
+});
+
+test("buildProbeConfig emits the diagnostics streams without a threshold", () => {
 	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/probe dir" });
 	assert.equal(
 		yaml,
@@ -496,11 +548,37 @@ test("buildProbeConfig emits only the cache diagnostics stream, with no threshol
 			'  dir: "/tmp/probe dir"',
 			"  streams:",
 			"    cache: true",
+			"    provider: true",
 			"",
 		].join("\n"),
 	);
 	assert.ok(!yaml.includes("compaction_threshold_tokens"), "a probe config must not override the threshold");
+	assert.ok(!yaml.includes("sub_agent"), "a probe config must not disable delegation");
 	assert.throws(() => buildProbeConfig({ diagnosticsDir: "" }), /diagnosticsDir/);
+});
+
+test("buildProbeConfig pins a synthesized alias's provider and id without limits", () => {
+	const yaml = buildProbeConfig({ diagnosticsDir: "/tmp/diag", alias: "bench--p--m", provider: "p", id: "m" });
+	assert.match(yaml, /^models:\n  definitions:\n    bench--p--m:\n      provider: p\n      id: "m"\ndiagnostics:/);
+	assert.ok(!yaml.includes("limits:"), "a probe config must not set limits");
+	assert.ok(!yaml.includes("sub_agent"), "a probe config must not disable delegation");
+});
+
+test("buildBenchConfig quotes a provider id that holds YAML syntax", () => {
+	const yaml = buildBenchConfig({
+		alias: "bench--p--vendor-model",
+		provider: "p",
+		id: "vendor/model",
+		threshold: 10,
+		diagnosticsDir: "/tmp/d",
+	});
+	assert.match(yaml, /      id: "vendor\/model"\n/);
+	const tagged = buildBenchConfig({ alias: "bench--p--name-tag", provider: "p", id: "name:tag", threshold: 10, diagnosticsDir: "/tmp/d" });
+	assert.match(tagged, /      id: "name:tag"\n/);
+	assert.throws(
+		() => buildBenchConfig({ alias: "bench--p--x", provider: "p", id: "two\nlines", threshold: 10, diagnosticsDir: "/tmp/d" }),
+		/invalid provider\/id/,
+	);
 });
 
 test("buildBenchConfig rejects unsafe aliases, bad thresholds and empty dirs", () => {
@@ -583,6 +661,8 @@ test("parseRunLog treats absent cache counters as unreported rather than zero", 
 	assert.deepEqual(modelCalls[0], {
 		turn: 2,
 		promptTokens: 61177,
+		durationMs: 7269,
+		ttftMs: 0,
 		cacheReported: true,
 		cacheReadTokens: 60928,
 		cacheCreateTokens: 0,
@@ -599,8 +679,8 @@ test("parseRunLog collects summarizer usage from applied compactions", () => {
 	// The payload's prompt_tokens (4500) is the post-compaction estimate, not the
 	// summary call input, so the total is input plus both cache counters.
 	assert.deepEqual(run.compactionCalls, [
-		{ promptTokens: 2000, cacheReported: true, cacheReadTokens: 500, cacheCreateTokens: 300 },
-		{ promptTokens: 0, cacheReported: false, cacheReadTokens: 0, cacheCreateTokens: 0 },
+		{ promptTokens: 2000, durationMs: 0, ttftMs: 0, cacheReported: true, cacheReadTokens: 500, cacheCreateTokens: 300 },
+		{ promptTokens: 0, durationMs: 0, ttftMs: 0, cacheReported: false, cacheReadTokens: 0, cacheCreateTokens: 0 },
 	]);
 	assert.equal(parseRunLog("").compactionCalls.length, 0);
 });
@@ -817,7 +897,20 @@ test("parseRunLog judges an absolute notes dir only against the run's own repo",
 		0,
 		"another run's notes dir is not this run's fixture",
 	);
-	assert.deepEqual(parseRunLog("", { notesDir }), { events: [], modelCalls: [], compactionCalls: [], compactions: 0, malformed: 0, nonReadFileAccess: 0 });
+	assert.deepEqual(parseRunLog("", { notesDir }), {
+		events: [],
+		modelCalls: [],
+		compactionCalls: [],
+		compactions: 0,
+		emergencyCompactions: 0,
+		compactionFailures: 0,
+		emergencyFailures: 0,
+		retainedTail: [],
+		contextWindow: null,
+		thresholdTokens: null,
+		malformed: 0,
+		nonReadFileAccess: 0,
+	});
 });
 
 test("parseRunLog counts sub-agent fixture access, read tool included", () => {
@@ -1199,7 +1292,7 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 	const probeAttempts = new Map();
 	let normalRuns = 0;
 	async function runner(call) {
-		invocations.push({ command: call.command, args: call.args, env: call.env });
+		invocations.push({ command: call.command, args: call.args, cwd: call.cwd, env: call.env });
 		await mkdir(dirname(call.stdoutPath), { recursive: true });
 		await mkdir(dirname(call.stderrPath), { recursive: true });
 		if (call.command === "git") {
@@ -1215,6 +1308,18 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 		const flag = (name) => call.args[call.args.indexOf(name) + 1];
 		const configPath = flag("--config");
 		if (configPath) invocations.at(-1).configText = await readFile(configPath, "utf8");
+		// Write the provider and cache streams where the generated config points,
+		// so the run exercises the diagnostics copy and provider metrics.
+		const dirLine = configPath ? /^  dir: "((?:[^"\\]|\\.)*)"$/m.exec(invocations.at(-1).configText) : null;
+		if (dirLine) {
+			const diagDir = JSON.parse(`"${dirLine[1]}"`);
+			await mkdir(diagDir, { recursive: true });
+			await writeFile(
+				join(diagDir, "provider.jsonl"),
+				`${JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 10, ttft_ms: 4 } })}\n${JSON.stringify({ kind: "provider", payload: { outcome: "exhausted", attempts: 3, error_class: "rate_limited", duration_ms: 30, ttft_ms: 9 } })}\n`,
+			);
+			await writeFile(join(diagDir, "cache.jsonl"), "{}\n");
+		}
 		if (call.args[call.args.length - 1].includes("Reply with OK only.")) {
 			const alias = flag("--model");
 			const attempt = (probeAttempts.get(alias) ?? 0) + 1;
@@ -1236,6 +1341,11 @@ function makeFakeRunner({ failOn = null, failProbe = false, probeStderr = null, 
 			return { code: 0, timedOut: false };
 		}
 		normalRuns++;
+		// Capture the generated chain while the scratch repo still exists, so a
+		// test can compare the fixtures two invocations actually benched.
+		invocations.at(-1).notes = readdirSync(join(call.cwd, "notes"))
+			.sort()
+			.map((name) => `${name}\n${readFileSync(join(call.cwd, "notes", name), "utf8")}`);
 		if (failOn && failOn(call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION)) {
 			await writeFile(call.stdoutPath, "");
 			await writeFile(call.stderrPath, "");
@@ -1500,9 +1610,42 @@ test("main alternates mode order per repeat and gives every run its own first re
 	}
 });
 
+test("main derives each repeat's fixture seed from --seed and the repeat number", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-seed-"));
+	const runAt = async (name, extra) => {
+		const outDir = join(root, name);
+		const fake = makeFakeRunner({ sandbox: false });
+		const code = await main(
+			["--model", "gpt-test", "--modes", "off", "--files", "4", "--pad-tokens", "10", "--out", outDir, ...extra],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		assert.equal(code, 0);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		return { notes: fake.invocations.filter((call) => call.notes).map((call) => call.notes), raw };
+	};
+	try {
+		const first = await runAt("seed-11", ["--seed", "11"]);
+		const next = await runAt("seed-12", ["--seed", "12"]);
+		const again = await runAt("seed-11-again", ["--seed", "11"]);
+		assert.equal(first.notes.length, 1);
+		assert.equal(first.raw.seed, 11);
+		assert.equal(next.raw.seed, 12);
+		assert.deepEqual(again.notes, first.notes, "the same seed reproduces identical fixtures");
+		assert.notDeepEqual(next.notes, first.notes, "the next seed changes the fixture content");
+		const repeated = await runAt("repeat-2", ["--seed", "11", "--repeat", "2"]);
+		assert.deepEqual(repeated.raw.aliases[0].runs.off.map((run) => run.repeat), [1, 2]);
+		assert.deepEqual(repeated.notes[0], first.notes[0], "repeat 1 keeps the base seed's fixtures");
+		assert.deepEqual(repeated.notes[1], next.notes[0], "repeat 2 uses the base seed plus one");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test("a failed git init removes its scratch repo instead of leaving it for signal cleanup", async () => {
 	const root = await mkdtemp(join(tmpdir(), "compaction-bench-gitinit-"));
 	const benchTmp = join(root, "tmp");
+	const worktreeTmp = join(root, ".steiner", "tmp");
 	const outDir = join(root, "out");
 	const savedTmp = process.env.TMPDIR;
 	cleanupLiveResources();
@@ -1519,13 +1662,75 @@ test("a failed git init removes its scratch repo instead of leaving it for signa
 		const code = await main(
 			["--model", "gpt-test", "--files", "4", "--pad-tokens", "1", "--out", outDir],
 			{ STEINER_LIVE_BENCH: "1" },
-			{ spawnRun: failingGit, log: () => {}, stdout: () => {} },
+			{ spawnRun: failingGit, cwd: () => root, log: () => {}, stdout: () => {} },
 		);
 		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
 		assert.equal(code, 3);
 		assert.match(raw.aliases[0].runs.off[0].invalidReason, /setup failed: git init failed: exit 1/);
-		assert.deepEqual(readdirSync(benchTmp), [], "a scratch repo whose git init failed is removed right away");
+		assert.deepEqual(readdirSync(worktreeTmp), [], "a scratch repo whose git init failed is removed right away");
+		assert.deepEqual(readdirSync(benchTmp), [], "no private dir survives the failed setup");
 		assert.equal(cleanupLiveResources().dirs, 0, "no scratch dir stays registered after a failed git init");
+	} finally {
+		if (savedTmp === undefined) delete process.env.TMPDIR;
+		else process.env.TMPDIR = savedTmp;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("main creates scratch repos under the work tree and records scratchBase", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-scratch-"));
+	const tree = join(root, "tree");
+	const outDir = join(root, "out");
+	const worktreeTmp = join(tree, ".steiner", "tmp");
+	await mkdir(tree);
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		const code = await main(
+			["--model", "gpt-test", "--modes", "off", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, cwd: () => tree, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.scratchBase, "worktree");
+		const gitCalls = fake.invocations.filter((call) => call.command === "git");
+		assert.equal(gitCalls.length, 1, "one run inits one scratch repo");
+		assert.equal(dirname(gitCalls[0].cwd), worktreeTmp, "git init runs in a scratch repo under the work tree");
+		assert.ok(gitCalls[0].cwd.includes("compaction-bench-repo-"), "the work tree parent keeps the scratch prefix");
+		const runs = fake.invocations.filter((call) => call.env.STEINER_EXPERIMENT_SEGMENTED_COMPACTION !== undefined);
+		assert.equal(runs.length, 1);
+		assert.equal(dirname(runs[0].cwd), worktreeTmp, "the sandboxed run's project root sits under the work tree");
+		assert.deepEqual(readdirSync(worktreeTmp), [], "the scratch repo is removed after the run");
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("main falls back to the host tmp dir when the work tree cannot host scratch repos", async () => {
+	const root = await mkdtemp(join(tmpdir(), "compaction-bench-scratch-fallback-"));
+	const tree = join(root, "tree");
+	const hostTmp = join(root, "host-tmp");
+	const outDir = join(root, "out");
+	const savedTmp = process.env.TMPDIR;
+	await mkdir(tree);
+	await mkdir(hostTmp);
+	// A file where .steiner should be makes the work-tree mkdir fail with ENOTDIR.
+	await writeFile(join(tree, ".steiner"), "not a directory\n");
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		process.env.TMPDIR = hostTmp;
+		const code = await main(
+			["--model", "gpt-test", "--modes", "off", "--files", "4", "--pad-tokens", "10", "--out", outDir],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, cwd: () => tree, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.scratchBase, "tmp");
+		const gitCalls = fake.invocations.filter((call) => call.command === "git");
+		assert.equal(gitCalls.length, 1);
+		assert.equal(dirname(gitCalls[0].cwd), hostTmp, "the scratch repo falls back to the host tmp dir");
+		assert.deepEqual(readdirSync(hostTmp), [], "the fallback scratch repo is removed after the run");
 	} finally {
 		if (savedTmp === undefined) delete process.env.TMPDIR;
 		else process.env.TMPDIR = savedTmp;
@@ -1735,6 +1940,380 @@ test("defaultSpawnRun reports an unopenable output file as a failed result", asy
 		assert.match(result.error, /ENOENT/);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("parseArgs accepts slash refs and synthesizes a safe alias", () => {
+	const args = parseArgs(["--model", "opencode-go/beam-free,hy4-flash"]);
+	assert.deepEqual(args.modelEntries, [
+		{ ref: "opencode-go/beam-free", alias: "bench--opencode-go--beam-free", provider: "opencode-go", id: "beam-free" },
+		{ ref: "hy4-flash", alias: "hy4-flash", provider: null, id: null },
+	]);
+	assert.equal(parseArgs(["--model", "a/b", "--anthropic-alias", "a/b"]).anthropicAliases[0], "a/b");
+});
+
+test("parseArgs rejects unsafe or colliding model refs", () => {
+	for (const argv of [
+		["--model", "a b"],
+		["--model", "a:b"],
+		["--model", "/m"],
+		["--model", "p/"],
+		["--model", "p/two\nlines"],
+		["--model", "a--b/c,a/b--c"],
+	]) {
+		assert.throws(() => parseArgs(argv), /usage:/, `argv ${JSON.stringify(argv)} should throw with usage`);
+	}
+});
+
+test("parseArgs rejects a repeated model ref", () => {
+	assert.throws(() => parseArgs(["--model", "a,a"]), /is repeated/);
+	assert.throws(() => parseArgs(["--model", "a", "--model", "a"]), /is repeated/);
+	assert.throws(() => parseArgs(["--model", "opencode-go/beam-free,opencode-go/beam-free"]), /is repeated/);
+	assert.deepEqual(parseArgs(["--model", "a,b"]).models, ["a", "b"], "distinct refs are still accepted");
+});
+
+test("parseArgs accepts provider ids with a slash or a colon and keeps the alias safe", () => {
+	assert.deepEqual(parseArgs(["--model", "p/vendor/model"]).modelEntries, [
+		{ ref: "p/vendor/model", alias: "bench--p--vendor-model", provider: "p", id: "vendor/model" },
+	]);
+	assert.deepEqual(parseArgs(["--model", "p/name:tag"]).modelEntries, [
+		{ ref: "p/name:tag", alias: "bench--p--name-tag", provider: "p", id: "name:tag" },
+	]);
+	assert.equal(parseArgs(["--model", "p/name:tag", "--anthropic-alias", "p/name:tag"]).anthropicAliases[0], "p/name:tag");
+});
+
+test("parseArgs rejects a threshold at or above the context window and bad seed values", () => {
+	assert.equal(parseArgs(["--model", "a", "--context-window", "1000000"]).contextWindow, 1000000);
+	assert.throws(() => parseArgs(["--model", "a", "--context-window", "15000"]), /--threshold 15000 must be less than --context-window 15000/);
+	assert.throws(
+		() => parseArgs(["--model", "a", "--threshold", "100", "--context-window", "100"]),
+		/--threshold 100 must be less than --context-window 100/,
+	);
+	assert.equal(parseArgs(["--model", "a", "--threshold", "99", "--context-window", "100"]).contextWindow, 100);
+	assert.equal(parseArgs(["--model", "a", "--seed", "0"]).seed, 0);
+	for (const argv of [
+		["--model", "a", "--context-window", "0"],
+		["--model", "a", "--seed", "-1"],
+		["--model", "a", "--seed", "1.5"],
+	]) {
+		assert.throws(() => parseArgs(argv), /usage:/, `argv ${JSON.stringify(argv)} should throw with usage`);
+	}
+});
+
+test("percentile uses nearest rank and handles empty input", () => {
+	assert.equal(percentile([], 0.5), null);
+	assert.equal(percentile([5], 0.95), 5);
+	assert.equal(percentile([1, 2, 3, 4], 0.5), 2);
+	assert.equal(percentile([9, 1, 5], 0.95), 9);
+	assert.equal(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.95), 10);
+});
+
+test("parseProviderLog counts attempts, final rate-limited failures, outcomes and timings", () => {
+	const text = [
+		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 100, ttft_ms: 10 } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "exhausted", attempts: 3, error_class: "rate_limited", duration_ms: 300, ttft_ms: 30 } }),
+		JSON.stringify({ outcome: "exhausted", attempts: 2, error_class: "http_5xx", duration_ms: 200 }),
+		JSON.stringify({ kind: "cache", payload: { outcome: "ok", attempts: 1 } }),
+		"not json",
+	].join("\n");
+	assert.deepEqual(parseProviderLog(text), {
+		calls: 3,
+		retries: 3,
+		rateLimited: 1,
+		errors: 2,
+		durations: [100, 300, 200],
+		ttfts: [10, 30],
+	});
+	assert.deepEqual(parseProviderLog(""), { calls: 0, retries: 0, rateLimited: 0, errors: 0, durations: [], ttfts: [] });
+});
+
+test("parseRunLog reads stage sizes, applied and failed compactions and observed limits", () => {
+	const lines = [
+		{
+			type: "context_diagnostics",
+			payload: {
+				kind: "compaction",
+				severity: "info",
+				stages: [
+					{ stage: "normal", retained_tokens: 400 },
+					{ stage: "emergency", retained_tokens: 120 },
+					{ stage: "emergency", retained_tokens: 60, failed: true },
+				],
+				context_window: 1000000,
+				compaction_threshold_tokens: 560000,
+			},
+		},
+		{
+			type: "context_diagnostics",
+			payload: { kind: "compaction", severity: "warning", stages: [{ stage: "normal", retained_tokens: 50 }], context_window: 1000000, compaction_threshold_tokens: 560000 },
+		},
+		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", stages: [{ stage: "emergency", retained_tokens: 1, failed: true }] } },
+		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", compaction_result: "failed", stages: [{ stage: "emergency", retained_tokens: 5, failed: true }] } },
+		{ type: "context_diagnostics", payload: { kind: "compaction", severity: "skipped", notes: ["compaction skipped: no stage applied"] } },
+	].map((line) => JSON.stringify(line)).join("\n");
+	const run = parseRunLog(lines);
+	assert.equal(run.compactions, 2);
+	assert.equal(run.emergencyCompactions, 1, "the skipped failure event is not a compaction");
+	assert.equal(run.compactionFailures, 1);
+	assert.equal(run.emergencyFailures, 1);
+	assert.deepEqual(run.retainedTail, [120, 50], "a failed trailing stage never supplies the tail and failed events add none");
+	assert.equal(run.contextWindow, 1000000);
+	assert.equal(run.thresholdTokens, 560000);
+});
+
+test("analyzeRun takes provider timings, provider outcomes, retained tail and configured/observed limits", () => {
+	const log = [
+		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 100, duration_ms: 111, ttft_ms: 11, success: true } },
+		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 100, duration_ms: 222, ttft_ms: 22, success: true } },
+		{
+			type: "context_diagnostics",
+			payload: { kind: "compaction", severity: "info", stages: [{ stage: "normal", retained_tokens: 100 }, { stage: "emergency" }], context_window: 1000000, compaction_threshold_tokens: 560000 },
+		},
+	].map((line) => JSON.stringify(line)).join("\n");
+	const providerText = [
+		JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1, duration_ms: 1000, ttft_ms: 100 } }),
+		JSON.stringify({ kind: "provider", payload: { outcome: "exhausted", attempts: 3, error_class: "rate_limited", duration_ms: 3000, ttft_ms: 300 } }),
+	].join("\n");
+	const metrics = analyzeRun({
+		stdoutText: "",
+		logText: log,
+		compactionText: "",
+		providerText,
+		fixtures: recallFixtures(),
+		mode: "on",
+		family: "openai",
+		wallClockMs: 9000,
+		contextWindow: 200000,
+		threshold: 140000,
+	});
+	assert.equal(metrics.timingSource, "provider");
+	assert.equal(metrics.durationMs, 4000, "provider timings win over the session log");
+	assert.equal(metrics.durationP50Ms, 1000);
+	assert.equal(metrics.durationP95Ms, 3000);
+	assert.equal(metrics.ttftP50Ms, 100);
+	assert.equal(metrics.ttftP95Ms, 300);
+	assert.equal(metrics.retainedTailMedian, 0, "an applied stage without retained_tokens counts as zero");
+	assert.equal(metrics.retainedTailMax, 0);
+	assert.equal(metrics.emergencyCompactions, 1);
+	assert.equal(metrics.compactionFailures, 0);
+	assert.equal(metrics.emergencyFailures, 0);
+	assert.equal(metrics.configuredContextWindow, 200000);
+	assert.equal(metrics.configuredThresholdTokens, 140000);
+	assert.equal(metrics.observedContextWindow, 1000000);
+	assert.equal(metrics.observedThresholdTokens, 560000);
+	assert.equal(metrics.providerRetries, 2);
+	assert.equal(metrics.providerRateLimited, 1);
+	assert.equal(metrics.providerErrors, 1);
+	assert.equal(metrics.promptTokens, 200);
+	assert.equal(metrics.cachedTokens, null);
+	assert.equal(metrics.wallClockMs, 9000);
+});
+
+test("analyzeRun reports configured limits, null observed limits and null timing when nothing measured them", () => {
+	const metrics = analyzeRun({
+		stdoutText: "",
+		logText: "",
+		compactionText: "",
+		fixtures: recallFixtures(),
+		mode: "off",
+		family: "openai",
+		contextWindow: 200000,
+		threshold: 140000,
+	});
+	assert.equal(metrics.configuredContextWindow, 200000);
+	assert.equal(metrics.configuredThresholdTokens, 140000);
+	assert.equal(metrics.observedContextWindow, null);
+	assert.equal(metrics.observedThresholdTokens, null);
+	assert.equal(metrics.retainedTailMedian, null);
+	assert.equal(metrics.timingSource, null);
+	assert.equal(metrics.durationMs, null, "missing timing is null, not zero");
+	assert.equal(metrics.durationP50Ms, null);
+	assert.equal(metrics.ttftP50Ms, null);
+});
+
+test("analyzeRun falls back to session-log timings when the provider stream measured none", () => {
+	const log = [
+		{ type: "model_call_finished", payload: { turn: 1, prompt_tokens: 10, duration_ms: 500, ttft_ms: 50, success: true } },
+		{ type: "model_call_finished", payload: { turn: 2, prompt_tokens: 10, duration_ms: 1500, success: true } },
+	].map((line) => JSON.stringify(line)).join("\n");
+	const metrics = analyzeRun({
+		stdoutText: "",
+		logText: log,
+		compactionText: "",
+		providerText: JSON.stringify({ kind: "provider", payload: { outcome: "ok", attempts: 1 } }),
+		fixtures: recallFixtures(),
+		mode: "off",
+		family: "openai",
+	});
+	assert.equal(metrics.timingSource, "session");
+	assert.equal(metrics.durationMs, 2000);
+	assert.equal(metrics.durationP50Ms, 500);
+	assert.equal(metrics.durationP95Ms, 1500);
+	assert.equal(metrics.ttftP50Ms, 50);
+});
+
+test("aggregateMode medians the timing, retry and retained-tail metrics", () => {
+	const agg = aggregateMode([
+		runRecord({
+			wallClockMs: 1000,
+			durationMs: 500,
+			emergencyCompactions: 0,
+			compactionFailures: 0,
+			emergencyFailures: 0,
+			retainedTailMedian: 10,
+			retainedTailMax: 20,
+			ttftP50Ms: 1,
+			ttftP95Ms: 2,
+			durationP50Ms: 3,
+			durationP95Ms: 4,
+			providerCalls: 1,
+			providerRetries: 0,
+			providerRateLimited: 0,
+			providerErrors: 0,
+			cachedTokens: 10,
+			uncachedTokens: 90,
+			promptTokens: 100,
+			costProxy: 100,
+		}),
+		runRecord({
+			wallClockMs: 3000,
+			durationMs: 1500,
+			emergencyCompactions: 2,
+			compactionFailures: 2,
+			emergencyFailures: 2,
+			retainedTailMedian: 30,
+			retainedTailMax: 40,
+			ttftP50Ms: 3,
+			ttftP95Ms: 4,
+			durationP50Ms: 5,
+			durationP95Ms: 6,
+			providerCalls: 3,
+			providerRetries: 2,
+			providerRateLimited: 1,
+			providerErrors: 1,
+			cachedTokens: 30,
+			uncachedTokens: 70,
+			promptTokens: 100,
+			costProxy: 300,
+		}),
+	]);
+	assert.equal(agg.wallClockMs, 2000);
+	assert.equal(agg.durationMs, 1000);
+	assert.equal(agg.emergencyCompactions, 1);
+	assert.equal(agg.compactionFailures, 1);
+	assert.equal(agg.emergencyFailures, 1);
+	assert.equal(agg.retainedTailMedian, 20);
+	assert.equal(agg.retainedTailMax, 30);
+	assert.equal(agg.providerRetries, 1);
+	assert.equal(agg.providerRateLimited, 0.5);
+	assert.equal(agg.providerErrors, 0.5);
+	assert.equal(agg.uncachedTokens, 80);
+	assert.equal(agg.costProxy, 200);
+});
+
+test("renderTable shows the timing, retry and retained-tail rows", () => {
+	const md = renderTable([
+		{
+			alias: "m",
+			family: "openai",
+			informational: false,
+			probe: null,
+			off: modeAgg({ emergencyCompactions: 1, compactionFailures: 2, emergencyFailures: 1, retainedTailMedian: 120, retainedTailMax: 400, wallClockMs: 61000, durationMs: 59000, ttftP50Ms: 900, durationP50Ms: 2000, providerRetries: 3, providerRateLimited: 1, providerErrors: 0, uncachedTokens: 8000 }),
+			on: modeAgg({ emergencyCompactions: 4, compactionFailures: 0, emergencyFailures: 0 }),
+			verdict: { label: "PASS", cache: "checked", reasons: [] },
+		},
+	]);
+	assert.match(md, /\| emergency compactions \(applied\) \| 1 \| 4 \|/);
+	assert.match(md, /\| compaction failures \| 2 \| 0 \|/);
+	assert.match(md, /\| emergency failures \(recorded stages, lower bound\) \| 1 \| 0 \|/);
+	assert.match(md, /\| retained tail median \| 120 \| not reported \|/);
+	assert.match(md, /\| retained tail max \| 400 \| not reported \|/);
+	assert.match(md, /\| wall clock \| 61\.0 s \| not reported \|/);
+	assert.match(md, /\| summed call duration \| 59\.0 s \| not reported \|/);
+	assert.match(md, /\| ttft p50 \| 900 ms \| not reported \|/);
+	assert.match(md, /\| call duration p50 \| 2\.0 s \| not reported \|/);
+	assert.match(md, /\| provider retries \| 3 \| not reported \|/);
+	assert.match(md, /\| rate limited failures \(429\) \| 1 \| not reported \|/);
+	assert.match(md, /\| uncached input tokens \| 8000 \| not reported \|/);
+});
+
+test("readLogGenerations reads rotated generations oldest first", async () => {
+	const text = await readLogGenerations("/logs/run.log.jsonl", { readText: async (path) => `${path}\n` });
+	assert.equal(
+		text,
+		["/logs/run.log.jsonl.3", "/logs/run.log.jsonl.2", "/logs/run.log.jsonl.1", "/logs/run.log.jsonl"].map((path) => `${path}\n`).join(""),
+	);
+});
+
+test("copyLogGenerations copies the active file and rotated generations", async () => {
+	const src = await mkdtemp(join(tmpdir(), "compaction-bench-gen-src-"));
+	const dst = await mkdtemp(join(tmpdir(), "compaction-bench-gen-dst-"));
+	try {
+		await writeFile(join(src, "run.log.jsonl"), "active\n");
+		await writeFile(join(src, "run.log.jsonl.1"), "one\n");
+		await writeFile(join(src, "run.log.jsonl.2"), "two\n");
+		const copied = await copyLogGenerations(join(src, "run.log.jsonl"), join(dst, "run.log.jsonl"));
+		assert.deepEqual(copied, [join(dst, "run.log.jsonl"), join(dst, "run.log.jsonl.1"), join(dst, "run.log.jsonl.2")]);
+		assert.equal(await readFile(join(dst, "run.log.jsonl.2"), "utf8"), "two\n");
+		assert.ok(!existsSync(join(dst, "run.log.jsonl.3")));
+	} finally {
+		await rm(src, { recursive: true, force: true });
+		await rm(dst, { recursive: true, force: true });
+	}
+});
+
+test("main benches a provider/id ref under its synthesized alias and keeps rotated evidence", async () => {
+	const outDir = await mkdtemp(join(tmpdir(), "compaction-bench-e2e-"));
+	const fake = makeFakeRunner({ sandbox: false });
+	try {
+		const code = await main(
+			[
+				"--model", "opencode-go/beam-free",
+				"--modes", "off",
+				"--context-window", "1000000",
+				"--threshold", "560000",
+				"--seed", "10",
+				"--files", "4",
+				"--pad-tokens", "10",
+				"--out", outDir,
+			],
+			{ STEINER_LIVE_BENCH: "1" },
+			{ spawnRun: fake.runner, log: () => {}, stdout: () => {} },
+		);
+		const raw = JSON.parse(await readFile(join(outDir, "raw.json"), "utf8"));
+		assert.equal(code, 0);
+		assert.equal(raw.contextWindow, 1000000);
+		assert.equal(raw.seed, 10);
+		assert.equal(raw.aliases[0].alias, "bench--opencode-go--beam-free");
+		assert.equal(raw.aliases[0].ref, "opencode-go/beam-free");
+		assert.equal(raw.aliases[0].provider, "opencode-go");
+		assert.equal(raw.aliases[0].id, "beam-free");
+		const run = raw.aliases[0].runs.off[0];
+		assert.equal(typeof run.wallClockMs, "number");
+		assert.equal(run.configuredContextWindow, 1000000);
+		assert.equal(run.configuredThresholdTokens, 560000);
+		assert.equal(run.observedContextWindow, null, "the fake log reports no limits, so none are claimed as observed");
+		assert.equal(run.observedThresholdTokens, null);
+		assert.equal(run.durationMs, 40, "provider timings cover both reported calls");
+		assert.equal(run.providerRetries, 2);
+		assert.equal(run.providerRateLimited, 1);
+		assert.equal(run.providerErrors, 1);
+		const modelIndex = (call) => call.args.indexOf("--model") + 1;
+		const benchCall = fake.invocations.find((call) => call.args[modelIndex(call)] === "bench--opencode-go--beam-free");
+		assert.ok(benchCall, "steiner runs under the synthesized alias");
+		assert.match(benchCall.configText, /      provider: opencode-go/);
+		assert.match(benchCall.configText, /      id: "beam-free"/);
+		assert.match(benchCall.configText, /          context_window: 1000000/);
+		assert.match(benchCall.configText, /          compaction_threshold_tokens: 560000/);
+		const files = readdirSync(join(outDir, "bench--opencode-go--beam-free"));
+		assert.ok(files.includes("off-r1.provider.jsonl"));
+		assert.ok(files.includes("off-r1.cache.jsonl"));
+		assert.ok(files.includes("off-r1.run.log.jsonl"));
+		const markdown = await readFile(join(outDir, "results.md"), "utf8");
+		assert.match(markdown, /- context window: 1000000/);
+		assert.match(markdown, /- seed: 10 \+ repeat - 1/);
+	} finally {
+		await rm(outDir, { recursive: true, force: true });
 	}
 });
 

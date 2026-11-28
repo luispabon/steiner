@@ -1,5 +1,7 @@
 // Notes-chain fixtures and the YAML configs a bench run or probe writes.
 
+import { ALIAS_RE, isModelId } from "./compaction-bench-args.mjs";
+
 const FILLER_WORDS = [
 	"haystack", "meadow", "lantern", "harbour", "tram", "copper", "saffron", "brisk",
 	"delta", "wobble", "pantry", "hollow", "gantry", "moss", "plume", "quartz",
@@ -104,6 +106,7 @@ export function taskPrompt(files, runId = null) {
 		"Start at notes/f01.txt. Each file starts with a CODE line and a NEXT line naming the next file.",
 		"Open only the file named by NEXT. Never read a file twice. Never list or search the notes directory.",
 		"Use only the read tool on each file. Do not use bash, grep, cat, sed or any other command to inspect files.",
+		"Read each file in full: call the read tool with only the path, no offset or limit.",
 		"Apply any CORRECTION line you find to the code it names.",
 		'When you reach NEXT: END, reply with one line per file in the form "fNN: CODE", using the corrected code where a correction applies.',
 		"Reply with those lines only.",
@@ -111,7 +114,7 @@ export function taskPrompt(files, runId = null) {
 	return lines.join("\n");
 }
 
-const ALIAS_RE = /^[A-Za-z0-9._-]+$/;
+const ALIAS_HINT = "allowed: letters, digits, dot, underscore, dash";
 
 function diagnosticsLines(diagnosticsDir) {
 	if (typeof diagnosticsDir !== "string" || diagnosticsDir === "") {
@@ -123,30 +126,55 @@ function diagnosticsLines(diagnosticsDir) {
 		`  dir: ${JSON.stringify(diagnosticsDir)}`,
 		"  streams:",
 		"    cache: true",
+		"    provider: true",
 	];
 }
 
-/** Render the per-alias YAML config with a low compaction threshold and the cache diagnostics stream. */
-export function buildBenchConfig({ alias, threshold, diagnosticsDir }) {
+// Delegation stays off for bench runs so every fixture read is a main-agent
+// read; delegated children would move reads out of the validity rule's scope.
+function subAgentLines() {
+	return ["sub_agent:", "  enabled: false"];
+}
+
+function modelDefinitionLines({ alias, provider, id }) {
+	if (provider === null && id === null) return [];
+	if (typeof provider !== "string" || !ALIAS_RE.test(provider) || !isModelId(id)) {
+		throw new Error(`invalid provider/id for alias ${JSON.stringify(alias)}: ${JSON.stringify(provider)}/${JSON.stringify(id)}`);
+	}
 	if (typeof alias !== "string" || !ALIAS_RE.test(alias)) {
-		throw new Error(`invalid model alias: ${JSON.stringify(alias)} (allowed: letters, digits, dot, underscore, dash)`);
+		throw new Error(`invalid model alias: ${JSON.stringify(alias)} (${ALIAS_HINT})`);
+	}
+	// The id is quoted because it may hold YAML syntax such as name:tag.
+	return ["models:", "  definitions:", `    ${alias}:`, `      provider: ${provider}`, `      id: ${JSON.stringify(id)}`];
+}
+
+/** Render the per-alias YAML config with the limits block, the cache and provider diagnostics streams and delegation off. */
+export function buildBenchConfig({ alias, provider = null, id = null, threshold, contextWindow = null, diagnosticsDir }) {
+	if (typeof alias !== "string" || !ALIAS_RE.test(alias)) {
+		throw new Error(`invalid model alias: ${JSON.stringify(alias)} (${ALIAS_HINT})`);
 	}
 	if (!Number.isInteger(threshold) || threshold <= 0) {
 		throw new Error(`threshold must be a positive integer, got ${JSON.stringify(threshold)}`);
 	}
+	if (contextWindow !== null && (!Number.isInteger(contextWindow) || contextWindow <= 0)) {
+		throw new Error(`contextWindow must be a positive integer or null, got ${JSON.stringify(contextWindow)}`);
+	}
+	const limits = [`          compaction_threshold_tokens: ${threshold}`];
+	if (contextWindow !== null) limits.push(`          context_window: ${contextWindow}`);
 	return [
-		"models:",
-		"  definitions:",
-		`    ${alias}:`,
+		...modelDefinitionLines({ alias, provider, id }),
+		...(provider === null ? ["models:", "  definitions:", `    ${alias}:`] : []),
 		"      advanced:",
 		"        limits:",
-		`          compaction_threshold_tokens: ${threshold}`,
+		...limits,
 		...diagnosticsLines(diagnosticsDir),
+		...subAgentLines(),
 		"",
 	].join("\n");
 }
 
-/** Render the probe's YAML config: cache diagnostics only, so no threshold can exceed the alias context window. */
-export function buildProbeConfig({ diagnosticsDir }) {
-	return [...diagnosticsLines(diagnosticsDir), ""].join("\n");
+/** Render the probe's YAML config: diagnostics only, so no threshold can exceed the alias context window. */
+export function buildProbeConfig({ diagnosticsDir, alias = null, provider = null, id = null }) {
+	const definitions = provider === null ? [] : modelDefinitionLines({ alias, provider, id });
+	return [...definitions, ...diagnosticsLines(diagnosticsDir), ""].join("\n");
 }

@@ -4,9 +4,10 @@
 //
 // Usage:
 //   node scripts/diagnostics.mjs <mode> [flags]
+//   node scripts/diagnostics.mjs peak <file...> [flags]
 //   node scripts/diagnostics.mjs prefix <logfile> [flags]
 //
-// Modes: cache | provider | tools | coldturns | mutate | tui | prefix <logfile>
+// Modes: cache | provider | tools | coldturns | mutate | tui | peak <file...> | prefix <logfile>
 //
 // cache/provider/tools read the diagnostics directory (one JSONL file per
 // stream: cache.jsonl, provider.jsonl, tool.jsonl, internal.jsonl (no mode
@@ -19,6 +20,21 @@
 // prefix divergence needs the message_hashes sequence, which only exists
 // there -- it never moves to the diagnostics envelope.
 //
+// peak reads one or more session logs and groups model_call_finished
+// prompt_tokens by run and agent. A session log exists only when logging is
+// enabled (--log-file, or logging.enabled with logging.file), which is off by
+// default, so peak also accepts STEINER_USAGE_TELEMETRY files. The format is
+// detected per line; a telemetry line is kind: "usage" and carries
+// prompt_tokens but no agent id (source stands in) and no run id unless
+// STEINER_USAGE_TELEMETRY_RUN was set, so lines without a run id are reported
+// as unattributed observations and never counted as runs. Telemetry records
+// compaction calls too, and its lines carry no call kind, so a telemetry
+// compaction call looks like a parent call; session-log model_call_finished
+// events cover turn calls only, so the two sources measure different peaks for
+// the same run. peak accepts --json and --top <n> only (a non-negative
+// integer), and a missing or unreadable input file or any other flag is an
+// error.
+//
 // Flags:
 //   --dir <path>          diagnostics directory (default: $XDG_STATE_HOME/steiner/diagnostics,
 //                          else ~/.local/state/steiner/diagnostics -- mirrors
@@ -30,8 +46,8 @@
 //                          delta, for every row of the running mode. This is
 //                          the before/after operation: every record carries
 //                          build_sha for exactly this reason. Not valid with
-//                          prefix or coldturns mode, which read more or less
-//                          than one stream.
+//                          prefix, coldturns or peak mode, which read session
+//                          logs or more than one stream.
 //   --json                 print aggregates as JSON instead of tables
 //   --top N                cap unbounded per-key listings (default 20; tui lists every
 //                          message type, costliest first)
@@ -92,7 +108,7 @@
 //                    BREAK-AT-N means the common prefix is only N messages
 //                    long, so something before the tail changed.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { runMutate } from "./diagnostics_mutate.mjs";
@@ -856,6 +872,223 @@ function runColdTurns(cacheRecords, toolRecords) {
 	printTable("coldturns excluded (no cache reporting)", sections.excluded_no_cache_reporting, []);
 }
 
+// --------------------------------------------------------------- peak mode
+
+// PEAK_BUCKETS are the main-agent peak prompt sizes the summary counts runs
+// at or above. 200k and 1M are the context windows the compaction threshold
+// experiment compares; 500k sits between them.
+const PEAK_BUCKETS = [
+	{ label: ">= 200k", min: 200_000 },
+	{ label: ">= 500k", min: 500_000 },
+	{ label: ">= 1M", min: 1_000_000 },
+];
+
+// MAIN_AGENT is the group name for the parent agent: session log events leave
+// scope.agent_id empty for the parent, and telemetry labels the parent
+// source: "parent".
+const MAIN_AGENT = "main";
+
+// peakFiles separates file arguments from flags. peak accepts --json and
+// --top only: any other flag is an error rather than a silent no-op, so a
+// mistyped filter cannot look like a narrower result.
+const PEAK_FLAGS_WITH_VALUE = new Set(["--top"]);
+
+function peakFiles(args) {
+	const files = [];
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg === "--json") continue;
+		if (PEAK_FLAGS_WITH_VALUE.has(arg)) {
+			if (!/^\d+$/.test(args[i + 1] ?? "")) return { error: `${arg} requires a non-negative integer` };
+			i++;
+			continue;
+		}
+		if (arg.startsWith("-")) return { error: `does not accept ${arg}; it takes --json and --top <n> only` };
+		files.push(arg);
+	}
+	return { files };
+}
+
+// PEAK_TELEMETRY_KINDS are the only `kind` values peak reads. Telemetry is the
+// only producer of them: internal/usagestats writes "usage" and the Codex
+// WebSocket recorder writes "ws". A diagnostics stream record also carries
+// `kind` plus `ts`, so accepting any string kind would let a mistyped stream
+// path read as an experiment with zero runs.
+const PEAK_TELEMETRY_KINDS = new Set(["usage", "ws"]);
+
+// isPeakRecord reports whether a parsed line has the shape peak reads: a
+// session-log event envelope, a JSON object with a string top-level `type`, or
+// a telemetry line whose top-level `kind` is "usage" or "ws", either one with a
+// `timestamp`, a `ts`, or a `payload` object. A type alone is too weak, as a
+// package.json carries `"type": "module"`. Anything else parses but is not a
+// record, so a minified raw.json, `null`, an array line, or a diagnostics
+// stream record cannot pass as a JSONL input.
+function isPeakRecord(value) {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const isSessionEvent = typeof value.type === "string";
+	const isTelemetry = typeof value.kind === "string" && PEAK_TELEMETRY_KINDS.has(value.kind);
+	if (!isSessionEvent && !isTelemetry) return false;
+	const payload = value.payload;
+	return (
+		typeof value.timestamp === "string" ||
+		typeof value.ts === "string" ||
+		(typeof payload === "object" && payload !== null && !Array.isArray(payload))
+	);
+}
+
+// readPeakJsonl reads one peak input file and counts the lines that are not
+// JSONL records. Blank lines are neither records nor malformed: they separate
+// records. The malformed count is reported so a partly corrupt input stays
+// visible instead of quietly shrinking the sample.
+function readPeakJsonl(path) {
+	const records = [];
+	let malformed = 0;
+	for (const line of readFileSync(path, "utf8").split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+		let value;
+		try {
+			value = JSON.parse(trimmed);
+		} catch {
+			malformed++;
+			continue;
+		}
+		if (isPeakRecord(value)) records.push(value);
+		else malformed++;
+	}
+	return { records, malformed };
+}
+
+// peakInput checks every input is a readable file and reads its lines. Read
+// and stat failures become errors instead of stack traces: a bad path and an
+// unreadable one both mean the input was not usable. Only the read itself is
+// caught; iteration must not throw, and spreading a large file's records into
+// push would hit the engine's argument limit and masquerade as a read error.
+// An empty file is a valid input (a rotated generation can hold no records),
+// but a file with content and no JSONL record at all is a mistyped path, such
+// as a raw stream or a plain JSON file, and is rejected by name.
+function peakInput(files) {
+	const lines = [];
+	let malformed = 0;
+	for (const file of files) {
+		let stats;
+		try {
+			stats = statSync(file, { throwIfNoEntry: false });
+		} catch (err) {
+			return { error: `cannot stat ${file}: ${err.code ?? err.message}` };
+		}
+		if (!stats) return { error: `no such file: ${file}` };
+		if (!stats.isFile()) return { error: `not a regular file: ${file}` };
+		let read;
+		try {
+			read = readPeakJsonl(file);
+		} catch (err) {
+			return { error: `cannot read ${file}: ${err.code ?? err.message}` };
+		}
+		if (read.records.length === 0 && stats.size > 0) {
+			return { error: `${file} has content but no JSONL records; peak reads session logs and telemetry files` };
+		}
+		malformed += read.malformed;
+		for (const record of read.records) lines.push(record);
+	}
+	return { lines, malformed };
+}
+
+// peakObservation converts one input line to {runID, agent, tokens}, or null
+// for lines peak does not measure. Session log events carry a top-level
+// run_id and a scope.agent_id; telemetry usage lines carry neither an agent
+// id nor, without STEINER_USAGE_TELEMETRY_RUN, a run id.
+function peakObservation(line) {
+	if (line?.type === "model_call_finished") {
+		const tokens = line.payload?.prompt_tokens;
+		if (!Number.isFinite(tokens)) return null;
+		return { runID: line.run_id ?? "", agent: line.scope?.agent_id || MAIN_AGENT, tokens };
+	}
+	if (line?.kind === "usage") {
+		if (!Number.isFinite(line.prompt_tokens)) return null;
+		const source = line.source ?? "";
+		return { runID: line.run_id ?? "", agent: source === "" || source === "parent" ? MAIN_AGENT : source, tokens: line.prompt_tokens };
+	}
+	return null;
+}
+
+function peakGroups(observations) {
+	const groups = new Map();
+	for (const o of observations) {
+		const id = `${o.runID}/${o.agent}`;
+		const group = groups.get(id) ?? { id, runID: o.runID, agent: o.agent, calls: 0, peak: 0 };
+		group.calls++;
+		group.peak = Math.max(group.peak, o.tokens);
+		groups.set(id, group);
+	}
+	return [...groups.values()].sort((a, b) => b.peak - a.peak || a.id.localeCompare(b.id));
+}
+
+// peakRow labels a group for display. An empty run id belongs to telemetry
+// written without STEINER_USAGE_TELEMETRY_RUN: those lines cannot be told
+// apart by run, so they are reported as unattributed observations.
+const peakRow = (g) => ({ key: `${g.runID || "(unattributed)"}/${g.agent}`, n: g.calls, metrics: { peakPromptTokens: g.peak } });
+
+// peakSummary counts attributed runs and the runs whose main-agent peak
+// reaches each bucket. A run whose only measured calls are sub-agent ones
+// still counts as a run, but contributes no main-agent peak. Observations
+// without a run id are not runs: they are counted separately, reported as a
+// summary row and as unattributed rows, and stay out of every bucket.
+function peakSummary(groups) {
+	const attributed = groups.filter((g) => g.runID !== "");
+	const unattributedObservations = groups.filter((g) => g.runID === "").reduce((n, g) => n + g.calls, 0);
+	const runs = new Set(attributed.map((g) => g.runID));
+	const mainPeaks = new Map();
+	for (const g of attributed) {
+		if (g.agent !== MAIN_AGENT) continue;
+		mainPeaks.set(g.runID, Math.max(mainPeaks.get(g.runID) ?? 0, g.peak));
+	}
+	const atLeast = {};
+	const rows = [{ key: "runs", n: runs.size, metrics: { share: runs.size ? 1 : 0 } }];
+	for (const bucket of PEAK_BUCKETS) {
+		const count = [...mainPeaks.values()].filter((peak) => peak >= bucket.min).length;
+		atLeast[String(bucket.min)] = count;
+		rows.push({ key: `main peak ${bucket.label}`, n: count, metrics: { share: runs.size ? count / runs.size : 0 } });
+	}
+	// No share: these observations are not part of the run denominator.
+	rows.push({ key: "excluded unattributed observations", n: unattributedObservations, metrics: { share: null } });
+	return { runs: runs.size, atLeast, unattributedObservations, rows };
+}
+
+const PEAK_COLUMNS = [{ name: "peak_prompt_tokens", value: (r) => r.metrics.peakPromptTokens, fmt: (v) => String(v), fmtDelta: (d) => d.toFixed(0) }];
+
+const PEAK_SHARE_COLUMNS = [{ name: "share", value: (r) => r.metrics.share, fmt: (v) => (v === null ? "-" : (v * 100).toFixed(1) + "%"), fmtDelta: (d) => (d * 100).toFixed(1) + "pp" }];
+
+function runPeak(files, lines, malformed) {
+	const observations = lines.map(peakObservation).filter(Boolean);
+	const groups = peakGroups(observations);
+	const summary = peakSummary(groups);
+	const attributed = capTop(groups.filter((g) => g.runID !== "").map(peakRow));
+	const unattributed = capTop(groups.filter((g) => g.runID === "").map(peakRow));
+	if (AS_JSON) {
+		console.log(
+			JSON.stringify(
+				{
+					files: files.length,
+					runs: summary.runs,
+					main_peak_at_least: summary.atLeast,
+					unattributed_observations: summary.unattributedObservations,
+					skipped_malformed_lines: malformed,
+					by_run_agent: attributed,
+					unattributed,
+				},
+				null,
+				1,
+			),
+		);
+		return;
+	}
+	if (malformed > 0) console.log(`skipped ${malformed} malformed line${malformed === 1 ? "" : "s"} (not JSONL records)`);
+	printTable("peak main-agent threshold counts", summary.rows, PEAK_SHARE_COLUMNS);
+	printTable(`peak prompt tokens by run/agent (${files.length} file${files.length === 1 ? "" : "s"})`, attributed, PEAK_COLUMNS);
+	printTable("peak unattributed observations (no run_id)", unattributed, PEAK_COLUMNS);
+}
+
 // ------------------------------------------------------------- prefix mode
 
 // longestCommonPrefixLen mirrors internal/agent/cache_diagnostics.go's
@@ -932,6 +1165,39 @@ function loadEnvelope(kind) {
 }
 
 function main() {
+	if (MODE === "peak") {
+		if (COMPARE) {
+			console.error("--compare does not apply to peak mode, which reads session logs and telemetry files");
+			process.exit(1);
+		}
+		const { files, error } = peakFiles(argv.slice(1));
+		if (error) {
+			console.error(`peak mode: ${error}`);
+			process.exit(1);
+		}
+		if (files.length === 0) {
+			console.error("usage: node scripts/diagnostics.mjs peak <file...> [--json] [--top N]");
+			console.error("       <file> is a session log (JSONL with model_call_finished events) or a");
+			console.error("       STEINER_USAGE_TELEMETRY file; the format is detected per line, so");
+			console.error("       rotated generations and both formats may be passed together.");
+			console.error("       A session log exists only with --log-file or logging.enabled, and every");
+			console.error("       input file must exist, and a file with content but no JSONL record");
+			console.error("       at all is rejected rather than read as an empty experiment.");
+			console.error("       Telemetry lines carry no agent id (source stands");
+			console.error("       in) and, without STEINER_USAGE_TELEMETRY_RUN, no run id: those lines are");
+			console.error("       reported as unattributed observations, never as runs. Telemetry also");
+			console.error("       records compaction calls that session logs omit, so their peaks differ.");
+			process.exit(1);
+		}
+		const input = peakInput(files);
+		if (input.error) {
+			console.error(`peak mode: ${input.error}`);
+			process.exit(1);
+		}
+		runPeak(files, input.lines, input.malformed);
+		return;
+	}
+
 	if (MODE === "prefix") {
 		if (COMPARE) {
 			console.error("--compare does not apply to prefix mode, which reads a single session log");
@@ -988,7 +1254,8 @@ function main() {
 	}
 
 	if (!["cache", "provider", "tools"].includes(MODE)) {
-		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate|tui> [flags]");
+		console.error("usage: node scripts/diagnostics.mjs <cache|provider|tools|coldturns|mutate|tui|peak> [flags]");
+		console.error("       node scripts/diagnostics.mjs peak <file...> [flags]");
 		console.error("       node scripts/diagnostics.mjs prefix <logfile> [flags]");
 		process.exit(1);
 	}

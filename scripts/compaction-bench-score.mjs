@@ -1,7 +1,7 @@
 // Turn parsed calls and runs into cache economics, validity verdicts and
 // per-mode medians.
 
-import { parseRunLog, parseSegmentDecisions, parseStdout, scoreRecall, summarizeDecisions } from "./compaction-bench-parse.mjs";
+import { parseProviderLog, parseRunLog, parseSegmentDecisions, parseStdout, scoreRecall, summarizeDecisions } from "./compaction-bench-parse.mjs";
 
 /** True for a reported number; null and NaN both mean "not reported". */
 export function isNum(value) {
@@ -55,6 +55,14 @@ export function evaluateProbe(call1Calls, call2Calls) {
 	return { ok: false, reason: "cache_control not honoured on this route" };
 }
 
+/** Return the nearest-rank percentile of the numbers, or null for an empty list. */
+export function percentile(nums, p) {
+	if (nums.length === 0) return null;
+	const sorted = [...nums].sort((a, b) => a - b);
+	const rank = Math.ceil(p * sorted.length);
+	return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))];
+}
+
 /** Return the median of the numbers, or null for an empty list. */
 export function median(nums) {
 	if (nums.length === 0) return null;
@@ -94,11 +102,29 @@ export function aggregateMode(runs) {
 	return {
 		turns: median(numbers(sample, "turns")),
 		compactions: median(numbers(sample, "compactions")),
+		emergencyCompactions: median(numbers(sample, "emergencyCompactions")),
+		compactionFailures: median(numbers(sample, "compactionFailures")),
+		emergencyFailures: median(numbers(sample, "emergencyFailures")),
 		rebases: median(numbers(sample, "rebases")),
 		plainFallbacks: median(numbers(sample, "plainFallbacks")),
 		maxSegments: median(numbers(sample, "maxSegments")),
+		retainedTailMedian: median(numbers(sample, "retainedTailMedian")),
+		retainedTailMax: median(numbers(sample, "retainedTailMax")),
 		cachedTokens: median(numbers(sample, "cachedTokens")),
+		uncachedTokens: median(numbers(sample, "uncachedTokens")),
+		promptTokens: median(numbers(sample, "promptTokens")),
+		costProxy: median(numbers(sample, "costProxy")),
 		costPerTurn: median(numbers(sample, "costPerTurn")),
+		wallClockMs: median(numbers(sample, "wallClockMs")),
+		durationMs: median(numbers(sample, "durationMs")),
+		ttftP50Ms: median(numbers(sample, "ttftP50Ms")),
+		ttftP95Ms: median(numbers(sample, "ttftP95Ms")),
+		durationP50Ms: median(numbers(sample, "durationP50Ms")),
+		durationP95Ms: median(numbers(sample, "durationP95Ms")),
+		providerCalls: median(numbers(sample, "providerCalls")),
+		providerRetries: median(numbers(sample, "providerRetries")),
+		providerRateLimited: median(numbers(sample, "providerRateLimited")),
+		providerErrors: median(numbers(sample, "providerErrors")),
 		exact: median(numbers(sample, "exact")),
 		lost: median(numbers(sample, "lost")),
 		total: median(numbers(sample, "total")),
@@ -124,17 +150,40 @@ function emptyMetrics() {
 	return {
 		turns: null,
 		compactions: null,
+		emergencyCompactions: null,
+		compactionFailures: null,
+		emergencyFailures: null,
 		rebases: null,
 		plainFallbacks: null,
 		maxSegments: null,
+		retainedTailMedian: null,
+		retainedTailMax: null,
 		cachedTokens: null,
+		uncachedTokens: null,
+		promptTokens: null,
+		costProxy: null,
 		costPerTurn: null,
+		wallClockMs: null,
+		timingSource: null,
+		durationMs: null,
+		ttftP50Ms: null,
+		ttftP95Ms: null,
+		durationP50Ms: null,
+		durationP95Ms: null,
+		providerCalls: null,
+		providerRetries: null,
+		providerRateLimited: null,
+		providerErrors: null,
 		exact: null,
 		lost: null,
 		total: null,
 		recallInvalid: false,
 		recallInvalidReason: null,
 		lostAt: [],
+		configuredContextWindow: null,
+		configuredThresholdTokens: null,
+		observedContextWindow: null,
+		observedThresholdTokens: null,
 		valid: false,
 		invalidReason: null,
 		maxTurnsHit: false,
@@ -143,16 +192,48 @@ function emptyMetrics() {
 }
 
 /** Turn one run's artefacts into metrics, recall scoring and a validity verdict. */
-export function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode, family, notesDir = null }) {
+export function analyzeRun({
+	stdoutText,
+	logText,
+	compactionText,
+	providerText = "",
+	fixtures,
+	mode,
+	family,
+	notesDir = null,
+	wallClockMs = null,
+	contextWindow = null,
+	threshold = null,
+}) {
 	const stdout = parseStdout(stdoutText);
 	const runLog = parseRunLog(logText, { notesDir });
 	const decisionSummary = summarizeDecisions(parseSegmentDecisions(compactionText));
+	const provider = parseProviderLog(providerText);
 	const recall = scoreRecall({ answer: stdout.finalAnswer, fixtures, events: runLog.events });
 	// Compaction summary calls cost real tokens, so the cost and cache totals fold
 	// them in; turns stays the main-call count that costPerTurn divides by.
-	const agg = aggregateCache([...runLog.modelCalls, ...runLog.compactionCalls]);
+	const calls = [...runLog.modelCalls, ...runLog.compactionCalls];
+	const agg = aggregateCache(calls);
 	const cost = costProxy(agg, family);
 	const turns = runLog.modelCalls.length;
+	// The provider stream measures every call, compaction summaries included, and
+	// its duration spans retry waits. Fall back to the session log's main and
+	// compaction calls only when that stream reported no measurement; a zero is
+	// unreported (both fields are omitempty) and never fills a metric.
+	const sessionTimings = (key) => calls.map((call) => call[key]).filter((value) => isNum(value) && value > 0);
+	const sessionDurations = sessionTimings("durationMs");
+	const sessionTtfts = sessionTimings("ttftMs");
+	const durations = provider.durations.length > 0 ? provider.durations : sessionDurations;
+	const ttfts = provider.ttfts.length > 0 ? provider.ttfts : sessionTtfts;
+	// Name the stream the timing numbers came from, so a provider aggregate that
+	// includes summarizer, failed, delegated or advisor calls is never mistaken
+	// for main-conversation time.
+	const timingSource =
+		provider.durations.length > 0 || provider.ttfts.length > 0
+			? "provider"
+			: sessionDurations.length > 0 || sessionTtfts.length > 0
+				? "session"
+				: null;
 	const validity = runValidity({
 		mode,
 		compactions: runLog.compactions,
@@ -164,17 +245,40 @@ export function analyzeRun({ stdoutText, logText, compactionText, fixtures, mode
 		...emptyMetrics(),
 		turns,
 		compactions: runLog.compactions,
+		emergencyCompactions: runLog.emergencyCompactions,
+		compactionFailures: runLog.compactionFailures,
+		emergencyFailures: runLog.emergencyFailures,
 		rebases: decisionSummary.rebases,
 		plainFallbacks: decisionSummary.plainFallbacks,
 		maxSegments: decisionSummary.maxSegments,
+		retainedTailMedian: median(runLog.retainedTail),
+		retainedTailMax: runLog.retainedTail.length > 0 ? Math.max(...runLog.retainedTail) : null,
 		cachedTokens: agg.reported ? agg.cacheReadTokens : null,
+		uncachedTokens: agg.reported ? Math.max(0, agg.promptTokens - agg.cacheReadTokens - agg.cacheCreateTokens) : null,
+		promptTokens: agg.promptTokens,
+		costProxy: cost,
 		costPerTurn: cost !== null && turns > 0 ? cost / turns : null,
+		wallClockMs,
+		timingSource,
+		durationMs: durations.length > 0 ? durations.reduce((sum, value) => sum + value, 0) : null,
+		ttftP50Ms: percentile(ttfts, 0.5),
+		ttftP95Ms: percentile(ttfts, 0.95),
+		durationP50Ms: percentile(durations, 0.5),
+		durationP95Ms: percentile(durations, 0.95),
+		providerCalls: provider.calls,
+		providerRetries: provider.retries,
+		providerRateLimited: provider.rateLimited,
+		providerErrors: provider.errors,
 		exact: recall.exact,
 		lost: recall.lost,
 		total: recall.total,
 		recallInvalid: recall.invalid,
 		recallInvalidReason: recall.invalidReason,
 		lostAt: lostEntries(recall),
+		configuredContextWindow: contextWindow,
+		configuredThresholdTokens: threshold,
+		observedContextWindow: runLog.contextWindow,
+		observedThresholdTokens: runLog.thresholdTokens,
 		valid: validity.valid,
 		invalidReason: validity.reason,
 		maxTurnsHit: stdout.maxTurnsHit,

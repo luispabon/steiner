@@ -9,6 +9,12 @@ function numText(value) {
 	return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+function durationText(value) {
+	if (!isNum(value)) return "not reported";
+	if (value < 1000) return `${Math.round(value)} ms`;
+	return `${(value / 1000).toFixed(1)} s`;
+}
+
 function cacheNote(off, on, family, probeOk) {
 	if (!isNum(off.costPerTurn) || !isNum(on.costPerTurn)) return "cost proxy not judged: no cache reporting on one side";
 	if (family === "anthropic" && probeOk !== true) return "cost proxy not judged: anthropic probe did not confirm cache control";
@@ -106,11 +112,26 @@ const METRIC_ROWS = [
 	{ label: () => "turns", value: (agg) => numText(agg.turns) },
 	{ label: () => "max turns hit", value: (agg) => numText(agg.maxTurnsHitRuns) },
 	{ label: () => "compactions", value: (agg) => numText(agg.compactions) },
+	{ label: () => "emergency compactions (applied)", value: (agg) => numText(agg.emergencyCompactions) },
+	{ label: () => "compaction failures", value: (agg) => numText(agg.compactionFailures) },
+	{ label: () => "emergency failures (recorded stages, lower bound)", value: (agg) => numText(agg.emergencyFailures) },
 	{ label: () => "rebases", value: (agg) => numText(agg.rebases) },
 	{ label: () => "plain fallbacks", value: (agg) => numText(agg.plainFallbacks) },
 	{ label: () => "max segments", value: (agg) => numText(agg.maxSegments) },
+	{ label: () => "retained tail median", value: (agg) => numText(agg.retainedTailMedian) },
+	{ label: () => "retained tail max", value: (agg) => numText(agg.retainedTailMax) },
 	{ label: () => "cached tokens", value: (agg) => numText(agg.cachedTokens) },
+	{ label: () => "uncached input tokens", value: (agg) => numText(agg.uncachedTokens) },
 	{ label: (result) => `cost proxy per turn (${COST_LABELS[result.family]})`, value: (agg) => numText(agg.costPerTurn) },
+	{ label: () => "wall clock", value: (agg) => durationText(agg.wallClockMs) },
+	{ label: () => "summed call duration", value: (agg) => durationText(agg.durationMs) },
+	{ label: () => "ttft p50", value: (agg) => durationText(agg.ttftP50Ms) },
+	{ label: () => "ttft p95", value: (agg) => durationText(agg.ttftP95Ms) },
+	{ label: () => "call duration p50", value: (agg) => durationText(agg.durationP50Ms) },
+	{ label: () => "call duration p95", value: (agg) => durationText(agg.durationP95Ms) },
+	{ label: () => "provider retries", value: (agg) => numText(agg.providerRetries) },
+	{ label: () => "rate limited failures (429)", value: (agg) => numText(agg.providerRateLimited) },
+	{ label: () => "provider error outcomes", value: (agg) => numText(agg.providerErrors) },
 	{ label: () => "continuity", value: continuityCell },
 ];
 
@@ -145,6 +166,8 @@ export function renderResults({ opts, experiment, results, sandbox, timestamp })
 		`- generated: ${timestamp}`,
 		`- steiner: ${opts.steiner}`,
 		`- threshold: ${opts.threshold}`,
+		`- context window: ${opts.contextWindow ?? "alias default"}`,
+		`- seed: ${opts.seed === null ? "repeat number" : `${opts.seed} + repeat - 1`}`,
 		`- files: ${opts.files}`,
 		`- padTokens: ${opts.padTokens}`,
 		`- maxTurns: ${opts.maxTurns}`,

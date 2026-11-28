@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +22,14 @@ const COLDTURN_FIXTURES = join(FIXTURES, "coldturns");
 // prefix_predecessor_known behaviours. Kept apart from coldturns/ so the
 // original set's row counts stay pinned by their own assertions.
 const COLDTURN_SEQ_FIXTURES = join(FIXTURES, "coldturns_seq");
+// peak reads whole files positional-style, so its session logs and telemetry
+// lines are a set of their own: one rotated session pair plus a telemetry
+// file, standing in for the two formats a single run may leave behind.
+const PEAK_FIXTURES = join(FIXTURES, "peak");
+const PEAK_SESSION_OLD = join(PEAK_FIXTURES, "session.jsonl.1");
+const PEAK_SESSION = join(PEAK_FIXTURES, "session.jsonl");
+const PEAK_TELEMETRY = join(PEAK_FIXTURES, "telemetry.jsonl");
+const PEAK_FILES = [PEAK_SESSION_OLD, PEAK_SESSION, PEAK_TELEMETRY];
 
 function run(args) {
 	const out = execFileSync("node", [SCRIPT, ...args], { encoding: "utf8" });
@@ -555,4 +563,404 @@ test("tui mode lists every message type, costliest first, in both compare column
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+// --------------------------------------------------------------- peak mode
+
+const peak = (files, extra = []) => run(["peak", ...files, "--json", ...extra]);
+
+// Pinned counts, computed by hand from the fixture files:
+//   run-old:  main 120000, 240000; child-1 900000
+//   run-new:  main 150000, 1000000; child-2 2000000
+//   run-mid:  main 199999; child-3 600000
+//   run-tel:  telemetry parent 500000, sub_agent 900000
+//   unattributed: one telemetry parent line, 20000, with no run_id
+// 8 attributed groups over 4 runs plus 1 unattributed observation. run-mid's
+// 199999 sits one token under the 200k bucket on purpose, and
+// 500000/1000000 sit exactly on their buckets.
+test("peak: combines rotated generations and telemetry lines into run/agent groups", () => {
+	const out = peak(PEAK_FILES);
+	assert.equal(out.files, 3);
+	assert.equal(out.runs, 4);
+	assert.equal(out.by_run_agent.length, 8);
+
+	const group = (key) => out.by_run_agent.find((r) => r.key === key);
+	assert.deepEqual(group("run-old/main"), { key: "run-old/main", n: 2, metrics: { peakPromptTokens: 240000 } });
+	assert.deepEqual(group("run-new/main"), { key: "run-new/main", n: 2, metrics: { peakPromptTokens: 1000000 } });
+	assert.equal(group("run-new/child-2").metrics.peakPromptTokens, 2000000);
+	assert.equal(group("run-mid/child-3").metrics.peakPromptTokens, 600000);
+	// Telemetry has no agent id: source stands in for it, and parent is main.
+	assert.deepEqual(group("run-tel/main"), { key: "run-tel/main", n: 1, metrics: { peakPromptTokens: 500000 } });
+	assert.equal(group("run-tel/sub_agent").metrics.peakPromptTokens, 900000);
+	// Without STEINER_USAGE_TELEMETRY_RUN the line has no run id: it is an
+	// unattributed observation, not a run of its own.
+	assert.equal(group("(unattributed)/main"), undefined);
+	assert.equal(out.unattributed_observations, 1);
+	assert.deepEqual(out.unattributed, [{ key: "(unattributed)/main", n: 1, metrics: { peakPromptTokens: 20000 } }]);
+});
+
+test("peak: telemetry without a run id is reported separately, never as runs", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-"));
+	try {
+		writeFileSync(
+			join(dir, "telemetry.jsonl"),
+			[
+				{ kind: "usage", ts: "2026-09-04T10:00:00Z", seq: 1, source: "parent", prompt_tokens: 300000 },
+				{ kind: "usage", ts: "2026-09-04T10:01:00Z", seq: 2, source: "parent", prompt_tokens: 400000 },
+			]
+				.map((line) => JSON.stringify(line))
+				.join("\n") + "\n",
+		);
+		const out = peak([join(dir, "telemetry.jsonl")]);
+		assert.equal(out.runs, 0);
+		assert.deepEqual(out.by_run_agent, []);
+		assert.deepEqual(out.main_peak_at_least, { 200000: 0, 500000: 0, 1000000: 0 });
+		assert.equal(out.unattributed_observations, 2);
+		assert.deepEqual(out.unattributed, [{ key: "(unattributed)/main", n: 2, metrics: { peakPromptTokens: 400000 } }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: a single rotated generation stands on its own", () => {
+	const old = peak([PEAK_SESSION_OLD]);
+	assert.equal(old.runs, 1);
+	assert.equal(old.by_run_agent.length, 2);
+	assert.deepEqual(old.main_peak_at_least, { 200000: 1, 500000: 0, 1000000: 0 });
+
+	const active = peak([PEAK_SESSION]);
+	assert.equal(active.runs, 2);
+	assert.deepEqual(active.main_peak_at_least, { 200000: 1, 500000: 1, 1000000: 1 });
+	assert.deepEqual(active.unattributed, []);
+});
+
+test("peak: main-agent buckets count at-or-above and ignore sub-agent peaks", () => {
+	const out = peak(PEAK_FILES);
+	// run-old 240000, run-new 1000000, run-tel 500000 clear 200k; run-mid
+	// (199999) does not. child-1/child-2/child-3 and run-tel/sub_agent are
+	// above their run's main peak but never counted, and the unattributed
+	// 20000 line is not a run at all.
+	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
+});
+
+test("peak: --top caps the group listing, not the run summary", () => {
+	const out = peak(PEAK_FILES, ["--top", "2"]);
+	assert.equal(out.by_run_agent.length, 2);
+	assert.equal(out.runs, 4);
+	assert.equal(out.unattributed.length, 1);
+	assert.equal(out.unattributed_observations, 1);
+	assert.deepEqual(out.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
+});
+
+test("peak: --top must be a non-negative integer and no files is a usage error", () => {
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", "--top", "--json"], { encoding: "utf8", stdio: "pipe" }),
+		/--top requires a non-negative integer/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, "--top", "abc"], { encoding: "utf8", stdio: "pipe" }),
+		/--top requires a non-negative integer/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, "--top", "-1"], { encoding: "utf8", stdio: "pipe" }),
+		/--top requires a non-negative integer/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", "--json"], { encoding: "utf8", stdio: "pipe" }),
+		/USAGE_TELEMETRY/,
+	);
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak"], { encoding: "utf8", stdio: "pipe" }),
+		/usage: node scripts\/diagnostics\.mjs peak/,
+	);
+});
+
+test("peak: a nonexistent or non-file input is rejected, not read as empty", () => {
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, join(PEAK_FIXTURES, "missing.jsonl")], { encoding: "utf8", stdio: "pipe" }),
+		(err) => err.stderr.includes("peak mode: no such file:") && err.stderr.includes("missing.jsonl"),
+	);
+	// A directory exists but is not a readable input.
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", PEAK_FIXTURES], { encoding: "utf8", stdio: "pipe" }),
+		(err) => err.stderr.includes("peak mode: not a regular file:") && err.stderr.includes(PEAK_FIXTURES),
+	);
+});
+
+// A mistyped path usually points at something readable instead of nothing: a
+// raw stream or a plain JSON file parses to zero records and would otherwise
+// report zero runs, exit 0, and look like an experiment with no peak calls.
+test("peak: a non-empty input with no JSONL records is rejected by name", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-nojsonl-"));
+	try {
+		const raw = join(dir, "raw.json");
+		writeFileSync(raw, JSON.stringify({ nodes: [{ kind: "tool_call" }], edges: [] }, null, 2));
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, raw], { encoding: "utf8", stdio: "pipe" }),
+			(err) =>
+				err.status === 1 &&
+				err.stderr.includes("peak mode: ") &&
+				err.stderr.includes("raw.json") &&
+				err.stderr.includes("no JSONL records") &&
+				!err.stderr.includes("    at "),
+		);
+		// Blank lines are not records either: whitespace-only content is not empty.
+		const blank = join(dir, "blank.jsonl");
+		writeFileSync(blank, "\n \n\n");
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", blank], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.status === 1 && err.stderr.includes("blank.jsonl") && err.stderr.includes("no JSONL records"),
+		);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// A minified raw.json, a null line, and an array line all parse to a value, but
+// none has a record shape: peak counts them as malformed, so a file holding only
+// them is rejected instead of reporting zero runs at exit 0.
+test("peak: a parsed line without a record shape is malformed, not a record", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-shape-"));
+	try {
+		const cases = [
+			["raw-min.json", JSON.stringify({ nodes: [{ kind: "tool_call" }], edges: [] })],
+			["null.jsonl", "null\n"],
+			["array.jsonl", "[1,2]\n"],
+		];
+		for (const [name, content] of cases) {
+			const file = join(dir, name);
+			writeFileSync(file, content);
+			assert.throws(
+				() => execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8", stdio: "pipe" }),
+				(err) => err.status === 1 && err.stderr.includes(name) && err.stderr.includes("no JSONL records"),
+				`${name} alone must be rejected`,
+			);
+		}
+		// Mixed with a valid log the same lines are skipped and counted, not fatal.
+		const valid = JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 250000 }, run_id: "run-shape" });
+		const mixed = join(dir, "mixed.jsonl");
+		writeFileSync(mixed, [valid, '{"nodes":[],"edges":[]}', "null", "[1,2]"].join("\n") + "\n");
+		const out = peak([mixed]);
+		assert.equal(out.runs, 1);
+		assert.equal(out.skipped_malformed_lines, 3);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-shape/main", n: 1, metrics: { peakPromptTokens: 250000 } }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// A plain JSON file can hold a string `type` without being an event: a one-line
+// package.json carries `"type": "module"`. peak needs the envelope around the
+// event, a timestamp or ts, or a payload object, so such a file is rejected by
+// name instead of reading as an experiment with zero runs.
+test("peak: an object with a type but no event envelope is not a record", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-envelope-"));
+	try {
+		const pkg = join(dir, "package.json");
+		writeFileSync(pkg, '{"type":"module","name":"x","version":"1.0.0"}\n');
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", pkg], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.status === 1 && err.stderr.includes("package.json") && err.stderr.includes("no JSONL records"),
+		);
+		// The envelope forms peak reads still count: a session record carries type
+		// with a timestamp, and a telemetry record carries kind with ts.
+		const session = JSON.stringify({
+			type: "model_call_finished",
+			timestamp: "2026-09-05T09:00:00Z",
+			payload: { prompt_tokens: 250000 },
+			run_id: "run-envelope",
+		});
+		const telemetry = JSON.stringify({ kind: "usage", ts: "2026-09-05T10:00:00Z", prompt_tokens: 300000 });
+		const log = join(dir, "combined.jsonl");
+		writeFileSync(log, [session, telemetry, '{"type":"module","name":"x"}'].join("\n") + "\n");
+		const out = peak([log]);
+		assert.equal(out.runs, 1);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-envelope/main", n: 1, metrics: { peakPromptTokens: 250000 } }]);
+		assert.equal(out.unattributed_observations, 1);
+		assert.equal(out.skipped_malformed_lines, 1);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// A diagnostics stream record carries `kind` plus `ts`, which used to satisfy
+// the envelope: peak accepted a mistyped stream path and printed zero runs at
+// exit 0. Only telemetry kinds are records now, so a stream file is rejected by
+// name.
+test("peak: a diagnostics stream file is not a peak input", () => {
+	for (const name of ["provider.jsonl", "cache.jsonl", "tool.jsonl", "tui.jsonl"]) {
+		const file = join(FIXTURES, name);
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.status === 1 && err.stderr.includes(name) && err.stderr.includes("no JSONL records"),
+			`${name} alone must be rejected`,
+		);
+	}
+});
+
+// Telemetry is the only `kind` producer peak reads: "usage" and the Codex
+// WebSocket recorder's "ws". Any other kind, including a session-log type used
+// as a kind, is malformed; a "ws" line is a record but measures no peak.
+test("peak: only the telemetry kinds are records", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-kind-"));
+	try {
+		const mixed = join(dir, "mixed.jsonl");
+		const lines = [
+			{ type: "model_call_finished", payload: { prompt_tokens: 250000 }, run_id: "run-kind" },
+			{ kind: "usage", ts: "2026-09-06T10:00:00Z", run_id: "run-kind", source: "parent", prompt_tokens: 400000 },
+			{ kind: "ws", ts: "2026-09-06T10:00:01Z", run_id: "run-kind", event: "dial" },
+			{ kind: "api_request", ts: "2026-09-06T10:00:02Z", payload: {} },
+			{ kind: "provider", ts: "2026-09-06T10:00:03Z", payload: {} },
+		];
+		writeFileSync(mixed, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		const out = peak([mixed]);
+		assert.equal(out.runs, 1);
+		assert.equal(out.skipped_malformed_lines, 2);
+		assert.equal(out.unattributed_observations, 0);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-kind/main", n: 2, metrics: { peakPromptTokens: 400000 } }]);
+
+		// A session event plus a usage line is the clean case: nothing malformed.
+		const clean = join(dir, "clean.jsonl");
+		writeFileSync(
+			clean,
+			[
+				JSON.stringify({ type: "model_call_finished", timestamp: "2026-09-06T11:00:00Z", payload: { prompt_tokens: 250000 }, run_id: "run-clean" }),
+				JSON.stringify({ kind: "usage", ts: "2026-09-06T11:00:01Z", run_id: "run-clean", source: "parent", prompt_tokens: 300000 }),
+			].join("\n") + "\n",
+		);
+		const cleanOut = peak([clean]);
+		assert.equal(cleanOut.runs, 1);
+		assert.equal(cleanOut.skipped_malformed_lines, 0);
+		assert.deepEqual(cleanOut.by_run_agent, [{ key: "run-clean/main", n: 2, metrics: { peakPromptTokens: 300000 } }]);
+
+		// A ws line alone is a record, so the input is accepted, but it measures
+		// no peak and leaves no unattributed observation.
+		const ws = join(dir, "ws.jsonl");
+		writeFileSync(ws, JSON.stringify({ kind: "ws", ts: "2026-09-06T12:00:00Z", event: "reconnect" }) + "\n");
+		const wsOut = peak([ws]);
+		assert.equal(wsOut.runs, 0);
+		assert.deepEqual(wsOut.by_run_agent, []);
+		assert.equal(wsOut.skipped_malformed_lines, 0);
+		assert.equal(wsOut.unattributed_observations, 0);
+		assert.deepEqual(wsOut.unattributed, []);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: an empty input is accepted, as a rotated generation can be empty", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-empty-"));
+	try {
+		const empty = join(dir, "session.jsonl.2");
+		writeFileSync(empty, "");
+		const alone = peak([empty]);
+		assert.equal(alone.files, 1);
+		assert.equal(alone.runs, 0);
+		assert.equal(alone.skipped_malformed_lines, 0);
+		assert.deepEqual(alone.main_peak_at_least, { 200000: 0, 500000: 0, 1000000: 0 });
+		// The empty generation changes no count when combined with real inputs.
+		const combined = peak([...PEAK_FILES, empty]);
+		assert.equal(combined.files, 4);
+		assert.equal(combined.runs, 4);
+		assert.deepEqual(combined.main_peak_at_least, { 200000: 3, 500000: 2, 1000000: 1 });
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: malformed lines are skipped, counted, and never abort the run", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-malformed-"));
+	try {
+		const file = join(dir, "session.jsonl");
+		const lines = [
+			JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 250000 }, run_id: "run-1" }),
+			"not json at all",
+			"",
+			JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 300000 }, run_id: "run-1" }),
+			'{"type": "model_call_finished", "payload": {"prompt_tok',
+		];
+		writeFileSync(file, lines.join("\n") + "\n");
+		const out = peak([file]);
+		assert.equal(out.runs, 1);
+		assert.equal(out.skipped_malformed_lines, 2);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-1/main", n: 2, metrics: { peakPromptTokens: 300000 } }]);
+		assert.deepEqual(out.main_peak_at_least, { 200000: 1, 500000: 0, 1000000: 0 });
+		const text = execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8" });
+		assert.match(text, /skipped 2 malformed lines \(not JSONL records\)/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: a large input is not mistaken for a read error", () => {
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-large-"));
+	try {
+		// Comfortably past the engine's argument limit, so spreading the records
+		// into push would raise RangeError and surface as "cannot read".
+		const line = JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 1000 }, run_id: "run-big" });
+		writeFileSync(join(dir, "big.jsonl"), Array.from({ length: 150000 }, () => line).join("\n") + "\n");
+		const out = peak([join(dir, "big.jsonl")]);
+		assert.equal(out.runs, 1);
+		assert.deepEqual(out.by_run_agent, [{ key: "run-big/main", n: 150000, metrics: { peakPromptTokens: 1000 } }]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: an unreadable input is a clean error, not a stack trace", (t) => {
+	if (process.getuid?.() === 0) {
+		t.skip("root ignores mode 0o000");
+		return;
+	}
+	const dir = mkdtempSync(join(tmpdir(), "diagnostics-peak-unreadable-"));
+	const file = join(dir, "unreadable.jsonl");
+	try {
+		writeFileSync(file, JSON.stringify({ type: "model_call_finished", payload: { prompt_tokens: 1000 }, run_id: "run-1" }) + "\n");
+		chmodSync(file, 0o000);
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", file], { encoding: "utf8", stdio: "pipe" }),
+			(err) =>
+				err.stderr.includes("peak mode: cannot read") &&
+				err.stderr.includes("unreadable.jsonl") &&
+				err.stderr.includes("EACCES") &&
+				!err.stderr.includes("    at "),
+		);
+	} finally {
+		chmodSync(file, 0o600);
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("peak: unsupported flags are rejected rather than silently ignored", () => {
+	for (const [flag, value] of [
+		["--since", "2026-09-01"],
+		["--dir", FIXTURES],
+		["--sha", "aaaa1111"],
+		["--min-n", "5"],
+	]) {
+		assert.throws(
+			() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, flag, value], { encoding: "utf8", stdio: "pipe" }),
+			(err) => err.stderr.includes(`peak mode: does not accept ${flag}`),
+		);
+	}
+});
+
+test("peak: --compare is refused rather than silently ignored", () => {
+	assert.throws(
+		() => execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES, "--compare", "a", "b"], { encoding: "utf8", stdio: "pipe" }),
+		/--compare does not apply to peak mode/,
+	);
+});
+
+test("peak: the text tables print the summary and per-group peak", () => {
+	const out = execFileSync("node", [SCRIPT, "peak", ...PEAK_FILES], { encoding: "utf8" });
+	assert.match(out, /peak main-agent threshold counts/);
+	assert.match(out, /main peak >= 200k\s+3\s+75\.0%/);
+	assert.match(out, /excluded unattributed observations\s+1\s+-/);
+	assert.match(out, /peak prompt tokens by run\/agent \(3 files\)/);
+	assert.match(out, /run-new\/main\s+2\s+1000000/);
+	assert.match(out, /peak unattributed observations \(no run_id\)/);
+	assert.match(out, /\(unattributed\)\/main\s+1\s+20000/);
+	// Clean fixtures skip nothing, so the malformed notice stays silent.
+	assert.doesNotMatch(out, /malformed/);
 });
